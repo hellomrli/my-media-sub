@@ -4,13 +4,14 @@ import secrets
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
-from . import config
+from .settings_store import settings_store
 
 security = HTTPBasic(auto_error=False)
 
 
 def auth_enabled() -> bool:
-    return bool(config.APP_USERNAME and config.APP_PASSWORD)
+    s = settings_store.get()
+    return bool(s.get("app_username") and s.get("app_password"))
 
 
 def require_auth(request: Request, credentials: HTTPBasicCredentials | None = Depends(security)):
@@ -25,8 +26,9 @@ def require_auth(request: Request, credentials: HTTPBasicCredentials | None = De
             headers={"WWW-Authenticate": "Basic"},
         )
 
-    username_ok = secrets.compare_digest(credentials.username, config.APP_USERNAME)
-    password_ok = secrets.compare_digest(credentials.password, config.APP_PASSWORD)
+    s = settings_store.get()
+    username_ok = secrets.compare_digest(credentials.username, s.get("app_username") or "")
+    password_ok = secrets.compare_digest(credentials.password, s.get("app_password") or "")
     if not (username_ok and password_ok):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -122,3 +122,29 @@ PROBE_QUARK_FILES=false
 ```env
 FILTER_BAD_LINKS=true
 ```
+
+
+## WebUI Settings
+
+WebUI now includes a settings panel for:
+
+- login username/password
+- PanSou base URL
+- OpenList base URL
+- default cloud disk types
+- link check / Quark probe / bad-link filtering toggles
+- Aria2 RPC URL, secret, and download directory
+
+Settings are persisted to `/data/settings.json` in Docker.
+
+## Aria2
+
+Configure Aria2 RPC in the WebUI settings or `.env`:
+
+```env
+ARIA2_RPC_URL=http://host:6800/jsonrpc
+ARIA2_SECRET=
+ARIA2_DIR=/downloads
+```
+
+After searching, click `Aria2` on a result to send its URL to Aria2. Note: cloud share URLs may not be direct downloadable file URLs; this is mainly useful for direct links, magnets, ed2k, or sources Aria2 can handle.
