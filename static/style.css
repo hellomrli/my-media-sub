@@ -293,3 +293,4 @@ input:focus { border-color: rgba(96, 165, 250, .8); }
 }
 .sub-card h3 { margin: 0 0 8px; }
 @media (max-width: 720px) { .sub-card { grid-template-columns: 1fr; } }
+.sub-card.read { opacity: .68; }

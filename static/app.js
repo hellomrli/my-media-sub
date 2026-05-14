@@ -24,6 +24,8 @@ const setAria2Secret = document.querySelector('#setAria2Secret');
 const setAria2Dir = document.querySelector('#setAria2Dir');
 const subscriptionsBody = document.querySelector('#subscriptionsBody');
 const checkAllSubsBtn = document.querySelector('#checkAllSubsBtn');
+const notificationsBody = document.querySelector('#notificationsBody');
+const markAllReadBtn = document.querySelector('#markAllReadBtn');
 
 const chatId = `webui-${Math.random().toString(36).slice(2)}`;
 let appSettings = null;
@@ -199,6 +201,47 @@ async function selectResult(index) {
   }
 }
 
+function formatNotificationTime(ts) {
+  if (!ts) return '';
+  return new Date(ts * 1000).toLocaleString();
+}
+
+function renderNotifications(items) {
+  if (!items.length) {
+    notificationsBody.innerHTML = '<p class="empty">暂无通知。</p>';
+    return;
+  }
+  notificationsBody.innerHTML = items.slice(0, 20).map(item => `
+    <article class="sub-card ${item.read ? 'read' : ''}">
+      <div>
+        <h3>${item.level === 'warning' ? '⚠️ ' : 'ℹ️ '}${escapeHtml(item.title)}</h3>
+        <div class="meta"><span>${escapeHtml(formatNotificationTime(item.created_at))}</span><span>${escapeHtml(item.event)}</span></div>
+        <p>${escapeHtml(item.message)}</p>
+      </div>
+      <div class="card-actions">
+        <button class="secondary" data-read-notification="${item.id}">已读</button>
+      </div>
+    </article>
+  `).join('');
+  notificationsBody.querySelectorAll('[data-read-notification]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await postJson('/api/notifications/read', { notification_id: btn.dataset.readNotification });
+      await loadNotifications();
+    });
+  });
+}
+
+async function loadNotifications() {
+  const data = await requestJson('/api/notifications?include_read=true');
+  renderNotifications(data.notifications || []);
+}
+
+async function markAllNotificationsRead() {
+  await postJson('/api/notifications/read', {});
+  await loadNotifications();
+  setStatus('通知已全部标记为已读。', 'ok');
+}
+
 async function subscribeResult(index) {
   setStatus(`正在订阅第 ${index} 条...`);
   try {
@@ -227,10 +270,12 @@ function renderSubscriptions(subs) {
       <div>
         <h3>${escapeHtml(sub.title)}</h3>
         <div class="meta">
+          <span>状态：${sub.status === 'invalid' ? '链接疑似失效' : '正常'}</span>
           <span>网盘：${escapeHtml(appSettings?.cloud_type_names?.[sub.cloud_type] || sub.cloud_type)}</span>
           <span>已知文件：${escapeHtml((sub.known_files || []).length)}</span>
           <span>最后检查：${escapeHtml(formatTime(sub.last_checked_at))}</span>
         </div>
+        ${sub.status === 'invalid' ? `<p class="status error">链接疑似失效：${escapeHtml(sub.last_error || '分享不可访问')}</p>` : ''}
         ${newFiles.length ? `<p class="status ok">发现新文件：${escapeHtml(newFiles.join('、'))}</p>` : ''}
         <ol class="file-list">${files.map(name => `<li>${escapeHtml(name)}</li>`).join('')}</ol>
       </div>
@@ -258,6 +303,7 @@ async function checkSubscription(id) {
   try {
     const data = await postJson('/api/subscriptions/check', { subscription_id: id });
     await loadSubscriptions();
+    await loadNotifications();
     const count = (data.new_files || []).length;
     setStatus(count ? `发现 ${count} 个新文件。` : '没有发现新文件。', count ? 'ok' : '');
   } catch (err) {
@@ -270,6 +316,7 @@ async function checkAllSubscriptions() {
   try {
     const data = await postJson('/api/subscriptions/check-all', {});
     await loadSubscriptions();
+    await loadNotifications();
     const count = (data.results || []).reduce((sum, r) => sum + ((r.new_files || []).length), 0);
     setStatus(count ? `发现 ${count} 个新文件。` : '全部订阅都没有新文件。', count ? 'ok' : '');
   } catch (err) {
@@ -340,7 +387,9 @@ saveSettingsBtn.addEventListener('click', saveSettings);
 testAria2Btn.addEventListener('click', testAria2);
 
 checkAllSubsBtn.addEventListener('click', checkAllSubscriptions);
+markAllReadBtn.addEventListener('click', markAllNotificationsRead);
 
 loadSettings()
   .then(loadSubscriptions)
+  .then(loadNotifications)
   .catch(err => setStatus(`加载设置失败：${err.message}`, 'error'));

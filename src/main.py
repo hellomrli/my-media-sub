@@ -15,6 +15,7 @@ from .link_checker import PanSouLinkChecker
 from .pansou_client import PanSouClient
 from .quark_probe import QuarkShareProbe
 from .session_store import MemorySessionStore
+from .notification_store import notification_store
 from .settings_store import settings_store
 from .subscription_store import subscription_store
 
@@ -50,6 +51,10 @@ class CheckSubscriptionRequest(BaseModel):
 
 class DeleteSubscriptionRequest(BaseModel):
     subscription_id: str
+
+
+class MarkNotificationReadRequest(BaseModel):
+    notification_id: str | None = None
 
 
 class DownloadRequest(BaseModel):
@@ -266,8 +271,24 @@ def check_subscription(req: CheckSubscriptionRequest):
     if not sub:
         raise HTTPException(status_code=404, detail="订阅不存在。")
     probe = probe_subscription(sub)
-    updated = subscription_store.update_check(req.subscription_id, probe)
-    return {"subscription": updated, "new_files": updated.get("last_new_files", []) if updated else []}
+    updated, new_files, became_invalid = subscription_store.update_check(req.subscription_id, probe)
+    if updated and became_invalid:
+        notification_store.add(
+            "warning",
+            "subscription_invalid",
+            f"订阅链接疑似失效：{updated.get('title')}",
+            updated.get("last_error") or "链接检查失败或分享不可访问",
+            {"subscription_id": updated.get("id"), "url": updated.get("url")},
+        )
+    if updated and new_files:
+        notification_store.add(
+            "info",
+            "subscription_updated",
+            f"订阅有更新：{updated.get('title')}",
+            "发现新文件：" + "、".join(new_files[:10]),
+            {"subscription_id": updated.get("id"), "new_files": new_files},
+        )
+    return {"subscription": updated, "new_files": new_files, "became_invalid": became_invalid}
 
 
 @app.post("/api/subscriptions/check-all", dependencies=[Depends(require_auth)])
@@ -277,14 +298,41 @@ def check_all_subscriptions():
         if not sub.get("enabled", True):
             continue
         probe = probe_subscription(sub)
-        updated = subscription_store.update_check(sub["id"], probe)
-        results.append({"subscription": updated, "new_files": updated.get("last_new_files", []) if updated else []})
+        updated, new_files, became_invalid = subscription_store.update_check(sub["id"], probe)
+        if updated and became_invalid:
+            notification_store.add(
+                "warning",
+                "subscription_invalid",
+                f"订阅链接疑似失效：{updated.get('title')}",
+                updated.get("last_error") or "链接检查失败或分享不可访问",
+                {"subscription_id": updated.get("id"), "url": updated.get("url")},
+            )
+        if updated and new_files:
+            notification_store.add(
+                "info",
+                "subscription_updated",
+                f"订阅有更新：{updated.get('title')}",
+                "发现新文件：" + "、".join(new_files[:10]),
+                {"subscription_id": updated.get("id"), "new_files": new_files},
+            )
+        results.append({"subscription": updated, "new_files": new_files, "became_invalid": became_invalid})
     return {"results": results}
 
 
 @app.post("/api/subscriptions/delete", dependencies=[Depends(require_auth)])
 def delete_subscription(req: DeleteSubscriptionRequest):
     return {"deleted": subscription_store.delete(req.subscription_id)}
+
+
+@app.get("/api/notifications", dependencies=[Depends(require_auth)])
+def list_notifications(include_read: bool = True):
+    return {"notifications": notification_store.list(include_read=include_read)}
+
+
+@app.post("/api/notifications/read", dependencies=[Depends(require_auth)])
+def mark_notification_read(req: MarkNotificationReadRequest):
+    notification_store.mark_read(req.notification_id)
+    return {"ok": True}
 
 
 @app.post("/api/aria2/test", dependencies=[Depends(require_auth)])

@@ -41,6 +41,8 @@ class SubscriptionStore:
 
     def create_from_item(self, keyword: str, item: dict[str, Any], notify_only: bool = True) -> dict[str, Any]:
         probe = item.get("probe") or {}
+        was_invalid = sub.get("status") == "invalid"
+        is_invalid = probe.get("state") in {"bad", "invalid_url", "locked"} or (probe.get("ok") is False and probe.get("state") in {"bad", "invalid_url"})
         files = probe.get("files") or []
         known_names = sorted({f.get("name") for f in files if f.get("name")})
         now = int(time.time())
@@ -59,15 +61,20 @@ class SubscriptionStore:
             "updated_at": now,
             "last_checked_at": now,
             "last_new_files": [],
+            "status": "active",
+            "invalid_since": None,
+            "last_error": "",
         }
         self._items.append(sub)
         self.save()
         return sub
 
-    def update_check(self, sub_id: str, probe: dict[str, Any]) -> dict[str, Any] | None:
+    def update_check(self, sub_id: str, probe: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str], bool]:
         sub = self.get(sub_id)
         if not sub:
-            return None
+            return None, [], False
+        was_invalid = sub.get("status") == "invalid"
+        is_invalid = probe.get("state") in {"bad", "invalid_url", "locked"} or (probe.get("ok") is False and probe.get("state") in {"bad", "invalid_url"})
         files = probe.get("files") or []
         names = sorted({f.get("name") for f in files if f.get("name")})
         known = set(sub.get("known_files") or [])
@@ -77,8 +84,12 @@ class SubscriptionStore:
         sub["last_new_files"] = new_files
         sub["last_checked_at"] = int(time.time())
         sub["updated_at"] = int(time.time())
+        sub["status"] = "invalid" if is_invalid else "active"
+        sub["invalid_since"] = sub.get("invalid_since") or int(time.time()) if is_invalid else None
+        sub["last_error"] = probe.get("message") or "" if is_invalid else ""
         self.save()
-        return sub
+        became_invalid = is_invalid and not was_invalid
+        return sub, new_files, became_invalid
 
     def delete(self, sub_id: str) -> bool:
         before = len(self._items)
