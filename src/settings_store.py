@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from . import config
+from .cloud_names import CLOUD_TYPE_NAMES
 
 SETTINGS_PATH = Path(os.getenv("SETTINGS_PATH", "/data/settings.json"))
 
@@ -65,6 +66,8 @@ class SettingsStore:
         data["app_password"] = "" if data.get("app_password") else ""
         data["aria2_secret"] = "" if data.get("aria2_secret") else ""
         data["supported_cloud_types"] = SUPPORTED_CLOUD_TYPES
+        data["cloud_type_names"] = CLOUD_TYPE_NAMES
+        data["app_name"] = "Lain 的媒体订阅"
         return data
 
     def update(self, patch: dict[str, Any]) -> dict[str, Any]:

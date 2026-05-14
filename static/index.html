@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>my-media-sub</title>
+  <title>Lain 的媒体订阅</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
@@ -11,8 +11,8 @@
     <section class="hero">
       <div>
         <p class="eyebrow">PanSou · OpenList · Aria2 · NAS</p>
-        <h1>my-media-sub</h1>
-        <p class="subtitle">搜索影视资源，检查链接有效性，嗅探夸克分享文件，并可把链接发送到 Aria2。</p>
+        <h1>Lain 的媒体订阅</h1>
+        <p class="subtitle">你的本地化媒体管家：搜索资源、过滤失效链接、嗅探剧集，并订阅连续剧更新。</p>
       </div>
       <div class="hero-actions">
         <a id="openlistLink" class="openlist" href="https://pan.lxf87.com.cn/" target="_blank" rel="noreferrer">打开 OpenList</a>
@@ -59,6 +59,14 @@
 
     <section id="status" class="status hidden"></section>
     <section id="results" class="results"></section>
+
+    <section id="subscriptionsPanel" class="panel selected">
+      <div class="panel-title-row">
+        <h2>我的订阅</h2>
+        <button id="checkAllSubsBtn" class="secondary small">检查全部更新</button>
+      </div>
+      <div id="subscriptionsBody" class="subscriptions-body"></div>
+    </section>
 
     <section id="selected" class="panel selected hidden">
       <h2>已选择</h2>

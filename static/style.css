@@ -280,3 +280,16 @@ input:focus { border-color: rgba(96, 165, 250, .8); }
   .settings-grid { grid-template-columns: 1fr; }
   .hero-actions, .card-actions { align-items: stretch; }
 }
+
+.subscriptions-body { display: grid; gap: 12px; }
+.sub-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(255,255,255,.05);
+}
+.sub-card h3 { margin: 0 0 8px; }
+@media (max-width: 720px) { .sub-card { grid-template-columns: 1fr; } }

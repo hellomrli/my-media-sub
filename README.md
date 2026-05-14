@@ -148,3 +148,18 @@ ARIA2_DIR=/downloads
 ```
 
 After searching, click `Aria2` on a result to send its URL to Aria2. Note: cloud share URLs may not be direct downloadable file URLs; this is mainly useful for direct links, magnets, ed2k, or sources Aria2 can handle.
+
+## 中文名与订阅
+
+项目中文名：**Lain 的媒体订阅**。
+
+WebUI 已将常见网盘类型本地化展示，例如：夸克网盘、百度网盘、阿里云盘、迅雷网盘、磁力链接等。
+
+订阅 MVP：
+
+- 搜索连续剧后点击结果旁边的“订阅”
+- 系统会保存当前夸克分享内已知文件列表
+- 在“我的订阅”中点击“检查更新”或“检查全部更新”
+- 如果分享目录新增文件，会显示新增文件列表
+
+当前自动下载策略仍是“通知优先”；发现新文件后先提示，后续再接自动转存/Aria2/OpenList 下载策略。

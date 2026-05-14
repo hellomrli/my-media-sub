@@ -22,6 +22,8 @@ const setOpenlist = document.querySelector('#setOpenlist');
 const setAria2Rpc = document.querySelector('#setAria2Rpc');
 const setAria2Secret = document.querySelector('#setAria2Secret');
 const setAria2Dir = document.querySelector('#setAria2Dir');
+const subscriptionsBody = document.querySelector('#subscriptionsBody');
+const checkAllSubsBtn = document.querySelector('#checkAllSubsBtn');
 
 const chatId = `webui-${Math.random().toString(36).slice(2)}`;
 let appSettings = null;
@@ -99,7 +101,7 @@ function formatProbe(item) {
   const probe = item.probe || {};
   const check = item.link_check || {};
   const bits = [];
-  if (item.cloud_type) bits.push(`网盘：${escapeHtml(item.cloud_type)}`);
+  if (item.cloud_name || item.cloud_type) bits.push(`网盘：${escapeHtml(item.cloud_name || item.cloud_type)}`);
   if (check.state) bits.push(`有效性：${escapeHtml(check.state)}${check.summary ? `（${escapeHtml(check.summary)}）` : ''}`);
   if (probe.file_count !== undefined) bits.push(`文件：${escapeHtml(probe.file_count)}`);
   if (probe.episode_count) bits.push(`疑似剧集：${escapeHtml(probe.episode_count)}集`);
@@ -132,6 +134,7 @@ function renderResults(results) {
       </div>
       <div class="card-actions">
         <button data-select="${item.index}">选择</button>
+        <button class="secondary" data-subscribe="${item.index}">订阅</button>
         <button class="secondary" data-aria2="${item.index}">Aria2</button>
       </div>
     </article>
@@ -142,6 +145,9 @@ function renderResults(results) {
   });
   resultsBox.querySelectorAll('[data-aria2]').forEach(btn => {
     btn.addEventListener('click', () => sendToAria2(Number(btn.dataset.aria2)));
+  });
+  resultsBox.querySelectorAll('[data-subscribe]').forEach(btn => {
+    btn.addEventListener('click', () => subscribeResult(Number(btn.dataset.subscribe)));
   });
 }
 
@@ -191,6 +197,91 @@ async function selectResult(index) {
   } catch (err) {
     setStatus(err.message, 'error');
   }
+}
+
+async function subscribeResult(index) {
+  setStatus(`正在订阅第 ${index} 条...`);
+  try {
+    await postJson('/api/subscriptions', { chat_id: chatId, index, notify_only: true });
+    await loadSubscriptions();
+    setStatus('订阅已创建。以后可在“我的订阅”里手动检查更新。', 'ok');
+  } catch (err) {
+    setStatus(`订阅失败：${err.message}`, 'error');
+  }
+}
+
+function formatTime(ts) {
+  if (!ts) return '未知';
+  return new Date(ts * 1000).toLocaleString();
+}
+
+function renderSubscriptions(subs) {
+  if (!subs.length) {
+    subscriptionsBody.innerHTML = '<p class="empty">还没有订阅。搜索连续剧后点击“订阅”。</p>';
+    return;
+  }
+  subscriptionsBody.innerHTML = subs.map(sub => {
+    const newFiles = sub.last_new_files || [];
+    const files = (sub.known_files || []).slice(-12);
+    return `<article class="sub-card">
+      <div>
+        <h3>${escapeHtml(sub.title)}</h3>
+        <div class="meta">
+          <span>网盘：${escapeHtml(appSettings?.cloud_type_names?.[sub.cloud_type] || sub.cloud_type)}</span>
+          <span>已知文件：${escapeHtml((sub.known_files || []).length)}</span>
+          <span>最后检查：${escapeHtml(formatTime(sub.last_checked_at))}</span>
+        </div>
+        ${newFiles.length ? `<p class="status ok">发现新文件：${escapeHtml(newFiles.join('、'))}</p>` : ''}
+        <ol class="file-list">${files.map(name => `<li>${escapeHtml(name)}</li>`).join('')}</ol>
+      </div>
+      <div class="card-actions">
+        <button class="secondary" data-check-sub="${sub.id}">检查更新</button>
+        <button class="secondary" data-delete-sub="${sub.id}">删除</button>
+      </div>
+    </article>`;
+  }).join('');
+  subscriptionsBody.querySelectorAll('[data-check-sub]').forEach(btn => {
+    btn.addEventListener('click', () => checkSubscription(btn.dataset.checkSub));
+  });
+  subscriptionsBody.querySelectorAll('[data-delete-sub]').forEach(btn => {
+    btn.addEventListener('click', () => deleteSubscription(btn.dataset.deleteSub));
+  });
+}
+
+async function loadSubscriptions() {
+  const data = await requestJson('/api/subscriptions');
+  renderSubscriptions(data.subscriptions || []);
+}
+
+async function checkSubscription(id) {
+  setStatus('正在检查订阅更新...');
+  try {
+    const data = await postJson('/api/subscriptions/check', { subscription_id: id });
+    await loadSubscriptions();
+    const count = (data.new_files || []).length;
+    setStatus(count ? `发现 ${count} 个新文件。` : '没有发现新文件。', count ? 'ok' : '');
+  } catch (err) {
+    setStatus(`检查失败：${err.message}`, 'error');
+  }
+}
+
+async function checkAllSubscriptions() {
+  setStatus('正在检查全部订阅...');
+  try {
+    const data = await postJson('/api/subscriptions/check-all', {});
+    await loadSubscriptions();
+    const count = (data.results || []).reduce((sum, r) => sum + ((r.new_files || []).length), 0);
+    setStatus(count ? `发现 ${count} 个新文件。` : '全部订阅都没有新文件。', count ? 'ok' : '');
+  } catch (err) {
+    setStatus(`检查失败：${err.message}`, 'error');
+  }
+}
+
+async function deleteSubscription(id) {
+  if (!confirm('确定删除这个订阅吗？')) return;
+  await postJson('/api/subscriptions/delete', { subscription_id: id });
+  await loadSubscriptions();
+  setStatus('订阅已删除。', 'ok');
 }
 
 async function sendToAria2(index) {
@@ -248,4 +339,8 @@ closeSettingsBtn.addEventListener('click', () => settingsPanel.classList.add('hi
 saveSettingsBtn.addEventListener('click', saveSettings);
 testAria2Btn.addEventListener('click', testAria2);
 
-loadSettings().catch(err => setStatus(`加载设置失败：${err.message}`, 'error'));
+checkAllSubsBtn.addEventListener('click', checkAllSubscriptions);
+
+loadSettings()
+  .then(loadSubscriptions)
+  .catch(err => setStatus(`加载设置失败：${err.message}`, 'error'));

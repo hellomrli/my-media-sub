@@ -9,12 +9,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .aria2_client import Aria2Client
+from .cloud_names import CLOUD_TYPE_NAMES, cloud_name
 from .auth import require_auth
 from .link_checker import PanSouLinkChecker
 from .pansou_client import PanSouClient
 from .quark_probe import QuarkShareProbe
 from .session_store import MemorySessionStore
 from .settings_store import settings_store
+from .subscription_store import subscription_store
 
 app = FastAPI(title="my-media-sub", version="0.3.0")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -34,6 +36,20 @@ class SearchRequest(BaseModel):
 class SelectRequest(BaseModel):
     chat_id: str = "default"
     index: int = Field(..., ge=1)
+
+
+class SubscribeRequest(BaseModel):
+    chat_id: str = "default"
+    index: int = Field(..., ge=1)
+    notify_only: bool = True
+
+
+class CheckSubscriptionRequest(BaseModel):
+    subscription_id: str
+
+
+class DeleteSubscriptionRequest(BaseModel):
+    subscription_id: str
 
 
 class DownloadRequest(BaseModel):
@@ -76,6 +92,7 @@ def simplify_result(item: dict[str, Any], index: int) -> dict[str, Any]:
         "datetime": item.get("datetime") or "",
         "images": item.get("images") or [],
         "cloud_type": item.get("cloud_type") or "quark",
+        "cloud_name": cloud_name(item.get("cloud_type") or "quark"),
     }
 
 
@@ -93,7 +110,7 @@ def format_search_reply(keyword: str, results: list[dict[str, Any]]) -> str:
         probe = item.get("probe") or {}
         episode = probe.get("episode_count")
         file_count = probe.get("file_count")
-        extra = f"，网盘：{cloud_type}，有效性：{link_state}"
+        extra = f"，网盘：{cloud_name(cloud_type)}，有效性：{link_state}"
         if link_summary:
             extra += f"({link_summary})"
         if file_count is not None:
@@ -191,6 +208,7 @@ def health():
         "check_links": settings.get("check_links"),
         "probe_quark_files": settings.get("probe_quark_files"),
         "filter_bad_links": settings.get("filter_bad_links"),
+        "app_name": "Lain 的媒体订阅",
     }
 
 
@@ -204,6 +222,69 @@ def update_settings(req: SettingsUpdateRequest):
     patch = req.model_dump(exclude_unset=True)
     settings_store.update(patch)
     return settings_store.public()
+
+
+@app.get("/api/cloud-types", dependencies=[Depends(require_auth)])
+def get_cloud_types():
+    return {"cloud_types": CLOUD_TYPE_NAMES}
+
+
+@app.get("/api/subscriptions", dependencies=[Depends(require_auth)])
+def list_subscriptions():
+    return {"subscriptions": subscription_store.list()}
+
+
+@app.post("/api/subscriptions", dependencies=[Depends(require_auth)])
+def create_subscription(req: SubscribeRequest):
+    sess = sessions.get(req.chat_id)
+    if not sess:
+        raise HTTPException(status_code=404, detail="没有找到最近的搜索结果，请先搜索。")
+    if req.index > len(sess.results):
+        raise HTTPException(status_code=400, detail="选择编号超出范围。")
+    item = sess.results[req.index - 1]
+    if item.get("cloud_type") != "quark":
+        raise HTTPException(status_code=400, detail="当前订阅 MVP 只支持夸克分享链接嗅探更新。")
+    sub = subscription_store.create_from_item(sess.keyword, item, notify_only=req.notify_only)
+    return {"subscription": sub}
+
+
+def probe_subscription(sub: dict[str, Any]) -> dict[str, Any]:
+    info = QuarkShareProbe().probe(sub.get("url") or "", sub.get("password") or "")
+    return {
+        "ok": info.ok,
+        "state": info.state,
+        "message": info.message,
+        "files": info.files[:300],
+        "file_count": info.file_count,
+        "episode_count": info.episode_count,
+    }
+
+
+@app.post("/api/subscriptions/check", dependencies=[Depends(require_auth)])
+def check_subscription(req: CheckSubscriptionRequest):
+    sub = subscription_store.get(req.subscription_id)
+    if not sub:
+        raise HTTPException(status_code=404, detail="订阅不存在。")
+    probe = probe_subscription(sub)
+    updated = subscription_store.update_check(req.subscription_id, probe)
+    return {"subscription": updated, "new_files": updated.get("last_new_files", []) if updated else []}
+
+
+@app.post("/api/subscriptions/check-all", dependencies=[Depends(require_auth)])
+def check_all_subscriptions():
+    results = []
+    for sub in subscription_store.list():
+        if not sub.get("enabled", True):
+            continue
+        probe = probe_subscription(sub)
+        updated = subscription_store.update_check(sub["id"], probe)
+        results.append({"subscription": updated, "new_files": updated.get("last_new_files", []) if updated else []})
+    return {"results": results}
+
+
+@app.post("/api/subscriptions/delete", dependencies=[Depends(require_auth)])
+def delete_subscription(req: DeleteSubscriptionRequest):
+    return {"deleted": subscription_store.delete(req.subscription_id)}
 
 
 @app.post("/api/aria2/test", dependencies=[Depends(require_auth)])
