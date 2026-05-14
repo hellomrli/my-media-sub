@@ -136,6 +136,7 @@ function formatProbe(item) {
   if (probe.file_count !== undefined) bits.push(`文件：${escapeHtml(probe.file_count)}`);
   if (probe.episode_count) bits.push(`疑似剧集：${escapeHtml(probe.episode_count)}集`);
   if (probe.message) bits.push(`嗅探：${escapeHtml(probe.message)}`);
+  if (item.download_capability?.label) bits.push(`下载：${escapeHtml(item.download_capability.label)}`);
   const files = (probe.files || []).slice(0, 12);
   const fileHtml = files.length ? `<ol class="file-list">${files.map(f => `<li>${escapeHtml(f.name)}${f.is_dir ? ' <span class="badge">目录</span>' : ''}</li>`).join('')}</ol>` : '';
   return `<div class="meta">${bits.map(b => `<span>${b}</span>`).join('')}</div>${fileHtml}`;
@@ -164,13 +165,17 @@ function renderResults(results) {
       </div>
       <div class="card-actions">
         <button data-select="${item.index}">选择</button>
-        <select data-media-type="${item.index}" class="media-select">
-          <option value="movie">电影</option>
-          <option value="series" selected>连续剧</option>
-          <option value="anime">动画</option>
-        </select>
-        <button class="secondary" data-subscribe="${item.index}">订阅</button>
-        <button class="secondary" data-aria2="${item.index}">Aria2</button>
+        ${(item.download_capability?.action === 'save_subscribe') ? `
+          <select data-media-type="${item.index}" class="media-select">
+            <option value="movie">电影</option>
+            <option value="series" selected>连续剧</option>
+            <option value="anime">动画</option>
+          </select>
+          <button class="secondary" data-subscribe="${item.index}">订阅</button>
+          <button class="secondary" disabled>转存待接入</button>
+        ` : ''}
+        ${(item.download_capability?.direct_aria2) ? `<button class="secondary" data-aria2="${item.index}">Aria2</button>` : ''}
+        ${(!item.download_capability?.direct_aria2 && item.download_capability?.action !== 'save_subscribe') ? `<button class="secondary" disabled>${escapeHtml(item.download_capability?.label || '复制链接')}</button>` : ''}
       </div>
     </article>
   `).join('');

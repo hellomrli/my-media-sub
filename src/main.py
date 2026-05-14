@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from .aria2_client import Aria2Client
 from .cloud_names import CLOUD_TYPE_NAMES, cloud_name
+from .download_capabilities import capability_for
 from .auth import require_auth
 from .link_checker import PanSouLinkChecker
 from .pansou_client import PanSouClient
@@ -99,6 +100,7 @@ def simplify_result(item: dict[str, Any], index: int) -> dict[str, Any]:
         "images": item.get("images") or [],
         "cloud_type": item.get("cloud_type") or "quark",
         "cloud_name": cloud_name(item.get("cloud_type") or "quark"),
+        "download_capability": capability_for(item.get("cloud_type") or "quark", item.get("url")),
     }
 
 

@@ -17,13 +17,31 @@ class PanSouClient:
         resp.raise_for_status()
         data = resp.json()
         merged = data.get("data", {}).get("merged_by_type", {})
-        items = []
+        buckets = []
         for cloud_type in cloud_types:
+            bucket = []
             for item in merged.get(cloud_type, []) or []:
                 item = dict(item)
                 item.setdefault("cloud_type", cloud_type)
-                items.append(item)
-        return items[:limit]
+                bucket.append(item)
+            buckets.append(bucket)
+
+        # Round-robin merge so one abundant cloud type (usually Quark) does not
+        # consume the whole limit when users select multiple cloud disks.
+        items = []
+        offset = 0
+        while len(items) < limit:
+            added = False
+            for bucket in buckets:
+                if offset < len(bucket):
+                    items.append(bucket[offset])
+                    added = True
+                    if len(items) >= limit:
+                        break
+            if not added:
+                break
+            offset += 1
+        return items
 
     def search_quark(self, keyword: str, limit: int = 10):
         return self.search(keyword, ["quark"], limit)
