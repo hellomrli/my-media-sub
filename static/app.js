@@ -29,6 +29,26 @@ const chatId = `webui-${Math.random().toString(36).slice(2)}`;
 let appSettings = null;
 const downloadLogs = [];
 
+const CLOUD_TYPE_NAMES_FALLBACK = {
+  quark: '夸克网盘',
+  baidu: '百度网盘',
+  aliyun: '阿里云盘',
+  uc: 'UC网盘',
+  tianyi: '天翼云盘',
+  mobile: '移动云盘',
+  '115': '115网盘',
+  pikpak: 'PikPak',
+  xunlei: '迅雷网盘',
+  '123': '123网盘',
+  magnet: '磁力链接',
+  ed2k: '电驴链接',
+  others: '其他资源',
+};
+
+function cloudTypeName(type) {
+  return appSettings?.cloud_type_names?.[type] || CLOUD_TYPE_NAMES_FALLBACK[type] || type || '未知网盘';
+}
+
 function showPage(pageId) {
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === pageId));
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.page === pageId));
@@ -81,7 +101,7 @@ function selectedCloudTypes(container = cloudTypesBox) {
 function renderCloudTypeOptions(container, selected = ['quark']) {
   const supported = appSettings?.supported_cloud_types || ['quark'];
   container.innerHTML = supported.map(type => `
-    <label><input type="checkbox" data-cloud value="${escapeHtml(type)}" ${selected.includes(type) ? 'checked' : ''} /> ${escapeHtml(type)}</label>
+    <label><input type="checkbox" data-cloud value="${escapeHtml(type)}" ${selected.includes(type) ? 'checked' : ''} /> ${escapeHtml(cloudTypeName(type))}</label>
   `).join('');
 }
 
@@ -111,7 +131,7 @@ function formatProbe(item) {
   const probe = item.probe || {};
   const check = item.link_check || {};
   const bits = [];
-  if (item.cloud_name || item.cloud_type) bits.push(`网盘：${escapeHtml(item.cloud_name || item.cloud_type)}`);
+  if (item.cloud_name || item.cloud_type) bits.push(`网盘：${escapeHtml(item.cloud_name || cloudTypeName(item.cloud_type))}`);
   if (check.state) bits.push(`有效性：${escapeHtml(check.state)}${check.summary ? `（${escapeHtml(check.summary)}）` : ''}`);
   if (probe.file_count !== undefined) bits.push(`文件：${escapeHtml(probe.file_count)}`);
   if (probe.episode_count) bits.push(`疑似剧集：${escapeHtml(probe.episode_count)}集`);
@@ -292,7 +312,7 @@ function renderSubscriptions(subs) {
           <span>第 ${escapeHtml(sub.season || 1)} 季</span>
           <span>进度：${escapeHtml(sub.current_episode_number || 0)} / ${escapeHtml(sub.total_episode_number || '*')}</span>
           <span>状态：${sub.status === 'invalid' ? '链接疑似失效' : '正常'}</span>
-          <span>网盘：${escapeHtml(appSettings?.cloud_type_names?.[sub.cloud_type] || sub.cloud_type)}</span>
+          <span>网盘：${escapeHtml(cloudTypeName(sub.cloud_type))}</span>
           <span>已知文件：${escapeHtml((sub.known_files || []).length)}</span>
           <span>最后检查：${escapeHtml(formatTime(sub.last_checked_at))}</span>
         </div>
