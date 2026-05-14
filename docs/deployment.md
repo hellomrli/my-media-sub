@@ -1,0 +1,68 @@
+# Deployment
+
+## Docker Compose
+
+1. Copy env file:
+
+```bash
+cp .env.example .env
+```
+
+2. Edit `.env`:
+
+```env
+PANSOU_BASE_URL=https://pansou.lxf87.com.cn
+OPENLIST_BASE_URL=https://pan.lxf87.com.cn
+QUARK_SAVE_ROOT=/pansou
+BOT_PORT=8787
+```
+
+3. Start:
+
+```bash
+docker compose up -d --build
+```
+
+4. Health check:
+
+```bash
+curl http://127.0.0.1:8787/health
+```
+
+5. Search test:
+
+```bash
+curl -X POST http://127.0.0.1:8787/api/wechat/message \
+  -H 'Content-Type: application/json' \
+  -d '{"chat_id":"test","text":"想看 盗梦空间"}'
+```
+
+6. Select test:
+
+```bash
+curl -X POST http://127.0.0.1:8787/api/wechat/message \
+  -H 'Content-Type: application/json' \
+  -d '{"chat_id":"test","text":"选 1"}'
+```
+
+## API Endpoints
+
+- `GET /health`
+- `POST /api/search`
+- `POST /api/select`
+- `POST /api/wechat/message`
+
+## Current Limitations
+
+当前 Docker 服务已经支持：
+
+- 调 PanSou 搜索夸克资源
+- 格式化微信机器人回复文本
+- 记住最近一次搜索
+- 处理 `选 1` 这类选择消息
+
+尚未完成：
+
+- 夸克分享链接转存
+- OpenList 复制/下载到 NAS
+- 微信机器人适配器签名/鉴权
