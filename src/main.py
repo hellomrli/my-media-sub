@@ -42,6 +42,7 @@ class SelectRequest(BaseModel):
 class SubscribeRequest(BaseModel):
     chat_id: str = "default"
     index: int = Field(..., ge=1)
+    media_type: str = "series"  # movie | series | anime
     notify_only: bool = True
 
 
@@ -249,7 +250,11 @@ def create_subscription(req: SubscribeRequest):
     item = sess.results[req.index - 1]
     if item.get("cloud_type") != "quark":
         raise HTTPException(status_code=400, detail="当前订阅 MVP 只支持夸克分享链接嗅探更新。")
-    sub = subscription_store.create_from_item(sess.keyword, item, notify_only=req.notify_only)
+    if req.media_type == "movie":
+        raise HTTPException(status_code=400, detail="电影通常不会追更，请使用选择或下载，不创建订阅。")
+    if req.media_type not in {"series", "anime"}:
+        raise HTTPException(status_code=400, detail="媒体类型只能是 movie / series / anime。")
+    sub = subscription_store.create_from_item(sess.keyword, item, notify_only=req.notify_only, media_type=req.media_type)
     return {"subscription": sub}
 
 

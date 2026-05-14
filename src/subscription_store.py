@@ -39,7 +39,7 @@ class SubscriptionStore:
     def get(self, sub_id: str) -> dict[str, Any] | None:
         return next((x for x in self._items if x.get("id") == sub_id), None)
 
-    def create_from_item(self, keyword: str, item: dict[str, Any], notify_only: bool = True) -> dict[str, Any]:
+    def create_from_item(self, keyword: str, item: dict[str, Any], notify_only: bool = True, media_type: str = "series") -> dict[str, Any]:
         probe = item.get("probe") or {}
         was_invalid = sub.get("status") == "invalid"
         is_invalid = probe.get("state") in {"bad", "invalid_url", "locked"} or (probe.get("ok") is False and probe.get("state") in {"bad", "invalid_url"})
@@ -50,6 +50,7 @@ class SubscriptionStore:
             "id": uuid4().hex[:12],
             "title": keyword or item.get("title") or "未命名订阅",
             "source_title": item.get("title") or "",
+            "media_type": media_type,
             "cloud_type": item.get("cloud_type") or "quark",
             "url": item.get("url"),
             "password": item.get("password") or "",

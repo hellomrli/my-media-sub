@@ -9,9 +9,6 @@ const probeFilesInput = document.querySelector('#probeFiles');
 const filterBadLinksInput = document.querySelector('#filterBadLinks');
 const cloudTypesBox = document.querySelector('#cloudTypes');
 const settingsCloudTypesBox = document.querySelector('#settingsCloudTypes');
-const settingsPanel = document.querySelector('#settingsPanel');
-const settingsBtn = document.querySelector('#settingsBtn');
-const closeSettingsBtn = document.querySelector('#closeSettingsBtn');
 const saveSettingsBtn = document.querySelector('#saveSettingsBtn');
 const testAria2Btn = document.querySelector('#testAria2Btn');
 const openlistLink = document.querySelector('#openlistLink');
@@ -22,6 +19,7 @@ const setOpenlist = document.querySelector('#setOpenlist');
 const setAria2Rpc = document.querySelector('#setAria2Rpc');
 const setAria2Secret = document.querySelector('#setAria2Secret');
 const setAria2Dir = document.querySelector('#setAria2Dir');
+const downloadsBody = document.querySelector('#downloadsBody');
 const subscriptionsBody = document.querySelector('#subscriptionsBody');
 const checkAllSubsBtn = document.querySelector('#checkAllSubsBtn');
 const notificationsBody = document.querySelector('#notificationsBody');
@@ -29,6 +27,16 @@ const markAllReadBtn = document.querySelector('#markAllReadBtn');
 
 const chatId = `webui-${Math.random().toString(36).slice(2)}`;
 let appSettings = null;
+const downloadLogs = [];
+
+function showPage(pageId) {
+  document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === pageId));
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.page === pageId));
+}
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => showPage(tab.dataset.page));
+});
 
 function setStatus(message, type = '') {
   if (!message) {
@@ -136,6 +144,11 @@ function renderResults(results) {
       </div>
       <div class="card-actions">
         <button data-select="${item.index}">选择</button>
+        <select data-media-type="${item.index}" class="media-select">
+          <option value="movie">电影</option>
+          <option value="series" selected>连续剧</option>
+          <option value="anime">动画</option>
+        </select>
         <button class="secondary" data-subscribe="${item.index}">订阅</button>
         <button class="secondary" data-aria2="${item.index}">Aria2</button>
       </div>
@@ -243,9 +256,14 @@ async function markAllNotificationsRead() {
 }
 
 async function subscribeResult(index) {
+  const mediaType = document.querySelector(`[data-media-type=\"${index}\"]`)?.value || 'series';
+  if (mediaType === 'movie') {
+    setStatus('电影不会创建追更订阅；你可以直接选择或发送到 Aria2。', 'error');
+    return;
+  }
   setStatus(`正在订阅第 ${index} 条...`);
   try {
-    await postJson('/api/subscriptions', { chat_id: chatId, index, notify_only: true });
+    await postJson('/api/subscriptions', { chat_id: chatId, index, media_type: mediaType, notify_only: true });
     await loadSubscriptions();
     setStatus('订阅已创建。以后可在“我的订阅”里手动检查更新。', 'ok');
   } catch (err) {
@@ -270,6 +288,7 @@ function renderSubscriptions(subs) {
       <div>
         <h3>${escapeHtml(sub.title)}</h3>
         <div class="meta">
+          <span>类型：${sub.media_type === 'anime' ? '动画' : '连续剧'}</span>
           <span>状态：${sub.status === 'invalid' ? '链接疑似失效' : '正常'}</span>
           <span>网盘：${escapeHtml(appSettings?.cloud_type_names?.[sub.cloud_type] || sub.cloud_type)}</span>
           <span>已知文件：${escapeHtml((sub.known_files || []).length)}</span>
@@ -331,10 +350,28 @@ async function deleteSubscription(id) {
   setStatus('订阅已删除。', 'ok');
 }
 
+function renderDownloadLogs() {
+  if (!downloadLogs.length) {
+    downloadsBody.innerHTML = '<p class="empty">暂无下载记录。</p>';
+    return;
+  }
+  downloadsBody.innerHTML = downloadLogs.map(item => `
+    <article class="sub-card">
+      <div>
+        <h3>${escapeHtml(item.title || 'Aria2 任务')}</h3>
+        <div class="meta"><span>${escapeHtml(item.time)}</span><span>GID：${escapeHtml(item.gid || '-')}</span></div>
+        <p class="url">${escapeHtml(item.url || '')}</p>
+      </div>
+    </article>
+  `).join('');
+}
+
 async function sendToAria2(index) {
   setStatus(`正在把第 ${index} 条发送到 Aria2...`);
   try {
     const data = await postJson('/api/download/aria2', { chat_id: chatId, index });
+    downloadLogs.unshift({ gid: data.gid, url: data.url, title: data.selected?.title, time: new Date().toLocaleString() });
+    renderDownloadLogs();
     setStatus(`已发送到 Aria2，GID：${data.gid}`, 'ok');
   } catch (err) {
     setStatus(`Aria2 失败：${err.message}`, 'error');
@@ -381,8 +418,6 @@ searchBtn.addEventListener('click', search);
 keywordInput.addEventListener('keydown', event => {
   if (event.key === 'Enter') search();
 });
-settingsBtn.addEventListener('click', () => settingsPanel.classList.remove('hidden'));
-closeSettingsBtn.addEventListener('click', () => settingsPanel.classList.add('hidden'));
 saveSettingsBtn.addEventListener('click', saveSettings);
 testAria2Btn.addEventListener('click', testAria2);
 

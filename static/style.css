@@ -294,3 +294,27 @@ input:focus { border-color: rgba(96, 165, 250, .8); }
 .sub-card h3 { margin: 0 0 8px; }
 @media (max-width: 720px) { .sub-card { grid-template-columns: 1fr; } }
 .sub-card.read { opacity: .68; }
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 18px;
+}
+.tab {
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+.tab.active {
+  background: var(--brand-strong);
+}
+.page { display: none; }
+.page.active { display: block; }
+.media-select {
+  min-height: 38px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(0,0,0,.22);
+  color: var(--text);
+  padding: 0 10px;
+}

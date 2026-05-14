@@ -12,73 +12,90 @@
       <div>
         <p class="eyebrow">PanSou · OpenList · Aria2 · NAS</p>
         <h1>Lain 的媒体订阅</h1>
-        <p class="subtitle">你的本地化媒体管家：搜索资源、过滤失效链接、嗅探剧集，并订阅连续剧更新。</p>
+        <p class="subtitle">你的本地化媒体管家：搜索资源、过滤失效链接、嗅探剧集，并订阅连续剧/动画更新。</p>
       </div>
       <div class="hero-actions">
         <a id="openlistLink" class="openlist" href="https://pan.lxf87.com.cn/" target="_blank" rel="noreferrer">打开 OpenList</a>
-        <button id="settingsBtn" class="secondary">设置</button>
       </div>
     </section>
 
-    <section class="panel search-panel">
-      <label for="keyword">影视名称</label>
-      <div class="search-row">
-        <input id="keyword" placeholder="例如：盗梦空间、庆余年 第二季" autocomplete="off" />
-        <button id="searchBtn">搜索</button>
-      </div>
-      <div id="cloudTypes" class="options"></div>
-      <div class="options">
-        <label><input id="checkLinks" type="checkbox" checked /> 检测链接有效性</label>
-        <label><input id="probeFiles" type="checkbox" checked /> 嗅探分享内文件/剧集</label>
-        <label><input id="filterBadLinks" type="checkbox" checked /> 过滤失效链接</label>
-      </div>
-      <p class="hint">默认会检测并过滤已确认失效的链接；嗅探会稍慢，但能看到夸克分享里大概有多少文件/集数。</p>
-    </section>
-
-    <section id="settingsPanel" class="panel settings hidden">
-      <div class="panel-title-row">
-        <h2>设置</h2>
-        <button id="closeSettingsBtn" class="secondary small">关闭</button>
-      </div>
-      <div class="settings-grid">
-        <label>登录账号<input id="setUsername" autocomplete="username" /></label>
-        <label>新密码<input id="setPassword" type="password" autocomplete="new-password" placeholder="留空则不修改" /></label>
-        <label>PanSou 地址<input id="setPansou" placeholder="https://pansou.example.com" /></label>
-        <label>OpenList 地址<input id="setOpenlist" placeholder="https://pan.example.com" /></label>
-        <label>Aria2 RPC<input id="setAria2Rpc" placeholder="http://host:6800/jsonrpc" /></label>
-        <label>Aria2 Secret<input id="setAria2Secret" type="password" placeholder="留空则不修改" /></label>
-        <label>Aria2 下载目录<input id="setAria2Dir" placeholder="/downloads" /></label>
-      </div>
-      <div id="settingsCloudTypes" class="options"></div>
-      <div class="settings-actions">
-        <button id="saveSettingsBtn">保存设置</button>
-        <button id="testAria2Btn" class="secondary">测试 Aria2</button>
-      </div>
-      <p class="hint">账号密码保存后立即生效；如果改了密码，浏览器可能会弹出重新登录。</p>
-    </section>
+    <nav class="tabs">
+      <button class="tab active" data-page="searchPage">搜索</button>
+      <button class="tab" data-page="subscriptionsPage">订阅</button>
+      <button class="tab" data-page="logsPage">日志与下载</button>
+      <button class="tab" data-page="settingsPage">设置</button>
+    </nav>
 
     <section id="status" class="status hidden"></section>
-    <section id="results" class="results"></section>
 
-    <section id="notificationsPanel" class="panel selected">
-      <div class="panel-title-row">
-        <h2>通知中心</h2>
-        <button id="markAllReadBtn" class="secondary small">全部已读</button>
-      </div>
-      <div id="notificationsBody" class="subscriptions-body"></div>
+    <section id="searchPage" class="page active">
+      <section class="panel search-panel">
+        <label for="keyword">影视名称</label>
+        <div class="search-row">
+          <input id="keyword" placeholder="例如：盗梦空间、庆余年 第二季" autocomplete="off" />
+          <button id="searchBtn">搜索</button>
+        </div>
+        <div id="cloudTypes" class="options"></div>
+        <div class="options">
+          <label><input id="checkLinks" type="checkbox" checked /> 检测链接有效性</label>
+          <label><input id="probeFiles" type="checkbox" checked /> 嗅探分享内文件/剧集</label>
+          <label><input id="filterBadLinks" type="checkbox" checked /> 过滤失效链接</label>
+        </div>
+        <p class="hint">电影不会创建追更订阅；只有“连续剧”和“动画”会被订阅跟踪。</p>
+      </section>
+
+      <section id="results" class="results"></section>
+
+      <section id="selected" class="panel selected hidden">
+        <h2>已选择</h2>
+        <div id="selectedBody"></div>
+      </section>
     </section>
 
-    <section id="subscriptionsPanel" class="panel selected">
-      <div class="panel-title-row">
-        <h2>我的订阅</h2>
-        <button id="checkAllSubsBtn" class="secondary small">检查全部更新</button>
-      </div>
-      <div id="subscriptionsBody" class="subscriptions-body"></div>
+    <section id="subscriptionsPage" class="page">
+      <section class="panel selected">
+        <div class="panel-title-row">
+          <h2>我的订阅</h2>
+          <button id="checkAllSubsBtn" class="secondary small">检查全部更新</button>
+        </div>
+        <div id="subscriptionsBody" class="subscriptions-body"></div>
+      </section>
     </section>
 
-    <section id="selected" class="panel selected hidden">
-      <h2>已选择</h2>
-      <div id="selectedBody"></div>
+    <section id="logsPage" class="page">
+      <section class="panel selected">
+        <div class="panel-title-row">
+          <h2>通知中心</h2>
+          <button id="markAllReadBtn" class="secondary small">全部已读</button>
+        </div>
+        <div id="notificationsBody" class="subscriptions-body"></div>
+      </section>
+      <section class="panel selected">
+        <h2>下载任务</h2>
+        <p class="hint">这里目前展示 Aria2 提交结果；后续会接入下载历史和 OpenList/NAS 任务状态。</p>
+        <div id="downloadsBody" class="subscriptions-body"><p class="empty">暂无下载记录。</p></div>
+      </section>
+    </section>
+
+    <section id="settingsPage" class="page">
+      <section class="panel settings">
+        <div class="panel-title-row"><h2>设置</h2></div>
+        <div class="settings-grid">
+          <label>登录账号<input id="setUsername" autocomplete="username" /></label>
+          <label>新密码<input id="setPassword" type="password" autocomplete="new-password" placeholder="留空则不修改" /></label>
+          <label>PanSou 地址<input id="setPansou" placeholder="https://pansou.example.com" /></label>
+          <label>OpenList 地址<input id="setOpenlist" placeholder="https://pan.example.com" /></label>
+          <label>Aria2 RPC<input id="setAria2Rpc" placeholder="http://host:6800/jsonrpc" /></label>
+          <label>Aria2 Secret<input id="setAria2Secret" type="password" placeholder="留空则不修改" /></label>
+          <label>Aria2 下载目录<input id="setAria2Dir" placeholder="/downloads" /></label>
+        </div>
+        <div id="settingsCloudTypes" class="options"></div>
+        <div class="settings-actions">
+          <button id="saveSettingsBtn">保存设置</button>
+          <button id="testAria2Btn" class="secondary">测试 Aria2</button>
+        </div>
+        <p class="hint">账号密码保存后立即生效；如果改了密码，浏览器可能会弹出重新登录。</p>
+      </section>
     </section>
   </main>
 
