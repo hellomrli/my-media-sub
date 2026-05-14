@@ -221,4 +221,3 @@ class SubscriptionStore:
 
 
 subscription_store = SubscriptionStore()
-EOF
