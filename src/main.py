@@ -29,6 +29,7 @@ class SearchRequest(BaseModel):
     limit: int = Field(default=8, ge=1, le=20)
     check_links: bool | None = None
     probe_files: bool | None = None
+    filter_bad_links: bool | None = None
 
 
 class SelectRequest(BaseModel):
@@ -161,14 +162,35 @@ def health():
 @app.post("/api/search", dependencies=[Depends(require_auth)])
 def search(req: SearchRequest):
     raw = pansou.search_quark(req.keyword, req.limit)
-    results = [simplify_result(item, i) for i, item in enumerate(raw, 1)]
+    original_results = [simplify_result(item, i) for i, item in enumerate(raw, 1)]
+    results = list(original_results)
     do_check = config.CHECK_LINKS if req.check_links is None else req.check_links
     do_probe = config.PROBE_QUARK_FILES if req.probe_files is None else req.probe_files
+    do_filter_bad = config.FILTER_BAD_LINKS if req.filter_bad_links is None else req.filter_bad_links
+
     enrich_results(results, check_links=do_check, probe_files=do_probe)
+
+    filtered_count = 0
+    if do_filter_bad and do_check:
+        kept = []
+        for item in results:
+            state = (item.get("link_check") or {}).get("state")
+            # Only remove links explicitly confirmed dead. Keep locked/unknown/error
+            # because they may still be usable with passcode, retry, or manual check.
+            if state == "bad":
+                filtered_count += 1
+                continue
+            kept.append(item)
+        results = kept
+        for i, item in enumerate(results, 1):
+            item["index"] = i
+
     sessions.set(req.chat_id, req.keyword, results)
     return {
         "keyword": req.keyword,
         "results": results,
+        "original_total": len(original_results),
+        "filtered_count": filtered_count,
         "reply": format_search_reply(req.keyword, results),
     }
 

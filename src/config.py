@@ -15,3 +15,4 @@ APP_USERNAME = os.getenv("APP_USERNAME", "")
 APP_PASSWORD = os.getenv("APP_PASSWORD", "")
 PROBE_QUARK_FILES = os.getenv("PROBE_QUARK_FILES", "true").lower() in {"1", "true", "yes", "on"}
 CHECK_LINKS = os.getenv("CHECK_LINKS", "true").lower() in {"1", "true", "yes", "on"}
+FILTER_BAD_LINKS = os.getenv("FILTER_BAD_LINKS", "true").lower() in {"1", "true", "yes", "on"}

@@ -101,3 +101,13 @@ PROBE_QUARK_FILES=true
 ```
 
 The app will check whether Quark share links are alive and try to list files in the share so TV episode counts can be estimated.
+
+## Filter Dead Links
+
+Enabled by default:
+
+```env
+FILTER_BAD_LINKS=true
+```
+
+Only links explicitly confirmed as `bad` are removed. `locked`, `unknown`, and `error` results are kept.

@@ -6,6 +6,7 @@ const selectedPanel = document.querySelector('#selected');
 const selectedBody = document.querySelector('#selectedBody');
 const checkLinksInput = document.querySelector('#checkLinks');
 const probeFilesInput = document.querySelector('#probeFiles');
+const filterBadLinksInput = document.querySelector('#filterBadLinks');
 
 const chatId = `webui-${Math.random().toString(36).slice(2)}`;
 
@@ -102,9 +103,10 @@ async function search() {
       limit: 12,
       check_links: checkLinksInput?.checked ?? true,
       probe_files: probeFilesInput?.checked ?? true,
+      filter_bad_links: filterBadLinksInput?.checked ?? true,
     });
     renderResults(data.results || []);
-    setStatus(`找到 ${(data.results || []).length} 条结果。`, 'ok');
+    setStatus(`找到 ${(data.results || []).length} 条可用结果，已过滤 ${data.filtered_count || 0} 条失效链接。`, 'ok');
   } catch (err) {
     setStatus(err.message, 'error');
   } finally {

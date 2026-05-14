@@ -116,3 +116,9 @@ PROBE_QUARK_FILES=false
 ```
 
 注意：夸克公开分享接口可能触发风控、验证码、密码或接口变更；这种情况下结果会显示 `locked`、`http_error` 或 `error`，不会中断搜索。
+
+默认会过滤 PanSou 已确认 `bad` 的失效夸克链接。只过滤明确失效的结果；`locked`、`unknown`、`error` 会保留，方便人工判断或稍后重试。
+
+```env
+FILTER_BAD_LINKS=true
+```
