@@ -77,18 +77,23 @@ class QuarkShareProbe:
         return token, None
 
     def list_files(self, pwd_id: str, stoken: str, pdir_fid: str = "0", page: int = 1, size: int = 100) -> tuple[list[dict], str | None]:
-        payload = {
+        url = "https://drive-pc.quark.cn/1/clouddrive/share/sharepage/detail"
+        params = {
+            "pr": "ucpro",
+            "fr": "pc",
             "pwd_id": pwd_id,
             "stoken": stoken,
             "pdir_fid": pdir_fid,
-            "force": 0,
-            "_page": page,
-            "_size": size,
-            "_fetch_total": 1,
-            "_fetch_sub_dirs": 0,
+            "force": "0",
+            "_page": str(page),
+            "_size": str(size),
+            "_fetch_total": "1",
+            "_fetch_sub_dirs": "0",
             "_sort": "file_type:asc,file_name:asc",
         }
-        data = self._post("/share/sharepage/detail", payload)
+        resp = self.session.get(url, params=params, timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
         if data.get("code", 0) != 0:
             return [], data.get("message") or data.get("msg") or str(data)
         raw_list = (data.get("data") or {}).get("list") or []
@@ -117,7 +122,7 @@ class QuarkShareProbe:
                 item = queue.pop(0)
                 fid = item.get("fid") or item.get("file_id")
                 name = item.get("file_name") or item.get("name") or ""
-                is_dir = bool(item.get("dir") or item.get("file_type") == 0 and item.get("obj_category") == "dir")
+                is_dir = bool(item.get("dir") or (item.get("file_type") == 0 and not item.get("format_type") and item.get("size", 0) == 0))
                 normalized = {
                     "name": name,
                     "fid": fid,
