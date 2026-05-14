@@ -4,6 +4,8 @@ import re
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from . import config
@@ -11,6 +13,7 @@ from .pansou_client import PanSouClient
 from .session_store import MemorySessionStore
 
 app = FastAPI(title="my-media-sub", version="0.1.0")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 pansou = PanSouClient(config.PANSOU_BASE_URL)
 sessions = MemorySessionStore()
 
@@ -78,6 +81,11 @@ def extract_selection(text: str) -> int | None:
     if not m:
         return None
     return int(m.group(1))
+
+
+@app.get("/")
+def index():
+    return FileResponse("static/index.html")
 
 
 @app.get("/health")

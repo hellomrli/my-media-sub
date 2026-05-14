@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>my-media-sub</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <main class="app">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">PanSou · Quark · OpenList · NAS</p>
+        <h1>my-media-sub</h1>
+        <p class="subtitle">搜索你想看的影视资源，选择后后续可转存到夸克并交给 OpenList / NAS 处理。</p>
+      </div>
+      <a class="openlist" href="https://pan.lxf87.com.cn/" target="_blank" rel="noreferrer">打开 OpenList</a>
+    </section>
+
+    <section class="panel search-panel">
+      <label for="keyword">影视名称</label>
+      <div class="search-row">
+        <input id="keyword" placeholder="例如：盗梦空间、庆余年 第二季" autocomplete="off" />
+        <button id="searchBtn">搜索</button>
+      </div>
+      <p class="hint">当前只搜索夸克资源。搜索结果来自 PanSou。</p>
+    </section>
+
+    <section id="status" class="status hidden"></section>
+
+    <section id="results" class="results"></section>
+
+    <section id="selected" class="panel selected hidden">
+      <h2>已选择</h2>
+      <div id="selectedBody"></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

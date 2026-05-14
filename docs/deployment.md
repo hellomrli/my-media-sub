@@ -23,13 +23,19 @@ BOT_PORT=8787
 docker compose up -d --build
 ```
 
-4. Health check:
+4. Open WebUI:
+
+```text
+http://127.0.0.1:8787/
+```
+
+5. Health check:
 
 ```bash
 curl http://127.0.0.1:8787/health
 ```
 
-5. Search test:
+6. Search test:
 
 ```bash
 curl -X POST http://127.0.0.1:8787/api/wechat/message \
@@ -37,7 +43,7 @@ curl -X POST http://127.0.0.1:8787/api/wechat/message \
   -d '{"chat_id":"test","text":"想看 盗梦空间"}'
 ```
 
-6. Select test:
+7. Select test:
 
 ```bash
 curl -X POST http://127.0.0.1:8787/api/wechat/message \
@@ -47,6 +53,7 @@ curl -X POST http://127.0.0.1:8787/api/wechat/message \
 
 ## API Endpoints
 
+- `GET /` WebUI
 - `GET /health`
 - `POST /api/search`
 - `POST /api/select`
