@@ -49,6 +49,10 @@ class SubscriptionStore:
             "title": keyword or item.get("title") or "未命名订阅",
             "source_title": item.get("title") or "",
             "media_type": media_type,
+            "season": 1,
+            "current_episode_number": probe.get("episode_count") or 0,
+            "total_episode_number": None,
+            "source_group": item.get("source") or "",
             "cloud_type": item.get("cloud_type") or "quark",
             "url": item.get("url"),
             "password": item.get("password") or "",
@@ -80,6 +84,7 @@ class SubscriptionStore:
         new_files = [name for name in names if name not in known]
         sub["known_files"] = sorted(known | set(names))
         sub["last_probe"] = probe
+        sub["current_episode_number"] = probe.get("episode_count") or sub.get("current_episode_number") or 0
         sub["last_new_files"] = new_files
         sub["last_checked_at"] = int(time.time())
         sub["updated_at"] = int(time.time())

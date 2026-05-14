@@ -289,6 +289,8 @@ function renderSubscriptions(subs) {
         <h3>${escapeHtml(sub.title)}</h3>
         <div class="meta">
           <span>类型：${sub.media_type === 'anime' ? '动画' : '连续剧'}</span>
+          <span>第 ${escapeHtml(sub.season || 1)} 季</span>
+          <span>进度：${escapeHtml(sub.current_episode_number || 0)} / ${escapeHtml(sub.total_episode_number || '*')}</span>
           <span>状态：${sub.status === 'invalid' ? '链接疑似失效' : '正常'}</span>
           <span>网盘：${escapeHtml(appSettings?.cloud_type_names?.[sub.cloud_type] || sub.cloud_type)}</span>
           <span>已知文件：${escapeHtml((sub.known_files || []).length)}</span>
