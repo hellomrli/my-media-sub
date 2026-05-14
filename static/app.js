@@ -321,12 +321,17 @@ function renderSubscriptions(subs) {
           <span>已知文件：${escapeHtml((sub.known_files || []).length)}</span>
           <span>最后检查：${escapeHtml(formatTime(sub.last_checked_at))}</span>
         </div>
+        ${sub.enabled === false ? `<p class="status">已停用，不会自动检查。</p>` : ''}
+        ${sub.completed ? `<p class="status ok">已标记完结。</p>` : ''}
         ${sub.status === 'invalid' ? `<p class="status error">链接疑似失效：${escapeHtml(sub.last_error || '分享不可访问')}</p>` : ''}
         ${newFiles.length ? `<p class="status ok">发现新文件：${escapeHtml(newFiles.join('、'))}</p>` : ''}
+        <p class="hint">${escapeHtml(sub.last_check_summary || '尚未检查')}</p>
         <ol class="file-list">${files.map(name => `<li>${escapeHtml(name)}</li>`).join('')}</ol>
       </div>
       <div class="card-actions">
         <button class="secondary" data-check-sub="${sub.id}">检查更新</button>
+        <button class="secondary" data-edit-sub="${sub.id}">编辑规则</button>
+        <button class="secondary" data-toggle-sub="${sub.id}">${sub.enabled === false ? '启用' : '停用'}</button>
         <button class="secondary" data-delete-sub="${sub.id}">删除</button>
       </div>
     </article>`;
@@ -337,11 +342,52 @@ function renderSubscriptions(subs) {
   subscriptionsBody.querySelectorAll('[data-delete-sub]').forEach(btn => {
     btn.addEventListener('click', () => deleteSubscription(btn.dataset.deleteSub));
   });
+  subscriptionsBody.querySelectorAll('[data-toggle-sub]').forEach(btn => {
+    btn.addEventListener('click', () => toggleSubscription(btn.dataset.toggleSub));
+  });
+  subscriptionsBody.querySelectorAll('[data-edit-sub]').forEach(btn => {
+    btn.addEventListener('click', () => editSubscription(btn.dataset.editSub));
+  });
 }
 
 async function loadSubscriptions() {
   const data = await requestJson('/api/subscriptions');
   renderSubscriptions(data.subscriptions || []);
+}
+
+async function toggleSubscription(id) {
+  const data = await requestJson('/api/subscriptions');
+  const sub = (data.subscriptions || []).find(x => x.id === id);
+  if (!sub) return;
+  await postJson('/api/subscriptions/update', { subscription_id: id, enabled: !(sub.enabled !== false) });
+  await loadSubscriptions();
+}
+
+async function editSubscription(id) {
+  const data = await requestJson('/api/subscriptions');
+  const sub = (data.subscriptions || []).find(x => x.id === id);
+  if (!sub) return;
+  const title = prompt('订阅标题', sub.title || '') ?? sub.title;
+  const season = Number(prompt('季数', sub.season || 1) || sub.season || 1);
+  const totalRaw = prompt('总集数（未知留空）', sub.total_episode_number || '');
+  const include = prompt('包含关键词，多个用逗号分隔', (sub.rules?.include_keywords || []).join(','));
+  const exclude = prompt('排除关键词，多个用逗号分隔', (sub.rules?.exclude_keywords || []).join(','));
+  const regex = prompt('匹配正则（可空）', sub.rules?.match_regex || '');
+  const onlyLatest = confirm('是否只处理最新一集？点“确定”启用，点“取消”关闭。');
+  await postJson('/api/subscriptions/update', {
+    subscription_id: id,
+    title,
+    season,
+    total_episode_number: totalRaw ? Number(totalRaw) : null,
+    rules: {
+      include_keywords: include ? include.split(/[,，]/).map(x => x.trim()).filter(Boolean) : [],
+      exclude_keywords: exclude ? exclude.split(/[,，]/).map(x => x.trim()).filter(Boolean) : [],
+      match_regex: regex || '',
+      only_latest: onlyLatest,
+    }
+  });
+  await loadSubscriptions();
+  setStatus('订阅规则已更新。', 'ok');
 }
 
 async function checkSubscription(id) {

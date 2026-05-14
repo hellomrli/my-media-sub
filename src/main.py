@@ -51,6 +51,18 @@ class CheckSubscriptionRequest(BaseModel):
     subscription_id: str
 
 
+class UpdateSubscriptionRequest(BaseModel):
+    subscription_id: str
+    title: str | None = None
+    season: int | None = None
+    total_episode_number: int | None = None
+    enabled: bool | None = None
+    completed: bool | None = None
+    source_group: str | None = None
+    notify_only: bool | None = None
+    rules: dict[str, Any] | None = None
+
+
 class DeleteSubscriptionRequest(BaseModel):
     subscription_id: str
 
@@ -272,6 +284,16 @@ def probe_subscription(sub: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+@app.post("/api/subscriptions/update", dependencies=[Depends(require_auth)])
+def update_subscription(req: UpdateSubscriptionRequest):
+    patch = req.model_dump(exclude_unset=True)
+    sub_id = patch.pop("subscription_id")
+    updated = subscription_store.update(sub_id, patch)
+    if not updated:
+        raise HTTPException(status_code=404, detail="订阅不存在。")
+    return {"subscription": updated}
+
+
 @app.post("/api/subscriptions/check", dependencies=[Depends(require_auth)])
 def check_subscription(req: CheckSubscriptionRequest):
     sub = subscription_store.get(req.subscription_id)
@@ -302,7 +324,7 @@ def check_subscription(req: CheckSubscriptionRequest):
 def check_all_subscriptions():
     results = []
     for sub in subscription_store.list():
-        if not sub.get("enabled", True):
+        if not sub.get("enabled", True) or sub.get("completed"):
             continue
         probe = probe_subscription(sub)
         updated, new_files, became_invalid = subscription_store.update_check(sub["id"], probe)
