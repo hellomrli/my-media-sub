@@ -41,8 +41,6 @@ class SubscriptionStore:
 
     def create_from_item(self, keyword: str, item: dict[str, Any], notify_only: bool = True, media_type: str = "series") -> dict[str, Any]:
         probe = item.get("probe") or {}
-        was_invalid = sub.get("status") == "invalid"
-        is_invalid = probe.get("state") in {"bad", "invalid_url", "locked"} or (probe.get("ok") is False and probe.get("state") in {"bad", "invalid_url"})
         files = probe.get("files") or []
         known_names = sorted({f.get("name") for f in files if f.get("name")})
         now = int(time.time())
