@@ -89,3 +89,30 @@ curl -X POST http://127.0.0.1:8787/api/wechat/message \
 2. 确认 OpenList 中夸克盘挂载路径和 NAS 本地挂载路径
 3. 增加 OpenList 复制/同步任务
 4. 增加微信机器人具体平台适配器
+
+## 认证
+
+设置环境变量后，WebUI 和业务 API 会启用 HTTP Basic 账号密码认证：
+
+```env
+APP_USERNAME=admin
+APP_PASSWORD=change-me
+```
+
+`/health` 保持公开，方便容器健康检查。
+
+## 链接有效性和文件嗅探
+
+搜索时默认会：
+
+1. 调用 PanSou `/api/check/links` 检测夸克分享链接是否有效。
+2. 对可疑似有效的夸克分享链接做 best-effort 嗅探，尝试列出分享内文件和目录，并估算连续剧集数。
+
+可通过环境变量关闭：
+
+```env
+CHECK_LINKS=false
+PROBE_QUARK_FILES=false
+```
+
+注意：夸克公开分享接口可能触发风控、验证码、密码或接口变更；这种情况下结果会显示 `locked`、`http_error` 或 `error`，不会中断搜索。

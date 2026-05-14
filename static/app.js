@@ -4,6 +4,8 @@ const statusBox = document.querySelector('#status');
 const resultsBox = document.querySelector('#results');
 const selectedPanel = document.querySelector('#selected');
 const selectedBody = document.querySelector('#selectedBody');
+const checkLinksInput = document.querySelector('#checkLinks');
+const probeFilesInput = document.querySelector('#probeFiles');
 
 const chatId = `webui-${Math.random().toString(36).slice(2)}`;
 
@@ -39,6 +41,19 @@ async function postJson(url, payload) {
   return data;
 }
 
+function formatProbe(item) {
+  const probe = item.probe || {};
+  const check = item.link_check || {};
+  const bits = [];
+  if (check.state) bits.push(`有效性：${escapeHtml(check.state)}${check.summary ? `（${escapeHtml(check.summary)}）` : ''}`);
+  if (probe.file_count !== undefined) bits.push(`文件：${escapeHtml(probe.file_count)}`);
+  if (probe.episode_count) bits.push(`疑似剧集：${escapeHtml(probe.episode_count)}集`);
+  if (probe.message) bits.push(`嗅探：${escapeHtml(probe.message)}`);
+  const files = (probe.files || []).slice(0, 12);
+  const fileHtml = files.length ? `<ol class="file-list">${files.map(f => `<li>${escapeHtml(f.name)}${f.is_dir ? ' <span class="badge">目录</span>' : ''}</li>`).join('')}</ol>` : '';
+  return `<div class="meta">${bits.map(b => `<span>${b}</span>`).join('')}</div>${fileHtml}`;
+}
+
 function renderResults(results) {
   selectedPanel.classList.add('hidden');
   selectedBody.innerHTML = '';
@@ -57,6 +72,7 @@ function renderResults(results) {
           <span>来源：${escapeHtml(item.source || '未知')}</span>
           <span>时间：${escapeHtml(item.datetime || '未知')}</span>
         </div>
+        ${formatProbe(item)}
         <div class="url">${escapeHtml(item.url)}</div>
       </div>
       <button data-select="${item.index}">选择</button>
@@ -80,7 +96,13 @@ async function search() {
   resultsBox.innerHTML = '';
 
   try {
-    const data = await postJson('/api/search', { chat_id: chatId, keyword, limit: 12 });
+    const data = await postJson('/api/search', {
+      chat_id: chatId,
+      keyword,
+      limit: 12,
+      check_links: checkLinksInput?.checked ?? true,
+      probe_files: probeFilesInput?.checked ?? true,
+    });
     renderResults(data.results || []);
     setStatus(`找到 ${(data.results || []).length} 条结果。`, 'ok');
   } catch (err) {

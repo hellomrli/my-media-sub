@@ -23,7 +23,11 @@
         <input id="keyword" placeholder="例如：盗梦空间、庆余年 第二季" autocomplete="off" />
         <button id="searchBtn">搜索</button>
       </div>
-      <p class="hint">当前只搜索夸克资源。搜索结果来自 PanSou。</p>
+      <div class="options">
+        <label><input id="checkLinks" type="checkbox" checked /> 检测链接有效性</label>
+        <label><input id="probeFiles" type="checkbox" checked /> 嗅探分享内文件/剧集</label>
+      </div>
+      <p class="hint">当前只搜索夸克资源。搜索结果来自 PanSou；嗅探会稍慢，但能看到分享里大概有多少文件/集数。</p>
     </section>
 
     <section id="status" class="status hidden"></section>

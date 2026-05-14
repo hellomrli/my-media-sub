@@ -73,3 +73,31 @@ curl -X POST http://127.0.0.1:8787/api/wechat/message \
 - 夸克分享链接转存
 - OpenList 复制/下载到 NAS
 - 微信机器人适配器签名/鉴权
+
+## Enable Authentication
+
+Edit `.env`:
+
+```env
+APP_USERNAME=admin
+APP_PASSWORD=your-strong-password
+```
+
+Then restart:
+
+```bash
+docker compose up -d --build
+```
+
+The WebUI and APIs require HTTP Basic auth. `/health` remains public.
+
+## Link Check and Share File Probe
+
+Enabled by default:
+
+```env
+CHECK_LINKS=true
+PROBE_QUARK_FILES=true
+```
+
+The app will check whether Quark share links are alive and try to list files in the share so TV episode counts can be estimated.
