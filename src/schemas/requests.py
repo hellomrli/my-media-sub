@@ -1,0 +1,86 @@
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+
+class SearchRequest(BaseModel):
+    keyword: str = Field(..., min_length=1)
+    chat_id: str = "default"
+    limit: int = Field(default=8, ge=1, le=20)
+    cloud_types: list[str] | None = None
+    check_links: bool | None = None
+    probe_files: bool | None = None
+    filter_bad_links: bool | None = None
+
+
+class SelectRequest(BaseModel):
+    chat_id: str = "default"
+    index: int = Field(..., ge=1)
+
+
+class SubscribeRequest(BaseModel):
+    chat_id: str = "default"
+    index: int = Field(..., ge=1)
+    media_type: str = "series"  # movie | series | anime
+    notify_only: bool = True
+
+
+class CheckSubscriptionRequest(BaseModel):
+    subscription_id: str
+
+
+class UpdateSubscriptionRequest(BaseModel):
+    subscription_id: str
+    title: str | None = None
+    media_type: str | None = None
+    season: int | None = None
+    total_episode_number: int | None = None
+    enabled: bool | None = None
+    completed: bool | None = None
+    source_group: str | None = None
+    notify_only: bool | None = None
+    rules: dict[str, Any] | None = None
+
+
+class PlanSubscriptionRequest(BaseModel):
+    subscription_id: str
+    files: list[dict[str, Any]] | None = None
+    target_existing_files: list[str] | None = None
+    target_dir_exists: bool | None = None
+    rules: dict[str, Any] | None = None
+
+
+class DeleteSubscriptionRequest(BaseModel):
+    subscription_id: str
+
+
+class MarkNotificationReadRequest(BaseModel):
+    notification_id: str | None = None
+
+
+class DownloadRequest(BaseModel):
+    chat_id: str = "default"
+    index: int | None = Field(default=None, ge=1)
+    url: str | None = None
+    dir: str | None = None
+
+
+class WechatMessageRequest(BaseModel):
+    chat_id: str = "default"
+    text: str = Field(..., min_length=1)
+
+
+class SettingsUpdateRequest(BaseModel):
+    app_username: str | None = None
+    app_password: str | None = None
+    pansou_base_url: str | None = None
+    openlist_base_url: str | None = None
+    cloud_types: list[str] | None = None
+    check_links: bool | None = None
+    probe_quark_files: bool | None = None
+    filter_bad_links: bool | None = None
+    aria2_rpc_url: str | None = None
+    aria2_secret: str | None = None
+    aria2_dir: str | None = None

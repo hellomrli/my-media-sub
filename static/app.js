@@ -24,10 +24,37 @@ const subscriptionsBody = document.querySelector('#subscriptionsBody');
 const checkAllSubsBtn = document.querySelector('#checkAllSubsBtn');
 const notificationsBody = document.querySelector('#notificationsBody');
 const markAllReadBtn = document.querySelector('#markAllReadBtn');
+const subscriptionModal = document.querySelector('#subscriptionModal');
+const subscriptionForm = document.querySelector('#subscriptionForm');
+const subEditId = document.querySelector('#subEditId');
+const subEditTitle = document.querySelector('#subEditTitle');
+const subEditSeason = document.querySelector('#subEditSeason');
+const subEditTotal = document.querySelector('#subEditTotal');
+const subEditMediaType = document.querySelector('#subEditMediaType');
+const subEditEnabled = document.querySelector('#subEditEnabled');
+const subEditCompleted = document.querySelector('#subEditCompleted');
+const subEditOnlyLatest = document.querySelector('#subEditOnlyLatest');
+const subEditInclude = document.querySelector('#subEditInclude');
+const subEditExclude = document.querySelector('#subEditExclude');
+const subEditRegex = document.querySelector('#subEditRegex');
+const subEditTargetDir = document.querySelector('#subEditTargetDir');
+const subEditRenameTemplate = document.querySelector('#subEditRenameTemplate');
+const subEditRenameRegex = document.querySelector('#subEditRenameRegex');
+const subEditRenameReplacement = document.querySelector('#subEditRenameReplacement');
+const subEditAutoCreateDir = document.querySelector('#subEditAutoCreateDir');
+const subEditSkipExisting = document.querySelector('#subEditSkipExisting');
+const subEditIgnoreExt = document.querySelector('#subEditIgnoreExt');
+const previewSubPlanBtn = document.querySelector('#previewSubPlanBtn');
+const subPlanPreview = document.querySelector('#subPlanPreview');
+const pageTitle = document.querySelector('#pageTitle');
+const resultCount = document.querySelector('#resultCount');
+const resultCloudTabs = document.querySelector('#resultCloudTabs');
 
 const chatId = `webui-${Math.random().toString(36).slice(2)}`;
 let appSettings = null;
 const downloadLogs = [];
+let currentResultCloud = 'all';
+let lastSearchResults = [];
 
 const CLOUD_TYPE_NAMES_FALLBACK = {
   quark: '夸克网盘',
@@ -52,6 +79,8 @@ function cloudTypeName(type) {
 function showPage(pageId) {
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === pageId));
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.page === pageId));
+  const activeTab = document.querySelector(`.tab[data-page=\"${pageId}\"]`);
+  if (pageTitle && activeTab) pageTitle.textContent = activeTab.textContent.trim();
 }
 
 document.querySelectorAll('.tab').forEach(tab => {
@@ -142,27 +171,37 @@ function formatProbe(item) {
   return `<div class="meta">${bits.map(b => `<span>${b}</span>`).join('')}</div>${fileHtml}`;
 }
 
-function renderResults(results) {
-  selectedPanel.classList.add('hidden');
-  selectedBody.innerHTML = '';
 
-  if (!results.length) {
-    resultsBox.innerHTML = '<p class="empty">没有找到结果。</p>';
-    return;
+function groupResultsByCloud(results) {
+  const groups = [];
+  const byType = new Map();
+  for (const item of results) {
+    const type = item.cloud_type || 'unknown';
+    if (!byType.has(type)) {
+      const group = {
+        type,
+        name: item.cloud_name || cloudTypeName(type),
+        items: [],
+      };
+      byType.set(type, group);
+      groups.push(group);
+    }
+    byType.get(type).items.push(item);
   }
+  return groups;
+}
 
-  resultsBox.innerHTML = results.map(item => `
+function renderResultRow(item) {
+  return `
     <article class="result-card">
-      <div class="index">${item.index}</div>
+      <div><span class="index">${item.index}</span></div>
       <div>
         <h2 class="result-title">${escapeHtml(item.title)}</h2>
-        <div class="meta">
-          <span>来源：${escapeHtml(item.source || '未知')}</span>
-          <span>时间：${escapeHtml(item.datetime || '未知')}</span>
-        </div>
-        ${formatProbe(item)}
         <div class="url">${escapeHtml(item.url)}</div>
+        ${formatProbe(item)}
       </div>
+      <div class="meta"><span>${escapeHtml(item.source || '未知')}</span><span>${escapeHtml(item.datetime || '未知')}</span></div>
+      <div class="meta"><span>${escapeHtml(item.cloud_name || cloudTypeName(item.cloud_type))}</span>${item.download_capability?.label ? `<span>${escapeHtml(item.download_capability.label)}</span>` : ''}</div>
       <div class="card-actions">
         <button data-select="${item.index}">选择</button>
         ${(item.download_capability?.action === 'save_subscribe') ? `
@@ -172,13 +211,73 @@ function renderResults(results) {
             <option value="anime">动画</option>
           </select>
           <button class="secondary" data-subscribe="${item.index}">订阅</button>
-          <button class="secondary" disabled>转存待接入</button>
         ` : ''}
         ${(item.download_capability?.direct_aria2) ? `<button class="secondary" data-aria2="${item.index}">Aria2</button>` : ''}
-        ${(!item.download_capability?.direct_aria2 && item.download_capability?.action !== 'save_subscribe') ? `<button class="secondary" disabled>${escapeHtml(item.download_capability?.label || '复制链接')}</button>` : ''}
       </div>
     </article>
+  `;
+}
+
+function renderResultTabs(groups, total) {
+  if (!resultCloudTabs) return;
+  if (!groups.length) {
+    resultCloudTabs.classList.add('hidden');
+    resultCloudTabs.innerHTML = '';
+    return;
+  }
+  const tabs = [
+    { type: 'all', name: '全部', count: total },
+    ...groups.map(group => ({ type: group.type, name: group.name, count: group.items.length })),
+  ];
+  resultCloudTabs.classList.remove('hidden');
+  resultCloudTabs.innerHTML = tabs.map(tab => `
+    <button class="cloud-tab ${currentResultCloud === tab.type ? 'active' : ''}" data-cloud-tab="${escapeHtml(tab.type)}">
+      ${escapeHtml(tab.name)} <span>${tab.count}</span>
+    </button>
   `).join('');
+  resultCloudTabs.querySelectorAll('[data-cloud-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentResultCloud = btn.dataset.cloudTab || 'all';
+      renderResults(lastSearchResults, { keepTab: true });
+    });
+  });
+}
+
+function renderResults(results, options = {}) {
+  selectedPanel.classList.add('hidden');
+  selectedBody.innerHTML = '';
+  lastSearchResults = results;
+
+  if (!results.length) {
+    currentResultCloud = 'all';
+    if (resultCloudTabs) {
+      resultCloudTabs.classList.add('hidden');
+      resultCloudTabs.innerHTML = '';
+    }
+    resultsBox.className = 'results empty-card';
+    resultsBox.innerHTML = '<p class="empty">没有找到结果。</p>';
+    if (resultCount) resultCount.textContent = '0 条结果';
+    return;
+  }
+
+  const groups = groupResultsByCloud(results);
+  if (!options.keepTab || !['all', ...groups.map(g => g.type)].includes(currentResultCloud)) {
+    currentResultCloud = 'all';
+  }
+  renderResultTabs(groups, results.length);
+
+  const visibleResults = currentResultCloud === 'all'
+    ? results
+    : (groups.find(group => group.type === currentResultCloud)?.items || []);
+
+  resultsBox.className = 'results';
+  if (resultCount) {
+    const groupText = groups.map(group => `${group.name} ${group.items.length}`).join(' / ');
+    resultCount.textContent = currentResultCloud === 'all'
+      ? `${results.length} 条结果 · ${groupText}`
+      : `${visibleResults.length} 条结果 · ${cloudTypeName(currentResultCloud)}`;
+  }
+  resultsBox.innerHTML = visibleResults.map(renderResultRow).join('');
 
   resultsBox.querySelectorAll('[data-select]').forEach(btn => {
     btn.addEventListener('click', () => selectResult(Number(btn.dataset.select)));
@@ -200,7 +299,10 @@ async function search() {
 
   searchBtn.disabled = true;
   setStatus('正在搜索 PanSou...');
-  resultsBox.innerHTML = '';
+  resultsBox.className = 'results empty-card';
+  resultsBox.innerHTML = '<p class="empty">正在搜索，请稍候...</p>';
+  if (resultCount) resultCount.textContent = '搜索中';
+  if (resultCloudTabs) { resultCloudTabs.classList.add('hidden'); resultCloudTabs.innerHTML = ''; }
 
   try {
     const data = await postJson('/api/search', {
@@ -256,6 +358,9 @@ function renderNotifications(items) {
         <div class="meta"><span>${escapeHtml(formatNotificationTime(item.created_at))}</span><span>${escapeHtml(item.event)}</span></div>
         <p>${escapeHtml(item.message)}</p>
       </div>
+      <div><span class="badge ${item.level === 'warning' ? 'orange' : 'green'}">${escapeHtml(item.level)}</span></div>
+      <div class="muted">${item.read ? '已读' : '未读'}</div>
+      <div class="muted">${escapeHtml(formatNotificationTime(item.created_at))}</div>
       <div class="card-actions">
         <button class="secondary" data-read-notification="${item.id}">已读</button>
       </div>
@@ -301,6 +406,10 @@ function formatTime(ts) {
   return new Date(ts * 1000).toLocaleString();
 }
 
+function splitKeywords(value) {
+  return String(value || '').split(/[,，]/).map(x => x.trim()).filter(Boolean);
+}
+
 function renderSubscriptions(subs) {
   if (!subs.length) {
     subscriptionsBody.innerHTML = '<p class="empty">还没有订阅。搜索连续剧后点击“订阅”。</p>';
@@ -308,31 +417,29 @@ function renderSubscriptions(subs) {
   }
   subscriptionsBody.innerHTML = subs.map(sub => {
     const newFiles = sub.last_new_files || [];
-    const files = (sub.known_files || []).slice(-12);
+    const files = (sub.known_files || []).slice(-6);
+    const statusText = sub.status === 'invalid' ? '链接疑似失效' : (sub.completed ? '已完结' : (sub.enabled === false ? '已停用' : '正常'));
     return `<article class="sub-card">
       <div>
         <h3>${escapeHtml(sub.title)}</h3>
-        <div class="meta">
-          <span>类型：${sub.media_type === 'anime' ? '动画' : '连续剧'}</span>
-          <span>第 ${escapeHtml(sub.season || 1)} 季</span>
-          <span>进度：${escapeHtml(sub.current_episode_number || 0)} / ${escapeHtml(sub.total_episode_number || '*')}</span>
-          <span>状态：${sub.status === 'invalid' ? '链接疑似失效' : '正常'}</span>
-          <span>网盘：${escapeHtml(cloudTypeName(sub.cloud_type))}</span>
-          <span>已知文件：${escapeHtml((sub.known_files || []).length)}</span>
-          <span>最后检查：${escapeHtml(formatTime(sub.last_checked_at))}</span>
+        <div class="meta"><span>${sub.media_type === 'anime' ? '动画' : '连续剧'}</span><span>${escapeHtml(cloudTypeName(sub.cloud_type))}</span><span>已知 ${escapeHtml((sub.known_files || []).length)} 个文件</span></div>
+        <div class="rule-summary">
+          ${sub.rules?.target_dir ? `<span>目录：${escapeHtml(sub.rules.target_dir)}</span>` : ''}
+          ${sub.rules?.match_regex ? `<span>过滤：${escapeHtml(sub.rules.match_regex)}</span>` : ''}
+          ${sub.rules?.rename_template ? `<span>模板：${escapeHtml(sub.rules.rename_template)}</span>` : ''}
+          ${sub.rules?.rename_regex ? `<span>替换：${escapeHtml(sub.rules.rename_regex)} → ${escapeHtml(sub.rules.rename_replacement || '')}</span>` : ''}
+          ${sub.rules?.skip_existing_transferred ? '<span>跳过已转存</span>' : ''}
         </div>
-        ${sub.enabled === false ? `<p class="status">已停用，不会自动检查。</p>` : ''}
-        ${sub.completed ? `<p class="status ok">已标记完结。</p>` : ''}
-        ${sub.status === 'invalid' ? `<p class="status error">链接疑似失效：${escapeHtml(sub.last_error || '分享不可访问')}</p>` : ''}
-        ${newFiles.length ? `<p class="status ok">发现新文件：${escapeHtml(newFiles.join('、'))}</p>` : ''}
-        <p class="hint">${escapeHtml(sub.last_check_summary || '尚未检查')}</p>
-        <ol class="file-list">${files.map(name => `<li>${escapeHtml(name)}</li>`).join('')}</ol>
+        ${files.length ? `<ol class="file-list">${files.map(name => `<li>${escapeHtml(name)}</li>`).join('')}</ol>` : ''}
       </div>
+      <div><span class="badge ${sub.completed ? 'green' : ''}">${escapeHtml(sub.current_episode_number || 0)} / ${escapeHtml(sub.total_episode_number || '*')}</span></div>
+      <div><span class="badge ${sub.status === 'invalid' ? 'red' : sub.enabled === false ? 'orange' : 'green'}">${statusText}</span>${newFiles.length ? `<p class="status ok">新增 ${newFiles.length} 个</p>` : ''}</div>
+      <div class="muted">${escapeHtml(formatTime(sub.last_checked_at))}</div>
       <div class="card-actions">
-        <button class="secondary" data-check-sub="${sub.id}">检查更新</button>
-        <button class="secondary" data-edit-sub="${sub.id}">编辑规则</button>
+        <button class="secondary" data-check-sub="${sub.id}">刷新</button>
+        <button class="secondary" data-edit-sub="${sub.id}">编辑</button>
         <button class="secondary" data-toggle-sub="${sub.id}">${sub.enabled === false ? '启用' : '停用'}</button>
-        <button class="secondary" data-delete-sub="${sub.id}">删除</button>
+        <button class="danger" data-delete-sub="${sub.id}">删除</button>
       </div>
     </article>`;
   }).join('');
@@ -367,27 +474,127 @@ async function editSubscription(id) {
   const data = await requestJson('/api/subscriptions');
   const sub = (data.subscriptions || []).find(x => x.id === id);
   if (!sub) return;
-  const title = prompt('订阅标题', sub.title || '') ?? sub.title;
-  const season = Number(prompt('季数', sub.season || 1) || sub.season || 1);
-  const totalRaw = prompt('总集数（未知留空）', sub.total_episode_number || '');
-  const include = prompt('包含关键词，多个用逗号分隔', (sub.rules?.include_keywords || []).join(','));
-  const exclude = prompt('排除关键词，多个用逗号分隔', (sub.rules?.exclude_keywords || []).join(','));
-  const regex = prompt('匹配正则（可空）', sub.rules?.match_regex || '');
-  const onlyLatest = confirm('是否只处理最新一集？点“确定”启用，点“取消”关闭。');
+  openSubscriptionModal(sub);
+}
+
+function openSubscriptionModal(sub) {
+  const rules = sub.rules || {};
+  subEditId.value = sub.id || '';
+  subEditTitle.value = sub.title || '';
+  subEditSeason.value = sub.season || 1;
+  subEditTotal.value = sub.total_episode_number || '';
+  subEditMediaType.value = sub.media_type || 'series';
+  subEditEnabled.checked = sub.enabled !== false;
+  subEditCompleted.checked = !!sub.completed;
+  subEditOnlyLatest.checked = !!rules.only_latest;
+  subEditInclude.value = (rules.include_keywords || []).join(', ');
+  subEditExclude.value = (rules.exclude_keywords || []).join(', ');
+  subEditRegex.value = rules.match_regex || '';
+  subEditTargetDir.value = rules.target_dir || '';
+  subEditRenameTemplate.value = rules.rename_template || '';
+  subEditRenameRegex.value = rules.rename_regex || '';
+  subEditRenameReplacement.value = rules.rename_replacement || '';
+  subEditAutoCreateDir.checked = rules.auto_create_target_dir !== false;
+  subEditSkipExisting.checked = rules.skip_existing_transferred !== false;
+  subEditIgnoreExt.checked = !!rules.ignore_extensions;
+  if (subPlanPreview) {
+    subPlanPreview.className = 'plan-preview empty';
+    subPlanPreview.textContent = '点击“预览规划”查看哪些文件会转存、跳过以及重命名结果。';
+  }
+  subscriptionModal?.classList.remove('hidden');
+  subEditTitle?.focus();
+}
+
+function closeSubscriptionModal() {
+  subscriptionModal?.classList.add('hidden');
+}
+
+function collectSubscriptionRulesFromModal() {
+  return {
+    include_keywords: splitKeywords(subEditInclude.value),
+    exclude_keywords: splitKeywords(subEditExclude.value),
+    match_regex: subEditRegex.value.trim(),
+    only_latest: subEditOnlyLatest.checked,
+    target_dir: subEditTargetDir.value.trim(),
+    auto_create_target_dir: subEditAutoCreateDir.checked,
+    skip_existing_transferred: subEditSkipExisting.checked,
+    rename_template: subEditRenameTemplate.value.trim(),
+    rename_regex: subEditRenameRegex.value.trim(),
+    rename_replacement: subEditRenameReplacement.value,
+    ignore_extensions: subEditIgnoreExt.checked,
+  };
+}
+
+function renderPlanPreview(plan) {
+  if (!subPlanPreview) return;
+  const items = plan.items || [];
+  if (!items.length) {
+    subPlanPreview.className = 'plan-preview empty';
+    subPlanPreview.textContent = '当前没有可预览的文件。请先检查订阅或搜索时开启文件嗅探。';
+    return;
+  }
+  subPlanPreview.className = 'plan-preview';
+  subPlanPreview.innerHTML = `
+    <div class="plan-summary">
+      <span>${escapeHtml(plan.summary || '')}</span>
+      <span>待转存：${escapeHtml(plan.transfer_count || 0)}</span>
+      <span>跳过：${escapeHtml(plan.skip_count || 0)}</span>
+    </div>
+    <div class="plan-table">
+      <div class="plan-row plan-head"><span>动作</span><span>源文件</span><span>目标文件</span><span>原因</span></div>
+      ${items.slice(0, 80).map(item => `
+        <div class="plan-row ${item.action === 'transfer' ? 'will-transfer' : 'will-skip'}">
+          <span>${item.action === 'transfer' ? '转存' : '跳过'}</span>
+          <span>${escapeHtml(item.source_name || '')}</span>
+          <span>${escapeHtml(item.target_name || '')}</span>
+          <span>${escapeHtml(item.skip_reason || '-')}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function previewSubscriptionPlan() {
+  const id = subEditId.value;
+  if (!id) return;
+  previewSubPlanBtn.disabled = true;
+  if (subPlanPreview) {
+    subPlanPreview.className = 'plan-preview empty';
+    subPlanPreview.textContent = '正在生成规划...';
+  }
+  try {
+    const data = await postJson('/api/subscriptions/plan', {
+      subscription_id: id,
+      rules: collectSubscriptionRulesFromModal(),
+    });
+    renderPlanPreview(data.plan || {});
+  } catch (err) {
+    if (subPlanPreview) {
+      subPlanPreview.className = 'plan-preview empty error-text';
+      subPlanPreview.textContent = `规划失败：${err.message}`;
+    }
+  } finally {
+    previewSubPlanBtn.disabled = false;
+  }
+}
+
+async function saveSubscriptionModal(event) {
+  event.preventDefault();
+  const id = subEditId.value;
+  if (!id) return;
   await postJson('/api/subscriptions/update', {
     subscription_id: id,
-    title,
-    season,
-    total_episode_number: totalRaw ? Number(totalRaw) : null,
-    rules: {
-      include_keywords: include ? include.split(/[,，]/).map(x => x.trim()).filter(Boolean) : [],
-      exclude_keywords: exclude ? exclude.split(/[,，]/).map(x => x.trim()).filter(Boolean) : [],
-      match_regex: regex || '',
-      only_latest: onlyLatest,
-    }
+    title: subEditTitle.value.trim(),
+    media_type: subEditMediaType.value,
+    season: Number(subEditSeason.value || 1),
+    total_episode_number: subEditTotal.value ? Number(subEditTotal.value) : null,
+    enabled: subEditEnabled.checked,
+    completed: subEditCompleted.checked,
+rules: collectSubscriptionRulesFromModal()
   });
+  closeSubscriptionModal();
   await loadSubscriptions();
-  setStatus('订阅规则已更新。', 'ok');
+  setStatus('订阅规则已保存。自动转存/重命名执行器将在下一阶段接入。', 'ok');
 }
 
 async function checkSubscription(id) {
@@ -496,6 +703,10 @@ testAria2Btn.addEventListener('click', testAria2);
 
 checkAllSubsBtn.addEventListener('click', checkAllSubscriptions);
 markAllReadBtn.addEventListener('click', markAllNotificationsRead);
+subscriptionForm?.addEventListener('submit', saveSubscriptionModal);
+previewSubPlanBtn?.addEventListener('click', previewSubscriptionPlan);
+document.querySelectorAll('[data-close-sub-modal]').forEach(el => el.addEventListener('click', closeSubscriptionModal));
+document.addEventListener('keydown', event => { if (event.key === 'Escape') closeSubscriptionModal(); });
 
 loadSettings()
   .then(loadSubscriptions)

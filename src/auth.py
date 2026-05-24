@@ -4,7 +4,7 @@ import secrets
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
-from .settings_store import settings_store
+from .stores.settings_store import settings_store
 
 security = HTTPBasic(auto_error=False)
 

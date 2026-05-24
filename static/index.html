@@ -7,79 +7,99 @@
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-  <main class="app">
-    <section class="hero">
+  <header class="top-nav">
+    <div class="brand">
+      <span class="brand-mark">▶</span>
+      <strong>Lain 的媒体订阅</strong>
+      <span class="version">v0.3</span>
+    </div>
+    <nav class="tabs" aria-label="主导航">
+      <button class="tab active" data-page="searchPage">资源搜索</button>
+      <button class="tab" data-page="subscriptionsPage">订阅清单</button>
+      <button class="tab" data-page="logsPage">通知记录</button>
+      <button class="tab" data-page="settingsPage">系统设置</button>
+    </nav>
+    <a id="openlistLink" class="openlist" href="https://pan.lxf87.com.cn/" target="_blank" rel="noreferrer">OpenList</a>
+  </header>
+
+  <main class="app-shell">
+    <section class="page-head">
       <div>
-        <p class="eyebrow">PanSou · OpenList · Aria2 · NAS</p>
-        <h1>Lain 的媒体订阅</h1>
-        <p class="subtitle">你的本地化媒体管家：搜索资源、过滤失效链接、嗅探剧集，并订阅连续剧/动画更新。</p>
+        <h1 id="pageTitle">资源搜索</h1>
+        <p>PanSou · 夸克网盘 · Aria2 · OpenList / NAS</p>
       </div>
-      <div class="hero-actions">
-        <a id="openlistLink" class="openlist" href="https://pan.lxf87.com.cn/" target="_blank" rel="noreferrer">打开 OpenList</a>
-      </div>
+      <div id="status" class="status hidden" role="status"></div>
     </section>
 
-    <nav class="tabs">
-      <button class="tab active" data-page="searchPage">搜索</button>
-      <button class="tab" data-page="subscriptionsPage">订阅</button>
-      <button class="tab" data-page="logsPage">日志与下载</button>
-      <button class="tab" data-page="settingsPage">设置</button>
-    </nav>
-
-    <section id="status" class="status hidden"></section>
-
     <section id="searchPage" class="page active">
-      <section class="panel search-panel">
-        <label for="keyword">影视名称</label>
-        <div class="search-row">
-          <input id="keyword" placeholder="例如：盗梦空间、庆余年 第二季" autocomplete="off" />
-          <button id="searchBtn">搜索</button>
+      <section class="toolbar panel">
+        <div class="toolbar-main">
+          <label>影视名称</label>
+          <div class="search-row">
+            <input id="keyword" placeholder="例如：盗梦空间、庆余年 第二季" autocomplete="off" />
+            <button id="searchBtn" class="primary">查询</button>
+          </div>
         </div>
-        <div id="cloudTypes" class="options"></div>
-        <div class="options">
-          <label><input id="checkLinks" type="checkbox" checked /> 检测链接有效性</label>
-          <label><input id="probeFiles" type="checkbox" checked /> 嗅探分享内文件/剧集</label>
-          <label><input id="filterBadLinks" type="checkbox" checked /> 过滤失效链接</label>
-        </div>
-        <p class="hint">电影不会创建追更订阅；只有“连续剧”和“动画”会被订阅跟踪。</p>
+        <details class="advanced-options">
+          <summary>筛选配置</summary>
+          <div id="cloudTypes" class="chip-grid"></div>
+          <div class="switch-grid">
+            <label><input id="checkLinks" type="checkbox" checked /> 检测链接</label>
+            <label><input id="probeFiles" type="checkbox" checked /> 嗅探文件</label>
+            <label><input id="filterBadLinks" type="checkbox" checked /> 过滤失效</label>
+          </div>
+        </details>
       </section>
 
-      <section id="results" class="results"></section>
+      <section class="panel table-panel">
+        <div class="panel-title-row">
+          <h2>资源列表</h2>
+          <span id="resultCount" class="muted">等待搜索</span>
+        </div>
+        <div id="resultCloudTabs" class="result-cloud-tabs hidden"></div>
+        <div class="table-head result-head">
+          <span>#</span><span>资源信息</span><span>来源</span><span>状态</span><span>操作</span>
+        </div>
+        <section id="results" class="results empty-card">输入关键词后开始搜索。</section>
+      </section>
 
-      <section id="selected" class="panel selected hidden">
-        <h2>已选择</h2>
+      <section id="selected" class="panel selected-panel hidden">
+        <div class="panel-title-row"><h2>已选择资源</h2></div>
         <div id="selectedBody"></div>
       </section>
     </section>
 
     <section id="subscriptionsPage" class="page">
-      <section class="panel selected">
+      <section class="panel table-panel">
         <div class="panel-title-row">
-          <h2>我的订阅</h2>
-          <button id="checkAllSubsBtn" class="secondary small">检查全部更新</button>
+          <h2>订阅清单</h2>
+          <button id="checkAllSubsBtn" class="secondary small">刷新所有</button>
+        </div>
+        <div class="table-head sub-head">
+          <span>订阅主题</span><span>进度</span><span>状态</span><span>最近检查</span><span>操作</span>
         </div>
         <div id="subscriptionsBody" class="subscriptions-body"></div>
       </section>
     </section>
 
-    <section id="logsPage" class="page">
-      <section class="panel selected">
+    <section id="logsPage" class="page two-col">
+      <section class="panel table-panel">
         <div class="panel-title-row">
           <h2>通知中心</h2>
           <button id="markAllReadBtn" class="secondary small">全部已读</button>
         </div>
         <div id="notificationsBody" class="subscriptions-body"></div>
       </section>
-      <section class="panel selected">
-        <h2>下载任务</h2>
-        <p class="hint">这里目前展示 Aria2 提交结果；后续会接入下载历史和 OpenList/NAS 任务状态。</p>
+      <section class="panel table-panel">
+        <div class="panel-title-row"><h2>下载任务</h2></div>
+        <p class="hint">目前展示 Aria2 提交结果；后续接入下载历史和 OpenList/NAS 任务状态。</p>
         <div id="downloadsBody" class="subscriptions-body"><p class="empty">暂无下载记录。</p></div>
       </section>
     </section>
 
     <section id="settingsPage" class="page">
       <section class="panel settings">
-        <div class="panel-title-row"><h2>设置</h2></div>
+        <div class="panel-title-row"><h2>系统设置</h2></div>
         <div class="settings-grid">
           <label>登录账号<input id="setUsername" autocomplete="username" /></label>
           <label>新密码<input id="setPassword" type="password" autocomplete="new-password" placeholder="留空则不修改" /></label>
@@ -89,15 +109,78 @@
           <label>Aria2 Secret<input id="setAria2Secret" type="password" placeholder="留空则不修改" /></label>
           <label>Aria2 下载目录<input id="setAria2Dir" placeholder="/downloads" /></label>
         </div>
-        <div id="settingsCloudTypes" class="options"></div>
+        <div id="settingsCloudTypes" class="chip-grid settings-clouds"></div>
         <div class="settings-actions">
-          <button id="saveSettingsBtn">保存设置</button>
+          <button id="saveSettingsBtn" class="primary">保存设置</button>
           <button id="testAria2Btn" class="secondary">测试 Aria2</button>
         </div>
         <p class="hint">账号密码保存后立即生效；如果改了密码，浏览器可能会弹出重新登录。</p>
       </section>
     </section>
   </main>
+
+  <div id="subscriptionModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="subscriptionModalTitle">
+    <div class="modal-mask" data-close-sub-modal="1"></div>
+    <form id="subscriptionForm" class="modal-card">
+      <div class="modal-head">
+        <h2 id="subscriptionModalTitle">编辑订阅规则</h2>
+        <button type="button" class="icon-btn" data-close-sub-modal="1">×</button>
+      </div>
+      <input id="subEditId" type="hidden" />
+      <div class="form-section">
+        <h3>基础信息</h3>
+        <div class="form-grid">
+          <label>订阅标题<input id="subEditTitle" name="title" /></label>
+          <label>季数<input id="subEditSeason" name="season" type="number" min="1" /></label>
+          <label>总集数<input id="subEditTotal" name="total" type="number" min="1" placeholder="未知留空" /></label>
+          <label>媒体类型
+            <select id="subEditMediaType" name="media_type">
+              <option value="series">连续剧</option>
+              <option value="anime">动画</option>
+            </select>
+          </label>
+        </div>
+        <div class="switch-grid flat">
+          <label><input id="subEditEnabled" type="checkbox" /> 启用订阅</label>
+          <label><input id="subEditCompleted" type="checkbox" /> 标记完结</label>
+          <label><input id="subEditOnlyLatest" type="checkbox" /> 只处理最新一集</label>
+        </div>
+      </div>
+      <div class="form-section">
+        <h3>匹配过滤</h3>
+        <div class="form-grid">
+          <label>包含关键词<input id="subEditInclude" placeholder="多个用逗号分隔" /></label>
+          <label>排除关键词<input id="subEditExclude" placeholder="多个用逗号分隔" /></label>
+          <label class="wide">匹配正则<input id="subEditRegex" placeholder="例如：E\d{2}|第\d+集" /></label>
+        </div>
+      </div>
+      <div class="form-section">
+        <h3>转存与重命名规则 <span class="muted">执行器待接入，当前先保存规则</span></h3>
+        <div class="form-grid">
+          <label>目标目录<input id="subEditTargetDir" placeholder="例如：/pansou/剧集/片名" /></label>
+          <label>保存/重命名模板<input id="subEditRenameTemplate" placeholder="例如：剧名.S01E{}" /></label>
+          <label>重命名正则查找<input id="subEditRenameRegex" placeholder="例如：第(\d+)集" /></label>
+          <label>重命名正则替换<input id="subEditRenameReplacement" placeholder="例如：E$1" /></label>
+        </div>
+        <div class="switch-grid flat">
+          <label><input id="subEditAutoCreateDir" type="checkbox" /> 目标目录不存在时自动新建</label>
+          <label><input id="subEditSkipExisting" type="checkbox" /> 跳过已转存过的文件</label>
+          <label><input id="subEditIgnoreExt" type="checkbox" /> 匹配/重命名时忽略文件后缀</label>
+        </div>
+      </div>
+      <div class="form-section">
+        <div class="panel-title-row inline-title">
+          <h3>规则预览</h3>
+          <button id="previewSubPlanBtn" type="button" class="secondary small">预览规划</button>
+        </div>
+        <div id="subPlanPreview" class="plan-preview empty">点击“预览规划”查看哪些文件会转存、跳过以及重命名结果。</div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="secondary" data-close-sub-modal="1">取消</button>
+        <button type="submit" class="primary">保存规则</button>
+      </div>
+    </form>
+  </div>
 
   <script src="/static/app.js"></script>
 </body>

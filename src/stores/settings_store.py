@@ -5,8 +5,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from . import config
-from .cloud_names import CLOUD_TYPE_NAMES
+from .. import config
+from ..utils.cloud_names import CLOUD_TYPE_NAMES
 
 SETTINGS_PATH = Path(os.getenv("SETTINGS_PATH", "/data/settings.json"))
 
