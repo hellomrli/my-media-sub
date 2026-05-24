@@ -21,7 +21,7 @@ WeChat Bot Adapter
 5. Session store maps chat/user to candidates
 6. User sends: `选 2`
 7. Bot loads candidate #2
-8. Quark Save Service saves share link to `/pansou/<category>/<title>`
+8. Quark Save Service saves share link to `${QUARK_SAVE_ROOT}/<category>/<title>`
 9. OpenList exposes saved files
 10. NAS copy/sync starts
 11. Bot sends completion message

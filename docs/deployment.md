@@ -11,9 +11,9 @@ cp .env.example .env
 2. Edit `.env`:
 
 ```env
-PANSOU_BASE_URL=https://pansou.lxf87.com.cn
-OPENLIST_BASE_URL=https://pan.lxf87.com.cn
-QUARK_SAVE_ROOT=/pansou
+PANSOU_BASE_URL=https://your-pansou.example.com
+OPENLIST_BASE_URL=https://your-openlist.example.com
+QUARK_SAVE_ROOT=/your/quark/save/root
 BOT_PORT=8787
 ```
 

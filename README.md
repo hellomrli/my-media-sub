@@ -13,18 +13,12 @@
   ↓
 用户回复“选 2”或在 WebUI 点击选择
   ↓
-转存夸克分享链接到个人夸克网盘 /pansou
+转存夸克分享链接到配置的夸克网盘目录
   ↓
 OpenList 挂载夸克目录
   ↓
 NAS 通过 OpenList 下载/同步到媒体库
 ```
-
-## 当前已知环境
-
-- PanSou API: `https://pansou.lxf87.com.cn`
-- OpenList: `https://pan.lxf87.com.cn/`
-- 夸克保存目录：`/pansou`
 
 ## 当前能力
 

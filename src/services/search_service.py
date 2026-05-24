@@ -154,6 +154,6 @@ def select_result(chat_id: str, index: int) -> dict[str, Any]:
         "reply": (
             f"已选择：{item['title']}\n"
             f"链接：{item['url']}\n\n"
-            "可以在 WebUI 点击发送到 Aria2；夸克转存到 /pansou 将在下一阶段接入。"
+            "可以在 WebUI 点击发送到 Aria2；夸克转存到配置的保存目录将在下一阶段接入。"
         ),
     }
