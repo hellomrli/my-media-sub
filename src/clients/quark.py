@@ -126,6 +126,7 @@ class QuarkShareProbe:
                 normalized = {
                     "name": name,
                     "fid": fid,
+                    "share_fid_token": item.get("share_fid_token") or item.get("file_token") or "",
                     "is_dir": is_dir,
                     "size": item.get("size") or 0,
                     "category": item.get("category"),

@@ -1,0 +1,107 @@
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+import requests
+
+logger = logging.getLogger(__name__)
+
+
+class QuarkSaveClient:
+    """Save files from a Quark share link to the user's own Quark drive."""
+
+    def __init__(self, cookie: str = ""):
+        self.cookie = cookie or ""
+        self.session = requests.Session()
+        self.session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Referer": "https://pan.quark.cn/",
+            "Origin": "https://pan.quark.cn",
+        })
+        if self.cookie:
+            self.session.headers.update({"Cookie": self.cookie})
+
+    def _get(self, path: str, params: dict[str, Any] | None = None, timeout: int = 20) -> dict[str, Any]:
+        url = "https://drive-pc.quark.cn/1/clouddrive" + path
+        params = dict(params or {})
+        params.setdefault("pr", "ucpro")
+        params.setdefault("fr", "pc")
+        resp = self.session.get(url, params=params, timeout=timeout)
+        resp.raise_for_status()
+        return resp.json()
+
+    def _post(self, path: str, payload: dict[str, Any] | None = None, timeout: int = 20) -> dict[str, Any]:
+        url = "https://drive-pc.quark.cn/1/clouddrive" + path
+        params = {"pr": "ucpro", "fr": "pc"}
+        resp = self.session.post(url, params=params, json=payload or {}, timeout=timeout)
+        resp.raise_for_status()
+        return resp.json()
+
+    # ── Target directory management ──────────────────────────────────
+
+    def list_dir(self, parent_fid: str = "0") -> list[dict[str, Any]]:
+        data = self._get("/file/sort", params={"pid": parent_fid, "_page": "1", "_size": "200"})
+        return (data.get("data") or {}).get("list") or []
+
+    def create_dir(self, parent_fid: str, name: str) -> str | None:
+        payload = {"pdir_fid": parent_fid, "file_name": [name], "dir_init": True}
+        data = self._post("/file", payload)
+        result = data.get("data", {})
+        if isinstance(result, list) and result:
+            return result[0].get("fid")
+        if isinstance(result, dict):
+            return result.get("fid")
+        return None
+
+    def ensure_dir_path(self, path: str) -> str:
+        parent_fid = "0"
+        for part in [p for p in path.strip("/").split("/") if p]:
+            items = self.list_dir(parent_fid)
+            found = None
+            for item in items:
+                name = item.get("file_name") or item.get("name") or ""
+                is_dir = bool(item.get("dir") or item.get("file_type") == 0)
+                if is_dir and name == part:
+                    found = item.get("fid") or item.get("file_id")
+                    break
+            if found:
+                parent_fid = found
+            else:
+                created = self.create_dir(parent_fid, part)
+                if not created:
+                    raise RuntimeError(f"无法创建夸克目录 {parent_fid}/{part}")
+                parent_fid = created
+        return parent_fid
+
+    # ── Save share files ──────────────────────────────────────────────
+
+    def save_share_files(
+        self,
+        pwd_id: str,
+        stoken: str,
+        fid_list: list[str],
+        fid_token_list: list[str],
+        to_pdir_fid: str = "0",
+    ) -> dict[str, Any]:
+        payload = {
+            "fid_list": fid_list,
+            "fid_token_list": fid_token_list,
+            "to_pdir_fid": to_pdir_fid,
+            "pwd_id": pwd_id,
+            "stoken": stoken,
+        }
+        return self._post("/share/sharepage/save", payload)
+
+    def save_entire_share(self, pwd_id: str, stoken: str, top_files: list[dict[str, Any]], to_pdir_fid: str = "0") -> dict[str, Any]:
+        fid_list, fid_token_list = [], []
+        for f in top_files:
+            fid = f.get("fid")
+            token = f.get("share_fid_token") or ""
+            if fid and token:
+                fid_list.append(fid)
+                fid_token_list.append(token)
+        if not fid_list:
+            return {"code": 1, "message": "没有可转存的文件"}
+        return self.save_share_files(pwd_id, stoken, fid_list, fid_token_list, to_pdir_fid)

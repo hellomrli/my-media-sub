@@ -50,10 +50,10 @@ def update_subscription(req: UpdateSubscriptionRequest):
 @router.post("/api/subscriptions/check")
 def check_subscription(req: CheckSubscriptionRequest):
     try:
-        updated, new_files, became_invalid = subscription_service.check_subscription(req.subscription_id)
+        updated, new_files, became_invalid, downloads, quark_saves = subscription_service.check_subscription(req.subscription_id)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
-    return {"subscription": updated, "new_files": new_files, "became_invalid": became_invalid}
+    return {"subscription": updated, "new_files": new_files, "became_invalid": became_invalid, "downloads": downloads, "quark_saves": quark_saves}
 
 
 @router.post("/api/subscriptions/plan")

@@ -4,7 +4,10 @@ from typing import Any
 
 from ..clients.quark import QuarkShareProbe
 from ..stores.notification_store import notification_store
+from ..stores.settings_store import settings_store
 from ..stores.subscription_store import subscription_store
+from .download_service import download_urls_with_aria2
+from .quark_save_service import save_subscription_transfers
 from .search_service import sessions
 from .transfer_rule_service import build_transfer_plan
 
@@ -52,7 +55,7 @@ def plan_subscription(subscription_id: str, files: list[dict[str, Any]] | None =
     return build_transfer_plan(sub, probe_files, target_existing_files=target_existing_files, target_dir_exists=target_dir_exists)
 
 
-def check_subscription(subscription_id: str) -> tuple[dict[str, Any] | None, list[str], bool]:
+def check_subscription(subscription_id: str) -> tuple[dict[str, Any] | None, list[str], bool, list[dict[str, Any]], list[dict[str, Any]]]:
     sub = subscription_store.get(subscription_id)
     if not sub:
         raise LookupError("订阅不存在。")
@@ -60,7 +63,9 @@ def check_subscription(subscription_id: str) -> tuple[dict[str, Any] | None, lis
     plan = build_transfer_plan(sub, probe.get("files") or [])
     updated, new_files, became_invalid = subscription_store.update_check(subscription_id, probe, plan)
     add_check_notifications(updated, new_files, became_invalid)
-    return updated, new_files, became_invalid
+    downloads = maybe_download_new_items(updated, plan)
+    quark_saves = save_subscription_transfers(updated, plan)
+    return updated, new_files, became_invalid, downloads, quark_saves
 
 
 def check_all_subscriptions() -> list[dict[str, Any]]:
@@ -72,8 +77,43 @@ def check_all_subscriptions() -> list[dict[str, Any]]:
         plan = build_transfer_plan(sub, probe.get("files") or [])
         updated, new_files, became_invalid = subscription_store.update_check(sub["id"], probe, plan)
         add_check_notifications(updated, new_files, became_invalid)
-        results.append({"subscription": updated, "new_files": new_files, "became_invalid": became_invalid})
+        downloads = maybe_download_new_items(updated, plan)
+        quark_saves = save_subscription_transfers(updated, plan)
+        results.append({"subscription": updated, "new_files": new_files, "became_invalid": became_invalid, "downloads": downloads, "quark_saves": quark_saves})
     return results
+
+
+def maybe_download_new_items(updated: dict[str, Any] | None, plan: dict[str, Any]) -> list[dict[str, Any]]:
+    if not updated or updated.get("notify_only"):
+        return []
+    settings = settings_store.get()
+    if not settings.get("auto_download_new_subscription_items"):
+        return []
+    transfers = plan.get("transfers") or []
+    source_url = updated.get("url") or ""
+    urls = [source_url] if transfers and source_url else []
+    if not urls:
+        return []
+    try:
+        downloads = download_urls_with_aria2(urls, settings.get("aria2_dir"))
+    except Exception as exc:
+        notification_store.add(
+            "warning",
+            "subscription_download_failed",
+            f"订阅自动下载失败：{updated.get('title')}",
+            str(exc),
+            {"subscription_id": updated.get("id"), "url": updated.get("url")},
+        )
+        return []
+    subscription_store.mark_transferred(updated["id"], transfers)
+    notification_store.add(
+        "info",
+        "subscription_download_started",
+        f"订阅已发送到 Aria2：{updated.get('title')}",
+        f"已提交 {len(downloads)} 个下载任务。",
+        {"subscription_id": updated.get("id"), "downloads": downloads},
+    )
+    return downloads
 
 
 def add_check_notifications(updated: dict[str, Any] | None, new_files: list[str], became_invalid: bool) -> None:

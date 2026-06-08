@@ -19,6 +19,12 @@ const setOpenlist = document.querySelector('#setOpenlist');
 const setAria2Rpc = document.querySelector('#setAria2Rpc');
 const setAria2Secret = document.querySelector('#setAria2Secret');
 const setAria2Dir = document.querySelector('#setAria2Dir');
+const setAutoDownloadNewItems = document.querySelector('#setAutoDownloadNewItems');
+const setSubscriptionScheduler = document.querySelector('#setSubscriptionScheduler');
+const setSubscriptionInterval = document.querySelector('#setSubscriptionInterval');
+const setQuarkSaveEnabled = document.querySelector('#setQuarkSaveEnabled');
+const setQuarkCookie = document.querySelector('#setQuarkCookie');
+const setQuarkSaveRoot = document.querySelector('#setQuarkSaveRoot');
 const downloadsBody = document.querySelector('#downloadsBody');
 const subscriptionsBody = document.querySelector('#subscriptionsBody');
 const checkAllSubsBtn = document.querySelector('#checkAllSubsBtn');
@@ -107,7 +113,8 @@ function escapeHtml(value) {
 }
 
 async function requestJson(url, options = {}) {
-  const res = await fetch(url, options);
+  const requestUrl = new URL(url, window.location.origin);
+  const res = await fetch(requestUrl, options);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(data.detail || data.message || `请求失败：${res.status}`);
@@ -146,6 +153,12 @@ function applySettingsToUi(settings) {
   checkLinksInput.checked = settings.check_links !== false;
   probeFilesInput.checked = settings.probe_quark_files !== false;
   filterBadLinksInput.checked = settings.filter_bad_links !== false;
+  if (setAutoDownloadNewItems) setAutoDownloadNewItems.checked = !!settings.auto_download_new_subscription_items;
+  if (setSubscriptionScheduler) setSubscriptionScheduler.checked = !!settings.subscription_scheduler_enabled;
+  if (setSubscriptionInterval) setSubscriptionInterval.value = settings.subscription_check_interval_minutes || 60;
+  if (setQuarkSaveEnabled) setQuarkSaveEnabled.checked = !!settings.quark_save_enabled;
+  if (setQuarkCookie) setQuarkCookie.value = '';
+  if (setQuarkSaveRoot) setQuarkSaveRoot.value = settings.quark_save_root || '';
   if (settings.openlist_base_url) openlistLink.href = settings.openlist_base_url;
   renderCloudTypeOptions(cloudTypesBox, settings.cloud_types || ['quark']);
   renderCloudTypeOptions(settingsCloudTypesBox, settings.cloud_types || ['quark']);
@@ -597,14 +610,34 @@ rules: collectSubscriptionRulesFromModal()
   setStatus('订阅规则已保存。自动转存/重命名执行器将在下一阶段接入。', 'ok');
 }
 
+function addDownloadLogsFromSubscription(downloads, fallbackTitle = '订阅自动投递') {
+  for (const item of downloads || []) {
+    if (!item || item.status === 'skipped') continue;
+    downloadLogs.unshift({
+      gid: item.gid || item.result?.gid || item.error || item.status || '-',
+      url: item.url || item.source_url || '',
+      title: item.title || fallbackTitle,
+      time: new Date().toLocaleString(),
+    });
+  }
+  renderDownloadLogs();
+}
+
 async function checkSubscription(id) {
   setStatus('正在检查订阅更新...');
   try {
     const data = await postJson('/api/subscriptions/check', { subscription_id: id });
     await loadSubscriptions();
     await loadNotifications();
+    addDownloadLogsFromSubscription(data.downloads || []);
     const count = (data.new_files || []).length;
-    setStatus(count ? `发现 ${count} 个新文件。` : '没有发现新文件。', count ? 'ok' : '');
+    const downloadCount = (data.downloads || []).filter(item => item && item.status !== 'skipped').length;
+    const quarkCount = (data.quark_saves || []).length;
+    const parts = [];
+    if (count) parts.push(`发现 ${count} 个新文件`);
+    if (downloadCount) parts.push(`Aria2 提交 ${downloadCount} 个`);
+    if (quarkCount) parts.push(`夸克转存 ${quarkCount} 个`);
+    setStatus(parts.length ? parts.join('，') + '。' : '没有发现新文件。', count ? 'ok' : '');
   } catch (err) {
     setStatus(`检查失败：${err.message}`, 'error');
   }
@@ -616,8 +649,15 @@ async function checkAllSubscriptions() {
     const data = await postJson('/api/subscriptions/check-all', {});
     await loadSubscriptions();
     await loadNotifications();
+    for (const result of data.results || []) addDownloadLogsFromSubscription(result.downloads || [], result.title || '订阅自动投递');
     const count = (data.results || []).reduce((sum, r) => sum + ((r.new_files || []).length), 0);
-    setStatus(count ? `发现 ${count} 个新文件。` : '全部订阅都没有新文件。', count ? 'ok' : '');
+    const downloadCount = (data.results || []).reduce((sum, r) => sum + ((r.downloads || []).filter(item => item && item.status !== 'skipped').length), 0);
+    const quarkCount = (data.results || []).reduce((sum, r) => sum + ((r.quark_saves || []).length), 0);
+    const parts = [];
+    if (count) parts.push(`发现 ${count} 个新文件`);
+    if (downloadCount) parts.push(`Aria2 提交 ${downloadCount} 个`);
+    if (quarkCount) parts.push(`夸克转存 ${quarkCount} 个`);
+    setStatus(parts.length ? parts.join('，') + '。' : '全部订阅都没有新文件。', count ? 'ok' : '');
   } catch (err) {
     setStatus(`检查失败：${err.message}`, 'error');
   }
@@ -670,9 +710,15 @@ async function saveSettings() {
     filter_bad_links: filterBadLinksInput.checked,
     aria2_rpc_url: setAria2Rpc.value.trim(),
     aria2_dir: setAria2Dir.value.trim(),
+    auto_download_new_subscription_items: !!setAutoDownloadNewItems?.checked,
+    subscription_scheduler_enabled: !!setSubscriptionScheduler?.checked,
+    subscription_check_interval_minutes: Number(setSubscriptionInterval?.value || 60),
+    quark_save_enabled: !!setQuarkSaveEnabled?.checked,
+    quark_save_root: setQuarkSaveRoot?.value.trim() || '',
   };
   if (setPassword.value) payload.app_password = setPassword.value;
   if (setAria2Secret.value) payload.aria2_secret = setAria2Secret.value;
+  if (setQuarkCookie?.value) payload.quark_cookie = setQuarkCookie.value;
   try {
     const settings = await postJson('/api/settings', payload);
     applySettingsToUi(settings);

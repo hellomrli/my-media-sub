@@ -34,3 +34,14 @@ def download_with_aria2(chat_id: str, index: int | None = None, url: str | None 
     client = Aria2Client(settings.get("aria2_rpc_url") or "", settings.get("aria2_secret") or "")
     gid = client.add_uri([final_url], download_dir or settings.get("aria2_dir") or "")
     return {"gid": gid, "url": final_url, "selected": selected}
+
+
+def download_urls_with_aria2(urls: list[str], download_dir: str | None = None) -> list[dict[str, Any]]:
+    settings = current_settings()
+    client = Aria2Client(settings.get("aria2_rpc_url") or "", settings.get("aria2_secret") or "")
+    final_dir = download_dir or settings.get("aria2_dir") or ""
+    results = []
+    for url in urls:
+        gid = client.add_uri([url], final_dir)
+        results.append({"gid": gid, "url": url, "dir": final_dir})
+    return results

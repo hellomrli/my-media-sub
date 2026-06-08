@@ -84,3 +84,9 @@ class SettingsUpdateRequest(BaseModel):
     aria2_rpc_url: str | None = None
     aria2_secret: str | None = None
     aria2_dir: str | None = None
+    auto_download_new_subscription_items: bool | None = None
+    subscription_scheduler_enabled: bool | None = None
+    subscription_check_interval_minutes: int | None = Field(default=None, ge=5)
+    quark_save_enabled: bool | None = None
+    quark_cookie: str | None = None
+    quark_save_root: str | None = None

@@ -5,7 +5,10 @@ from ..utils.cloud_names import CLOUD_TYPE_NAMES
 
 
 def get_settings() -> dict:
-    return settings_store.public()
+    data = settings_store.public()
+    from .scheduler_service import scheduler_state
+    data["subscription_scheduler"] = scheduler_state()
+    return data
 
 
 def update_settings(patch: dict) -> dict:

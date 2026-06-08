@@ -4,126 +4,190 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Lain 的媒体订阅</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-  <header class="top-nav">
-    <div class="brand">
-      <span class="brand-mark">▶</span>
-      <strong>Lain 的媒体订阅</strong>
-      <span class="version">v0.3</span>
-    </div>
-    <nav class="tabs" aria-label="主导航">
-      <button class="tab active" data-page="searchPage">资源搜索</button>
-      <button class="tab" data-page="subscriptionsPage">订阅清单</button>
-      <button class="tab" data-page="logsPage">通知记录</button>
-      <button class="tab" data-page="settingsPage">系统设置</button>
-    </nav>
-    <a id="openlistLink" class="openlist" href="#" target="_blank" rel="noreferrer">OpenList</a>
-  </header>
-
-  <main class="app-shell">
-    <section class="page-head">
-      <div>
-        <h1 id="pageTitle">资源搜索</h1>
-        <p>PanSou · 夸克网盘 · Aria2 · OpenList / NAS</p>
+  <div class="app-frame">
+    <aside class="sidebar" aria-label="主导航">
+      <div class="brand">
+        <span class="brand-mark">▶</span>
+        <div>
+          <strong>Lain Media</strong>
+          <span class="version">v0.4 · PanSou Hub</span>
+        </div>
       </div>
-      <div id="status" class="status hidden" role="status"></div>
-    </section>
 
-    <section id="searchPage" class="page active">
-      <section class="toolbar panel">
-        <div class="toolbar-main">
-          <label>影视名称</label>
-          <div class="search-row">
-            <input id="keyword" placeholder="例如：盗梦空间、庆余年 第二季" autocomplete="off" />
-            <button id="searchBtn" class="primary">查询</button>
+      <nav class="tabs">
+        <button class="tab active" data-page="searchPage"><span>⌕</span>资源搜索</button>
+        <button class="tab" data-page="subscriptionsPage"><span>◌</span>订阅清单</button>
+        <button class="tab" data-page="logsPage"><span>◇</span>通知记录</button>
+        <button class="tab" data-page="settingsPage"><span>⚙</span>系统设置</button>
+      </nav>
+
+      <div class="sidebar-card">
+        <span class="eyebrow">Pipeline</span>
+        <p>搜索 · 嗅探 · 订阅 · Aria2 投递</p>
+        <a id="openlistLink" class="openlist" href="#" target="_blank" rel="noreferrer">打开 OpenList</a>
+      </div>
+    </aside>
+
+    <main class="app-shell">
+      <header class="page-head">
+        <div>
+          <span class="eyebrow">Media Automation Console</span>
+          <h1 id="pageTitle">资源搜索</h1>
+          <p>PanSou · 夸克网盘 · Aria2 · OpenList / NAS</p>
+        </div>
+        <div id="status" class="status hidden" role="status"></div>
+      </header>
+
+      <section id="searchPage" class="page active">
+        <section class="hero-grid">
+          <div class="toolbar panel feature-panel">
+            <div class="toolbar-main">
+              <label for="keyword">影视名称</label>
+              <div class="search-row">
+                <input id="keyword" placeholder="例如：盗梦空间、庆余年 第二季" autocomplete="off" />
+                <button id="searchBtn" class="primary">查询</button>
+              </div>
+            </div>
+            <details class="advanced-options">
+              <summary>筛选配置</summary>
+              <div id="cloudTypes" class="chip-grid"></div>
+              <div class="switch-grid">
+                <label><input id="checkLinks" type="checkbox" checked /> 检测链接</label>
+                <label><input id="probeFiles" type="checkbox" checked /> 嗅探文件</label>
+                <label><input id="filterBadLinks" type="checkbox" checked /> 过滤失效</label>
+              </div>
+            </details>
           </div>
-        </div>
-        <details class="advanced-options">
-          <summary>筛选配置</summary>
-          <div id="cloudTypes" class="chip-grid"></div>
-          <div class="switch-grid">
-            <label><input id="checkLinks" type="checkbox" checked /> 检测链接</label>
-            <label><input id="probeFiles" type="checkbox" checked /> 嗅探文件</label>
-            <label><input id="filterBadLinks" type="checkbox" checked /> 过滤失效</label>
+          <div class="insight-card panel">
+            <span class="eyebrow">Quick Actions</span>
+            <h2>把搜索结果变成可追更任务</h2>
+            <p>连续剧/动画可直接创建订阅；可下载资源支持发送到 Aria2。</p>
           </div>
-        </details>
+        </section>
+
+        <section class="panel table-panel">
+          <div class="panel-title-row">
+            <div>
+              <span class="eyebrow">Results</span>
+              <h2>资源列表</h2>
+            </div>
+            <span id="resultCount" class="muted">等待搜索</span>
+          </div>
+          <div id="resultCloudTabs" class="result-cloud-tabs hidden"></div>
+          <div class="table-head result-head">
+            <span>#</span><span>资源信息</span><span>来源</span><span>状态</span><span>操作</span>
+          </div>
+          <section id="results" class="results empty-card">输入关键词后开始搜索。</section>
+        </section>
+
+        <section id="selected" class="panel selected-panel hidden">
+          <div class="panel-title-row"><h2>已选择资源</h2></div>
+          <div id="selectedBody"></div>
+        </section>
       </section>
 
-      <section class="panel table-panel">
-        <div class="panel-title-row">
-          <h2>资源列表</h2>
-          <span id="resultCount" class="muted">等待搜索</span>
-        </div>
-        <div id="resultCloudTabs" class="result-cloud-tabs hidden"></div>
-        <div class="table-head result-head">
-          <span>#</span><span>资源信息</span><span>来源</span><span>状态</span><span>操作</span>
-        </div>
-        <section id="results" class="results empty-card">输入关键词后开始搜索。</section>
+      <section id="subscriptionsPage" class="page">
+        <section class="panel table-panel">
+          <div class="panel-title-row">
+            <div>
+              <span class="eyebrow">Watchlist</span>
+              <h2>订阅清单</h2>
+            </div>
+            <button id="checkAllSubsBtn" class="secondary small">刷新所有</button>
+          </div>
+          <div class="table-head sub-head">
+            <span>订阅主题</span><span>进度</span><span>状态</span><span>最近检查</span><span>操作</span>
+          </div>
+          <div id="subscriptionsBody" class="subscriptions-body"></div>
+        </section>
       </section>
 
-      <section id="selected" class="panel selected-panel hidden">
-        <div class="panel-title-row"><h2>已选择资源</h2></div>
-        <div id="selectedBody"></div>
+      <section id="logsPage" class="page two-col">
+        <section class="panel table-panel">
+          <div class="panel-title-row">
+            <div>
+              <span class="eyebrow">Events</span>
+              <h2>通知中心</h2>
+            </div>
+            <button id="markAllReadBtn" class="secondary small">全部已读</button>
+          </div>
+          <div id="notificationsBody" class="subscriptions-body"></div>
+        </section>
+        <section class="panel table-panel">
+          <div class="panel-title-row">
+            <div>
+              <span class="eyebrow">Downloads</span>
+              <h2>下载任务</h2>
+            </div>
+          </div>
+          <p class="hint">目前展示 Aria2 提交结果；后续接入下载历史和 OpenList/NAS 任务状态。</p>
+          <div id="downloadsBody" class="subscriptions-body"><p class="empty">暂无下载记录。</p></div>
+        </section>
       </section>
-    </section>
 
-    <section id="subscriptionsPage" class="page">
-      <section class="panel table-panel">
-        <div class="panel-title-row">
-          <h2>订阅清单</h2>
-          <button id="checkAllSubsBtn" class="secondary small">刷新所有</button>
-        </div>
-        <div class="table-head sub-head">
-          <span>订阅主题</span><span>进度</span><span>状态</span><span>最近检查</span><span>操作</span>
-        </div>
-        <div id="subscriptionsBody" class="subscriptions-body"></div>
+      <section id="settingsPage" class="page">
+        <section class="panel settings">
+          <div class="panel-title-row">
+            <div>
+              <span class="eyebrow">Preferences</span>
+              <h2>系统设置</h2>
+            </div>
+          </div>
+          <div class="settings-grid">
+            <label>登录账号<input id="setUsername" autocomplete="username" /></label>
+            <label>新密码<input id="setPassword" type="password" autocomplete="new-password" placeholder="留空则不修改" /></label>
+            <label>PanSou 地址<input id="setPansou" placeholder="https://pansou.example.com" /></label>
+            <label>OpenList 地址<input id="setOpenlist" placeholder="https://pan.example.com" /></label>
+            <label>Aria2 RPC<input id="setAria2Rpc" placeholder="http://host:6800/jsonrpc" /></label>
+            <label>Aria2 Secret<input id="setAria2Secret" type="password" placeholder="留空则不修改" /></label>
+            <label>Aria2 下载目录<input id="setAria2Dir" placeholder="/downloads" /></label>
+            <label>订阅检查间隔（分钟）<input id="setSubscriptionInterval" type="number" min="5" step="5" placeholder="60" /></label>
+          </div>
+          <div class="settings-block">
+            <span class="eyebrow">Automation</span>
+            <div class="switch-grid flat">
+              <label><input id="setAutoDownloadNewItems" type="checkbox" /> 订阅发现新增项时自动提交到 Aria2</label>
+              <label><input id="setSubscriptionScheduler" type="checkbox" /> 后台定时检查订阅更新</label>
+            </div>
+          </div>
+          <div class="settings-block">
+            <span class="eyebrow">Quark Save</span>
+            <div class="switch-grid flat">
+              <label><input id="setQuarkSaveEnabled" type="checkbox" /> 订阅发现新增项时自动转存到夸克网盘</label>
+            </div>
+            <div class="settings-grid" style="padding: 12px 0 0; grid-template-columns: 1fr 1fr;">
+              <label>夸克 Cookie<input id="setQuarkCookie" type="password" placeholder="留空则不修改" /></label>
+              <label>保存根目录<input id="setQuarkSaveRoot" placeholder="例如：/媒体/连续剧" /></label>
+            </div>
+          </div>
+          <div class="settings-block">
+            <span class="eyebrow">Cloud Types</span>
+            <div id="settingsCloudTypes" class="chip-grid settings-clouds"></div>
+          </div>
+          <div class="settings-actions">
+            <button id="saveSettingsBtn" class="primary">保存设置</button>
+            <button id="testAria2Btn" class="secondary">测试 Aria2</button>
+          </div>
+          <p class="hint">账号密码保存后立即生效；如果改了密码，浏览器可能会弹出重新登录。</p>
+        </section>
       </section>
-    </section>
-
-    <section id="logsPage" class="page two-col">
-      <section class="panel table-panel">
-        <div class="panel-title-row">
-          <h2>通知中心</h2>
-          <button id="markAllReadBtn" class="secondary small">全部已读</button>
-        </div>
-        <div id="notificationsBody" class="subscriptions-body"></div>
-      </section>
-      <section class="panel table-panel">
-        <div class="panel-title-row"><h2>下载任务</h2></div>
-        <p class="hint">目前展示 Aria2 提交结果；后续接入下载历史和 OpenList/NAS 任务状态。</p>
-        <div id="downloadsBody" class="subscriptions-body"><p class="empty">暂无下载记录。</p></div>
-      </section>
-    </section>
-
-    <section id="settingsPage" class="page">
-      <section class="panel settings">
-        <div class="panel-title-row"><h2>系统设置</h2></div>
-        <div class="settings-grid">
-          <label>登录账号<input id="setUsername" autocomplete="username" /></label>
-          <label>新密码<input id="setPassword" type="password" autocomplete="new-password" placeholder="留空则不修改" /></label>
-          <label>PanSou 地址<input id="setPansou" placeholder="https://pansou.example.com" /></label>
-          <label>OpenList 地址<input id="setOpenlist" placeholder="https://pan.example.com" /></label>
-          <label>Aria2 RPC<input id="setAria2Rpc" placeholder="http://host:6800/jsonrpc" /></label>
-          <label>Aria2 Secret<input id="setAria2Secret" type="password" placeholder="留空则不修改" /></label>
-          <label>Aria2 下载目录<input id="setAria2Dir" placeholder="/downloads" /></label>
-        </div>
-        <div id="settingsCloudTypes" class="chip-grid settings-clouds"></div>
-        <div class="settings-actions">
-          <button id="saveSettingsBtn" class="primary">保存设置</button>
-          <button id="testAria2Btn" class="secondary">测试 Aria2</button>
-        </div>
-        <p class="hint">账号密码保存后立即生效；如果改了密码，浏览器可能会弹出重新登录。</p>
-      </section>
-    </section>
-  </main>
+    </main>
+  </div>
 
   <div id="subscriptionModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="subscriptionModalTitle">
     <div class="modal-mask" data-close-sub-modal="1"></div>
     <form id="subscriptionForm" class="modal-card">
       <div class="modal-head">
-        <h2 id="subscriptionModalTitle">编辑订阅规则</h2>
+        <div>
+          <span class="eyebrow">Subscription Rule</span>
+          <h2 id="subscriptionModalTitle">编辑订阅规则</h2>
+        </div>
         <button type="button" class="icon-btn" data-close-sub-modal="1">×</button>
       </div>
       <input id="subEditId" type="hidden" />

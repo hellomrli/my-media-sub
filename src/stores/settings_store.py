@@ -17,6 +17,17 @@ SUPPORTED_CLOUD_TYPES = [
 ]
 
 
+def env_bool(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).lower() in {"1", "true", "yes", "on"}
+
+
+def env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
 def default_settings() -> dict[str, Any]:
     return {
         "app_username": config.APP_USERNAME or "admin",
@@ -30,6 +41,12 @@ def default_settings() -> dict[str, Any]:
         "aria2_rpc_url": os.getenv("ARIA2_RPC_URL", ""),
         "aria2_secret": os.getenv("ARIA2_SECRET", ""),
         "aria2_dir": os.getenv("ARIA2_DIR", ""),
+        "auto_download_new_subscription_items": env_bool("AUTO_DOWNLOAD_NEW_SUBSCRIPTION_ITEMS"),
+        "subscription_scheduler_enabled": env_bool("SUBSCRIPTION_SCHEDULER_ENABLED"),
+        "subscription_check_interval_minutes": env_int("SUBSCRIPTION_CHECK_INTERVAL_MINUTES", 60),
+        "quark_save_enabled": env_bool("QUARK_SAVE_ENABLED"),
+        "quark_save_root": os.getenv("QUARK_SAVE_ROOT", ""),
+        "quark_cookie": os.getenv("QUARK_COOKIE", ""),
     }
 
 
@@ -65,6 +82,7 @@ class SettingsStore:
         data = self.get()
         data["app_password"] = "" if data.get("app_password") else ""
         data["aria2_secret"] = "" if data.get("aria2_secret") else ""
+        data["quark_cookie"] = "" if data.get("quark_cookie") else ""
         data["supported_cloud_types"] = SUPPORTED_CLOUD_TYPES
         data["cloud_type_names"] = CLOUD_TYPE_NAMES
         data["app_name"] = "Lain 的媒体订阅"
@@ -81,7 +99,12 @@ class SettingsStore:
                 value = [v for v in value if v in SUPPORTED_CLOUD_TYPES]
                 if not value:
                     value = DEFAULT_CLOUD_TYPES
-            if key in {"pansou_base_url", "openlist_base_url", "aria2_rpc_url"} and isinstance(value, str):
+            elif key == "subscription_check_interval_minutes":
+                try:
+                    value = max(int(str(value)), 5)
+                except (TypeError, ValueError):
+                    value = 60
+            elif key in {"pansou_base_url", "openlist_base_url", "aria2_rpc_url"} and isinstance(value, str):
                 value = value.strip().rstrip("/")
             self._settings[key] = value
         self.save()

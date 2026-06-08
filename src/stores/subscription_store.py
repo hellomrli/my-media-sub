@@ -194,6 +194,23 @@ class SubscriptionStore:
         became_invalid = is_invalid and not was_invalid
         return subscription_view(sub), new_files, became_invalid
 
+    def mark_transferred(self, sub_id: str, transfers: list[dict[str, Any]]) -> dict[str, Any] | None:
+        sub = next((x for x in self._items if x.get("id") == sub_id), None)
+        if not sub:
+            return None
+        transferred_keys = set(sub.get("transferred_file_keys") or [])
+        transferred_names = set(sub.get("transferred_files") or [])
+        for item in transfers:
+            if item.get("file_key"):
+                transferred_keys.add(item["file_key"])
+            if item.get("source_name"):
+                transferred_names.add(item["source_name"])
+        sub["transferred_file_keys"] = sorted(transferred_keys)
+        sub["transferred_files"] = sorted(transferred_names)
+        sub["updated_at"] = int(time.time())
+        self.save()
+        return subscription_view(sub)
+
     def delete(self, sub_id: str) -> bool:
         before = len(self._items)
         self._items = [x for x in self._items if x.get("id") != sub_id]
