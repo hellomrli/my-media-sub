@@ -64,6 +64,23 @@ class QuarkSaveClient:
         self._refresh_cookie_header(resp)
         return resp.json()
 
+    @staticmethod
+    def _api_error(data: dict[str, Any]) -> str | None:
+        if data.get("code", 0) == 0:
+            return None
+        return str(data.get("message") or data.get("msg") or data)
+
+    @staticmethod
+    def _extract_fid(data: dict[str, Any]) -> str | None:
+        result = data.get("data")
+        if isinstance(result, list) and result:
+            item = result[0]
+            if isinstance(item, dict):
+                return item.get("fid") or item.get("file_id")
+        if isinstance(result, dict):
+            return result.get("fid") or result.get("file_id")
+        return None
+
     # ── Target directory management ──────────────────────────────────
 
     def list_dir(self, parent_fid: str = "0") -> list[dict[str, Any]]:
@@ -96,14 +113,12 @@ class QuarkSaveClient:
         }
 
     def create_dir(self, parent_fid: str, name: str) -> str | None:
-        payload = {"pdir_fid": parent_fid, "file_name": [name], "dir_init": True}
+        payload = {"pdir_fid": parent_fid, "file_name": name, "dir_path": "", "dir_init_lock": False}
         data = self._post("/file", payload)
-        result = data.get("data", {})
-        if isinstance(result, list) and result:
-            return result[0].get("fid")
-        if isinstance(result, dict):
-            return result.get("fid")
-        return None
+        err = self._api_error(data)
+        if err:
+            raise RuntimeError(err)
+        return self._extract_fid(data)
 
     def ensure_dir_path(self, path: str) -> str:
         parent_fid = "0"
@@ -126,7 +141,7 @@ class QuarkSaveClient:
         return parent_fid
 
     def delete_items(self, fids: list[str]) -> dict[str, Any]:
-        return self._post("/file/delete", {"action_type": 2, "filelist": fids})
+        return self._post("/file/delete", {"action_type": 1, "exclude_fids": [], "filelist": fids})
 
     def rename_item(self, fid: str, name: str) -> dict[str, Any]:
         return self._post("/file/rename", {"fid": fid, "file_name": name})
