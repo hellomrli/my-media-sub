@@ -739,8 +739,8 @@ function renderDrive(items = []) {
   }
   driveBody.innerHTML = items.map(item => `
     <article class="drive-card">
-      <div class="drive-name ${item.is_dir ? 'dir' : ''}" data-drive-open="${escapeHtml(item.fid)}">${item.is_dir ? '📁 ' : '📄 '}${escapeHtml(item.name || '-')}</div>
-      <div><span class="badge">${item.is_dir ? '目录' : '文件'}</span></div>
+      <div class="drive-name ${item.is_dir ? 'dir' : 'file'}" data-drive-open="${escapeHtml(item.fid)}"><span class="drive-icon">${item.is_dir ? '📁' : '📄'}</span><span>${escapeHtml(item.name || '-')}</span></div>
+      <div><span class="badge ${item.is_dir ? 'orange' : 'green'}">${item.is_dir ? '目录' : '文件'}</span></div>
       <div class="muted">${escapeHtml(formatBytes(item.size))}</div>
       <div class="muted">${escapeHtml(item.updated_at || '-')}</div>
       <div class="card-actions">

@@ -67,7 +67,18 @@ class QuarkSaveClient:
     # ── Target directory management ──────────────────────────────────
 
     def list_dir(self, parent_fid: str = "0") -> list[dict[str, Any]]:
-        data = self._get("/file/sort", params={"pid": parent_fid, "_page": "1", "_size": "200"})
+        data = self._get(
+            "/file/sort",
+            params={
+                "pdir_fid": parent_fid,
+                "_page": "1",
+                "_size": "200",
+                "_fetch_total": "1",
+                "fetch_all_file": "1",
+                "fetch_risk_file_name": "1",
+                "_sort": "file_type:asc,file_name:asc",
+            },
+        )
         return (data.get("data") or {}).get("list") or []
 
     @staticmethod
