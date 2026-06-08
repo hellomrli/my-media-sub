@@ -16,7 +16,7 @@
         <span class="brand-mark">▶</span>
         <div>
           <strong>Lain Media</strong>
-          <span class="version">v0.4 · PanSou Hub</span>
+          <span class="version">v0.5 · Inline Hub</span>
         </div>
       </div>
 
@@ -30,8 +30,7 @@
 
       <div class="sidebar-card">
         <span class="eyebrow">Pipeline</span>
-        <p>搜索 · 嗅探 · 订阅 · Aria2 投递</p>
-        <a id="openlistLink" class="openlist" href="#" target="_blank" rel="noreferrer">打开 OpenList</a>
+        <p>内置搜索 · 夸克网盘 · 订阅 · Aria2 投递</p>
       </div>
     </aside>
 
@@ -40,7 +39,7 @@
         <div>
           <span class="eyebrow">Media Automation Console</span>
           <h1 id="pageTitle">资源搜索</h1>
-          <p>PanSou · 夸克网盘 · Aria2 · OpenList / NAS</p>
+          <p>内置资源搜索 · 夸克网盘 · Aria2 · NAS</p>
         </div>
         <div id="status" class="status hidden" role="status"></div>
       </header>
@@ -99,7 +98,7 @@
             <div>
               <span class="eyebrow">Quark Drive</span>
               <h2>我的网盘</h2>
-              <p>像 OpenList 一样浏览夸克目录，支持进入文件夹、新建、重命名和删除。</p>
+              <p>直接浏览夸克目录，支持进入文件夹、新建、重命名和删除。</p>
             </div>
             <div class="drive-toolbar openlist-actions">
               <button id="driveBackBtn" class="secondary small">← 返回上级</button>
@@ -154,7 +153,7 @@
               <h2>下载任务</h2>
             </div>
           </div>
-          <p class="hint">目前展示 Aria2 提交结果；后续接入下载历史和 OpenList/NAS 任务状态。</p>
+          <p class="hint">目前展示 Aria2 提交结果；后续可继续接入下载历史和 NAS 同步任务状态。</p>
           <div id="downloadsBody" class="subscriptions-body"><p class="empty">暂无下载记录。</p></div>
         </section>
       </section>
@@ -170,10 +169,6 @@
           <div class="settings-grid">
             <label>登录账号<input id="setUsername" autocomplete="username" /></label>
             <label>新密码<input id="setPassword" type="password" autocomplete="new-password" placeholder="留空则不修改" /></label>
-            <label>PanSou 地址<input id="setPansou" placeholder="https://pansou.example.com" /></label>
-            <label>OpenList 地址<input id="setOpenlist" placeholder="https://pan.example.com" /></label>
-            <label>OpenList 账号<input id="setOpenlistUser" autocomplete="username" placeholder="OpenList 登录名" /></label>
-            <label>OpenList 密码<input id="setOpenlistPass" type="password" autocomplete="new-password" placeholder="留空则不修改" /></label>
             <label>Aria2 RPC<input id="setAria2Rpc" placeholder="http://host:6800/jsonrpc" /></label>
             <label>Aria2 Secret<input id="setAria2Secret" type="password" placeholder="留空则不修改" /></label>
             <label>Aria2 下载目录<input id="setAria2Dir" placeholder="/downloads" /></label>
@@ -197,13 +192,13 @@
             </div>
           </div>
           <div class="settings-block">
-            <span class="eyebrow">NAS Sync (via OpenList)</span>
+            <span class="eyebrow">NAS Sync (Local Mount)</span>
             <div class="switch-grid flat">
               <label><input id="setNasSyncEnabled" type="checkbox" /> 夸克转存后自动同步到 NAS</label>
             </div>
             <div class="settings-grid" style="padding: 12px 0 0; grid-template-columns: 1fr 1fr;">
-              <label>源路径前缀（OpenList 中夸克挂载目录）<input id="setNasSyncSource" placeholder="例如：/QuarkMount/媒体/连续剧" /></label>
-              <label>目标路径前缀（OpenList 中 NAS 挂载目录）<input id="setNasSyncTarget" placeholder="例如：/NAS/媒体库/连续剧" /></label>
+              <label>源挂载路径前缀（本机夸克挂载目录）<input id="setNasSyncSource" placeholder="例如：/home/lain/QuarkMount/媒体/连续剧" /></label>
+              <label>目标路径前缀（本机/NAS 目录）<input id="setNasSyncTarget" placeholder="例如：/home/lain/Nas/媒体库/连续剧" /></label>
             </div>
           </div>
           <div class="settings-block">
@@ -214,8 +209,7 @@
             <button id="saveSettingsBtn" class="primary">保存设置</button>
             <button id="testAria2Btn" class="secondary">测试 Aria2</button>
             <button id="testQuarkBtn" class="secondary">测试夸克 Cookie</button>
-            <button id="testOpenlistBtn" class="secondary">测试 OpenList</button>
-            <button id="testNasSyncBtn" class="secondary">测试 NAS 路径</button>
+            <button id="testNasSyncBtn" class="secondary">测试挂载路径</button>
           </div>
           <p class="hint">账号密码保存后立即生效；如果改了密码，浏览器可能会弹出重新登录。</p>
         </section>

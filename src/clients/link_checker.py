@@ -1,31 +1,31 @@
 from __future__ import annotations
 
-import requests
+from ..clients.quark import QuarkShareProbe
 
 
-class PanSouLinkChecker:
-    def __init__(self, base_url: str):
-        self.base_url = base_url.rstrip('/')
+class InlineLinkChecker:
+    """Project-local replacement for PanSou /api/check/links."""
+
+    def __init__(self, base_url: str | None = None):
+        self.base_url = base_url or "inline"
 
     def check_quark(self, items: list[dict], timeout: int = 30) -> list[dict]:
-        if not items:
-            return []
-        payload = {
-            "items": [
-                {
-                    "disk_type": "quark",
-                    "url": item.get("url"),
-                    "password": item.get("password") or "",
-                }
-                for item in items
-                if item.get("url")
-            ]
-        }
-        if not payload["items"]:
-            return []
-        resp = requests.post(f"{self.base_url}/api/check/links", json=payload, timeout=timeout)
-        resp.raise_for_status()
-        data = resp.json()
-        if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
-            return data["data"].get("results", []) or []
-        return data.get("results", []) or []
+        probe = QuarkShareProbe()
+        results = []
+        for item in items:
+            url = item.get("url") or ""
+            if not url:
+                continue
+            info = probe.probe(url, item.get("password") or "")
+            state = "good" if info.ok else ("bad" if info.state in {"not_found", "expired", "deleted"} else info.state or "unknown")
+            results.append({
+                "disk_type": "quark",
+                "url": url,
+                "normalized_url": url,
+                "state": state,
+                "summary": info.message,
+            })
+        return results
+
+
+PanSouLinkChecker = InlineLinkChecker

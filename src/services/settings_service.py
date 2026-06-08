@@ -1,17 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import requests
 
-from ..clients.openlist import OpenListClient
 from ..clients.quark_save import QuarkSaveClient
 from ..stores.settings_store import settings_store
 from ..utils.cloud_names import CLOUD_TYPE_NAMES
-
-
-def _first_error_message(data: dict[str, Any]) -> str:
-    return str(data.get("message") or data.get("msg") or data.get("error") or data)
 
 
 def get_settings() -> dict:
@@ -49,59 +45,40 @@ def test_quark_cookie(patch: dict | None = None) -> dict:
     return {"ok": True, "message": f"夸克 Cookie 可用，根目录可访问，返回 {len(items)} 个条目"}
 
 
-def test_openlist(patch: dict | None = None) -> dict:
+def test_mount_paths(patch: dict | None = None) -> dict:
     settings = settings_store.get()
     patch = patch or {}
-    base_url = (patch.get("openlist_base_url") or settings.get("openlist_base_url") or "").strip().rstrip("/")
-    username = (patch.get("openlist_username") or settings.get("openlist_username") or "").strip()
-    password = patch.get("openlist_password") or settings.get("openlist_password") or ""
-    if not base_url:
-        return {"ok": False, "message": "未配置 OpenList 地址"}
-    if not username or not password:
-        return {"ok": False, "message": "未配置 OpenList 账号或密码"}
-    try:
-        client = OpenListClient(base_url)
-        client.login(username, password)
-    except Exception as exc:
-        return {"ok": False, "message": f"OpenList 登录失败：{exc}"}
-    return {"ok": True, "message": "OpenList 登录成功"}
-
-
-def test_nas_sync(patch: dict | None = None) -> dict:
-    settings = settings_store.get()
-    patch = patch or {}
-    openlist_result = test_openlist(patch)
-    if not openlist_result.get("ok"):
-        return openlist_result
-
-    base_url = (patch.get("openlist_base_url") or settings.get("openlist_base_url") or "").strip().rstrip("/")
-    username = (patch.get("openlist_username") or settings.get("openlist_username") or "").strip()
-    password = patch.get("openlist_password") or settings.get("openlist_password") or ""
     source = (patch.get("nas_sync_source") or settings.get("nas_sync_source") or "").strip()
     target = (patch.get("nas_sync_target") or settings.get("nas_sync_target") or "").strip()
     if not source or not target:
-        return {"ok": False, "message": "未配置 NAS 同步源路径或目标路径"}
+        return {"ok": False, "message": "未配置源挂载路径或 NAS 目标路径"}
 
-    client = OpenListClient(base_url)
-    try:
-        client.login(username, password)
-        checked = []
-        for label, path in (("源路径", source), ("目标路径", target)):
-            data = client.fs_list(path)
-            if data.get("code", 0) != 0:
-                return {"ok": False, "message": f"{label}不可访问：{_first_error_message(data)}"}
-            checked.append(path)
-    except Exception as exc:
-        return {"ok": False, "message": f"NAS 路径测试失败：{exc}"}
-    return {"ok": True, "message": f"NAS 同步路径可访问：{checked[0]} → {checked[1]}"}
+    checked = []
+    for label, value, must_write in (("源挂载路径", source, False), ("NAS 目标路径", target, True)):
+        path = Path(value).expanduser()
+        if not path.exists() or not path.is_dir():
+            return {"ok": False, "message": f"{label}不存在或不是目录：{path}"}
+        if must_write:
+            probe = path / ".my-media-sub-write-test"
+            try:
+                probe.write_text("ok", encoding="utf-8")
+                probe.unlink(missing_ok=True)
+            except Exception as exc:
+                return {"ok": False, "message": f"{label}不可写：{exc}"}
+        checked.append(str(path))
+    return {"ok": True, "message": f"挂载路径可访问：{checked[0]} → {checked[1]}"}
+
+
+def test_nas_sync(patch: dict | None = None) -> dict:
+    return test_mount_paths(patch)
 
 
 def health_payload() -> dict:
     settings = settings_store.get()
     return {
         "status": "ok",
-        "pansou_base_url": settings.get("pansou_base_url"),
-        "openlist_base_url": settings.get("openlist_base_url"),
+        "search_backend": "inline",
+        "mount_backend": "local",
         "auth_enabled": bool(settings.get("app_username") and settings.get("app_password")),
         "check_links": settings.get("check_links"),
         "probe_quark_files": settings.get("probe_quark_files"),

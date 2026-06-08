@@ -11,10 +11,10 @@ cp .env.example .env
 2. Edit `.env`:
 
 ```env
-PANSOU_BASE_URL=https://your-pansou.example.com
-OPENLIST_BASE_URL=https://your-openlist.example.com
 QUARK_SAVE_ROOT=/your/quark/save/root
 BOT_PORT=8787
+APP_USERNAME=admin
+APP_PASSWORD=your-strong-password
 ```
 
 3. Start:
@@ -38,17 +38,7 @@ curl http://127.0.0.1:8787/health
 6. Search test:
 
 ```bash
-curl -X POST http://127.0.0.1:8787/api/wechat/message \
-  -H 'Content-Type: application/json' \
-  -d '{"chat_id":"test","text":"想看 盗梦空间"}'
-```
-
-7. Select test:
-
-```bash
-curl -X POST http://127.0.0.1:8787/api/wechat/message \
-  -H 'Content-Type: application/json' \
-  -d '{"chat_id":"test","text":"选 1"}'
+curl -X POST http://127.0.0.1:8787/api/wechat/message   -H 'Content-Type: application/json'   -d '{"chat_id":"test","text":"想看 盗梦空间"}'
 ```
 
 ## API Endpoints
@@ -58,77 +48,43 @@ curl -X POST http://127.0.0.1:8787/api/wechat/message \
 - `POST /api/search`
 - `POST /api/select`
 - `POST /api/wechat/message`
+- `POST /api/subscriptions/*`
+- `POST /api/quark-drive/*`
 
-## Current Limitations
+## Supported Features
 
-当前 Docker 服务已经支持：
-
-- 调 PanSou 搜索夸克资源
-- 格式化微信机器人回复文本
-- 记住最近一次搜索
-- 处理 `选 1` 这类选择消息
-
-尚未完成：
-
-- 夸克分享链接转存
-- OpenList 复制/下载到 NAS
-- 微信机器人适配器签名/鉴权
-
-## Enable Authentication
-
-Edit `.env`:
-
-```env
-APP_USERNAME=admin
-APP_PASSWORD=your-strong-password
-```
-
-Then restart:
-
-```bash
-docker compose up -d --build
-```
-
-The WebUI and APIs require HTTP Basic auth. `/health` remains public.
+- Built-in Quark resource search aggregation; no external PanSou service is required.
+- Quark share link checking and file probing.
+- Quark share auto-save with target directory and rename rules.
+- Quark drive browser and folder operations.
+- Aria2 task submission.
+- Optional local mount path copy to NAS; no external OpenList API is required.
 
 ## Link Check and Share File Probe
-
-Enabled by default:
 
 ```env
 CHECK_LINKS=true
 PROBE_QUARK_FILES=true
+FILTER_BAD_LINKS=true
 ```
 
 The app will check whether Quark share links are alive and try to list files in the share so TV episode counts can be estimated.
 
-## Filter Dead Links
-
-Enabled by default:
-
-```env
-FILTER_BAD_LINKS=true
-```
-
-Only links explicitly confirmed as `bad` are removed. `locked`, `unknown`, and `error` results are kept.
-
-
 ## WebUI Settings
 
-WebUI now includes a settings panel for:
+WebUI includes a settings panel for:
 
 - login username/password
-- PanSou base URL
-- OpenList base URL
 - default cloud disk types
 - link check / Quark probe / bad-link filtering toggles
 - Aria2 RPC URL, secret, and download directory
+- Quark Cookie and save root
+- subscription scheduler controls
+- local mount source path and NAS target path
 
 Settings are persisted to `/data/settings.json` in Docker.
 
 ## Aria2
-
-Configure Aria2 RPC in the WebUI settings or `.env`:
 
 ```env
 ARIA2_RPC_URL=http://host:6800/jsonrpc
@@ -136,4 +92,4 @@ ARIA2_SECRET=
 ARIA2_DIR=/downloads
 ```
 
-After searching, click `Aria2` on a result to send its URL to Aria2. Note: cloud share URLs may not be direct downloadable file URLs; this is mainly useful for direct links, magnets, ed2k, or sources Aria2 can handle.
+After searching, click `Aria2` on a result to send its URL to Aria2. Cloud share URLs are not direct file URLs, so this is mainly useful for direct links, magnets, ed2k, or sources Aria2 can handle.

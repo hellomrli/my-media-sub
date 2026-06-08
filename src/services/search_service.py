@@ -60,11 +60,11 @@ def format_search_reply(keyword: str, results: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def enrich_results(results: list[dict[str, Any]], check_links: bool, probe_files: bool, pansou_base_url: str) -> None:
+def enrich_results(results: list[dict[str, Any]], check_links: bool, probe_files: bool) -> None:
     quark_results = [item for item in results if item.get("cloud_type") == "quark"]
     if check_links and quark_results:
         try:
-            checks = PanSouLinkChecker(pansou_base_url).check_quark(quark_results)
+            checks = PanSouLinkChecker().check_quark(quark_results)
             by_url = {c.get("url"): c for c in checks}
             by_norm = {c.get("normalized_url"): c for c in checks if c.get("normalized_url")}
             for item in quark_results:
@@ -109,14 +109,14 @@ def enrich_results(results: list[dict[str, Any]], check_links: bool, probe_files
 def search_media(keyword: str, chat_id: str, limit: int, cloud_types: list[str] | None, check_links: bool | None, probe_files: bool | None, filter_bad_links: bool | None) -> dict[str, Any]:
     settings = current_settings()
     selected_cloud_types = cloud_types or settings.get("cloud_types") or ["quark"]
-    raw = PanSouClient(settings.get("pansou_base_url")).search(keyword, selected_cloud_types, limit)
+    raw = PanSouClient().search(keyword, selected_cloud_types, limit)
     original_results = [simplify_result(item, i) for i, item in enumerate(raw, 1)]
     results = list(original_results)
     do_check = settings.get("check_links") if check_links is None else check_links
     do_probe = settings.get("probe_quark_files") if probe_files is None else probe_files
     do_filter_bad = settings.get("filter_bad_links") if filter_bad_links is None else filter_bad_links
 
-    enrich_results(results, check_links=bool(do_check), probe_files=bool(do_probe), pansou_base_url=settings.get("pansou_base_url"))
+    enrich_results(results, check_links=bool(do_check), probe_files=bool(do_probe))
 
     filtered_count = 0
     if do_filter_bad and do_check:

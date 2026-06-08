@@ -24,9 +24,9 @@ def test_quark(req: SettingsUpdateRequest):
     return settings_service.test_quark_cookie(req.model_dump(exclude_unset=True))
 
 
-@router.post("/api/settings/test/openlist")
-def test_openlist(req: SettingsUpdateRequest):
-    return settings_service.test_openlist(req.model_dump(exclude_unset=True))
+@router.post("/api/settings/test/mount-paths")
+def test_mount_paths(req: SettingsUpdateRequest):
+    return settings_service.test_mount_paths(req.model_dump(exclude_unset=True))
 
 
 @router.post("/api/settings/test/nas-sync")

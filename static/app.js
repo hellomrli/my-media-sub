@@ -12,13 +12,9 @@ const settingsCloudTypesBox = document.querySelector('#settingsCloudTypes');
 const saveSettingsBtn = document.querySelector('#saveSettingsBtn');
 const testAria2Btn = document.querySelector('#testAria2Btn');
 const testQuarkBtn = document.querySelector('#testQuarkBtn');
-const testOpenlistBtn = document.querySelector('#testOpenlistBtn');
 const testNasSyncBtn = document.querySelector('#testNasSyncBtn');
-const openlistLink = document.querySelector('#openlistLink');
 const setUsername = document.querySelector('#setUsername');
 const setPassword = document.querySelector('#setPassword');
-const setPansou = document.querySelector('#setPansou');
-const setOpenlist = document.querySelector('#setOpenlist');
 const setAria2Rpc = document.querySelector('#setAria2Rpc');
 const setAria2Secret = document.querySelector('#setAria2Secret');
 const setAria2Dir = document.querySelector('#setAria2Dir');
@@ -28,8 +24,6 @@ const setSubscriptionInterval = document.querySelector('#setSubscriptionInterval
 const setQuarkSaveEnabled = document.querySelector('#setQuarkSaveEnabled');
 const setQuarkCookie = document.querySelector('#setQuarkCookie');
 const setQuarkSaveRoot = document.querySelector('#setQuarkSaveRoot');
-const setOpenlistUser = document.querySelector('#setOpenlistUser');
-const setOpenlistPass = document.querySelector('#setOpenlistPass');
 const setNasSyncEnabled = document.querySelector('#setNasSyncEnabled');
 const setNasSyncSource = document.querySelector('#setNasSyncSource');
 const setNasSyncTarget = document.querySelector('#setNasSyncTarget');
@@ -171,8 +165,6 @@ function applySettingsToUi(settings) {
   appSettings = settings;
   setUsername.value = settings.app_username || '';
   markSecretInput(setPassword, settings.app_password_configured);
-  setPansou.value = settings.pansou_base_url || '';
-  setOpenlist.value = settings.openlist_base_url || '';
   setAria2Rpc.value = settings.aria2_rpc_url || '';
   markSecretInput(setAria2Secret, settings.aria2_secret_configured);
   setAria2Dir.value = settings.aria2_dir || '';
@@ -185,12 +177,9 @@ function applySettingsToUi(settings) {
   if (setQuarkSaveEnabled) setQuarkSaveEnabled.checked = !!settings.quark_save_enabled;
   markSecretInput(setQuarkCookie, settings.quark_cookie_configured, 'Cookie 已保存，留空不修改');
   if (setQuarkSaveRoot) setQuarkSaveRoot.value = settings.quark_save_root || '';
-  if (setOpenlistUser) setOpenlistUser.value = settings.openlist_username || '';
-  markSecretInput(setOpenlistPass, settings.openlist_password_configured);
   if (setNasSyncEnabled) setNasSyncEnabled.checked = !!settings.nas_sync_enabled;
   if (setNasSyncSource) setNasSyncSource.value = settings.nas_sync_source || '';
   if (setNasSyncTarget) setNasSyncTarget.value = settings.nas_sync_target || '';
-  if (settings.openlist_base_url) openlistLink.href = settings.openlist_base_url;
   renderCloudTypeOptions(cloudTypesBox, settings.cloud_types || ['quark']);
   renderCloudTypeOptions(settingsCloudTypesBox, settings.cloud_types || ['quark']);
 }
@@ -342,7 +331,7 @@ async function search() {
   }
 
   searchBtn.disabled = true;
-  setStatus('正在搜索 PanSou...');
+  setStatus('正在搜索内置资源源...');
   resultsBox.className = 'results empty-card';
   resultsBox.innerHTML = '<p class="empty">正在搜索，请稍候...</p>';
   if (resultCount) resultCount.textContent = '搜索中';
@@ -379,7 +368,7 @@ async function selectResult(index) {
     `;
     selectedPanel.classList.remove('hidden');
     document.querySelector('#selectedAria2Btn')?.addEventListener('click', () => sendToAria2(index));
-    setStatus('选择成功。可发送到 Aria2；夸克转存和 OpenList/NAS 下载将在下一阶段接入。', 'ok');
+    setStatus('选择成功。可发送到 Aria2；夸克转存和 NAS 同步可在设置中启用。', 'ok');
   } catch (err) {
     setStatus(err.message, 'error');
   }
@@ -894,8 +883,6 @@ async function sendToAria2(index) {
 function collectSettingsPayload({ includeSecrets = true } = {}) {
   const payload = {
     app_username: setUsername.value.trim(),
-    pansou_base_url: setPansou.value.trim(),
-    openlist_base_url: setOpenlist.value.trim(),
     cloud_types: selectedCloudTypes(settingsCloudTypesBox),
     check_links: checkLinksInput.checked,
     probe_quark_files: probeFilesInput.checked,
@@ -907,7 +894,6 @@ function collectSettingsPayload({ includeSecrets = true } = {}) {
     subscription_check_interval_minutes: Number(setSubscriptionInterval?.value || 60),
     quark_save_enabled: !!setQuarkSaveEnabled?.checked,
     quark_save_root: setQuarkSaveRoot?.value.trim() || '',
-    openlist_username: setOpenlistUser?.value.trim() || '',
     nas_sync_enabled: !!setNasSyncEnabled?.checked,
     nas_sync_source: setNasSyncSource?.value.trim() || '',
     nas_sync_target: setNasSyncTarget?.value.trim() || '',
@@ -916,7 +902,6 @@ function collectSettingsPayload({ includeSecrets = true } = {}) {
     if (setPassword.value) payload.app_password = setPassword.value;
     if (setAria2Secret.value) payload.aria2_secret = setAria2Secret.value;
     if (setQuarkCookie?.value) payload.quark_cookie = setQuarkCookie.value;
-    if (setOpenlistPass?.value) payload.openlist_password = setOpenlistPass.value;
   }
   return payload;
 }
@@ -967,8 +952,7 @@ keywordInput.addEventListener('keydown', event => {
 saveSettingsBtn.addEventListener('click', saveSettings);
 testAria2Btn.addEventListener('click', testAria2);
 testQuarkBtn?.addEventListener('click', () => testSettingsEndpoint(testQuarkBtn, '/api/settings/test/quark', '夸克 Cookie'));
-testOpenlistBtn?.addEventListener('click', () => testSettingsEndpoint(testOpenlistBtn, '/api/settings/test/openlist', 'OpenList'));
-testNasSyncBtn?.addEventListener('click', () => testSettingsEndpoint(testNasSyncBtn, '/api/settings/test/nas-sync', 'NAS 路径'));
+testNasSyncBtn?.addEventListener('click', () => testSettingsEndpoint(testNasSyncBtn, '/api/settings/test/mount-paths', '挂载路径'));
 driveBackBtn?.addEventListener('click', backDriveFolder);
 driveRefreshBtn?.addEventListener('click', loadDrive);
 driveNewFolderBtn?.addEventListener('click', createDriveFolder);

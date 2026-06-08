@@ -3,33 +3,35 @@
 ## Components
 
 ```text
-WeChat Bot Adapter
-  -> Bot Orchestrator
-    -> PanSou Client
-    -> Session Store
-    -> Quark Save Service
-    -> OpenList Client
-    -> Notification Adapter
+WebUI / WeChat Bot Adapter
+  -> FastAPI routes
+    -> search_service
+      -> InlinePanSouClient-style search aggregator
+      -> InlineLinkChecker / QuarkShareProbe
+    -> subscription_service
+      -> transfer_rule_service
+      -> quark_save_service
+      -> nas_sync_service
+    -> download_service
+      -> Aria2 RPC
+    -> stores
+      -> settings/subscriptions/notifications/downloads JSON
 ```
 
 ## Message Flow
 
-1. User sends: `想看 盗梦空间`
-2. Bot extracts keyword: `盗梦空间`
-3. PanSou search returns quark candidates
-4. Bot replies numbered list
-5. Session store maps chat/user to candidates
-6. User sends: `选 2`
-7. Bot loads candidate #2
-8. Quark Save Service saves share link to `${QUARK_SAVE_ROOT}/<category>/<title>`
-9. OpenList exposes saved files
-10. NAS copy/sync starts
-11. Bot sends completion message
+1. User sends: `想看 盗梦空间`.
+2. App extracts keyword and runs built-in search sources.
+3. Search results are normalized and optionally checked/probed.
+4. Bot/WebUI returns numbered candidates.
+5. User selects a result or creates a subscription.
+6. Subscription rules drive Quark auto-save, rename, and optional NAS copy.
+7. Notifications record success/failure without stopping the service.
 
-## Open Questions
+## Current External Systems
 
-- 微信机器人具体实现：WeChatPadPro / gewechat / 企业微信 / 其他？
-- OpenList admin username/password or token acquisition method?
-- OpenList 中夸克盘挂载路径，例如 `/quark`？
-- OpenList 中 NAS 本地目录挂载路径，例如 `/local/Movies`？
-- 是否已有夸克转存脚本/API？
+- Quark web APIs for share probing, saving, drive browsing, and file operations.
+- Aria2 JSON-RPC for optional download submission.
+- Local filesystem/NAS mount paths for sync.
+
+No external PanSou or OpenList service is required.

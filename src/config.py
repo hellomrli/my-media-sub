@@ -3,11 +3,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-PANSOU_BASE_URL = os.getenv("PANSOU_BASE_URL", "")
-OPENLIST_BASE_URL = os.getenv("OPENLIST_BASE_URL", "")
-OPENLIST_USERNAME = os.getenv("OPENLIST_USERNAME", "")
-OPENLIST_PASSWORD = os.getenv("OPENLIST_PASSWORD", "")
-OPENLIST_TOKEN = os.getenv("OPENLIST_TOKEN", "")
 QUARK_COOKIE = os.getenv("QUARK_COOKIE", "")
 QUARK_SAVE_ROOT = os.getenv("QUARK_SAVE_ROOT", "")
 BOT_PORT = int(os.getenv("BOT_PORT", "8787"))

@@ -16,6 +16,13 @@ SUPPORTED_CLOUD_TYPES = [
     "xunlei", "123", "magnet", "ed2k", "others",
 ]
 
+LEGACY_SETTINGS_KEYS = {
+    "pansou_base_url",
+    "openlist_base_url",
+    "openlist_username",
+    "openlist_password",
+}
+
 
 def env_bool(name: str, default: str = "false") -> bool:
     return os.getenv(name, default).lower() in {"1", "true", "yes", "on"}
@@ -32,8 +39,6 @@ def default_settings() -> dict[str, Any]:
     return {
         "app_username": config.APP_USERNAME or "admin",
         "app_password": config.APP_PASSWORD or "change-me",
-        "pansou_base_url": config.PANSOU_BASE_URL,
-        "openlist_base_url": config.OPENLIST_BASE_URL,
         "cloud_types": DEFAULT_CLOUD_TYPES,
         "check_links": config.CHECK_LINKS,
         "probe_quark_files": config.PROBE_QUARK_FILES,
@@ -47,8 +52,6 @@ def default_settings() -> dict[str, Any]:
         "quark_save_enabled": env_bool("QUARK_SAVE_ENABLED"),
         "quark_save_root": os.getenv("QUARK_SAVE_ROOT", ""),
         "quark_cookie": os.getenv("QUARK_COOKIE", ""),
-        "openlist_username": os.getenv("OPENLIST_USERNAME", ""),
-        "openlist_password": os.getenv("OPENLIST_PASSWORD", ""),
         "nas_sync_enabled": env_bool("NAS_SYNC_ENABLED"),
         "nas_sync_source": os.getenv("NAS_SYNC_SOURCE", ""),
         "nas_sync_target": os.getenv("NAS_SYNC_TARGET", ""),
@@ -67,6 +70,8 @@ class SettingsStore:
             try:
                 data = json.loads(self.path.read_text())
                 if isinstance(data, dict):
+                    for key in LEGACY_SETTINGS_KEYS:
+                        data.pop(key, None)
                     self._settings.update(data)
             except Exception:
                 # Keep defaults if settings file is broken.
@@ -85,7 +90,9 @@ class SettingsStore:
 
     def public(self) -> dict[str, Any]:
         data = self.get()
-        for key in ("app_password", "aria2_secret", "quark_cookie", "openlist_password"):
+        for key in LEGACY_SETTINGS_KEYS:
+            data.pop(key, None)
+        for key in ("app_password", "aria2_secret", "quark_cookie"):
             data[f"{key}_configured"] = bool(data.get(key))
             data[key] = ""
         data["supported_cloud_types"] = SUPPORTED_CLOUD_TYPES
@@ -94,7 +101,7 @@ class SettingsStore:
         return data
 
     def update_secret(self, key: str, value: str) -> None:
-        if key not in {"quark_cookie", "openlist_password", "aria2_secret", "app_password"}:
+        if key not in {"quark_cookie", "aria2_secret", "app_password"}:
             return
         self._settings[key] = value
         self.save()
@@ -115,7 +122,7 @@ class SettingsStore:
                     value = max(int(str(value)), 5)
                 except (TypeError, ValueError):
                     value = 60
-            elif key in {"pansou_base_url", "openlist_base_url", "aria2_rpc_url"} and isinstance(value, str):
+            elif key in {"aria2_rpc_url"} and isinstance(value, str):
                 value = value.strip().rstrip("/")
             self._settings[key] = value
         self.save()
