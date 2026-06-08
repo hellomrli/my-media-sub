@@ -25,6 +25,11 @@ const setSubscriptionInterval = document.querySelector('#setSubscriptionInterval
 const setQuarkSaveEnabled = document.querySelector('#setQuarkSaveEnabled');
 const setQuarkCookie = document.querySelector('#setQuarkCookie');
 const setQuarkSaveRoot = document.querySelector('#setQuarkSaveRoot');
+const setOpenlistUser = document.querySelector('#setOpenlistUser');
+const setOpenlistPass = document.querySelector('#setOpenlistPass');
+const setNasSyncEnabled = document.querySelector('#setNasSyncEnabled');
+const setNasSyncSource = document.querySelector('#setNasSyncSource');
+const setNasSyncTarget = document.querySelector('#setNasSyncTarget');
 const downloadsBody = document.querySelector('#downloadsBody');
 const subscriptionsBody = document.querySelector('#subscriptionsBody');
 const checkAllSubsBtn = document.querySelector('#checkAllSubsBtn');
@@ -159,6 +164,11 @@ function applySettingsToUi(settings) {
   if (setQuarkSaveEnabled) setQuarkSaveEnabled.checked = !!settings.quark_save_enabled;
   if (setQuarkCookie) setQuarkCookie.value = '';
   if (setQuarkSaveRoot) setQuarkSaveRoot.value = settings.quark_save_root || '';
+  if (setOpenlistUser) setOpenlistUser.value = settings.openlist_username || '';
+  if (setOpenlistPass) setOpenlistPass.value = '';
+  if (setNasSyncEnabled) setNasSyncEnabled.checked = !!settings.nas_sync_enabled;
+  if (setNasSyncSource) setNasSyncSource.value = settings.nas_sync_source || '';
+  if (setNasSyncTarget) setNasSyncTarget.value = settings.nas_sync_target || '';
   if (settings.openlist_base_url) openlistLink.href = settings.openlist_base_url;
   renderCloudTypeOptions(cloudTypesBox, settings.cloud_types || ['quark']);
   renderCloudTypeOptions(settingsCloudTypesBox, settings.cloud_types || ['quark']);
@@ -633,10 +643,12 @@ async function checkSubscription(id) {
     const count = (data.new_files || []).length;
     const downloadCount = (data.downloads || []).filter(item => item && item.status !== 'skipped').length;
     const quarkCount = (data.quark_saves || []).length;
+    const nasSyncCount = (data.nas_syncs || []).length;
     const parts = [];
     if (count) parts.push(`发现 ${count} 个新文件`);
     if (downloadCount) parts.push(`Aria2 提交 ${downloadCount} 个`);
     if (quarkCount) parts.push(`夸克转存 ${quarkCount} 个`);
+    if (nasSyncCount) parts.push(`NAS 同步 ${nasSyncCount} 个`);
     setStatus(parts.length ? parts.join('，') + '。' : '没有发现新文件。', count ? 'ok' : '');
   } catch (err) {
     setStatus(`检查失败：${err.message}`, 'error');
@@ -653,10 +665,12 @@ async function checkAllSubscriptions() {
     const count = (data.results || []).reduce((sum, r) => sum + ((r.new_files || []).length), 0);
     const downloadCount = (data.results || []).reduce((sum, r) => sum + ((r.downloads || []).filter(item => item && item.status !== 'skipped').length), 0);
     const quarkCount = (data.results || []).reduce((sum, r) => sum + ((r.quark_saves || []).length), 0);
+    const nasSyncCount = (data.results || []).reduce((sum, r) => sum + ((r.nas_syncs || []).length), 0);
     const parts = [];
     if (count) parts.push(`发现 ${count} 个新文件`);
     if (downloadCount) parts.push(`Aria2 提交 ${downloadCount} 个`);
     if (quarkCount) parts.push(`夸克转存 ${quarkCount} 个`);
+    if (nasSyncCount) parts.push(`NAS 同步 ${nasSyncCount} 个`);
     setStatus(parts.length ? parts.join('，') + '。' : '全部订阅都没有新文件。', count ? 'ok' : '');
   } catch (err) {
     setStatus(`检查失败：${err.message}`, 'error');
@@ -715,10 +729,15 @@ async function saveSettings() {
     subscription_check_interval_minutes: Number(setSubscriptionInterval?.value || 60),
     quark_save_enabled: !!setQuarkSaveEnabled?.checked,
     quark_save_root: setQuarkSaveRoot?.value.trim() || '',
+    openlist_username: setOpenlistUser?.value.trim() || '',
+    nas_sync_enabled: !!setNasSyncEnabled?.checked,
+    nas_sync_source: setNasSyncSource?.value.trim() || '',
+    nas_sync_target: setNasSyncTarget?.value.trim() || '',
   };
   if (setPassword.value) payload.app_password = setPassword.value;
   if (setAria2Secret.value) payload.aria2_secret = setAria2Secret.value;
   if (setQuarkCookie?.value) payload.quark_cookie = setQuarkCookie.value;
+  if (setOpenlistPass?.value) payload.openlist_password = setOpenlistPass.value;
   try {
     const settings = await postJson('/api/settings', payload);
     applySettingsToUi(settings);

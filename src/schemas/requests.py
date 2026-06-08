@@ -90,3 +90,8 @@ class SettingsUpdateRequest(BaseModel):
     quark_save_enabled: bool | None = None
     quark_cookie: str | None = None
     quark_save_root: str | None = None
+    openlist_username: str | None = None
+    openlist_password: str | None = None
+    nas_sync_enabled: bool | None = None
+    nas_sync_source: str | None = None
+    nas_sync_target: str | None = None

@@ -7,6 +7,7 @@ from ..stores.notification_store import notification_store
 from ..stores.settings_store import settings_store
 from ..stores.subscription_store import subscription_store
 from .download_service import download_urls_with_aria2
+from .nas_sync_service import sync_to_nas
 from .quark_save_service import save_subscription_transfers
 from .search_service import sessions
 from .transfer_rule_service import build_transfer_plan
@@ -55,7 +56,7 @@ def plan_subscription(subscription_id: str, files: list[dict[str, Any]] | None =
     return build_transfer_plan(sub, probe_files, target_existing_files=target_existing_files, target_dir_exists=target_dir_exists)
 
 
-def check_subscription(subscription_id: str) -> tuple[dict[str, Any] | None, list[str], bool, list[dict[str, Any]], list[dict[str, Any]]]:
+def check_subscription(subscription_id: str) -> tuple[dict[str, Any] | None, list[str], bool, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     sub = subscription_store.get(subscription_id)
     if not sub:
         raise LookupError("订阅不存在。")
@@ -65,7 +66,8 @@ def check_subscription(subscription_id: str) -> tuple[dict[str, Any] | None, lis
     add_check_notifications(updated, new_files, became_invalid)
     downloads = maybe_download_new_items(updated, plan)
     quark_saves = save_subscription_transfers(updated, plan)
-    return updated, new_files, became_invalid, downloads, quark_saves
+    nas_syncs = sync_to_nas(updated, quark_saves)
+    return updated, new_files, became_invalid, downloads, quark_saves, nas_syncs
 
 
 def check_all_subscriptions() -> list[dict[str, Any]]:
@@ -79,7 +81,8 @@ def check_all_subscriptions() -> list[dict[str, Any]]:
         add_check_notifications(updated, new_files, became_invalid)
         downloads = maybe_download_new_items(updated, plan)
         quark_saves = save_subscription_transfers(updated, plan)
-        results.append({"subscription": updated, "new_files": new_files, "became_invalid": became_invalid, "downloads": downloads, "quark_saves": quark_saves})
+        nas_syncs = sync_to_nas(updated, quark_saves)
+        results.append({"subscription": updated, "new_files": new_files, "became_invalid": became_invalid, "downloads": downloads, "quark_saves": quark_saves, "nas_syncs": nas_syncs})
     return results
 
 

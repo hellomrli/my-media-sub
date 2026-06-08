@@ -144,6 +144,8 @@
             <label>新密码<input id="setPassword" type="password" autocomplete="new-password" placeholder="留空则不修改" /></label>
             <label>PanSou 地址<input id="setPansou" placeholder="https://pansou.example.com" /></label>
             <label>OpenList 地址<input id="setOpenlist" placeholder="https://pan.example.com" /></label>
+            <label>OpenList 账号<input id="setOpenlistUser" autocomplete="username" placeholder="OpenList 登录名" /></label>
+            <label>OpenList 密码<input id="setOpenlistPass" type="password" autocomplete="new-password" placeholder="留空则不修改" /></label>
             <label>Aria2 RPC<input id="setAria2Rpc" placeholder="http://host:6800/jsonrpc" /></label>
             <label>Aria2 Secret<input id="setAria2Secret" type="password" placeholder="留空则不修改" /></label>
             <label>Aria2 下载目录<input id="setAria2Dir" placeholder="/downloads" /></label>
@@ -164,6 +166,16 @@
             <div class="settings-grid" style="padding: 12px 0 0; grid-template-columns: 1fr 1fr;">
               <label>夸克 Cookie<input id="setQuarkCookie" type="password" placeholder="留空则不修改" /></label>
               <label>保存根目录<input id="setQuarkSaveRoot" placeholder="例如：/媒体/连续剧" /></label>
+            </div>
+          </div>
+          <div class="settings-block">
+            <span class="eyebrow">NAS Sync (via OpenList)</span>
+            <div class="switch-grid flat">
+              <label><input id="setNasSyncEnabled" type="checkbox" /> 夸克转存后自动同步到 NAS</label>
+            </div>
+            <div class="settings-grid" style="padding: 12px 0 0; grid-template-columns: 1fr 1fr;">
+              <label>源路径前缀（OpenList 中夸克挂载目录）<input id="setNasSyncSource" placeholder="例如：/QuarkMount/媒体/连续剧" /></label>
+              <label>目标路径前缀（OpenList 中 NAS 挂载目录）<input id="setNasSyncTarget" placeholder="例如：/NAS/媒体库/连续剧" /></label>
             </div>
           </div>
           <div class="settings-block">

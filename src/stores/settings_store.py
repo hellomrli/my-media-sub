@@ -47,6 +47,11 @@ def default_settings() -> dict[str, Any]:
         "quark_save_enabled": env_bool("QUARK_SAVE_ENABLED"),
         "quark_save_root": os.getenv("QUARK_SAVE_ROOT", ""),
         "quark_cookie": os.getenv("QUARK_COOKIE", ""),
+        "openlist_username": os.getenv("OPENLIST_USERNAME", ""),
+        "openlist_password": os.getenv("OPENLIST_PASSWORD", ""),
+        "nas_sync_enabled": env_bool("NAS_SYNC_ENABLED"),
+        "nas_sync_source": os.getenv("NAS_SYNC_SOURCE", ""),
+        "nas_sync_target": os.getenv("NAS_SYNC_TARGET", ""),
     }
 
 
@@ -83,6 +88,7 @@ class SettingsStore:
         data["app_password"] = "" if data.get("app_password") else ""
         data["aria2_secret"] = "" if data.get("aria2_secret") else ""
         data["quark_cookie"] = "" if data.get("quark_cookie") else ""
+        data["openlist_password"] = "" if data.get("openlist_password") else ""
         data["supported_cloud_types"] = SUPPORTED_CLOUD_TYPES
         data["cloud_type_names"] = CLOUD_TYPE_NAMES
         data["app_name"] = "Lain 的媒体订阅"
