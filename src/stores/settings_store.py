@@ -94,6 +94,12 @@ class SettingsStore:
         data["app_name"] = "Lain 的媒体订阅"
         return data
 
+    def update_secret(self, key: str, value: str) -> None:
+        if key not in {"quark_cookie", "openlist_password", "aria2_secret", "app_password"}:
+            return
+        self._settings[key] = value
+        self.save()
+
     def update(self, patch: dict[str, Any]) -> dict[str, Any]:
         allowed = set(default_settings())
         for key, value in patch.items():

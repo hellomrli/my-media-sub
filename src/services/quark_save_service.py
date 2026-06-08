@@ -122,6 +122,11 @@ def save_subscription_transfers(
         return []
 
     # Mark transferred in subscription store
+    refreshed_cookie = save_client.cookie or probe.cookie
+    if refreshed_cookie and refreshed_cookie != cookie:
+        settings_store.update_secret("quark_cookie", refreshed_cookie)
+        logger.info("Quark cookie refreshed after save for subscription %s", sub.get("id"))
+
     from ..stores.subscription_store import subscription_store
     subscription_store.mark_transferred(sub["id"], transfers)
 

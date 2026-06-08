@@ -26,6 +26,18 @@ class OpenListClient:
         self.token = token
         return token
 
+    def fs_list(self, path: str):
+        payload = {"path": path, "password": "", "page": 1, "per_page": 0, "refresh": False}
+        resp = requests.post(f"{self.base_url}/api/fs/list", json=payload, headers=self.headers(), timeout=20)
+        resp.raise_for_status()
+        return resp.json()
+
+    def fs_get(self, path: str):
+        payload = {"path": path, "password": ""}
+        resp = requests.post(f"{self.base_url}/api/fs/get", json=payload, headers=self.headers(), timeout=20)
+        resp.raise_for_status()
+        return resp.json()
+
     def fs_copy(self, src_dir: str, dst_dir: str, names: list[str], overwrite=False, skip_existing=True, merge=True):
         payload = {
             "src_dir": src_dir,

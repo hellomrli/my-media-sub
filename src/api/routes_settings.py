@@ -19,6 +19,21 @@ def update_settings(req: SettingsUpdateRequest):
     return settings_service.update_settings(req.model_dump(exclude_unset=True))
 
 
+@router.post("/api/settings/test/quark")
+def test_quark(req: SettingsUpdateRequest):
+    return settings_service.test_quark_cookie(req.model_dump(exclude_unset=True))
+
+
+@router.post("/api/settings/test/openlist")
+def test_openlist(req: SettingsUpdateRequest):
+    return settings_service.test_openlist(req.model_dump(exclude_unset=True))
+
+
+@router.post("/api/settings/test/nas-sync")
+def test_nas_sync(req: SettingsUpdateRequest):
+    return settings_service.test_nas_sync(req.model_dump(exclude_unset=True))
+
+
 @router.get("/api/cloud-types")
 def get_cloud_types():
     return settings_service.get_cloud_types()

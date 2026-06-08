@@ -11,6 +11,9 @@ const cloudTypesBox = document.querySelector('#cloudTypes');
 const settingsCloudTypesBox = document.querySelector('#settingsCloudTypes');
 const saveSettingsBtn = document.querySelector('#saveSettingsBtn');
 const testAria2Btn = document.querySelector('#testAria2Btn');
+const testQuarkBtn = document.querySelector('#testQuarkBtn');
+const testOpenlistBtn = document.querySelector('#testOpenlistBtn');
+const testNasSyncBtn = document.querySelector('#testNasSyncBtn');
 const openlistLink = document.querySelector('#openlistLink');
 const setUsername = document.querySelector('#setUsername');
 const setPassword = document.querySelector('#setPassword');
@@ -645,6 +648,17 @@ function addDownloadLogsFromSubscription(downloads, fallbackTitle = '订阅自�
   renderDownloadLogs();
 }
 
+function summarizeNasSyncs(nasSyncs = []) {
+  const successes = nasSyncs.filter(item => item?.status === 'success').length;
+  const failures = nasSyncs.filter(item => item?.status === 'failed').length;
+  const skipped = nasSyncs.filter(item => item && !['success', 'failed'].includes(item.status)).length;
+  const parts = [];
+  if (successes) parts.push(`NAS 同步 ${successes} 个`);
+  if (failures) parts.push(`NAS 失败 ${failures} 项`);
+  if (skipped) parts.push(`NAS 跳过 ${skipped} 项`);
+  return parts;
+}
+
 async function checkSubscription(id) {
   setStatus('正在检查订阅更新...');
   try {
@@ -655,12 +669,11 @@ async function checkSubscription(id) {
     const count = (data.new_files || []).length;
     const downloadCount = (data.downloads || []).filter(item => item && item.status !== 'skipped').length;
     const quarkCount = (data.quark_saves || []).length;
-    const nasSyncCount = (data.nas_syncs || []).length;
     const parts = [];
     if (count) parts.push(`发现 ${count} 个新文件`);
     if (downloadCount) parts.push(`Aria2 提交 ${downloadCount} 个`);
     if (quarkCount) parts.push(`夸克转存 ${quarkCount} 个`);
-    if (nasSyncCount) parts.push(`NAS 同步 ${nasSyncCount} 个`);
+    parts.push(...summarizeNasSyncs(data.nas_syncs || []));
     setStatus(parts.length ? parts.join('，') + '。' : '没有发现新文件。', count ? 'ok' : '');
   } catch (err) {
     setStatus(`检查失败：${err.message}`, 'error');
@@ -677,12 +690,11 @@ async function checkAllSubscriptions() {
     const count = (data.results || []).reduce((sum, r) => sum + ((r.new_files || []).length), 0);
     const downloadCount = (data.results || []).reduce((sum, r) => sum + ((r.downloads || []).filter(item => item && item.status !== 'skipped').length), 0);
     const quarkCount = (data.results || []).reduce((sum, r) => sum + ((r.quark_saves || []).length), 0);
-    const nasSyncCount = (data.results || []).reduce((sum, r) => sum + ((r.nas_syncs || []).length), 0);
     const parts = [];
     if (count) parts.push(`发现 ${count} 个新文件`);
     if (downloadCount) parts.push(`Aria2 提交 ${downloadCount} 个`);
     if (quarkCount) parts.push(`夸克转存 ${quarkCount} 个`);
-    if (nasSyncCount) parts.push(`NAS 同步 ${nasSyncCount} 个`);
+    for (const result of data.results || []) parts.push(...summarizeNasSyncs(result.nas_syncs || []));
     setStatus(parts.length ? parts.join('，') + '。' : '全部订阅都没有新文件。', count ? 'ok' : '');
   } catch (err) {
     setStatus(`检查失败：${err.message}`, 'error');
@@ -724,8 +736,7 @@ async function sendToAria2(index) {
   }
 }
 
-async function saveSettings() {
-  saveSettingsBtn.disabled = true;
+function collectSettingsPayload({ includeSecrets = true } = {}) {
   const payload = {
     app_username: setUsername.value.trim(),
     pansou_base_url: setPansou.value.trim(),
@@ -746,10 +757,18 @@ async function saveSettings() {
     nas_sync_source: setNasSyncSource?.value.trim() || '',
     nas_sync_target: setNasSyncTarget?.value.trim() || '',
   };
-  if (setPassword.value) payload.app_password = setPassword.value;
-  if (setAria2Secret.value) payload.aria2_secret = setAria2Secret.value;
-  if (setQuarkCookie?.value) payload.quark_cookie = setQuarkCookie.value;
-  if (setOpenlistPass?.value) payload.openlist_password = setOpenlistPass.value;
+  if (includeSecrets) {
+    if (setPassword.value) payload.app_password = setPassword.value;
+    if (setAria2Secret.value) payload.aria2_secret = setAria2Secret.value;
+    if (setQuarkCookie?.value) payload.quark_cookie = setQuarkCookie.value;
+    if (setOpenlistPass?.value) payload.openlist_password = setOpenlistPass.value;
+  }
+  return payload;
+}
+
+async function saveSettings() {
+  saveSettingsBtn.disabled = true;
+  const payload = collectSettingsPayload();
   try {
     const settings = await postJson('/api/settings', payload);
     applySettingsToUi(settings);
@@ -771,12 +790,30 @@ async function testAria2() {
   }
 }
 
+async function testSettingsEndpoint(button, url, label) {
+  if (!button) return;
+  button.disabled = true;
+  setStatus(`正在测试 ${label}...`);
+  try {
+    const data = await postJson(url, collectSettingsPayload());
+    setStatus(data.message || `${label} 测试完成`, data.ok ? 'ok' : 'error');
+    if (url === '/api/settings/test/quark' && data.ok) await loadSettings();
+  } catch (err) {
+    setStatus(`${label} 测试失败：${err.message}`, 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
+
 searchBtn.addEventListener('click', search);
 keywordInput.addEventListener('keydown', event => {
   if (event.key === 'Enter') search();
 });
 saveSettingsBtn.addEventListener('click', saveSettings);
 testAria2Btn.addEventListener('click', testAria2);
+testQuarkBtn?.addEventListener('click', () => testSettingsEndpoint(testQuarkBtn, '/api/settings/test/quark', '夸克 Cookie'));
+testOpenlistBtn?.addEventListener('click', () => testSettingsEndpoint(testOpenlistBtn, '/api/settings/test/openlist', 'OpenList'));
+testNasSyncBtn?.addEventListener('click', () => testSettingsEndpoint(testNasSyncBtn, '/api/settings/test/nas-sync', 'NAS 路径'));
 
 checkAllSubsBtn.addEventListener('click', checkAllSubscriptions);
 markAllReadBtn.addEventListener('click', markAllNotificationsRead);

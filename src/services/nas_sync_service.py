@@ -10,28 +10,34 @@ from ..stores.settings_store import settings_store
 logger = logging.getLogger(__name__)
 
 
+def _join_openlist_path(prefix: str, relative: str = "") -> str:
+    parts = []
+    for value in (prefix, relative):
+        parts.extend(part for part in str(value or "").split("/") if part)
+    return "/" + "/".join(parts) if parts else "/"
+
+
+def _result(status: str, message: str, **extra: Any) -> dict[str, Any]:
+    return {"status": status, "message": message, **extra}
+
+
 def sync_to_nas(
     updated: dict[str, Any] | None,
     saved_items: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """After successful Quark save, optionally copy files to NAS via OpenList.
-
-    Conditions:
-    - Subscription exists and notify_only is False.
-    - There are successfully saved Quark items.
-    - Global 'nas_sync_enabled' setting is True.
-    - OpenList base URL, username, password are configured.
-    - nas_sync_source and nas_sync_target are configured.
-
-    Returns a list of sync results (empty list if nothing was synced).
-    """
-    if not updated or updated.get("notify_only"):
-        return []
+    """After successful Quark save, optionally copy files to NAS via OpenList."""
+    if not updated:
+        return [_result("skipped_no_subscription", "没有可同步的订阅信息")]
+    title = updated.get("title") or "未命名订阅"
+    sub_id = updated.get("id")
+    if updated.get("notify_only"):
+        return [_result("notify_only", "订阅为仅通知模式，跳过 NAS 同步", title=title)]
     if not saved_items:
-        return []
+        return [_result("skipped_no_quark_success", "没有成功转存的夸克文件，跳过 NAS 同步", title=title)]
+
     settings = settings_store.get()
     if not settings.get("nas_sync_enabled"):
-        return []
+        return [_result("disabled", "NAS 同步未启用", title=title)]
 
     openlist_url = (settings.get("openlist_base_url") or "").strip()
     ol_user = (settings.get("openlist_username") or "").strip()
@@ -40,36 +46,29 @@ def sync_to_nas(
     dst_prefix = (settings.get("nas_sync_target") or "").strip()
 
     if not openlist_url or not ol_user or not ol_pass:
-        return []
+        message = "OpenList 地址、账号或密码未配置完整"
+        notification_store.add("warning", "nas_sync_not_configured", f"NAS 同步跳过：{title}", message, {"subscription_id": sub_id})
+        return [_result("not_configured", message, title=title)]
     if not src_prefix or not dst_prefix:
-        return []
+        message = "NAS 同步源路径或目标路径未配置"
+        notification_store.add("warning", "nas_sync_not_configured", f"NAS 同步跳过：{title}", message, {"subscription_id": sub_id})
+        return [_result("not_configured", message, title=title)]
 
     names = [item.get("name") or "" for item in saved_items if item.get("name")]
     if not names:
-        return []
+        return [_result("skipped_no_names", "转存结果缺少文件名，无法构造 OpenList 复制请求", title=title)]
 
-    title = updated.get("title") or "未命名订阅"
-    sub_id = updated.get("id")
-
-    # Build source and target directories
-    src_dir = f"{src_prefix.rstrip('/')}/{title}"
-    dst_dir = f"{dst_prefix.rstrip('/')}/{title}"
-    # Login to OpenList
+    src_dir = _join_openlist_path(src_prefix, title)
+    dst_dir = _join_openlist_path(dst_prefix, title)
     client = OpenListClient(openlist_url)
     try:
         client.login(ol_user, ol_pass)
     except Exception as exc:
+        message = f"OpenList 登录失败：{exc}"
         logger.warning("OpenList login failed for NAS sync: %s", exc)
-        notification_store.add(
-            "warning",
-            "nas_sync_failed",
-            f"NAS 同步失败（登录）：{title}",
-            str(exc),
-            {"subscription_id": sub_id},
-        )
-        return []
+        notification_store.add("warning", "nas_sync_failed", f"NAS 同步失败（登录）：{title}", message, {"subscription_id": sub_id})
+        return [_result("failed", message, title=title, src_dir=src_dir, dst_dir=dst_dir)]
 
-    # Execute copy
     try:
         result = client.fs_copy(
             src_dir=src_dir,
@@ -80,21 +79,21 @@ def sync_to_nas(
             merge=True,
         )
     except Exception as exc:
+        message = f"OpenList 复制失败：{exc}"
         logger.warning("NAS sync copy failed: %s", exc)
-        notification_store.add(
-            "warning",
-            "nas_sync_failed",
-            f"NAS 同步失败（复制）：{title}",
-            str(exc),
-            {"subscription_id": sub_id},
-        )
-        return []
+        notification_store.add("warning", "nas_sync_failed", f"NAS 同步失败（复制）：{title}", message, {"subscription_id": sub_id})
+        return [_result("failed", message, title=title, src_dir=src_dir, dst_dir=dst_dir, names=names)]
 
-    # Build sync result list
-    sync_results = []
-    for name in names:
-        sync_results.append({"name": name, "src_dir": src_dir, "dst_dir": dst_dir})
+    code = result.get("code", 0) if isinstance(result, dict) else 0
+    if code != 0:
+        message = str(result.get("message") or result.get("msg") or result)
+        notification_store.add("warning", "nas_sync_failed", f"NAS 同步失败（复制）：{title}", message, {"subscription_id": sub_id})
+        return [_result("failed", message, title=title, src_dir=src_dir, dst_dir=dst_dir, names=names)]
 
+    sync_results = [
+        _result("success", "已提交 OpenList 复制", name=name, title=title, src_dir=src_dir, dst_dir=dst_dir)
+        for name in names
+    ]
     notification_store.add(
         "info",
         "nas_sync_success",
