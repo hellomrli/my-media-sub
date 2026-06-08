@@ -118,10 +118,9 @@ def apply_rename(name: str, rules: dict[str, Any], subscription: dict[str, Any] 
         except Exception as exc:
             return name, f"rename_template 无效：{exc}"
 
-    if ignore_ext and suffix:
-        known_media_suffixes = {".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".ts", ".m2ts", ".webm", ".srt", ".ass", ".ssa"}
-        if not any(target.lower().endswith(ext) for ext in known_media_suffixes):
-            target = f"{target}{suffix}"
+    known_media_suffixes = {".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".ts", ".m2ts", ".webm", ".srt", ".ass", ".ssa"}
+    if suffix and not any(target.lower().endswith(ext) for ext in known_media_suffixes):
+        target = f"{target}{suffix}"
     return target or name, None
 
 

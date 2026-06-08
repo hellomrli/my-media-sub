@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import time
+from collections import defaultdict
 from typing import Any
 
 from ..clients.quark import QuarkShareProbe
@@ -9,6 +11,18 @@ from ..stores.notification_store import notification_store
 from ..stores.settings_store import settings_store
 
 logger = logging.getLogger(__name__)
+
+
+def _list_dir_until_names(client: QuarkSaveClient, target_fid: str, names: set[str], attempts: int = 6, delay: float = 1.5) -> dict[str, dict[str, Any]]:
+    by_name: dict[str, dict[str, Any]] = {}
+    for attempt in range(attempts):
+        items = client.list_dir(target_fid)
+        by_name = {item.get("file_name") or item.get("name") or "": item for item in items}
+        if names & set(by_name):
+            return by_name
+        if attempt < attempts - 1:
+            time.sleep(delay)
+    return by_name
 
 
 def save_subscription_transfers(
@@ -78,47 +92,74 @@ def save_subscription_transfers(
             children, _ = probe.list_files(pwd_id, stoken, pdir_fid=fid)
             queue.extend(children)
 
-    # 3. Collect fids + tokens for transfer items
-    fid_list: list[str] = []
-    fid_token_list: list[str] = []
-    saved_files: list[dict[str, Any]] = []
+    # 3. Collect fids + tokens for transfer items and group them by target directory.
+    grouped_transfers: dict[str, list[dict[str, Any]]] = defaultdict(list)
     missing: list[str] = []
 
     for t in transfers:
         name = t.get("source_name") or ""
         entry = share_file_map.get(name)
         if entry and entry["fid"] and entry["share_fid_token"]:
-            fid_list.append(entry["fid"])
-            fid_token_list.append(entry["share_fid_token"])
-            saved_files.append({"name": name, "fid": entry["fid"]})
+            enriched = dict(t)
+            enriched["source_fid"] = entry["fid"]
+            enriched["share_fid_token"] = entry["share_fid_token"]
+            grouped_transfers[t.get("target_dir") or plan.get("target_dir") or ""].append(enriched)
         else:
             missing.append(name)
 
-    if not fid_list:
+    if not grouped_transfers:
         if missing:
             notification_store.add("warning", "quark_save_failed", f"夸克转存失败：{title}", f"分享列表中找不到 fid_token：{', '.join(missing[:5])}", {"subscription_id": sub.get("id")})
         return []
 
-    # 4. Find/create target directory
+    # 4. Execute save per target directory, then apply target names.
     save_client = QuarkSaveClient(cookie=cookie)
-    target_fid = "0"
-    if save_root:
-        try:
-            target_fid = save_client.ensure_dir_path(save_root)
-        except Exception as exc:
-            logger.warning("Failed to resolve Quark save dir '%s': %s", save_root, exc)
-            target_fid = "0"
+    saved_files: list[dict[str, Any]] = []
+    target_fids: dict[str, str] = {}
 
-    # 5. Execute save
-    try:
-        result = save_client.save_share_files(pwd_id, stoken, fid_list, fid_token_list, target_fid)
-        code = result.get("code", -1)
-        if code != 0:
-            msg = result.get("message") or result.get("msg") or f"未知错误(code={code})"
-            notification_store.add("warning", "quark_save_failed", f"夸克转存失败：{title}", msg, {"subscription_id": sub.get("id")})
-            return []
-    except Exception as exc:
-        notification_store.add("warning", "quark_save_failed", f"夸克转存失败：{title}", str(exc), {"subscription_id": sub.get("id")})
+    for target_dir, items in grouped_transfers.items():
+        relative_target_dir = (target_dir or "").strip("/")
+        full_target_dir = "/".join(part.strip("/") for part in [save_root, relative_target_dir] if part and part.strip("/"))
+        try:
+            target_fid = save_client.ensure_dir_path(full_target_dir) if full_target_dir else "0"
+        except Exception as exc:
+            notification_store.add("warning", "quark_save_failed", f"夸克转存失败：{title}", f"创建目标目录失败：/{full_target_dir}：{exc}", {"subscription_id": sub.get("id")})
+            continue
+        target_fids[target_dir or "/"] = target_fid
+
+        fid_list = [item["source_fid"] for item in items]
+        fid_token_list = [item["share_fid_token"] for item in items]
+        try:
+            result = save_client.save_share_files(pwd_id, stoken, fid_list, fid_token_list, target_fid)
+            code = result.get("code", -1)
+            if code != 0:
+                msg = result.get("message") or result.get("msg") or f"未知错误(code={code})"
+                notification_store.add("warning", "quark_save_failed", f"夸克转存失败：{title}", msg, {"subscription_id": sub.get("id"), "target_dir": target_dir})
+                continue
+        except Exception as exc:
+            notification_store.add("warning", "quark_save_failed", f"夸克转存失败：{title}", str(exc), {"subscription_id": sub.get("id"), "target_dir": target_dir})
+            continue
+
+        expected_names = {item.get("source_name") or "" for item in items} | {item.get("target_name") or "" for item in items}
+        expected_names.discard("")
+        by_name = _list_dir_until_names(save_client, target_fid, expected_names)
+        for item in items:
+            source_name = item.get("source_name") or ""
+            target_name = item.get("target_name") or source_name
+            saved = by_name.get(source_name) or by_name.get(target_name)
+            saved_fid = (saved or {}).get("fid") or (saved or {}).get("file_id") or ""
+            if saved_fid and target_name and target_name != source_name:
+                try:
+                    rename_result = save_client.rename_item(saved_fid, target_name)
+                    if rename_result.get("code", 0) != 0:
+                        logger.warning("Failed to rename Quark item %s to %s: %s", source_name, target_name, rename_result)
+                    else:
+                        source_name = target_name
+                except Exception as exc:
+                    logger.warning("Failed to rename Quark item %s to %s: %s", source_name, target_name, exc)
+            saved_files.append({"name": item.get("source_name"), "target_name": target_name, "fid": saved_fid, "target_dir": target_dir})
+
+    if not saved_files:
         return []
 
     # Mark transferred in subscription store
@@ -128,13 +169,14 @@ def save_subscription_transfers(
         logger.info("Quark cookie refreshed after save for subscription %s", sub.get("id"))
 
     from ..stores.subscription_store import subscription_store
-    subscription_store.mark_transferred(sub["id"], transfers)
+    successful_source_names = {item.get("name") for item in saved_files}
+    subscription_store.mark_transferred(sub["id"], [t for t in transfers if t.get("source_name") in successful_source_names])
 
     notification_store.add(
         "info",
         "quark_save_success",
         f"夸克转存成功：{title}",
         f"已转存 {len(saved_files)} 个文件到夸克网盘。",
-        {"subscription_id": sub.get("id"), "files": saved_files, "target_fid": target_fid},
+        {"subscription_id": sub.get("id"), "files": saved_files, "target_fids": target_fids},
     )
-    return [{"name": t.get("source_name"), "fid": t.get("fid") or entry.get("fid"), "status": "saved"} for t in transfers if (entry := share_file_map.get(t.get("source_name") or ""))]
+    return [{"name": item.get("name"), "target_name": item.get("target_name"), "fid": item.get("fid"), "target_dir": item.get("target_dir"), "status": "saved"} for item in saved_files]
