@@ -50,6 +50,7 @@ const subEditTotal = document.querySelector('#subEditTotal');
 const subEditMediaType = document.querySelector('#subEditMediaType');
 const subEditEnabled = document.querySelector('#subEditEnabled');
 const subEditCompleted = document.querySelector('#subEditCompleted');
+const subEditAutoSave = document.querySelector('#subEditAutoSave');
 const subEditOnlyLatest = document.querySelector('#subEditOnlyLatest');
 const subEditInclude = document.querySelector('#subEditInclude');
 const subEditExclude = document.querySelector('#subEditExclude');
@@ -436,7 +437,8 @@ async function subscribeResult(index) {
   }
   setStatus(`正在创建第 ${index} 条订阅...`);
   try {
-    const data = await postJson('/api/subscriptions', { chat_id: chatId, index, media_type: mediaType, notify_only: true });
+    const shouldAutoSave = !!appSettings?.quark_save_enabled;
+    const data = await postJson('/api/subscriptions', { chat_id: chatId, index, media_type: mediaType, notify_only: !shouldAutoSave });
     await loadSubscriptions();
     openSubscriptionModal(data.subscription || {}, { mode: 'create' });
     setStatus('订阅已创建，请先设置匹配、转存和重命名规则。', 'ok');
@@ -527,7 +529,7 @@ function openSubscriptionModal(sub, options = {}) {
   if (subscriptionModalTitle) subscriptionModalTitle.textContent = mode === 'create' ? '设置新订阅' : '编辑订阅规则';
   if (subscriptionModalHint) {
     subscriptionModalHint.textContent = mode === 'create'
-      ? '订阅已创建。先设置匹配、转存和重命名规则，保存后即可进入自动检查流程。'
+      ? '订阅已创建。确认匹配规则和自动转存开关；保存后检查更新会按设置转存到夸克网盘。'
       : '这里用于后续修改已有订阅的匹配、转存和重命名规则。';
   }
   if (saveSubscriptionBtn) saveSubscriptionBtn.textContent = mode === 'create' ? '保存并启用订阅' : '保存规则';
@@ -538,6 +540,7 @@ function openSubscriptionModal(sub, options = {}) {
   subEditMediaType.value = sub.media_type || 'series';
   subEditEnabled.checked = sub.enabled !== false;
   subEditCompleted.checked = !!sub.completed;
+  if (subEditAutoSave) subEditAutoSave.checked = sub.notify_only === false;
   subEditOnlyLatest.checked = !!rules.only_latest;
   subEditInclude.value = (rules.include_keywords || []).join(', ');
   subEditExclude.value = (rules.exclude_keywords || []).join(', ');
@@ -642,6 +645,7 @@ async function saveSubscriptionModal(event) {
     total_episode_number: subEditTotal.value ? Number(subEditTotal.value) : null,
     enabled: subEditEnabled.checked,
     completed: subEditCompleted.checked,
+    notify_only: !subEditAutoSave?.checked,
     rules: collectSubscriptionRulesFromModal()
   });
   closeSubscriptionModal();
