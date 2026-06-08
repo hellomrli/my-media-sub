@@ -7,6 +7,21 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+QUARK_API_BASE = "https://drive.quark.cn/1/clouddrive"
+
+
+def _set_cookie_value(cookie: str, name: str, value: str) -> str:
+    parts = [part.strip() for part in cookie.split(";") if part.strip()]
+    replaced = False
+    for idx, part in enumerate(parts):
+        if part.startswith(f"{name}="):
+            parts[idx] = f"{name}={value}"
+            replaced = True
+            break
+    if not replaced:
+        parts.append(f"{name}={value}")
+    return "; ".join(parts)
+
 
 class QuarkSaveClient:
     """Save files from a Quark share link to the user's own Quark drive."""
@@ -23,20 +38,30 @@ class QuarkSaveClient:
         if self.cookie:
             self.session.headers.update({"Cookie": self.cookie})
 
+    def _refresh_cookie_header(self, resp: requests.Response) -> None:
+        for name in ("__puus", "__pus"):
+            value = resp.cookies.get(name)
+            if value:
+                self.cookie = _set_cookie_value(self.cookie, name, value)
+        if self.cookie:
+            self.session.headers.update({"Cookie": self.cookie})
+
     def _get(self, path: str, params: dict[str, Any] | None = None, timeout: int = 20) -> dict[str, Any]:
-        url = "https://drive-pc.quark.cn/1/clouddrive" + path
+        url = QUARK_API_BASE + path
         params = dict(params or {})
         params.setdefault("pr", "ucpro")
         params.setdefault("fr", "pc")
         resp = self.session.get(url, params=params, timeout=timeout)
         resp.raise_for_status()
+        self._refresh_cookie_header(resp)
         return resp.json()
 
     def _post(self, path: str, payload: dict[str, Any] | None = None, timeout: int = 20) -> dict[str, Any]:
-        url = "https://drive-pc.quark.cn/1/clouddrive" + path
+        url = QUARK_API_BASE + path
         params = {"pr": "ucpro", "fr": "pc"}
         resp = self.session.post(url, params=params, json=payload or {}, timeout=timeout)
         resp.raise_for_status()
+        self._refresh_cookie_header(resp)
         return resp.json()
 
     # ── Target directory management ──────────────────────────────────
@@ -62,7 +87,7 @@ class QuarkSaveClient:
             found = None
             for item in items:
                 name = item.get("file_name") or item.get("name") or ""
-                is_dir = bool(item.get("dir") or item.get("file_type") == 0)
+                is_dir = bool(item.get("dir") or item.get("file") is False or item.get("file_type") == 0)
                 if is_dir and name == part:
                     found = item.get("fid") or item.get("file_id")
                     break

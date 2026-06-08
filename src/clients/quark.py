@@ -8,6 +8,22 @@ from urllib.parse import urlparse
 import requests
 
 
+QUARK_API_BASE = "https://drive.quark.cn/1/clouddrive"
+
+
+def _set_cookie_value(cookie: str, name: str, value: str) -> str:
+    parts = [part.strip() for part in cookie.split(";") if part.strip()]
+    replaced = False
+    for idx, part in enumerate(parts):
+        if part.startswith(f"{name}="):
+            parts[idx] = f"{name}={value}"
+            replaced = True
+            break
+    if not replaced:
+        parts.append(f"{name}={value}")
+    return "; ".join(parts)
+
+
 @dataclass
 class QuarkShareInfo:
     ok: bool
@@ -38,6 +54,14 @@ class QuarkShareProbe:
         if self.cookie:
             self.session.headers.update({"Cookie": self.cookie})
 
+    def _refresh_cookie_header(self, resp: requests.Response) -> None:
+        for name in ("__puus", "__pus"):
+            value = resp.cookies.get(name)
+            if value:
+                self.cookie = _set_cookie_value(self.cookie, name, value)
+        if self.cookie:
+            self.session.headers.update({"Cookie": self.cookie})
+
     @staticmethod
     def extract_pwd_id(url: str) -> str | None:
         parsed = urlparse(url)
@@ -62,10 +86,11 @@ class QuarkShareProbe:
         return count
 
     def _post(self, path: str, payload: dict[str, Any], timeout: int = 20) -> dict[str, Any]:
-        url = "https://drive-pc.quark.cn/1/clouddrive" + path
+        url = QUARK_API_BASE + path
         params = {"pr": "ucpro", "fr": "pc"}
         resp = self.session.post(url, params=params, json=payload, timeout=timeout)
         resp.raise_for_status()
+        self._refresh_cookie_header(resp)
         return resp.json()
 
     def get_share_token(self, pwd_id: str, passcode: str = "") -> tuple[str | None, str | None]:
@@ -77,7 +102,7 @@ class QuarkShareProbe:
         return token, None
 
     def list_files(self, pwd_id: str, stoken: str, pdir_fid: str = "0", page: int = 1, size: int = 100) -> tuple[list[dict], str | None]:
-        url = "https://drive-pc.quark.cn/1/clouddrive/share/sharepage/detail"
+        url = QUARK_API_BASE + "/share/sharepage/detail"
         params = {
             "pr": "ucpro",
             "fr": "pc",
@@ -93,6 +118,7 @@ class QuarkShareProbe:
         }
         resp = self.session.get(url, params=params, timeout=20)
         resp.raise_for_status()
+        self._refresh_cookie_header(resp)
         data = resp.json()
         if data.get("code", 0) != 0:
             return [], data.get("message") or data.get("msg") or str(data)
@@ -122,7 +148,7 @@ class QuarkShareProbe:
                 item = queue.pop(0)
                 fid = item.get("fid") or item.get("file_id")
                 name = item.get("file_name") or item.get("name") or ""
-                is_dir = bool(item.get("dir") or (item.get("file_type") == 0 and not item.get("format_type") and item.get("size", 0) == 0))
+                is_dir = bool(item.get("dir") or item.get("file") is False or (item.get("file_type") == 0 and not item.get("format_type") and item.get("size", 0) == 0))
                 normalized = {
                     "name": name,
                     "fid": fid,

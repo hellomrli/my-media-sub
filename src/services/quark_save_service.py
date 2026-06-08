@@ -71,7 +71,7 @@ def save_subscription_transfers(
         name = item.get("file_name") or item.get("name") or ""
         fid = item.get("fid") or item.get("file_id") or ""
         token = item.get("share_fid_token") or item.get("file_token") or ""
-        is_dir = bool(item.get("dir") or (item.get("file_type") == 0 and not item.get("format_type") and item.get("size", 0) == 0))
+        is_dir = bool(item.get("dir") or item.get("file") is False or (item.get("file_type") == 0 and not item.get("format_type") and item.get("size", 0) == 0))
         if name and fid and token:
             share_file_map[name] = {"fid": fid, "share_fid_token": token, "is_dir": is_dir}
         if is_dir and fid:
