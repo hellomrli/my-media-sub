@@ -85,10 +85,9 @@ class SettingsStore:
 
     def public(self) -> dict[str, Any]:
         data = self.get()
-        data["app_password"] = "" if data.get("app_password") else ""
-        data["aria2_secret"] = "" if data.get("aria2_secret") else ""
-        data["quark_cookie"] = "" if data.get("quark_cookie") else ""
-        data["openlist_password"] = "" if data.get("openlist_password") else ""
+        for key in ("app_password", "aria2_secret", "quark_cookie", "openlist_password"):
+            data[f"{key}_configured"] = bool(data.get(key))
+            data[key] = ""
         data["supported_cloud_types"] = SUPPORTED_CLOUD_TYPES
         data["cloud_type_names"] = CLOUD_TYPE_NAMES
         data["app_name"] = "Lain 的媒体订阅"

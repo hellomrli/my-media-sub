@@ -159,14 +159,21 @@ function renderCloudTypeOptions(container, selected = ['quark']) {
   `).join('');
 }
 
+function markSecretInput(input, configured, label = '已保存，留空不修改') {
+  if (!input) return;
+  input.value = '';
+  input.placeholder = configured ? label : '留空则不修改';
+  input.classList.toggle('secret-configured', !!configured);
+}
+
 function applySettingsToUi(settings) {
   appSettings = settings;
   setUsername.value = settings.app_username || '';
-  setPassword.value = '';
+  markSecretInput(setPassword, settings.app_password_configured);
   setPansou.value = settings.pansou_base_url || '';
   setOpenlist.value = settings.openlist_base_url || '';
   setAria2Rpc.value = settings.aria2_rpc_url || '';
-  setAria2Secret.value = '';
+  markSecretInput(setAria2Secret, settings.aria2_secret_configured);
   setAria2Dir.value = settings.aria2_dir || '';
   checkLinksInput.checked = settings.check_links !== false;
   probeFilesInput.checked = settings.probe_quark_files !== false;
@@ -175,10 +182,10 @@ function applySettingsToUi(settings) {
   if (setSubscriptionScheduler) setSubscriptionScheduler.checked = !!settings.subscription_scheduler_enabled;
   if (setSubscriptionInterval) setSubscriptionInterval.value = settings.subscription_check_interval_minutes || 60;
   if (setQuarkSaveEnabled) setQuarkSaveEnabled.checked = !!settings.quark_save_enabled;
-  if (setQuarkCookie) setQuarkCookie.value = '';
+  markSecretInput(setQuarkCookie, settings.quark_cookie_configured, 'Cookie 已保存，留空不修改');
   if (setQuarkSaveRoot) setQuarkSaveRoot.value = settings.quark_save_root || '';
   if (setOpenlistUser) setOpenlistUser.value = settings.openlist_username || '';
-  if (setOpenlistPass) setOpenlistPass.value = '';
+  markSecretInput(setOpenlistPass, settings.openlist_password_configured);
   if (setNasSyncEnabled) setNasSyncEnabled.checked = !!settings.nas_sync_enabled;
   if (setNasSyncSource) setNasSyncSource.value = settings.nas_sync_source || '';
   if (setNasSyncTarget) setNasSyncTarget.value = settings.nas_sync_target || '';
@@ -738,13 +745,11 @@ function renderDrive(items = []) {
     return;
   }
   driveBody.innerHTML = items.map(item => `
-    <article class="drive-card">
-      <div class="drive-name ${item.is_dir ? 'dir' : 'file'}" data-drive-open="${escapeHtml(item.fid)}">
+    <article class="drive-card ${item.is_dir ? 'is-folder' : 'is-file'}" data-drive-open="${escapeHtml(item.fid)}">
+      <div class="drive-name ${item.is_dir ? 'dir' : 'file'}">
         <span class="drive-icon">${item.is_dir ? '📁' : '📄'}</span>
-        <span class="drive-label"><strong>${escapeHtml(item.name || '-')}</strong><small>${item.is_dir ? '文件夹' : '文件'}</small></span>
+        <span class="drive-label"><strong>${escapeHtml(item.name || '-')}</strong></span>
       </div>
-      <div class="drive-meta">${item.is_dir ? '-' : escapeHtml(formatBytes(item.size))}</div>
-      <div class="drive-meta">${escapeHtml(item.updated_at || '-')}</div>
       <div class="card-actions drive-actions">
         <button class="secondary small" data-drive-rename="${escapeHtml(item.fid)}">重命名</button>
         <button class="secondary small" data-drive-delete="${escapeHtml(item.fid)}">删除</button>
@@ -752,14 +757,21 @@ function renderDrive(items = []) {
     </article>
   `).join('');
   driveBody.querySelectorAll('[data-drive-open]').forEach(el => {
-    el.addEventListener('click', () => {
+    el.addEventListener('click', event => {
+      if (event.target.closest('button')) return;
       const fid = el.dataset.driveOpen;
       const item = currentDriveItems.find(entry => entry.fid === fid);
       if (item?.is_dir) openDriveFolder(item);
     });
   });
-  driveBody.querySelectorAll('[data-drive-rename]').forEach(btn => btn.addEventListener('click', () => renameDriveItem(btn.dataset.driveRename)));
-  driveBody.querySelectorAll('[data-drive-delete]').forEach(btn => btn.addEventListener('click', () => deleteDriveItem(btn.dataset.driveDelete)));
+  driveBody.querySelectorAll('[data-drive-rename]').forEach(btn => btn.addEventListener('click', event => {
+    event.stopPropagation();
+    renameDriveItem(btn.dataset.driveRename);
+  }));
+  driveBody.querySelectorAll('[data-drive-delete]').forEach(btn => btn.addEventListener('click', event => {
+    event.stopPropagation();
+    deleteDriveItem(btn.dataset.driveDelete);
+  }));
 }
 
 async function loadDrive() {
