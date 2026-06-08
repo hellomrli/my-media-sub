@@ -94,23 +94,29 @@
       </section>
 
       <section id="drivePage" class="page">
-        <section class="panel table-panel drive-panel">
-          <div class="panel-title-row drive-title-row">
+        <section class="openlist-shell drive-panel">
+          <div class="openlist-hero">
             <div>
               <span class="eyebrow">Quark Drive</span>
               <h2>我的网盘</h2>
-              <p id="drivePath" class="drive-breadcrumb">根目录</p>
+              <p>像 OpenList 一样浏览夸克目录，支持进入文件夹、新建、重命名和删除。</p>
             </div>
-            <div class="drive-toolbar">
+            <div class="drive-toolbar openlist-actions">
               <button id="driveBackBtn" class="secondary small">← 返回上级</button>
               <button id="driveRefreshBtn" class="secondary small">刷新</button>
               <button id="driveNewFolderBtn" class="primary small">新建文件夹</button>
             </div>
           </div>
-          <div class="table-head drive-head">
-            <span>名称</span><span>类型</span><span>大小</span><span>更新时间</span><span>操作</span>
+          <div class="openlist-pathbar">
+            <span class="path-icon">⌂</span>
+            <p id="drivePath" class="drive-breadcrumb">根目录</p>
           </div>
-          <div id="driveBody" class="subscriptions-body drive-body"><p class="empty">填写夸克 Cookie 后可浏览网盘内容。</p></div>
+          <div class="openlist-table-card">
+            <div class="table-head drive-head openlist-head">
+              <span>名称</span><span>大小</span><span>修改时间</span><span>操作</span>
+            </div>
+            <div id="driveBody" class="subscriptions-body drive-body openlist-body"><p class="empty">填写夸克 Cookie 后可浏览网盘内容。</p></div>
+          </div>
         </section>
       </section>
 
