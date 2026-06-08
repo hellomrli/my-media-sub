@@ -529,8 +529,8 @@ function openSubscriptionModal(sub, options = {}) {
   if (subscriptionModalTitle) subscriptionModalTitle.textContent = mode === 'create' ? '设置新订阅' : '编辑订阅规则';
   if (subscriptionModalHint) {
     subscriptionModalHint.textContent = mode === 'create'
-      ? '订阅已创建。确认匹配规则和自动转存开关；保存后检查更新会按设置转存到夸克网盘。'
-      : '这里用于后续修改已有订阅的匹配、转存和重命名规则。';
+      ? '订阅已创建。确认匹配规则和自动转存开关；保存后会立即检查一次，并按设置转存到夸克网盘。'
+      : '这里用于后续修改已有订阅的匹配、转存和重命名规则；保存后会立即检查一次。';
   }
   if (saveSubscriptionBtn) saveSubscriptionBtn.textContent = mode === 'create' ? '保存并启用订阅' : '保存规则';
   subEditId.value = sub.id || '';
@@ -637,20 +637,36 @@ async function saveSubscriptionModal(event) {
   event.preventDefault();
   const id = subEditId.value;
   if (!id) return;
-  await postJson('/api/subscriptions/update', {
-    subscription_id: id,
-    title: subEditTitle.value.trim(),
-    media_type: subEditMediaType.value,
-    season: Number(subEditSeason.value || 1),
-    total_episode_number: subEditTotal.value ? Number(subEditTotal.value) : null,
-    enabled: subEditEnabled.checked,
-    completed: subEditCompleted.checked,
-    notify_only: !subEditAutoSave?.checked,
-    rules: collectSubscriptionRulesFromModal()
-  });
-  closeSubscriptionModal();
-  await loadSubscriptions();
-  setStatus('订阅规则已保存。', 'ok');
+  const originalText = saveSubscriptionBtn?.textContent;
+  if (saveSubscriptionBtn) {
+    saveSubscriptionBtn.disabled = true;
+    saveSubscriptionBtn.textContent = '保存并检查中...';
+  }
+  if (previewSubPlanBtn) previewSubPlanBtn.disabled = true;
+  setStatus('正在保存订阅规则并立即检查更新...');
+  try {
+    await postJson('/api/subscriptions/update', {
+      subscription_id: id,
+      title: subEditTitle.value.trim(),
+      media_type: subEditMediaType.value,
+      season: Number(subEditSeason.value || 1),
+      total_episode_number: subEditTotal.value ? Number(subEditTotal.value) : null,
+      enabled: subEditEnabled.checked,
+      completed: subEditCompleted.checked,
+      notify_only: !subEditAutoSave?.checked,
+      rules: collectSubscriptionRulesFromModal()
+    });
+    closeSubscriptionModal();
+    await checkSubscription(id, { showStartStatus: false });
+  } catch (err) {
+    setStatus(`订阅保存或检查失败：${err.message}`, 'error');
+  } finally {
+    if (saveSubscriptionBtn) {
+      saveSubscriptionBtn.disabled = false;
+      saveSubscriptionBtn.textContent = originalText || '保存规则';
+    }
+    if (previewSubPlanBtn) previewSubPlanBtn.disabled = false;
+  }
 }
 
 function addDownloadLogsFromSubscription(downloads, fallbackTitle = '订阅自动投递') {
@@ -677,24 +693,35 @@ function summarizeNasSyncs(nasSyncs = []) {
   return parts;
 }
 
-async function checkSubscription(id) {
-  setStatus('正在检查订阅更新...');
+function buildSubscriptionCheckStatus(data) {
+  const count = (data.new_files || []).length;
+  const downloadCount = (data.downloads || []).filter(item => item && item.status !== 'skipped').length;
+  const quarkCount = (data.quark_saves || []).length;
+  const parts = [];
+  if (count) parts.push(`发现 ${count} 个新文件`);
+  if (downloadCount) parts.push(`Aria2 提交 ${downloadCount} 个`);
+  if (quarkCount) parts.push(`夸克转存 ${quarkCount} 个`);
+  parts.push(...summarizeNasSyncs(data.nas_syncs || []));
+  return {
+    message: parts.length ? parts.join('，') + '。' : '没有发现新文件。',
+    hasNewFiles: !!count,
+  };
+}
+
+async function checkSubscription(id, options = {}) {
+  const { showStartStatus = true } = options;
+  if (showStartStatus) setStatus('正在检查订阅更新...');
   try {
     const data = await postJson('/api/subscriptions/check', { subscription_id: id });
     await loadSubscriptions();
     await loadNotifications();
     addDownloadLogsFromSubscription(data.downloads || []);
-    const count = (data.new_files || []).length;
-    const downloadCount = (data.downloads || []).filter(item => item && item.status !== 'skipped').length;
-    const quarkCount = (data.quark_saves || []).length;
-    const parts = [];
-    if (count) parts.push(`发现 ${count} 个新文件`);
-    if (downloadCount) parts.push(`Aria2 提交 ${downloadCount} 个`);
-    if (quarkCount) parts.push(`夸克转存 ${quarkCount} 个`);
-    parts.push(...summarizeNasSyncs(data.nas_syncs || []));
-    setStatus(parts.length ? parts.join('，') + '。' : '没有发现新文件。', count ? 'ok' : '');
+    const status = buildSubscriptionCheckStatus(data);
+    setStatus(status.message, status.hasNewFiles ? 'ok' : '');
+    return data;
   } catch (err) {
     setStatus(`检查失败：${err.message}`, 'error');
+    throw err;
   }
 }
 
