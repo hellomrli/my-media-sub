@@ -37,6 +37,9 @@ const notificationsBody = document.querySelector('#notificationsBody');
 const markAllReadBtn = document.querySelector('#markAllReadBtn');
 const subscriptionModal = document.querySelector('#subscriptionModal');
 const subscriptionForm = document.querySelector('#subscriptionForm');
+const subscriptionModalTitle = document.querySelector('#subscriptionModalTitle');
+const subscriptionModalHint = document.querySelector('#subscriptionModalHint');
+const saveSubscriptionBtn = document.querySelector('#saveSubscriptionBtn');
 const subEditId = document.querySelector('#subEditId');
 const subEditTitle = document.querySelector('#subEditTitle');
 const subEditSeason = document.querySelector('#subEditSeason');
@@ -414,11 +417,12 @@ async function subscribeResult(index) {
     setStatus('电影不会创建追更订阅；你可以直接选择或发送到 Aria2。', 'error');
     return;
   }
-  setStatus(`正在订阅第 ${index} 条...`);
+  setStatus(`正在创建第 ${index} 条订阅...`);
   try {
-    await postJson('/api/subscriptions', { chat_id: chatId, index, media_type: mediaType, notify_only: true });
+    const data = await postJson('/api/subscriptions', { chat_id: chatId, index, media_type: mediaType, notify_only: true });
     await loadSubscriptions();
-    setStatus('订阅已创建。以后可在“我的订阅”里手动检查更新。', 'ok');
+    openSubscriptionModal(data.subscription || {}, { mode: 'create' });
+    setStatus('订阅已创建，请先设置匹配、转存和重命名规则。', 'ok');
   } catch (err) {
     setStatus(`订阅失败：${err.message}`, 'error');
   }
@@ -497,11 +501,19 @@ async function editSubscription(id) {
   const data = await requestJson('/api/subscriptions');
   const sub = (data.subscriptions || []).find(x => x.id === id);
   if (!sub) return;
-  openSubscriptionModal(sub);
+  openSubscriptionModal(sub, { mode: 'edit' });
 }
 
-function openSubscriptionModal(sub) {
+function openSubscriptionModal(sub, options = {}) {
+  const mode = options.mode || 'edit';
   const rules = sub.rules || {};
+  if (subscriptionModalTitle) subscriptionModalTitle.textContent = mode === 'create' ? '设置新订阅' : '编辑订阅规则';
+  if (subscriptionModalHint) {
+    subscriptionModalHint.textContent = mode === 'create'
+      ? '订阅已创建。先设置匹配、转存和重命名规则，保存后即可进入自动检查流程。'
+      : '这里用于后续修改已有订阅的匹配、转存和重命名规则。';
+  }
+  if (saveSubscriptionBtn) saveSubscriptionBtn.textContent = mode === 'create' ? '保存并启用订阅' : '保存规则';
   subEditId.value = sub.id || '';
   subEditTitle.value = sub.title || '';
   subEditSeason.value = sub.season || 1;
@@ -613,11 +625,11 @@ async function saveSubscriptionModal(event) {
     total_episode_number: subEditTotal.value ? Number(subEditTotal.value) : null,
     enabled: subEditEnabled.checked,
     completed: subEditCompleted.checked,
-rules: collectSubscriptionRulesFromModal()
+    rules: collectSubscriptionRulesFromModal()
   });
   closeSubscriptionModal();
   await loadSubscriptions();
-  setStatus('订阅规则已保存。自动转存/重命名执行器将在下一阶段接入。', 'ok');
+  setStatus('订阅规则已保存。', 'ok');
 }
 
 function addDownloadLogsFromSubscription(downloads, fallbackTitle = '订阅自动投递') {
