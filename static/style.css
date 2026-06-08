@@ -285,25 +285,160 @@ select { color: var(--muted-strong); }
 .will-transfer span:first-child { color: #a7f3d0; font-weight: 590; }
 .will-skip span:first-child { color: var(--muted); }
 
+@media (max-width: 1280px) {
+  .app-frame { grid-template-columns: 232px minmax(0, 1fr); }
+  .app-shell { width: min(100% - 32px, 1180px); }
+  .result-head, .result-card { grid-template-columns: 44px minmax(260px, 1fr) 118px 180px 168px; }
+  .sub-head, .sub-card { grid-template-columns: minmax(240px, 1fr) 102px 112px 138px 228px; }
+  .card-actions { gap: 6px; }
+  .card-actions button, .card-actions select { padding-inline: 9px; }
+}
+
 @media (max-width: 1100px) {
-  .app-frame { grid-template-columns: 1fr; }
-  .sidebar { position: relative; height: auto; border-right: 0; border-bottom: 1px solid var(--line-soft); }
-  .tabs { display: flex; overflow-x: auto; }
+  body { font-size: 13px; }
+  body::before { background-size: 48px 48px; }
+  .app-frame { display: block; min-height: 100vh; }
+  .sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    height: auto;
+    padding: 12px 14px 10px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line-soft);
+    background: rgba(8, 9, 10, .88);
+  }
+  .brand { justify-content: space-between; }
+  .brand-mark { width: 30px; height: 30px; border-radius: 10px; }
+  .tabs {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+  .tabs::-webkit-scrollbar, .result-cloud-tabs::-webkit-scrollbar { display: none; }
+  .tab { flex: 0 0 auto; min-height: 36px; padding: 0 11px; border-color: var(--line-soft); background: rgba(255,255,255,.025); }
+  .tab span { width: auto; }
   .sidebar-card { display: none; }
-  .app-shell { width: min(100% - 28px, 1360px); padding-top: 22px; }
-  .page-head { display: grid; }
+  .app-shell { width: min(100% - 28px, 980px); padding: 20px 0 34px; }
+  .page-head { display: grid; gap: 12px; margin-bottom: 16px; }
+  h1 { font-size: clamp(30px, 7vw, 44px); }
+  .page-head p { font-size: 14px; }
+  .status { max-width: none; }
   .hero-grid, .two-col.active { grid-template-columns: 1fr; }
-  .openlist-hero { display: grid; }
-  .openlist-shell { padding: 18px; }
+  .feature-panel { min-height: auto; }
+  .insight-card h2 { font-size: 22px; }
   .result-head, .sub-head, .drive-head { display: none; }
-  .result-card, .sub-card, .drive-card { grid-template-columns: 1fr; gap: 9px; }
-  .drive-actions { justify-content: flex-start; }
-  .card-actions { justify-content: flex-start; }
+  .result-card, .sub-card {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    align-items: start;
+    min-height: auto;
+    padding: 14px 16px;
+  }
+  .result-card .index { position: absolute; }
+  .result-card { position: relative; padding-left: 58px; }
+  .card-actions, .drive-actions { justify-content: flex-start; }
+  .media-select { min-width: 104px; }
+  .openlist-shell { min-height: auto; padding: 18px; border-radius: 20px; }
+  .openlist-hero { display: grid; gap: 14px; }
+  .openlist-actions { justify-content: flex-start; width: 100%; }
+  .openlist-actions button { flex: 0 0 auto; }
+  .drive-card { grid-template-columns: 1fr; gap: 9px; padding: 12px 14px; }
+  .drive-actions { width: 100%; }
 }
-@media (max-width: 720px) {
-  .toolbar-main, .settings-grid, .form-grid { grid-template-columns: 1fr; }
-  .search-row { display: grid; }
-  .modal-card { margin: 10px auto; max-height: calc(100vh - 20px); }
-  .plan-row { grid-template-columns: 1fr; align-items: start; }
-  .plan-row span { white-space: normal; }
+
+@media (max-width: 860px) {
+  .app-shell { width: min(100% - 20px, 760px); padding-top: 16px; }
+  .panel { border-radius: 12px; }
+  .toolbar-main { grid-template-columns: 1fr; align-items: stretch; }
+  .search-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+  .settings-grid, .form-grid { grid-template-columns: 1fr; }
+  .settings-grid { gap: 12px; padding: 14px 14px 4px; }
+  .settings-block { padding: 12px 14px 0; }
+  .panel-title-row { min-height: auto; padding: 14px; gap: 10px; align-items: flex-start; }
+  .panel-title-row > button { flex: 0 0 auto; }
+  .two-col.active { gap: 12px; }
+  .openlist-shell { padding: 14px; }
+  .openlist-hero h2 { font-size: 24px; }
+  .openlist-actions { padding: 7px; border-radius: 14px; }
+  .openlist-table-card { border-radius: 16px; }
+  .drive-icon { flex-basis: 38px; width: 38px; height: 38px; font-size: 20px; }
+  .modal-card { width: min(720px, calc(100% - 20px)); margin: 10px auto; max-height: calc(100dvh - 20px); border-radius: 16px; }
+  .modal-head { min-height: auto; padding: 14px; align-items: flex-start; gap: 12px; }
+  .form-section { padding: 14px; }
+  .modal-actions { padding: 12px 14px; }
+  .plan-row { grid-template-columns: 82px minmax(0, 1fr) minmax(0, 1fr); }
+  .plan-row span:nth-child(4) { grid-column: 2 / -1; }
 }
+
+@media (max-width: 640px) {
+  body { font-size: 13px; }
+  button, .openlist { width: 100%; min-height: 40px; }
+  .small { min-height: 34px; }
+  .sidebar { padding: 10px 10px 8px; }
+  .brand strong { font-size: 14px; }
+  .version { font-size: 11px; }
+  .tabs { margin-inline: -2px; }
+  .tab { min-height: 34px; padding: 0 10px; font-size: 12px; }
+  .app-shell { width: calc(100% - 14px); padding: 12px 0 26px; }
+  h1 { margin-top: 4px; font-size: 28px; letter-spacing: -.7px; }
+  h2 { font-size: 16px; }
+  .page-head { gap: 10px; }
+  .status { padding: 9px 10px; }
+  .toolbar, .insight-card { padding: 14px; }
+  .search-row { grid-template-columns: 1fr; }
+  input, select { min-height: 42px; }
+  .chip-grid label, .switch-grid label { width: 100%; justify-content: flex-start; border-radius: 12px; padding: 6px 10px; min-height: 38px; }
+  .result-cloud-tabs { padding: 9px 12px; }
+  .cloud-tab { width: auto; min-height: 34px; }
+  .result-card, .sub-card { padding: 13px 12px; }
+  .result-card { padding-left: 12px; }
+  .result-card .index { position: static; margin-bottom: 2px; }
+  .result-title { -webkit-line-clamp: 3; }
+  .meta span, .badge { min-height: 22px; }
+  .card-actions, .settings-actions, .modal-actions, .drive-toolbar, .drive-actions { display: grid; grid-template-columns: 1fr; width: 100%; }
+  .card-actions select { width: 100%; }
+  .selected-panel pre { padding: 12px; font-size: 12px; }
+  .openlist-shell { padding: 10px; border-radius: 16px; }
+  .openlist-hero h2 { font-size: 22px; }
+  .openlist-actions { display: grid; grid-template-columns: 1fr; }
+  .openlist-pathbar { min-height: 42px; padding: 0 10px; border-radius: 12px; }
+  .drive-card { padding: 11px 10px; }
+  .drive-name { align-items: flex-start; gap: 10px; }
+  .drive-label strong { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.45; }
+  .openlist-body .empty, .drive-body .empty { margin: 10px; padding: 28px 12px; }
+  .settings-actions { padding: 14px 14px 0; }
+  .hint { margin: 10px 14px 0; }
+  .modal { inset: 0; }
+  .modal-card { width: 100%; min-height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; border-left: 0; border-right: 0; }
+  .modal-mask { background: rgba(0,0,0,.82); }
+  .modal-head { padding: 12px; }
+  .form-section { padding: 12px; }
+  .plan-preview { max-height: 220px; }
+  .plan-row { grid-template-columns: 1fr; gap: 5px; }
+  .plan-row span, .plan-row span:nth-child(4) { grid-column: auto; white-space: normal; }
+}
+
+@media (max-width: 420px) {
+  .app-shell { width: calc(100% - 10px); }
+  .brand { gap: 8px; }
+  .brand-mark { width: 28px; height: 28px; }
+  .tab { padding: 0 9px; }
+  .panel-title-row { padding: 12px; }
+  .toolbar, .insight-card, .settings-grid, .form-section { padding-inline: 10px; }
+  .result-card, .sub-card { padding-inline: 10px; }
+  .url, .drive-breadcrumb { font-size: 11px; }
+  .openlist-hero p, .insight-card p, .page-head p { line-height: 1.55; }
+  .modal-actions { grid-template-columns: 1fr; }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  button:hover, .openlist:hover, .tab:hover, .drive-card:hover, .result-card:hover, .sub-card:hover {
+    transform: none;
+  }
+  button, .openlist, input, select { min-height: 42px; }
+}
+
