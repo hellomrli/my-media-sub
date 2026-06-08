@@ -95,3 +95,21 @@ class SettingsUpdateRequest(BaseModel):
     nas_sync_enabled: bool | None = None
     nas_sync_source: str | None = None
     nas_sync_target: str | None = None
+
+
+class QuarkDriveListRequest(BaseModel):
+    parent_fid: str = "0"
+
+
+class QuarkDriveCreateFolderRequest(BaseModel):
+    parent_fid: str = "0"
+    name: str = Field(..., min_length=1)
+
+
+class QuarkDriveRenameRequest(BaseModel):
+    fid: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1)
+
+
+class QuarkDriveDeleteRequest(BaseModel):
+    fids: list[str] = Field(default_factory=list)

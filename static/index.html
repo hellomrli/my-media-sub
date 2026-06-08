@@ -22,6 +22,7 @@
 
       <nav class="tabs">
         <button class="tab active" data-page="searchPage"><span>⌕</span>资源搜索</button>
+        <button class="tab" data-page="drivePage"><span>▣</span>我的网盘</button>
         <button class="tab" data-page="subscriptionsPage"><span>◌</span>订阅清单</button>
         <button class="tab" data-page="logsPage"><span>◇</span>通知记录</button>
         <button class="tab" data-page="settingsPage"><span>⚙</span>系统设置</button>
@@ -89,6 +90,27 @@
         <section id="selected" class="panel selected-panel hidden">
           <div class="panel-title-row"><h2>已选择资源</h2></div>
           <div id="selectedBody"></div>
+        </section>
+      </section>
+
+      <section id="drivePage" class="page">
+        <section class="panel table-panel">
+          <div class="panel-title-row">
+            <div>
+              <span class="eyebrow">Quark Drive</span>
+              <h2>我的网盘</h2>
+              <p id="drivePath" class="hint">根目录</p>
+            </div>
+            <div class="settings-actions compact-actions">
+              <button id="driveBackBtn" class="secondary small">返回上级</button>
+              <button id="driveRefreshBtn" class="secondary small">刷新</button>
+              <button id="driveNewFolderBtn" class="secondary small">新建文件夹</button>
+            </div>
+          </div>
+          <div class="table-head drive-head">
+            <span>名称</span><span>类型</span><span>大小</span><span>更新时间</span><span>操作</span>
+          </div>
+          <div id="driveBody" class="subscriptions-body"><p class="empty">填写夸克 Cookie 后可浏览网盘内容。</p></div>
         </section>
       </section>
 

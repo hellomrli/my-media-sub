@@ -70,6 +70,20 @@ class QuarkSaveClient:
         data = self._get("/file/sort", params={"pid": parent_fid, "_page": "1", "_size": "200"})
         return (data.get("data") or {}).get("list") or []
 
+    @staticmethod
+    def normalize_item(item: dict[str, Any]) -> dict[str, Any]:
+        fid = item.get("fid") or item.get("file_id") or ""
+        name = item.get("file_name") or item.get("name") or ""
+        is_dir = bool(item.get("dir") or item.get("file") is False or item.get("file_type") == 0)
+        return {
+            "fid": fid,
+            "name": name,
+            "is_dir": is_dir,
+            "size": item.get("size") or 0,
+            "updated_at": item.get("updated_at") or item.get("last_update_at") or item.get("created_at") or "",
+            "raw_type": item.get("file_type"),
+        }
+
     def create_dir(self, parent_fid: str, name: str) -> str | None:
         payload = {"pdir_fid": parent_fid, "file_name": [name], "dir_init": True}
         data = self._post("/file", payload)
@@ -99,6 +113,12 @@ class QuarkSaveClient:
                     raise RuntimeError(f"无法创建夸克目录 {parent_fid}/{part}")
                 parent_fid = created
         return parent_fid
+
+    def delete_items(self, fids: list[str]) -> dict[str, Any]:
+        return self._post("/file/delete", {"action_type": 2, "filelist": fids})
+
+    def rename_item(self, fid: str, name: str) -> dict[str, Any]:
+        return self._post("/file/rename", {"fid": fid, "file_name": name})
 
     # ── Save share files ──────────────────────────────────────────────
 

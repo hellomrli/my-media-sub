@@ -66,12 +66,19 @@ const subPlanPreview = document.querySelector('#subPlanPreview');
 const pageTitle = document.querySelector('#pageTitle');
 const resultCount = document.querySelector('#resultCount');
 const resultCloudTabs = document.querySelector('#resultCloudTabs');
+const driveBody = document.querySelector('#driveBody');
+const drivePath = document.querySelector('#drivePath');
+const driveBackBtn = document.querySelector('#driveBackBtn');
+const driveRefreshBtn = document.querySelector('#driveRefreshBtn');
+const driveNewFolderBtn = document.querySelector('#driveNewFolderBtn');
 
 const chatId = `webui-${Math.random().toString(36).slice(2)}`;
 let appSettings = null;
 const downloadLogs = [];
 let currentResultCloud = 'all';
 let lastSearchResults = [];
+let driveStack = [{ fid: '0', name: '根目录' }];
+let currentDriveItems = [];
 
 const CLOUD_TYPE_NAMES_FALLBACK = {
   quark: '夸克网盘',
@@ -708,6 +715,109 @@ async function deleteSubscription(id) {
   setStatus('订阅已删除。', 'ok');
 }
 
+function formatBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (!value) return '-';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let size = value;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  return `${size.toFixed(size >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+function renderDrive(items = []) {
+  currentDriveItems = items;
+  if (drivePath) drivePath.textContent = driveStack.map(item => item.name).join(' / ');
+  if (driveBackBtn) driveBackBtn.disabled = driveStack.length <= 1;
+  if (!driveBody) return;
+  if (!items.length) {
+    driveBody.innerHTML = '<p class="empty">当前目录为空。</p>';
+    return;
+  }
+  driveBody.innerHTML = items.map(item => `
+    <article class="drive-card">
+      <div class="drive-name ${item.is_dir ? 'dir' : ''}" data-drive-open="${escapeHtml(item.fid)}">${item.is_dir ? '📁 ' : '📄 '}${escapeHtml(item.name || '-')}</div>
+      <div><span class="badge">${item.is_dir ? '目录' : '文件'}</span></div>
+      <div class="muted">${escapeHtml(formatBytes(item.size))}</div>
+      <div class="muted">${escapeHtml(item.updated_at || '-')}</div>
+      <div class="card-actions">
+        <button class="secondary small" data-drive-rename="${escapeHtml(item.fid)}">重命名</button>
+        <button class="secondary small" data-drive-delete="${escapeHtml(item.fid)}">删除</button>
+      </div>
+    </article>
+  `).join('');
+  driveBody.querySelectorAll('[data-drive-open]').forEach(el => {
+    el.addEventListener('click', () => {
+      const fid = el.dataset.driveOpen;
+      const item = currentDriveItems.find(entry => entry.fid === fid);
+      if (item?.is_dir) openDriveFolder(item);
+    });
+  });
+  driveBody.querySelectorAll('[data-drive-rename]').forEach(btn => btn.addEventListener('click', () => renameDriveItem(btn.dataset.driveRename)));
+  driveBody.querySelectorAll('[data-drive-delete]').forEach(btn => btn.addEventListener('click', () => deleteDriveItem(btn.dataset.driveDelete)));
+}
+
+async function loadDrive() {
+  if (!driveBody) return;
+  const current = driveStack[driveStack.length - 1];
+  driveBody.innerHTML = '<p class="empty">正在读取夸克网盘...</p>';
+  try {
+    const data = await postJson('/api/quark-drive/list', { parent_fid: current.fid });
+    if (!data.ok) {
+      driveBody.innerHTML = `<p class="empty">${escapeHtml(data.message || '读取失败')}</p>`;
+      setStatus(data.message || '读取夸克网盘失败', 'error');
+      return;
+    }
+    renderDrive(data.items || []);
+    setStatus('夸克网盘目录已刷新。', 'ok');
+  } catch (err) {
+    driveBody.innerHTML = `<p class="empty">读取失败：${escapeHtml(err.message)}</p>`;
+    setStatus(`读取网盘失败：${err.message}`, 'error');
+  }
+}
+
+function openDriveFolder(item) {
+  driveStack.push({ fid: item.fid, name: item.name || '未命名目录' });
+  loadDrive();
+}
+
+function backDriveFolder() {
+  if (driveStack.length <= 1) return;
+  driveStack.pop();
+  loadDrive();
+}
+
+async function createDriveFolder() {
+  const name = prompt('新文件夹名称');
+  if (!name) return;
+  const current = driveStack[driveStack.length - 1];
+  const data = await postJson('/api/quark-drive/folder', { parent_fid: current.fid, name });
+  setStatus(data.message || '操作完成', data.ok ? 'ok' : 'error');
+  if (data.ok) await loadDrive();
+}
+
+async function renameDriveItem(fid) {
+  const item = currentDriveItems.find(entry => entry.fid === fid);
+  if (!item) return;
+  const name = prompt('新名称', item.name || '');
+  if (!name || name === item.name) return;
+  const data = await postJson('/api/quark-drive/rename', { fid, name });
+  setStatus(data.message || '操作完成', data.ok ? 'ok' : 'error');
+  if (data.ok) await loadDrive();
+}
+
+async function deleteDriveItem(fid) {
+  const item = currentDriveItems.find(entry => entry.fid === fid);
+  if (!item) return;
+  if (!confirm(`确定删除「${item.name}」吗？此操作会移到夸克回收站/删除区。`)) return;
+  const data = await postJson('/api/quark-drive/delete', { fids: [fid] });
+  setStatus(data.message || '操作完成', data.ok ? 'ok' : 'error');
+  if (data.ok) await loadDrive();
+}
+
 function renderDownloadLogs() {
   if (!downloadLogs.length) {
     downloadsBody.innerHTML = '<p class="empty">暂无下载记录。</p>';
@@ -814,6 +924,9 @@ testAria2Btn.addEventListener('click', testAria2);
 testQuarkBtn?.addEventListener('click', () => testSettingsEndpoint(testQuarkBtn, '/api/settings/test/quark', '夸克 Cookie'));
 testOpenlistBtn?.addEventListener('click', () => testSettingsEndpoint(testOpenlistBtn, '/api/settings/test/openlist', 'OpenList'));
 testNasSyncBtn?.addEventListener('click', () => testSettingsEndpoint(testNasSyncBtn, '/api/settings/test/nas-sync', 'NAS 路径'));
+driveBackBtn?.addEventListener('click', backDriveFolder);
+driveRefreshBtn?.addEventListener('click', loadDrive);
+driveNewFolderBtn?.addEventListener('click', createDriveFolder);
 
 checkAllSubsBtn.addEventListener('click', checkAllSubscriptions);
 markAllReadBtn.addEventListener('click', markAllNotificationsRead);
@@ -825,4 +938,5 @@ document.addEventListener('keydown', event => { if (event.key === 'Escape') clos
 loadSettings()
   .then(loadSubscriptions)
   .then(loadNotifications)
+  .then(loadDrive)
   .catch(err => setStatus(`加载设置失败：${err.message}`, 'error'));
