@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 class SearchRequest(BaseModel):
     keyword: str = Field(..., min_length=1)
     chat_id: str = "default"
-    limit: int = Field(default=8, ge=1, le=20)
+    limit: int = Field(default=50, ge=1, le=100)
     cloud_types: list[str] | None = None
     check_links: bool | None = None
     probe_files: bool | None = None

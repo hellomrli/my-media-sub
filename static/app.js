@@ -341,7 +341,7 @@ async function search() {
     const data = await postJson('/api/search', {
       chat_id: chatId,
       keyword,
-      limit: 12,
+      limit: 50,
       cloud_types: selectedCloudTypes(cloudTypesBox),
       check_links: checkLinksInput?.checked ?? true,
       probe_files: probeFilesInput?.checked ?? true,

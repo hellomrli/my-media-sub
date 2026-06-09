@@ -33,9 +33,12 @@ class InlinePanSouClient:
     """
 
     sources = (
-        SearchSource("quarksoo", 1, 8.0),
+        SearchSource("wanou", 1, 8.0),
+        SearchSource("labi", 1, 8.0),
+        SearchSource("lou1", 1, 12.0),
         SearchSource("quark4k", 2, 10.0),
-        SearchSource("pansearch", 3, 10.0),
+        SearchSource("quarksoo", 3, 8.0),
+        SearchSource("pansearch", 4, 10.0),
     )
 
     def __init__(self, base_url: str | None = None):
@@ -65,6 +68,12 @@ class InlinePanSouClient:
         return self.search(keyword, ["quark"], limit)
 
     def _search_source(self, source: SearchSource, keyword: str) -> list[dict[str, Any]]:
+        if source.name == "wanou":
+            return self._search_wanou(keyword, source)
+        if source.name == "labi":
+            return self._search_labi(keyword, source)
+        if source.name == "lou1":
+            return self._search_lou1(keyword, source)
         if source.name == "quarksoo":
             return self._search_quarksoo(keyword, source)
         if source.name == "quark4k":
@@ -72,6 +81,82 @@ class InlinePanSouClient:
         if source.name == "pansearch":
             return self._search_pansearch(keyword, source)
         return []
+
+    def _search_wanou(self, keyword: str, source: SearchSource) -> list[dict[str, Any]]:
+        api = "https://woog.nxog.eu.org/api.php/provide/vod"
+        resp = self.session.get(api, params={"ac": "detail", "wd": keyword}, headers={"Referer": "https://woog.nxog.eu.org/"}, timeout=source.timeout)
+        resp.raise_for_status()
+        data = resp.json()
+        items = []
+        for entry in data.get("list") or []:
+            title = _clean_text(entry.get("vod_name") or "")
+            if not title or not _keyword_match(title, keyword):
+                continue
+            content = " ".join(str(entry.get(key) or "") for key in ("vod_remarks", "vod_year", "vod_area", "vod_actor", "vod_content"))
+            text = " ".join(str(entry.get(key) or "") for key in ("vod_down_url", "vod_play_url", "vod_content"))
+            for link in _extract_quark_links(text):
+                note = title
+                if entry.get("vod_remarks"):
+                    note = f"{note} {entry.get('vod_remarks')}"
+                items.append(_item(note, link["url"], "plugin:wanou", source.rank, password=link.get("password") or ""))
+        return items
+
+    def _search_labi(self, keyword: str, source: SearchSource) -> list[dict[str, Any]]:
+        search_url = f"http://xiaocge.fun/index.php/vod/search/wd/{quote_plus(keyword)}.html"
+        resp = self.session.get(search_url, headers={"Referer": "http://xiaocge.fun/"}, timeout=source.timeout)
+        resp.raise_for_status()
+        detail_pattern = re.compile(r'<a[^>]+href=["\']([^"\']*/vod/detail/id/(\d+)\.html[^"\']*)["\'][^>]*>(.*?)</a>', re.I | re.S)
+        detail_urls: list[tuple[str, str]] = []
+        seen_ids: set[str] = set()
+        for href, item_id, title_html in detail_pattern.findall(resp.text):
+            title = _clean_text(title_html)
+            if not title or item_id in seen_ids or not _keyword_match(title, keyword):
+                continue
+            seen_ids.add(item_id)
+            detail_urls.append((title, _absolute_url("http://xiaocge.fun", href)))
+            if len(detail_urls) >= 12:
+                break
+        items = []
+        for title, detail_url in detail_urls:
+            try:
+                detail = self.session.get(detail_url, headers={"Referer": "http://xiaocge.fun/"}, timeout=source.timeout)
+                detail.raise_for_status()
+            except Exception:
+                continue
+            for link in _extract_quark_links(detail.text):
+                items.append(_item(title, link["url"], "plugin:labi", source.rank, password=link.get("password") or ""))
+        return items
+
+    def _search_lou1(self, keyword: str, source: SearchSource) -> list[dict[str, Any]]:
+        search_url = f"https://www.1lou.me/search-{quote_plus(keyword)}.htm"
+        resp = self.session.get(search_url, headers={"Referer": "https://www.1lou.me/"}, timeout=source.timeout)
+        resp.raise_for_status()
+        block_pattern = re.compile(r'<li[^>]+class=["\'][^"\']*media thread[^"\']*["\'][\s\S]*?</li>', re.I)
+        link_pattern = re.compile(r'<div[^>]+class=["\'][^"\']*subject[^"\']*["\'][\s\S]*?<a[^>]+href=["\']([^"\']*thread-\d+\.htm)["\'][^>]*>([\s\S]*?)</a>', re.I)
+        details: list[tuple[str, str]] = []
+        seen = set()
+        for block in block_pattern.findall(resp.text):
+            match = link_pattern.search(block)
+            if not match:
+                continue
+            href, title_html = match.groups()
+            title = _clean_text(title_html)
+            if not title or href in seen or not _keyword_match(title, keyword):
+                continue
+            seen.add(href)
+            details.append((title, _absolute_url("https://www.1lou.me", href)))
+            if len(details) >= 12:
+                break
+        items = []
+        for title, detail_url in details:
+            try:
+                detail = self.session.get(detail_url, headers={"Referer": "https://www.1lou.me/"}, timeout=source.timeout)
+                detail.raise_for_status()
+            except Exception:
+                continue
+            for link in _extract_quark_links(detail.text):
+                items.append(_item(title, link["url"], "plugin:lou1", source.rank, password=link.get("password") or ""))
+        return items
 
     def _search_quarksoo(self, keyword: str, source: SearchSource) -> list[dict[str, Any]]:
         url = f"https://quarksoo.cc/search.php?q={quote_plus(keyword)}"
@@ -206,12 +291,27 @@ def _normalize_quark_url(url: str) -> str:
     return match.group(0).replace("pan.qoark.cn", "pan.quark.cn")
 
 
+def _absolute_url(base: str, href: str) -> str:
+    href = html.unescape(str(href or "")).strip()
+    if href.startswith("http://") or href.startswith("https://"):
+        return href
+    if not href.startswith("/"):
+        href = "/" + href
+    return base.rstrip("/") + href
+
+
 def _extract_quark_links(text: str) -> list[dict[str, str]]:
+    source_text = html.unescape(str(text or ""))
     results = []
-    for match in QUARK_URL_RE.finditer(str(text or "")):
-        tail = str(text or "")[match.end():match.end() + 80]
+    seen = set()
+    for match in QUARK_URL_RE.finditer(source_text):
+        url = _normalize_quark_url(match.group(0))
+        if not url or url in seen:
+            continue
+        tail = source_text[match.end():match.end() + 120]
         pwd = PASSWORD_RE.search(tail)
-        results.append({"url": match.group(0), "password": pwd.group(1) if pwd else ""})
+        results.append({"url": url, "password": pwd.group(1) if pwd else ""})
+        seen.add(url)
     return results
 
 
