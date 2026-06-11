@@ -1131,7 +1131,3 @@ addCustomCategoryBtn?.addEventListener('click', () => {
   loadCustomCategories(current);
 });
 
-// 初始化时更新下拉框
-if (appSettings) {
-  loadCustomCategories(appSettings.custom_categories || []);
-}
