@@ -1,275 +1,201 @@
-# my-media-sub
+# 🎬 My Media Sub
 
-微信机器人 / WebUI + 内置资源搜索 + 夸克网盘 + Aria2 + NAS 的影视资源自动化助手。
+一个优雅的媒体订阅管理工具，自动追踪、转存和管理你的影视资源。
 
-目标流程：
+## ✨ 核心特性
 
-```text
-微信消息或 WebUI 输入：想看 盗梦空间
-  ↓
-项目内置搜索源聚合夸克资源
-  ↓
-返回候选结果给用户选择
-  ↓
-转存夸克分享链接到配置的夸克网盘目录
-  ↓
-可选通过本机挂载路径复制到 NAS 媒体库
-```
+### 📺 智能订阅
+- **自动追踪** - 定时检查订阅更新，发现新集自动通知
+- **手动订阅** - 直接输入网盘链接，自动嗅探文件并创建订阅
+- **搜索转订阅** - 搜索资源后一键创建订阅
+- **灵活过滤** - 支持关键词包含/排除、正则匹配、质量筛选
 
-## 当前能力
+### 🗂️ 分类管理
+- **默认分类** - 电影、连续剧、动画三大类
+- **自定义分类** - 可添加综艺、纪录片、演唱会等任意分类
+- **自动分类转存** - 根据媒体类型自动保存到对应目录
 
-- [x] Docker 部署
-- [x] HTTP API + Basic Auth
-- [x] 内置夸克资源搜索聚合（不依赖外部 PanSou 服务）
-- [x] 微信机器人文本接口雏形
-- [x] WebUI 控制台
-- [x] 链接有效性检测 & 夸克文件嗅探（剧集智能识别）
-- [x] 订阅规则模型（包含/排除/正则/重命名/only_latest）
-- [x] 订阅更新检查 + 转存规划预览
-- [x] 通知中心（WebUI 内查看）
-- [x] Aria2 手动下载 + 订阅新增自动提交
-- [x] 夸克分享链接自动转存到用户网盘
-- [x] 夸克网盘浏览、新建、重命名、删除
-- [x] 本机挂载路径/NAS 自动同步
-- [x] 后台定时检查订阅更新（FastAPI lifespan）
-- [ ] 微信机器人平台专用适配器
+### 🔍 资源搜索
+- **多平台搜索** - 支持夸克、阿里云、百度等主流网盘
+- **链接有效性检测** - 自动过滤失效、需要验证码的链接
+- **质量识别** - 自动识别 4K/1080p/720p 等分辨率
+- **去重优化** - 智能去重，优先保留高质量资源
 
-## 历史版本更新记录
+### 💾 自动转存
+- **夸克网盘** - 自动转存新资源到你的夸克网盘
+- **分类目录** - 支持基础目录 + 分类子目录组合
+- **批量转存** - 多文件自动批量处理
+- **进度跟踪** - 记录已转存文件，避免重复
 
-### 2026-06-12 (v0.4.0) - 重大架构升级
+### 📡 多种通知
+- **企业微信** - 支持企业微信机器人推送
+- **WxPusher** - 微信消息推送
+- **Telegram** - Telegram Bot 通知（v0.4.0+）
 
-- ⚡ **异步化改造**：所有网络请求迁移到 httpx.AsyncClient，搜索和订阅检查并发执行，性能提升 3-5 倍
-- 🔄 **后台任务队列**：基于 asyncio.Queue 的轻量任务队列，支持优先级和重试机制
-- 🗄️ **数据持久化升级**：从 JSON 文件迁移到 SQLite + SQLAlchemy，支持事务和并发安全
-- ⚙️ **配置管理优化**：统一使用 Pydantic BaseSettings，废弃 settings.json，改用 .env
-- 🎨 **智能去重**：基于标题相似度和画质偏好的智能去重，自动选择最佳版本
-- 📱 **Telegram 通知**：集成 Telegram Bot，支持订阅更新、检查失败等通知推送
-- 🏁 **订阅自动完结**：连续 N 次无更新自动标记完结，避免无效订阅占用资源
-- 🛠️ **代码规范**：引入 ruff、mypy、pre-commit hooks，提升代码质量和可维护性
+## 🚀 快速开始
 
-详见：[v0.4.0 发布说明](./docs/v0.4.0-release-notes.md) | [升级指南](./UPGRADE.md)
+### 环境要求
+- Python 3.11+
+- 2GB+ 内存
+- 500MB+ 磁盘空间
 
-### 2026-06-09
-
-- 新增内置搜索聚合器：把原先依赖外部 PanSou 的搜索能力改为项目内直接执行，首批接入 quarksoo、quark4k、pansearch 风格公开源。
-- 扩充内置搜索召回：新增 wanou、labi、lou1 搜索源，并把 WebUI 默认搜索上限提高到 50 条，`庆余年` 实测内置结果从 1 条提升到 18 条。
-- 统一“我的网盘”视觉风格：保留 OpenList 风格文件管理器布局，同时把背景、列表、工具栏切回主界面的暗色玻璃质感。
-- 移除 OpenList 外部服务依赖：NAS 同步改为本机挂载路径复制，不再需要 OpenList 地址、账号、密码或 `/api/fs/copy`。
-- 精简设置页：移除 PanSou/OpenList 地址和 OpenList 登录项，保留夸克 Cookie、Aria2、订阅、NAS 本机路径配置。
-- 优化 WebUI 响应式布局：补齐桌面窄屏、平板、手机断点，移动端导航横向滚动、卡片单列、按钮全宽、弹窗全屏化，避免横向溢出。
-- 新增“我的网盘”页面：支持读取夸克网盘目录、进入子目录、新建文件夹、重命名和删除。
-- 简化“我的网盘”文件列表：只显示图标和名称，文件夹整行可点击进入，减少不必要的元信息干扰。
-- 优化设置页保存回显：普通字段保存后继续显示，密码/Cookie 等敏感字段显示“已保存”状态但不回显明文。
-- 修复订阅启用触发：在新订阅弹窗保存规则后会立即检查一次并执行转存，不再需要到订阅清单手动点“刷新”。
-- 修复订阅转存执行：目标目录和重命名模板会真正应用到夸克转存结果，并等待夸克目录刷新后再执行重命名。
-- 对齐夸克客户端兼容性：使用 `https://drive.quark.cn/1/clouddrive`，并安全持久化夸克响应刷新的 Cookie 片段。
-
-## 快速部署
+### 安装部署
 
 ```bash
+# 1. 克隆项目
 git clone https://github.com/hellomrli/my-media-sub.git
 cd my-media-sub
+
+# 2. 创建虚拟环境
+python3 -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# 3. 安装依赖
+pip install -r requirements.txt
+
+# 4. 配置环境变量（可选）
 cp .env.example .env
-docker compose up -d --build
+# 编辑 .env 文件配置夸克 Cookie、通知方式等
+
+# 5. 启动服务
+uvicorn src.app:app --host 0.0.0.0 --port 8787
 ```
 
-访问 WebUI：
-
-```text
-http://你的服务器:8787/
-```
-
-健康检查：
+### Docker 部署
 
 ```bash
-curl http://127.0.0.1:8787/health
+docker run -d \
+  --name my-media-sub \
+  -p 8787:8787 \
+  -v $(pwd)/data:/app/data \
+  -e QUARK_COOKIE="your_cookie_here" \
+  hellomrli/my-media-sub:latest
 ```
 
-## API 示例
+## 📖 使用指南
 
-### 微信消息入口
+### 1️⃣ 初始配置
+
+访问 `http://localhost:8787`，进入 **⚙️ 系统设置**：
+
+1. **基础设置** - 设置用户名密码（默认 admin/change-me）
+2. **夸克配置** - 配置夸克 Cookie 和分类目录
+3. **自定义分类** - 点击 "+ 添加" 创建你的分类
+
+### 2️⃣ 创建订阅
+
+#### 方式一：搜索转订阅
+1. 进入 **⌕ 资源搜索** 页面
+2. 搜索影视资源（如：某某剧 第一季）
+3. 点击搜索结果右侧的 **订阅** 按钮
+4. 设置订阅规则并保存
+
+#### 方式二：手动订阅
+1. 进入 **◌ 订阅清单** 页面
+2. 点击右上角 **手动订阅** 按钮
+3. 输入网盘分享链接和密码（如有）
+4. 点击 **嗅探文件** 查看内容
+5. 确认后点击 **创建订阅**
+
+### 3️⃣ 管理订阅
+
+- **刷新所有** - 手动触发全部订阅更新检查
+- **编辑订阅** - 点击订阅项可编辑规则
+- **启用/禁用** - 切换订阅状态
+- **标记完结** - 完结后不再检查更新
+
+## 🔧 高级功能
+
+### 定时任务
+在 **⚙️ 系统设置** 中启用订阅调度器，设置检查间隔（默认 60 分钟）。
+
+### Aria2 下载
+配置 Aria2 RPC 地址后，支持将资源发送到 Aria2 下载。
+
+### NAS 同步
+配置挂载目录和目标目录，自动同步夸克网盘内容到本地 NAS。
+
+## 📂 目录结构
+
+```
+my-media-sub/
+├── src/
+│   ├── api/              # API 路由
+│   ├── clients/          # 第三方客户端（夸克、泛搜等）
+│   ├── services/         # 业务逻辑
+│   ├── stores/           # 数据存储
+│   └── utils/            # 工具函数
+├── static/               # 前端静态文件
+├── data/                 # 数据目录
+│   ├── settings.json     # 配置文件
+│   ├── subscriptions.json # 订阅数据
+│   └── notifications.json # 通知记录
+├── docs/                 # 文档
+└── requirements.txt      # Python 依赖
+```
+
+## 🔐 安全建议
+
+1. **修改默认密码** - 首次使用务必修改默认密码
+2. **保护 Cookie** - 夸克 Cookie 具有完整账号权限，请妥善保管
+3. **内网访问** - 建议仅在内网使用，或通过 VPN/反向代理暴露
+4. **定期备份** - 定期备份 `data/` 目录
+
+## 🛠️ 开发
+
+### 本地开发
 
 ```bash
-curl -X POST http://127.0.0.1:8787/api/wechat/message   -H 'Content-Type: application/json'   -d '{"chat_id":"test","text":"想看 盗梦空间"}'
+# 安装开发依赖
+pip install -r requirements.txt
+
+# 启动开发服务器（热重载）
+uvicorn src.app:app --reload --port 8787
+
+# 代码格式化
+ruff check --fix .
+
+# 类型检查
+mypy src/
 ```
 
-### 选择结果
+### 运行测试
 
 ```bash
-curl -X POST http://127.0.0.1:8787/api/wechat/message   -H 'Content-Type: application/json'   -d '{"chat_id":"test","text":"选 1"}'
+python test_improvements.py
 ```
 
-## 安全原则
+## 📝 更新日志
 
-- 不把 Cookie、Token、密码写进仓库
-- 使用 `.env` 或部署环境变量
-- 夸克 Cookie 不通过设置接口或日志回显
+### v0.5.0 (2026-06-12)
+- ✨ 新增手动订阅功能
+- ✨ 新增自定义分类管理
+- 🐛 修复前端 JS 缓存问题
+- 📝 优化 README 文档
 
-## 认证
+### v0.4.0 (2026-06-10)
+- ✨ 异步客户端优化
+- ✨ 任务队列系统
+- ✨ SQLite 数据库支持
+- ✨ Telegram 通知
+- 🚀 性能提升 3-5x
 
-设置环境变量后，WebUI 和业务 API 会启用 HTTP Basic 账号密码认证：
+查看完整更新日志：[docs/v0.4.0-release-notes.md](docs/v0.4.0-release-notes.md)
 
-```env
-APP_USERNAME=admin
-APP_PASSWORD=change-me
-```
+## 🤝 贡献
 
-`/health` 保持公开，方便容器健康检查。
+欢迎提交 Issue 和 Pull Request！
 
-## 内置搜索、链接检测和文件嗅探
+## 📄 许可证
 
-搜索时默认会：
+MIT License
 
-1. 通过项目内置搜索聚合器查找夸克资源。
-2. 对夸克分享链接做 best-effort 有效性检测。
-3. 对可疑似有效的夸克分享链接嗅探文件和目录，并估算连续剧集数。
+## 🙏 致谢
 
-可通过环境变量关闭：
+- [FastAPI](https://fastapi.tiangolo.com/) - 现代化 Python Web 框架
+- [泛搜](https://pansou.fun/) - 网盘资源搜索
+- [夸克网盘](https://pan.quark.cn/) - 资源存储
 
-```env
-CHECK_LINKS=false
-PROBE_QUARK_FILES=false
-FILTER_BAD_LINKS=true
-```
+---
 
-注意：夸克公开分享接口可能触发风控、验证码、密码或接口变更；这种情况下结果会显示 `locked`、`http_error` 或 `error`，不会中断搜索。
-
-## WebUI Settings
-
-WebUI 设置页包含：
-
-- 登录账号/密码
-- 默认网盘类型
-- 链接检测 / 夸克文件嗅探 / 失效链接过滤开关
-- Aria2 RPC URL、secret 和下载目录
-- 订阅新增项自动投递 Aria2 开关
-- 后台订阅检查开关和检查间隔
-- 夸克 Cookie、自动转存开关和保存根目录
-- NAS 本机挂载源路径和目标路径
-
-Settings are persisted to `/data/settings.json` in Docker.
-
-## Aria2
-
-Configure Aria2 RPC in the WebUI settings or `.env`:
-
-```env
-ARIA2_RPC_URL=http://host:6800/jsonrpc
-ARIA2_SECRET=
-ARIA2_DIR=/downloads
-```
-
-After searching, click `Aria2` on a result to send its URL to Aria2. Note: cloud share URLs may not be direct downloadable file URLs; this is mainly useful for direct links, magnets, ed2k, or sources Aria2 can handle.
-
-订阅发现新增项目且该订阅 `notify_only=false` 时，也可以自动把链接提交给 Aria2：
-
-```env
-AUTO_DOWNLOAD_NEW_SUBSCRIPTION_ITEMS=true
-```
-
-自动下载成功后会记录已转存文件，避免后续检查重复提交同一批新增项；失败时会写入通知中心，不会中断订阅检查。
-
-可选开启后台定时检查订阅更新，默认关闭，最小间隔 5 分钟：
-
-```env
-SUBSCRIPTION_SCHEDULER_ENABLED=true
-SUBSCRIPTION_CHECK_INTERVAL_MINUTES=60
-```
-
-## 夸克自动转存
-
-搜索订阅发现新增文件后，可将文件自动转存到用户自己的夸克网盘。需配置夸克 Cookie：
-
-```env
-QUARK_COOKIE=你的夸克登录Cookie
-QUARK_SAVE_ROOT=/媒体/连续剧
-QUARK_SAVE_ENABLED=false
-```
-
-Cookie 从浏览器登录 pan.quark.cn 后在开发者工具 Network 请求头中复制完整 `Cookie` 值。配置后在 WebUI 设置页开启“夸克自动转存”即可。
-
-订阅检查时会自动：
-
-1. 获取分享 token
-2. 列出分享内文件
-3. 根据订阅规则过滤出需要转存的新文件
-4. 在用户夸克网盘创建目标目录（如需）
-5. 调用转存接口保存文件
-6. 按规则重命名文件
-7. 记录已转存文件避免重复
-8. 失败写入通知中心，不中断订阅检查
-
-## NAS 自动同步
-
-夸克转存成功后，可选通过本机挂载路径复制到 NAS。需在 WebUI 设置页或 `.env` 中配置：
-
-```env
-NAS_SYNC_ENABLED=true
-NAS_SYNC_SOURCE=/home/lain/QuarkMount/媒体/连续剧
-NAS_SYNC_TARGET=/home/lain/Nas/媒体库/连续剧
-```
-
-工作流程：
-
-1. 夸克转存完成后（文件已保存到 `QUARK_SAVE_ROOT/<订阅标题>/`）
-2. 在本机源挂载路径中查找 `NAS_SYNC_SOURCE/<订阅标题>/` 下的新增文件
-3. 复制到 `NAS_SYNC_TARGET/<订阅标题>/`
-4. 跳过已存在文件（不会覆盖）
-5. 返回结构化同步状态：未启用、未配置、无成功转存、复制成功、已存在、源文件未出现或复制失败
-6. 成功/失败均写入通知中心，失败不中断订阅检查
-
-注意：`NAS_SYNC_SOURCE` 和 `NAS_SYNC_TARGET` 都是**本机文件系统路径**。源路径需要由你用 rclone、alist/openlist mount、NFS、SMB 或其他方式提前挂载好；本项目不再依赖外部 OpenList 服务端 API。
-
-## 中文名与订阅
-
-项目中文名：**Lain 的媒体订阅**。
-
-WebUI 已将常见网盘类型本地化展示，例如：夸克网盘、百度网盘、阿里云盘、迅雷网盘、磁力链接等。
-
-订阅能力：
-
-- 搜索连续剧后点击结果旁边的“订阅”
-- 系统会打开订阅规则弹窗
-- 保存规则后会立即检查一次并按设置转存
-- 在“订阅清单”中可手动刷新或编辑规则
-- 如果分享目录新增文件，会显示新增文件列表并按规则处理
-
-## 参考项目订阅能力记录
-
-参考：
-
-- Cp0204/quark-auto-save：失效分享记录并跳过任务、提取码分享、正则过滤/重命名、任务结束期限、通知推送、媒体库刷新。
-- adminpass/aliyundrive-subscribe：订阅检查周期、并发/延迟控制、截止记录 ID、过滤词、保存命名规则、完结状态、Aria2 下载和通知配置。
-- fish2018/pansou：内置搜索聚合器参考其公开源插件的搜索接口和结果结构。
-
-当前已吸收的能力：
-
-- 订阅状态：`active` / `invalid` / `completed`
-- 检查时识别链接疑似失效
-- 失效时写入通知中心
-- 发现新增文件时写入通知中心
-- WebUI 可查看和标记通知已读
-- 包含/排除关键词、匹配正则过滤
-- 重命名模板和正则替换
-- 跳过已转存文件、自动创建目标目录
-- 后台定时检查（FastAPI lifespan，可在 WebUI 设置开关和间隔）
-- 订阅新增项 Aria2 自动投递
-- 夸克分享自动转存到用户网盘
-- 本机挂载路径/NAS 自动同步和配置诊断
-
-后续计划：外部推送通知（Telegram / 企业微信）、更细的后台任务队列和媒体库刷新。
-
-## 订阅模型增强
-
-订阅已从简单文件名对比升级为规则化模型：
-
-- 媒体类型：连续剧 / 动画（电影不追更）
-- 启用 / 停用
-- 完结状态
-- 季数、当前集、总集数
-- 包含关键词、排除关键词、匹配正则
-- 只处理最新一集
-- 检查历史、最后检查摘要
-- 链接失效和新增内容通知
-
-这部分参考了 quark-auto-save、aliyundrive-subscribe、ani-rss 和 PanSou 的设计，但保留本项目“订阅具体网盘分享目录”的模型。
+**⭐ 如果这个项目对你有帮助，欢迎 Star！**
