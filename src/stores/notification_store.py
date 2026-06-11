@@ -7,7 +7,18 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-NOTIFICATIONS_PATH = Path(os.getenv("NOTIFICATIONS_PATH", "/data/notifications.json"))
+NOTIFICATIONS_PATH = Path(os.getenv("NOTIFICATIONS_PATH", "./data/notifications.json"))
+
+
+def _push_notification(item: dict[str, Any]) -> None:
+    """Deliver notification to external WeChat channels."""
+    try:
+        from ..channels.push import send_notification
+        from ..stores.settings_store import settings_store
+        settings = settings_store.get()
+        send_notification(settings, item["level"], item["title"], item["message"])
+    except Exception:
+        pass  # Push failure should never crash the app
 
 
 class NotificationStore:
@@ -46,6 +57,8 @@ class NotificationStore:
         }
         self._items.append(item)
         self.save()
+        # Push to external WeChat channels (non-blocking)
+        _push_notification(item)
         return item
 
     def list(self, include_read: bool = True) -> list[dict[str, Any]]:

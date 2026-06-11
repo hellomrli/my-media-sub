@@ -4,6 +4,7 @@ from typing import Any
 
 import requests
 
+from ..clients.aria2 import Aria2Client
 from ..clients.quark_save import QuarkSaveClient
 from ..stores.settings_store import settings_store
 
@@ -92,3 +93,74 @@ def delete_items(fids: list[str]) -> dict[str, Any]:
     if err:
         return {"ok": False, "message": err}
     return {"ok": True, "message": f"已删除 {len(fids)} 项"}
+
+
+def download_from_quark(fid: str, file_name: str | None = None, download_dir: str | None = None, use_proxy: bool = True) -> dict[str, Any]:
+    """Get a download URL from Quark drive and submit it to Aria2.
+    
+    Args:
+        fid: Quark file ID
+        file_name: Optional custom filename
+        download_dir: Optional download directory
+        use_proxy: If True, use local proxy endpoint to bypass UA/Referer checks (default: True)
+    """
+    settings = settings_store.get()
+    old_cookie = settings.get("quark_cookie") or ""
+    
+    # Get file metadata
+    try:
+        client = _client()
+        data = client.get_download_urls([fid])
+    except Exception as exc:
+        return {"ok": False, "message": f"夸克获取直链失败：{exc}"}
+    _persist_cookie(client, old_cookie)
+
+    err = _quark_error(data)
+    if err:
+        return {"ok": False, "message": f"夸克接口返回错误：{err}"}
+
+    items = (data.get("data") or [])
+    if not items:
+        return {"ok": False, "message": "夸克未返回下载链接"}
+
+    item = items[0]
+    direct_url = item.get("url") or item.get("download_url") or ""
+    name = file_name or item.get("file_name") or fid
+
+    if not direct_url:
+        return {"ok": False, "message": f"文件 {name} 无可用下载链接"}
+
+    # Submit to Aria2
+    aria2_url = settings.get("aria2_rpc_url") or ""
+    aria2_secret = settings.get("aria2_secret") or ""
+    final_dir = download_dir or settings.get("aria2_dir") or ""
+
+    if not aria2_url:
+        return {"ok": False, "message": "Aria2 RPC URL 未配置"}
+
+    # Use proxy URL to bypass CDN restrictions
+    if use_proxy:
+        # Store the direct URL temporarily (in production, use Redis or DB)
+        import os
+        proxy_url = f"http://{os.getenv('PROXY_HOST', '192.168.50.160')}:{os.getenv('BOT_PORT', '8788')}/api/quark-proxy/download?fid={fid}"
+        download_url = proxy_url
+    else:
+        download_url = direct_url
+
+    try:
+        aria2 = Aria2Client(aria2_url, aria2_secret)
+        # Disable split download for proxy URLs (our proxy doesn't support Range requests efficiently)
+        options = {"split": "1", "max-connection-per-server": "1"} if use_proxy else {}
+        gid = aria2.add_uri([download_url], final_dir, options=options)
+    except Exception as exc:
+        return {"ok": False, "message": f"Aria2 提交失败：{exc}"}
+
+    return {
+        "ok": True,
+        "gid": gid,
+        "fid": fid,
+        "file_name": name,
+        "url": download_url,
+        "direct_url": direct_url if use_proxy else None,
+        "dir": final_dir,
+    }

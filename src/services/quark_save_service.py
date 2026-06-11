@@ -46,7 +46,31 @@ def save_subscription_transfers(
     if not settings.get("quark_save_enabled"):
         return []
     cookie = settings.get("quark_cookie") or ""
-    save_root = (settings.get("quark_save_root") or "").strip()
+    
+    # 基础目录前缀
+    base_root = (settings.get("quark_save_root") or "").strip()
+    
+    # 根据订阅的 media_type 选择分类子目录
+    media_type = sub.get("media_type", "series")
+    
+    # 默认分类
+    default_dirs = {
+        "movie": settings.get("quark_save_movie_dir", "/电影"),
+        "series": settings.get("quark_save_series_dir", "/连续剧"),
+        "anime": settings.get("quark_save_anime_dir", "/动画"),
+    }
+    
+    # 自定义分类
+    custom_categories = settings.get("custom_categories", [])
+    for cat in custom_categories:
+        if cat.get("name"):
+            default_dirs[f"custom_{cat['name']}"] = cat.get("dir", "")
+    
+    category_dir = (default_dirs.get(media_type) or "").strip()
+    
+    # 组合：基础目录 + 分类目录
+    save_root = "/".join(p.strip("/") for p in [base_root, category_dir] if p.strip("/"))
+    
     if not cookie:
         return []
 

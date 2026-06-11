@@ -8,7 +8,7 @@ from typing import Any
 from .. import config
 from ..utils.cloud_names import CLOUD_TYPE_NAMES
 
-SETTINGS_PATH = Path(os.getenv("SETTINGS_PATH", "/data/settings.json"))
+SETTINGS_PATH = Path(os.getenv("SETTINGS_PATH", "./data/settings.json"))
 
 DEFAULT_CLOUD_TYPES = ["quark"]
 SUPPORTED_CLOUD_TYPES = [
@@ -51,10 +51,17 @@ def default_settings() -> dict[str, Any]:
         "subscription_check_interval_minutes": env_int("SUBSCRIPTION_CHECK_INTERVAL_MINUTES", 60),
         "quark_save_enabled": env_bool("QUARK_SAVE_ENABLED"),
         "quark_save_root": os.getenv("QUARK_SAVE_ROOT", ""),
+        "quark_save_movie_dir": os.getenv("QUARK_SAVE_MOVIE_DIR", "/电影"),
+        "quark_save_series_dir": os.getenv("QUARK_SAVE_SERIES_DIR", "/连续剧"),
+        "quark_save_anime_dir": os.getenv("QUARK_SAVE_ANIME_DIR", "/动画"),
+        "custom_categories": [],
         "quark_cookie": os.getenv("QUARK_COOKIE", ""),
         "nas_sync_enabled": env_bool("NAS_SYNC_ENABLED"),
         "nas_sync_source": os.getenv("NAS_SYNC_SOURCE", ""),
         "nas_sync_target": os.getenv("NAS_SYNC_TARGET", ""),
+        "wecom_bot_url": os.getenv("WECOM_BOT_URL", ""),
+        "wxpusher_app_token": os.getenv("WXPUSHER_APP_TOKEN", ""),
+        "wxpusher_uids": os.getenv("WXPUSHER_UIDS", ""),
     }
 
 
@@ -92,7 +99,7 @@ class SettingsStore:
         data = self.get()
         for key in LEGACY_SETTINGS_KEYS:
             data.pop(key, None)
-        for key in ("app_password", "aria2_secret", "quark_cookie"):
+        for key in ("app_password", "aria2_secret", "quark_cookie", "wxpusher_app_token"):
             data[f"{key}_configured"] = bool(data.get(key))
             data[key] = ""
         data["supported_cloud_types"] = SUPPORTED_CLOUD_TYPES

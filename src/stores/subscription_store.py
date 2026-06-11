@@ -9,11 +9,13 @@ from uuid import uuid4
 
 from ..services.transfer_rule_service import build_transfer_plan, default_transfer_rules, normalize_rules, summarize_rules
 
-SUBSCRIPTIONS_PATH = Path(os.getenv("SUBSCRIPTIONS_PATH", "/data/subscriptions.json"))
+SUBSCRIPTIONS_PATH = Path(os.getenv("SUBSCRIPTIONS_PATH", "./data/subscriptions.json"))
 
 MEDIA_TYPE_LABELS = {
+    "movie": "电影",
     "series": "连续剧",
     "anime": "动画",
+    # 自定义分类通过 custom_ 前缀标识
 }
 
 

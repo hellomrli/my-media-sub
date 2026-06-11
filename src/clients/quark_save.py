@@ -176,3 +176,30 @@ class QuarkSaveClient:
         if not fid_list:
             return {"code": 1, "message": "没有可转存的文件"}
         return self.save_share_files(pwd_id, stoken, fid_list, fid_token_list, to_pdir_fid)
+
+    # ── Download files from your own Quark drive ─────────────────────
+
+    def get_download_urls(self, fids: list[str]) -> dict[str, Any]:
+        """Get direct download URLs for files in the user's own Quark drive.
+
+        Returns the raw API response. Each item in ``data`` contains:
+            - file_id / fid: str
+            - file_name: str
+            - size: int
+            - url: str (direct download URL, expires)
+            - expire_at: int (timestamp)
+
+        Note: Quark imposes a file size limit on the cookie-based API.
+        Very large files (typically >1 GB) will return code 23018.
+        """
+        payload = {"fids": fids}
+        data = self._post("/file/download", payload)
+        err = self._api_error(data)
+        if err:
+            # Check for size limit
+            if "size limit" in err or "23018" in str(data.get("code")):
+                raise RuntimeError(
+                    "文件超出夸克 Cookie API 的大小时限（通常 >1GB 文件需使用官方客户端或 Open API 下载）"
+                )
+            raise RuntimeError(err)
+        return data

@@ -123,7 +123,13 @@ def search_media(keyword: str, chat_id: str, limit: int, cloud_types: list[str] 
         kept = []
         for item in results:
             state = (item.get("link_check") or {}).get("state")
-            if state == "bad":
+            # 过滤失效链接：bad, http_error, 或 404 错误
+            if state in ("bad", "http_error"):
+                filtered_count += 1
+                continue
+            # 检查 summary 中是否包含 404 或失效关键词
+            summary = (item.get("link_check") or {}).get("summary", "")
+            if "404" in str(summary) or "已失效" in str(summary):
                 filtered_count += 1
                 continue
             kept.append(item)

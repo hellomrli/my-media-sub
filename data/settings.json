@@ -1,0 +1,25 @@
+{
+  "app_username": "admin",
+  "app_password": "change-me",
+  "cloud_types": [
+    "quark"
+  ],
+  "check_links": true,
+  "probe_quark_files": true,
+  "filter_bad_links": true,
+  "aria2_rpc_url": "http://192.168.50.100:6800/jsonrpc",
+  "aria2_secret": "chobits2",
+  "aria2_dir": "/home/lain/Nas/Aria2",
+  "auto_download_new_subscription_items": false,
+  "subscription_scheduler_enabled": false,
+  "subscription_check_interval_minutes": 60,
+  "quark_save_enabled": true,
+  "quark_save_root": "/NAS",
+  "quark_cookie": "__pus=dcf90c62a6c21f21094d06e5426e68d5AARh1rCHJyHbzonb7BHFcjOj61Aa18zdQysnAOHHW/hTJGTyzZZiBQ0GQDhs8SCmrTkFQ594NVFQQ6PMoYhmI3mp; __kp=904ae460-5f47-11f1-b10a-2323d66abb63; __kps=AATCUkwqwkmaLQwmf1MVwE/E; __ktd=VqM6IpgnOVwGRCerDdoEPA==; __uid=AATCUkwqwkmaLQwmf1MVwE/E; xlly_s=1; isg=BP7-YyiaGICENU4DOjNZwdmKTxRAP8K5BWlplqgGVME8S5wlEM6kyJiixxeH87rR; tfstk=grmimfTBPVz6rZfeqsr6-Bg8bULdolZbOjIYMoF28WPQMdMx3oSqMxETuCMxtSPEMio95dNUnjllbKTXsXvm6xsY_5nYmrl8brgTM5F0mxGkpQKJ2AM_ckRJw33hPfVYViSN0seUL8Z0QZltCzM_coRdpi8JqAGgsQ3buoJ3Y-2Rboza_HJ3H8Q405zVTwyzTSrqgrSUL-ez3iP4_wJ3hWP40olqLp2YTSr40jkEajbaw-PtYQ9RDqNIGBI8CPVrQWjodD2wN7K7OiSqxRD3aAzF0io3IPmFeMtymP3qFzitnnjQXY0UY8H6jMqrQ8cT9b-PxkkKLjUSRIs8RXm0PczO3Nknm54rbyXA2Yq33jzmRQj8Il33rc06h6kZw50zfxBk6v4o-zwU8tbaX4H-czowj_NLP-cT9b-PxkzV4n7FzQx1cJJxYZ_b7Jw3w6-R365Lj-deKpb-hPyQ34pHKZ_fNiSA8pvhyVzadR1V.; __puus=2cb6eb0a9ea098264dfe1bda31ebbe6dAASFpQxJKGxTX329mGT4VshciKf+ol0fGeL7P2NdNXxB0fZW/xviFMBjB3TKoV4tJlTc5vHQDYAeniuLJxwGNY2Nf/Jgp9fmyFe2b14hC8yDl4SbCflCMmtAnQhDVWyCEUpjniLN+wHjL7VD/0tL0v8FmaQHrVogk3Nrl832NICCOJAtMrcUZQ9r5Px6vjaVSIPfiW8nwa3WdSXoDfvljvlh",
+  "nas_sync_enabled": false,
+  "nas_sync_source": "",
+  "nas_sync_target": "",
+  "wecom_bot_url": "",
+  "wxpusher_app_token": "",
+  "wxpusher_uids": ""
+}
