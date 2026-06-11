@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .api.routes_downloads import router as downloads_router
 from .api.routes_notifications import router as notifications_router
+from .api.routes_push import router as push_router
 from .api.routes_quark_drive import router as quark_drive_router
 from .api.routes_quark_proxy import router as quark_proxy_router
 from .api.routes_search import router as search_router
@@ -45,6 +46,7 @@ def create_app() -> FastAPI:
     app.include_router(notifications_router)
     app.include_router(downloads_router)
     app.include_router(search_router)
+    app.include_router(push_router)
     app.include_router(quark_drive_router)
     app.include_router(quark_proxy_router)
     app.include_router(wechat_router)

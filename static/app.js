@@ -13,6 +13,7 @@ const saveSettingsBtn = document.querySelector('#saveSettingsBtn');
 const testAria2Btn = document.querySelector('#testAria2Btn');
 const testQuarkBtn = document.querySelector('#testQuarkBtn');
 const testNasSyncBtn = document.querySelector('#testNasSyncBtn');
+const testPushBtn = document.querySelector('#testPushBtn');
 const setUsername = document.querySelector('#setUsername');
 const setPassword = document.querySelector('#setPassword');
 const setAria2Rpc = document.querySelector('#setAria2Rpc');
@@ -1011,6 +1012,26 @@ async function testSettingsEndpoint(button, url, label) {
   }
 }
 
+async function testPushChannels() {
+  if (!testPushBtn) return;
+  testPushBtn.disabled = true;
+  setStatus('正在测试推送渠道...');
+  try {
+    const data = await postJson('/api/push/test', {});
+    if (data.ok) {
+      const results = data.results || {};
+      const details = Object.entries(results).map(([ch, r]) => `${ch}: ${r.ok ? '✅' : '❌'}`).join(', ');
+      setStatus(`${data.message} (${details})`, 'ok');
+    } else {
+      setStatus(data.message || '推送测试失败', 'error');
+    }
+  } catch (err) {
+    setStatus(`推送测试异常：${err.message}`, 'error');
+  } finally {
+    testPushBtn.disabled = false;
+  }
+}
+
 searchBtn.addEventListener('click', search);
 keywordInput.addEventListener('keydown', event => {
   if (event.key === 'Enter') search();
@@ -1019,6 +1040,7 @@ saveSettingsBtn.addEventListener('click', saveSettings);
 testAria2Btn.addEventListener('click', testAria2);
 testQuarkBtn?.addEventListener('click', () => testSettingsEndpoint(testQuarkBtn, '/api/settings/test/quark', '夸克 Cookie'));
 testNasSyncBtn?.addEventListener('click', () => testSettingsEndpoint(testNasSyncBtn, '/api/settings/test/mount-paths', '挂载路径'));
+testPushBtn?.addEventListener('click', testPushChannels);
 driveBackBtn?.addEventListener('click', backDriveFolder);
 driveRefreshBtn?.addEventListener('click', loadDrive);
 driveNewFolderBtn?.addEventListener('click', createDriveFolder);
