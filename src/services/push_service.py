@@ -2,12 +2,35 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+import time
+from typing import Any, Callable
 from datetime import datetime
+from functools import wraps
 
 import requests
 
 logger = logging.getLogger(__name__)
+
+
+def retry_on_failure(max_retries: int = 3, delay: float = 1.0):
+    """推送失败重试装饰器"""
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            last_error = None
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_error = e
+                    if attempt < max_retries - 1:
+                        logger.warning(f"{func.__name__} 第 {attempt + 1} 次尝试失败: {e}, 将在 {delay}s 后重试")
+                        time.sleep(delay)
+                    else:
+                        logger.error(f"{func.__name__} 失败，已重试 {max_retries} 次: {e}")
+            raise last_error
+        return wrapper
+    return decorator
 
 
 class PushService:
@@ -60,6 +83,7 @@ class PushService:
                 results[channel] = False
         return results
     
+    @retry_on_failure(max_retries=3, delay=1.0)
     def _send_wecom(self, title: str, message: str, level: str) -> bool:
         """企业微信机器人"""
         url = self.settings.get("wecom_bot_url", "")
@@ -75,6 +99,7 @@ class PushService:
         resp = requests.post(url, json=payload, timeout=10)
         return resp.json().get("errcode") == 0
     
+    @retry_on_failure(max_retries=3, delay=1.0)
     def _send_wxpusher(self, title: str, message: str) -> bool:
         """WxPusher"""
         token = self.settings.get("wxpusher_app_token", "")
@@ -92,6 +117,7 @@ class PushService:
         resp = requests.post("https://wxpusher.zjiecode.com/api/send/message", json=payload, timeout=10)
         return resp.json().get("code") == 1000
     
+    @retry_on_failure(max_retries=3, delay=1.0)
     def _send_telegram(self, title: str, message: str, level: str, silent: bool) -> bool:
         """Telegram Bot"""
         token = self.settings.get("telegram_bot_token", "")
@@ -109,6 +135,7 @@ class PushService:
         resp = requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json=payload, timeout=10)
         return resp.json().get("ok", False)
     
+    @retry_on_failure(max_retries=3, delay=1.0)
     def _send_bark(self, title: str, message: str, level: str) -> bool:
         """Bark (iOS)"""
         url = self.settings.get("bark_url", "")
@@ -124,6 +151,7 @@ class PushService:
         resp = requests.post(f"{url}/push", json=payload, timeout=10)
         return resp.json().get("code") == 200
     
+    @retry_on_failure(max_retries=3, delay=1.0)
     def _send_gotify(self, title: str, message: str, level: str) -> bool:
         """Gotify"""
         url = self.settings.get("gotify_url", "").rstrip("/")
@@ -139,6 +167,7 @@ class PushService:
         resp = requests.post(f"{url}/message?token={token}", json=payload, timeout=10)
         return resp.status_code == 200
     
+    @retry_on_failure(max_retries=3, delay=1.0)
     def _send_pushplus(self, title: str, message: str) -> bool:
         """PushPlus"""
         token = self.settings.get("pushplus_token", "")
@@ -153,6 +182,7 @@ class PushService:
         resp = requests.post("http://www.pushplus.plus/send", json=payload, timeout=10)
         return resp.json().get("code") == 200
     
+    @retry_on_failure(max_retries=3, delay=1.0)
     def _send_serverchan(self, title: str, message: str) -> bool:
         """Server酱"""
         key = self.settings.get("serverchan_key", "")
