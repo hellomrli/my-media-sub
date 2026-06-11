@@ -50,8 +50,8 @@ def update_subscription(subscription_id: str, patch: dict[str, Any]) -> dict[str
         settings = settings_store.get()
         if settings.get("push_on_completed", True):
             push_service = get_push_service(settings)
-            title, message, level = PushScenarios.subscription_completed(result.get("title", "未知订阅"))
-            push_service.send(title, message, level)
+            title, message, level, scenario = PushScenarios.subscription_completed(result.get("title", "未知订阅"))
+            push_service.send(title, message, level, scenario=scenario)
     
     return result
 
@@ -82,18 +82,18 @@ def check_subscription(subscription_id: str) -> tuple[dict[str, Any] | None, lis
     sub_title = updated.get("title") if updated else sub.get("title")
     
     if became_invalid and settings.get("push_on_failed", True):
-        title, message, level = PushScenarios.subscription_failed(sub_title, probe.get("message", "未知错误"))
-        push_service.send(title, message, level)
+        title, message, level, scenario = PushScenarios.subscription_failed(sub_title, probe.get("message", "未知错误"))
+        push_service.send(title, message, level, scenario=scenario)
     elif new_files and settings.get("push_on_update", True):
         items = [{"title": f} for f in new_files]
-        title, message, level = PushScenarios.subscription_update(sub_title, items)
+        title, message, level, scenario = PushScenarios.subscription_update(sub_title, items)
         push_service.send(title, message, level, silent=settings.get("push_silent", False))
     
     downloads = maybe_download_new_items(updated, plan)
     quark_saves = save_subscription_transfers(updated, plan)
     
     if quark_saves and settings.get("push_on_save", True):
-        title, message, level = PushScenarios.save_completed(sub_title, len(quark_saves))
+        title, message, level, scenario = PushScenarios.save_completed(sub_title, len(quark_saves))
         push_service.send(title, message, level, silent=settings.get("push_silent", False))
     
     nas_syncs = sync_to_nas(updated, quark_saves)
@@ -116,18 +116,18 @@ def check_all_subscriptions() -> list[dict[str, Any]]:
         # 推送通知
         sub_title = updated.get("title") if updated else sub.get("title")
         if became_invalid and settings.get("push_on_failed", True):
-            title, message, level = PushScenarios.subscription_failed(sub_title, probe.get("message", "未知错误"))
-            push_service.send(title, message, level)
+            title, message, level, scenario = PushScenarios.subscription_failed(sub_title, probe.get("message", "未知错误"))
+            push_service.send(title, message, level, scenario=scenario)
         elif new_files and settings.get("push_on_update", True):
             items = [{"title": f} for f in new_files]
-            title, message, level = PushScenarios.subscription_update(sub_title, items)
+            title, message, level, scenario = PushScenarios.subscription_update(sub_title, items)
             push_service.send(title, message, level, silent=settings.get("push_silent", False))
         
         downloads = maybe_download_new_items(updated, plan)
         quark_saves = save_subscription_transfers(updated, plan)
         
         if quark_saves and settings.get("push_on_save", True):
-            title, message, level = PushScenarios.save_completed(sub_title, len(quark_saves))
+            title, message, level, scenario = PushScenarios.save_completed(sub_title, len(quark_saves))
             push_service.send(title, message, level, silent=settings.get("push_silent", False))
         
         nas_syncs = sync_to_nas(updated, quark_saves)

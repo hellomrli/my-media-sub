@@ -59,7 +59,7 @@ class PushService:
             channels.append("serverchan")
         return channels
     
-    def send(self, title: str, message: str, level: str = "info", silent: bool = False) -> dict[str, bool]:
+    def send(self, title: str, message: str, level: str = "info", silent: bool = False, scenario: str = "manual") -> dict[str, bool]:
         """发送推送到所有启用的渠道"""
         results = {}
         for channel in self.enabled_channels:
@@ -81,6 +81,14 @@ class PushService:
             except Exception as exc:
                 logger.error(f"{channel} 推送异常: {exc}")
                 results[channel] = False
+        
+        # 记录推送历史
+        try:
+            from .push_history_service import push_history
+            push_history.add_record(title, message, self.enabled_channels, results, scenario)
+        except Exception as e:
+            logger.error(f"记录推送历史失败: {e}")
+        
         return results
     
     @retry_on_failure(max_retries=3, delay=1.0)
@@ -201,7 +209,7 @@ class PushScenarios:
     """推送场景和消息模板"""
     
     @staticmethod
-    def subscription_update(sub_title: str, new_items: list) -> tuple[str, str, str]:
+    def subscription_update(sub_title: str, new_items: list) -> tuple[str, str, str, str]:
         """订阅更新"""
         count = len(new_items)
         items_text = "\n".join([f"• {item.get('title', '未知')}" for item in new_items[:5]])
@@ -210,52 +218,58 @@ class PushScenarios:
         return (
             f"📺 订阅更新：{sub_title}",
             f"发现 {count} 个新资源：\n\n{items_text}",
-            "info"
+            "info",
+            "subscription_update"
         )
     
     @staticmethod
-    def subscription_failed(sub_title: str, reason: str) -> tuple[str, str, str]:
+    def subscription_failed(sub_title: str, reason: str) -> tuple[str, str, str, str]:
         """订阅失败"""
         return (
             f"❌ 订阅失效：{sub_title}",
             f"原因：{reason}\n请检查链接或重新创建订阅",
-            "error"
+            "error",
+            "subscription_failed"
         )
     
     @staticmethod
-    def subscription_completed(sub_title: str) -> tuple[str, str, str]:
+    def subscription_completed(sub_title: str) -> tuple[str, str, str, str]:
         """订阅完成"""
         return (
             f"✅ 订阅完结：{sub_title}",
             "该订阅已标记为完结，不再自动检查更新",
-            "success"
+            "success",
+            "subscription_completed"
         )
     
     @staticmethod
-    def download_completed(item_title: str) -> tuple[str, str, str]:
+    def download_completed(item_title: str) -> tuple[str, str, str, str]:
         """下载完成"""
         return (
             f"⬇️ 下载完成",
             f"已完成：{item_title}",
-            "success"
+            "success",
+            "download_completed"
         )
     
     @staticmethod
-    def save_completed(sub_title: str, count: int) -> tuple[str, str, str]:
+    def save_completed(sub_title: str, count: int) -> tuple[str, str, str, str]:
         """转存完成"""
         return (
             f"💾 转存完成：{sub_title}",
             f"已转存 {count} 个文件到夸克网盘",
-            "success"
+            "success",
+            "save_completed"
         )
     
     @staticmethod
-    def save_failed(sub_title: str, reason: str) -> tuple[str, str, str]:
+    def save_failed(sub_title: str, reason: str) -> tuple[str, str, str, str]:
         """转存失败"""
         return (
             f"⚠️ 转存失败：{sub_title}",
             f"原因：{reason}",
-            "warning"
+            "warning",
+            "save_failed"
         )
     
     @staticmethod
