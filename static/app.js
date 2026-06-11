@@ -32,6 +32,21 @@ const customCategoriesBox = document.querySelector('#customCategoriesBox');
 const setNasSyncEnabled = document.querySelector('#setNasSyncEnabled');
 const setNasSyncSource = document.querySelector('#setNasSyncSource');
 const setNasSyncTarget = document.querySelector('#setNasSyncTarget');
+const setPushOnUpdate = document.querySelector('#setPushOnUpdate');
+const setPushOnFailed = document.querySelector('#setPushOnFailed');
+const setPushOnCompleted = document.querySelector('#setPushOnCompleted');
+const setPushOnSave = document.querySelector('#setPushOnSave');
+const setPushSilent = document.querySelector('#setPushSilent');
+const setWecomUrl = document.querySelector('#setWecomUrl');
+const setWxpusherToken = document.querySelector('#setWxpusherToken');
+const setWxpusherUids = document.querySelector('#setWxpusherUids');
+const setTelegramToken = document.querySelector('#setTelegramToken');
+const setTelegramChatId = document.querySelector('#setTelegramChatId');
+const setBarkUrl = document.querySelector('#setBarkUrl');
+const setGotifyUrl = document.querySelector('#setGotifyUrl');
+const setGotifyToken = document.querySelector('#setGotifyToken');
+const setPushplusToken = document.querySelector('#setPushplusToken');
+const setServerchanKey = document.querySelector('#setServerchanKey');
 const downloadsBody = document.querySelector('#downloadsBody');
 const subscriptionsBody = document.querySelector('#subscriptionsBody');
 const checkAllSubsBtn = document.querySelector('#checkAllSubsBtn');
@@ -197,9 +212,21 @@ function applySettingsToUi(settings) {
   if (setNasSyncEnabled) setNasSyncEnabled.checked = !!settings.nas_sync_enabled;
   if (setNasSyncSource) setNasSyncSource.value = settings.nas_sync_source || '';
   if (setNasSyncTarget) setNasSyncTarget.value = settings.nas_sync_target || '';
+  if (setPushOnUpdate) setPushOnUpdate.checked = settings.push_on_update !== false;
+  if (setPushOnFailed) setPushOnFailed.checked = settings.push_on_failed !== false;
+  if (setPushOnCompleted) setPushOnCompleted.checked = settings.push_on_completed !== false;
+  if (setPushOnSave) setPushOnSave.checked = settings.push_on_save !== false;
+  if (setPushSilent) setPushSilent.checked = !!settings.push_silent;
   if (setWecomUrl) setWecomUrl.value = settings.wecom_bot_url || '';
   if (setWxpusherToken) { setWxpusherToken.value = ''; setWxpusherToken.placeholder = settings.wxpusher_app_token ? '已保存，留空不修改' : 'AT_xxxxxxxx'; }
   if (setWxpusherUids) setWxpusherUids.value = settings.wxpusher_uids || '';
+  if (setTelegramToken) { setTelegramToken.value = ''; setTelegramToken.placeholder = settings.telegram_bot_token ? '已保存，留空不修改' : '123456:ABC-DEF...'; }
+  if (setTelegramChatId) setTelegramChatId.value = settings.telegram_chat_id || '';
+  if (setBarkUrl) setBarkUrl.value = settings.bark_url || '';
+  if (setGotifyUrl) setGotifyUrl.value = settings.gotify_url || '';
+  if (setGotifyToken) { setGotifyToken.value = ''; setGotifyToken.placeholder = settings.gotify_token ? '已保存，留空不修改' : 'Axxxxxx'; }
+  if (setPushplusToken) { setPushplusToken.value = ''; setPushplusToken.placeholder = settings.pushplus_token ? '已保存，留空不修改' : '你的 token'; }
+  if (setServerchanKey) { setServerchanKey.value = ''; setServerchanKey.placeholder = settings.serverchan_key ? '已保存，留空不修改' : 'SCTxxxxxx'; }
   renderCloudTypeOptions(cloudTypesBox, settings.cloud_types || ['quark']);
   renderCloudTypeOptions(settingsCloudTypesBox, settings.cloud_types || ['quark']);
 }
@@ -921,9 +948,21 @@ function collectSettingsPayload({ includeSecrets = true } = {}) {
     nas_sync_enabled: !!setNasSyncEnabled?.checked,
     nas_sync_source: setNasSyncSource?.value.trim() || '',
     nas_sync_target: setNasSyncTarget?.value.trim() || '',
+    push_on_update: !!setPushOnUpdate?.checked,
+    push_on_failed: !!setPushOnFailed?.checked,
+    push_on_completed: !!setPushOnCompleted?.checked,
+    push_on_save: !!setPushOnSave?.checked,
+    push_silent: !!setPushSilent?.checked,
     wecom_bot_url: setWecomUrl?.value.trim() || '',
     wxpusher_app_token: includeSecrets && setWxpusherToken?.value ? setWxpusherToken.value : undefined,
     wxpusher_uids: setWxpusherUids?.value.trim() || '',
+    telegram_bot_token: includeSecrets && setTelegramToken?.value ? setTelegramToken.value : undefined,
+    telegram_chat_id: setTelegramChatId?.value.trim() || '',
+    bark_url: setBarkUrl?.value.trim() || '',
+    gotify_url: setGotifyUrl?.value.trim() || '',
+    gotify_token: includeSecrets && setGotifyToken?.value ? setGotifyToken.value : undefined,
+    pushplus_token: includeSecrets && setPushplusToken?.value ? setPushplusToken.value : undefined,
+    serverchan_key: includeSecrets && setServerchanKey?.value ? setServerchanKey.value : undefined,
   };
   if (includeSecrets) {
     if (setPassword.value) payload.app_password = setPassword.value;
@@ -1085,6 +1124,11 @@ manualCreateSubBtn?.addEventListener('click', async () => {
 
 // 自定义分类管理
 function loadCustomCategories(categories) {
+  console.log('loadCustomCategories called with:', categories);
+  if (!customCategoriesBox) {
+    console.error('customCategoriesBox not found!');
+    return;
+  }
   customCategoriesBox.innerHTML = categories.map((cat, idx) => `
     <div class="form-grid" data-category-idx="${idx}">
       <label>分类名称<input class="custom-cat-name" value="${cat.name || ''}" placeholder="例如：综艺" /></label>
@@ -1105,10 +1149,12 @@ function loadCustomCategories(categories) {
 
 function collectCustomCategories() {
   const rows = customCategoriesBox.querySelectorAll('[data-category-idx]');
-  return Array.from(rows).map(row => ({
+  const result = Array.from(rows).map(row => ({
     name: row.querySelector('.custom-cat-name')?.value.trim() || '',
     dir: row.querySelector('.custom-cat-dir')?.value.trim() || ''
   })).filter(c => c.name && c.dir);
+  console.log('collectCustomCategories:', result);
+  return result;
 }
 
 function updateMediaTypeOptions() {
