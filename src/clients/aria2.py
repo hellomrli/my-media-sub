@@ -35,13 +35,20 @@ class Aria2Client:
             raise RuntimeError(data["error"].get("message") or str(data["error"]))
         return data.get("result")
 
-    def add_uri(self, urls: list[str], download_dir: str = ""):
-        options = {}
+    def add_uri(self, urls: list[str], download_dir: str = "", options: dict | None = None):
+        """Add a download task.
+        
+        Args:
+            urls: List of URLs to download
+            download_dir: Optional download directory
+            options: Optional Aria2 options dict (e.g. {"split": "1"})
+        """
+        opts = options or {}
         if download_dir:
-            options["dir"] = download_dir
+            opts["dir"] = download_dir
         params: list[Any] = [urls]
-        if options:
-            params.append(options)
+        if opts:
+            params.append(opts)
         return self.call("aria2.addUri", params)
 
     def get_version(self):

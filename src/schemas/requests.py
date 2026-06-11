@@ -109,3 +109,9 @@ class QuarkDriveRenameRequest(BaseModel):
 
 class QuarkDriveDeleteRequest(BaseModel):
     fids: list[str] = Field(default_factory=list)
+
+
+class QuarkDriveDownloadRequest(BaseModel):
+    fid: str = Field(..., min_length=1)
+    file_name: str | None = None
+    dir: str | None = None

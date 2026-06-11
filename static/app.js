@@ -24,6 +24,11 @@ const setSubscriptionInterval = document.querySelector('#setSubscriptionInterval
 const setQuarkSaveEnabled = document.querySelector('#setQuarkSaveEnabled');
 const setQuarkCookie = document.querySelector('#setQuarkCookie');
 const setQuarkSaveRoot = document.querySelector('#setQuarkSaveRoot');
+const setQuarkSaveMovieDir = document.querySelector('#setQuarkSaveMovieDir');
+const setQuarkSaveSeriesDir = document.querySelector('#setQuarkSaveSeriesDir');
+const setQuarkSaveAnimeDir = document.querySelector('#setQuarkSaveAnimeDir');
+const addCustomCategoryBtn = document.querySelector('#addCustomCategoryBtn');
+const customCategoriesBox = document.querySelector('#customCategoriesBox');
 const setNasSyncEnabled = document.querySelector('#setNasSyncEnabled');
 const setNasSyncSource = document.querySelector('#setNasSyncSource');
 const setNasSyncTarget = document.querySelector('#setNasSyncTarget');
@@ -58,6 +63,14 @@ const subEditSkipExisting = document.querySelector('#subEditSkipExisting');
 const subEditIgnoreExt = document.querySelector('#subEditIgnoreExt');
 const previewSubPlanBtn = document.querySelector('#previewSubPlanBtn');
 const subPlanPreview = document.querySelector('#subPlanPreview');
+const manualSubscribeBtn = document.querySelector('#manualSubscribeBtn');
+const manualSubscribeModal = document.querySelector('#manualSubscribeModal');
+const manualUrl = document.querySelector('#manualUrl');
+const manualPassword = document.querySelector('#manualPassword');
+const manualProbeBtn = document.querySelector('#manualProbeBtn');
+const manualCreateSubBtn = document.querySelector('#manualCreateSubBtn');
+const manualProbeResult = document.querySelector('#manualProbeResult');
+const manualProbeContent = document.querySelector('#manualProbeContent');
 const pageTitle = document.querySelector('#pageTitle');
 const resultCount = document.querySelector('#resultCount');
 const resultCloudTabs = document.querySelector('#resultCloudTabs');
@@ -177,9 +190,16 @@ function applySettingsToUi(settings) {
   if (setQuarkSaveEnabled) setQuarkSaveEnabled.checked = !!settings.quark_save_enabled;
   markSecretInput(setQuarkCookie, settings.quark_cookie_configured, 'Cookie 已保存，留空不修改');
   if (setQuarkSaveRoot) setQuarkSaveRoot.value = settings.quark_save_root || '';
+  if (setQuarkSaveMovieDir) setQuarkSaveMovieDir.value = settings.quark_save_movie_dir || '/电影';
+  if (setQuarkSaveSeriesDir) setQuarkSaveSeriesDir.value = settings.quark_save_series_dir || '/连续剧';
+  if (setQuarkSaveAnimeDir) setQuarkSaveAnimeDir.value = settings.quark_save_anime_dir || '/动画';
+  loadCustomCategories(settings.custom_categories || []);
   if (setNasSyncEnabled) setNasSyncEnabled.checked = !!settings.nas_sync_enabled;
   if (setNasSyncSource) setNasSyncSource.value = settings.nas_sync_source || '';
   if (setNasSyncTarget) setNasSyncTarget.value = settings.nas_sync_target || '';
+  if (setWecomUrl) setWecomUrl.value = settings.wecom_bot_url || '';
+  if (setWxpusherToken) { setWxpusherToken.value = ''; setWxpusherToken.placeholder = settings.wxpusher_app_token ? '已保存，留空不修改' : 'AT_xxxxxxxx'; }
+  if (setWxpusherUids) setWxpusherUids.value = settings.wxpusher_uids || '';
   renderCloudTypeOptions(cloudTypesBox, settings.cloud_types || ['quark']);
   renderCloudTypeOptions(settingsCloudTypesBox, settings.cloud_types || ['quark']);
 }
@@ -894,9 +914,16 @@ function collectSettingsPayload({ includeSecrets = true } = {}) {
     subscription_check_interval_minutes: Number(setSubscriptionInterval?.value || 60),
     quark_save_enabled: !!setQuarkSaveEnabled?.checked,
     quark_save_root: setQuarkSaveRoot?.value.trim() || '',
+    quark_save_movie_dir: setQuarkSaveMovieDir?.value.trim() || '/电影',
+    quark_save_series_dir: setQuarkSaveSeriesDir?.value.trim() || '/连续剧',
+    quark_save_anime_dir: setQuarkSaveAnimeDir?.value.trim() || '/动画',
+    custom_categories: collectCustomCategories(),
     nas_sync_enabled: !!setNasSyncEnabled?.checked,
     nas_sync_source: setNasSyncSource?.value.trim() || '',
     nas_sync_target: setNasSyncTarget?.value.trim() || '',
+    wecom_bot_url: setWecomUrl?.value.trim() || '',
+    wxpusher_app_token: includeSecrets && setWxpusherToken?.value ? setWxpusherToken.value : undefined,
+    wxpusher_uids: setWxpusherUids?.value.trim() || '',
   };
   if (includeSecrets) {
     if (setPassword.value) payload.app_password = setPassword.value;
@@ -969,3 +996,142 @@ loadSettings()
   .then(loadNotifications)
   .then(loadDrive)
   .catch(err => setStatus(`加载设置失败：${err.message}`, 'error'));
+
+// 手动订阅功能
+let manualProbeData = null;
+
+manualSubscribeBtn?.addEventListener('click', () => {
+  manualSubscribeModal?.classList.remove('hidden');
+  manualUrl.value = '';
+  manualPassword.value = '';
+  manualProbeResult?.classList.add('hidden');
+  manualCreateSubBtn?.classList.add('hidden');
+  manualProbeData = null;
+});
+
+document.querySelectorAll('[data-close-manual-modal]').forEach(el => {
+  el.addEventListener('click', () => manualSubscribeModal?.classList.add('hidden'));
+});
+
+manualProbeBtn?.addEventListener('click', async () => {
+  const url = manualUrl.value.trim();
+  if (!url) {
+    setStatus('请输入网盘链接', 'error');
+    return;
+  }
+  manualProbeBtn.disabled = true;
+  manualProbeBtn.textContent = '嗅探中...';
+  try {
+    const res = await fetch('/api/quark/probe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, password: manualPassword.value.trim() })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || '嗅探失败');
+    
+    manualProbeData = data;
+    manualProbeContent.innerHTML = `
+      <p><strong>状态：</strong>${data.ok ? '✅ 成功' : '❌ 失败'}</p>
+      <p><strong>消息：</strong>${data.message || '-'}</p>
+      <p><strong>文件数：</strong>${data.file_count || 0}</p>
+      <p><strong>疑似集数：</strong>${data.episode_count || '未识别'}</p>
+      ${data.files && data.files.length ? `<details><summary>文件列表</summary><ul>${data.files.slice(0, 20).map(f => `<li>${f}</li>`).join('')}${data.files.length > 20 ? '<li>...</li>' : ''}</ul></details>` : ''}
+    `;
+    manualProbeResult?.classList.remove('hidden');
+    manualCreateSubBtn?.classList.remove('hidden');
+    setStatus('嗅探完成', 'success');
+  } catch (err) {
+    setStatus(`嗅探失败：${err.message}`, 'error');
+  } finally {
+    manualProbeBtn.disabled = false;
+    manualProbeBtn.textContent = '嗅探文件';
+  }
+});
+
+manualCreateSubBtn?.addEventListener('click', async () => {
+  if (!manualProbeData) {
+    setStatus('请先嗅探文件', 'error');
+    return;
+  }
+  const title = prompt('请输入订阅标题：');
+  if (!title) return;
+  
+  manualCreateSubBtn.disabled = true;
+  try {
+    const res = await fetch('/api/subscriptions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title,
+        url: manualUrl.value.trim(),
+        password: manualPassword.value.trim(),
+        media_type: 'series',
+        season: 1,
+        enabled: true
+      })
+    });
+    if (!res.ok) throw new Error('创建订阅失败');
+    
+    setStatus('订阅创建成功', 'success');
+    manualSubscribeModal?.classList.add('hidden');
+    await loadSubscriptions();
+  } catch (err) {
+    setStatus(`创建失败：${err.message}`, 'error');
+  } finally {
+    manualCreateSubBtn.disabled = false;
+  }
+});
+
+// 自定义分类管理
+function loadCustomCategories(categories) {
+  customCategoriesBox.innerHTML = categories.map((cat, idx) => `
+    <div class="form-grid" data-category-idx="${idx}">
+      <label>分类名称<input class="custom-cat-name" value="${cat.name || ''}" placeholder="例如：综艺" /></label>
+      <label>保存目录<input class="custom-cat-dir" value="${cat.dir || ''}" placeholder="例如：/综艺" /></label>
+      <button type="button" class="secondary small remove-cat-btn" data-idx="${idx}">删除</button>
+    </div>
+  `).join('');
+  updateMediaTypeOptions();
+  document.querySelectorAll('.remove-cat-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const idx = parseInt(e.target.dataset.idx);
+      const current = collectCustomCategories();
+      current.splice(idx, 1);
+      loadCustomCategories(current);
+    });
+  });
+}
+
+function collectCustomCategories() {
+  const rows = customCategoriesBox.querySelectorAll('[data-category-idx]');
+  return Array.from(rows).map(row => ({
+    name: row.querySelector('.custom-cat-name')?.value.trim() || '',
+    dir: row.querySelector('.custom-cat-dir')?.value.trim() || ''
+  })).filter(c => c.name && c.dir);
+}
+
+function updateMediaTypeOptions() {
+  const categories = collectCustomCategories();
+  const options = [
+    { value: 'movie', label: '电影' },
+    { value: 'series', label: '连续剧' },
+    { value: 'anime', label: '动画' },
+    ...categories.map(c => ({ value: `custom_${c.name}`, label: c.name }))
+  ];
+  const current = subEditMediaType?.value;
+  subEditMediaType.innerHTML = options.map(o => 
+    `<option value="${o.value}" ${o.value === current ? 'selected' : ''}>${o.label}</option>`
+  ).join('');
+}
+
+addCustomCategoryBtn?.addEventListener('click', () => {
+  const current = collectCustomCategories();
+  current.push({ name: '', dir: '' });
+  loadCustomCategories(current);
+});
+
+// 初始化时更新下拉框
+if (appSettings) {
+  loadCustomCategories(appSettings.custom_categories || []);
+}

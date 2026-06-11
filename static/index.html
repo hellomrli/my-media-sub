@@ -126,7 +126,10 @@
               <span class="eyebrow">Watchlist</span>
               <h2>订阅清单</h2>
             </div>
-            <button id="checkAllSubsBtn" class="secondary small">刷新所有</button>
+            <div>
+              <button id="manualSubscribeBtn" class="primary small">手动订阅</button>
+              <button id="checkAllSubsBtn" class="secondary small">刷新所有</button>
+            </div>
           </div>
           <div class="table-head sub-head">
             <span>订阅主题</span><span>进度</span><span>状态</span><span>最近检查</span><span>操作</span>
@@ -188,7 +191,13 @@
             </div>
             <div class="settings-grid" style="padding: 12px 0 0; grid-template-columns: 1fr 1fr;">
               <label>夸克 Cookie<input id="setQuarkCookie" type="password" placeholder="留空则不修改" /></label>
-              <label>保存根目录<input id="setQuarkSaveRoot" placeholder="例如：/媒体/连续剧" /></label>
+              <label>基础目录前缀（留空为根目录）<input id="setQuarkSaveRoot" placeholder="例如：/媒体" /></label>
+              <h4>默认分类目录</h4>
+              <label>电影保存目录<input id="setQuarkSaveMovieDir" placeholder="/电影" /></label>
+              <label>连续剧保存目录<input id="setQuarkSaveSeriesDir" placeholder="/连续剧" /></label>
+              <label>动画保存目录<input id="setQuarkSaveAnimeDir" placeholder="/动画" /></label>
+              <h4>自定义分类 <button type="button" id="addCustomCategoryBtn" class="secondary small">+ 添加</button></h4>
+              <div id="customCategoriesBox"></div>
             </div>
           </div>
           <div class="settings-block">
@@ -199,6 +208,18 @@
             <div class="settings-grid" style="padding: 12px 0 0; grid-template-columns: 1fr 1fr;">
               <label>源挂载路径前缀（本机夸克挂载目录）<input id="setNasSyncSource" placeholder="例如：/home/lain/QuarkMount/媒体/连续剧" /></label>
               <label>目标路径前缀（本机/NAS 目录）<input id="setNasSyncTarget" placeholder="例如：/home/lain/Nas/媒体库/连续剧" /></label>
+            </div>
+          </div>
+          <div class="settings-block">
+            <span class="eyebrow">微信推送</span>
+            <p class="hint" style="margin:0 0 8px">配置后，订阅检查、下载完成等通知会自动推送到你的微信。</p>
+            <div class="settings-grid" style="grid-template-columns: 1fr 1fr;">
+              <label>企业微信机器人 Webhook<input id="setWecomUrl" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." /></label>
+              <label>WxPusher AppToken<input id="setWxpusherToken" type="password" placeholder="AT_xxxxxxxx" /></label>
+            </div>
+            <div class="settings-grid" style="padding: 12px 0 0; grid-template-columns: 1fr 1fr;">
+              <label>WxPusher UIDs（多个用逗号分隔）<input id="setWxpusherUids" placeholder="UID_xxx,UID_yyy" /></label>
+              <label></label>
             </div>
           </div>
           <div class="settings-block">
@@ -237,8 +258,7 @@
           <label>总集数<input id="subEditTotal" name="total" type="number" min="1" placeholder="未知留空" /></label>
           <label>媒体类型
             <select id="subEditMediaType" name="media_type">
-              <option value="series">连续剧</option>
-              <option value="anime">动画</option>
+              <!-- 动态加载 -->
             </select>
           </label>
         </div>
@@ -283,6 +303,36 @@
         <button id="saveSubscriptionBtn" type="submit" class="primary">保存规则</button>
       </div>
     </form>
+  </div>
+
+  <!-- 手动订阅弹窗 -->
+  <div id="manualSubscribeModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-mask" data-close-manual-modal="1"></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <div>
+          <span class="eyebrow">Manual Subscribe</span>
+          <h2>手动订阅</h2>
+          <p class="hint">输入网盘分享链接，系统将嵌探文件并创建订阅。</p>
+        </div>
+        <button type="button" class="icon-btn" data-close-manual-modal="1">×</button>
+      </div>
+      <div class="form-section">
+        <div class="form-grid">
+          <label class="wide">网盘分享链接<input id="manualUrl" placeholder="https://pan.quark.cn/s/..." /></label>
+          <label>分享密码（可选）<input id="manualPassword" placeholder="留空表示无密码" /></label>
+        </div>
+      </div>
+      <div id="manualProbeResult" class="form-section hidden">
+        <h3>嵌探结果</h3>
+        <div id="manualProbeContent" class="plan-preview"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="secondary" data-close-manual-modal="1">取消</button>
+        <button id="manualProbeBtn" type="button" class="primary">嵌探文件</button>
+        <button id="manualCreateSubBtn" type="button" class="primary hidden">创建订阅</button>
+      </div>
+    </div>
   </div>
 
   <script src="/static/app.js"></script>

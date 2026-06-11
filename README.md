@@ -36,6 +36,19 @@
 
 ## 历史版本更新记录
 
+### 2026-06-12 (v0.4.0) - 重大架构升级
+
+- ⚡ **异步化改造**：所有网络请求迁移到 httpx.AsyncClient，搜索和订阅检查并发执行，性能提升 3-5 倍
+- 🔄 **后台任务队列**：基于 asyncio.Queue 的轻量任务队列，支持优先级和重试机制
+- 🗄️ **数据持久化升级**：从 JSON 文件迁移到 SQLite + SQLAlchemy，支持事务和并发安全
+- ⚙️ **配置管理优化**：统一使用 Pydantic BaseSettings，废弃 settings.json，改用 .env
+- 🎨 **智能去重**：基于标题相似度和画质偏好的智能去重，自动选择最佳版本
+- 📱 **Telegram 通知**：集成 Telegram Bot，支持订阅更新、检查失败等通知推送
+- 🏁 **订阅自动完结**：连续 N 次无更新自动标记完结，避免无效订阅占用资源
+- 🛠️ **代码规范**：引入 ruff、mypy、pre-commit hooks，提升代码质量和可维护性
+
+详见：[v0.4.0 发布说明](./docs/v0.4.0-release-notes.md) | [升级指南](./UPGRADE.md)
+
 ### 2026-06-09
 
 - 新增内置搜索聚合器：把原先依赖外部 PanSou 的搜索能力改为项目内直接执行，首批接入 quarksoo、quark4k、pansearch 风格公开源。

@@ -6,6 +6,7 @@ from ..auth import require_auth
 from ..schemas.requests import (
     QuarkDriveCreateFolderRequest,
     QuarkDriveDeleteRequest,
+    QuarkDriveDownloadRequest,
     QuarkDriveListRequest,
     QuarkDriveRenameRequest,
 )
@@ -32,3 +33,12 @@ def rename_item(req: QuarkDriveRenameRequest):
 @router.post("/api/quark-drive/delete")
 def delete_items(req: QuarkDriveDeleteRequest):
     return quark_drive_service.delete_items(req.fids)
+
+
+@router.post("/api/quark-drive/download")
+def download_file(req: QuarkDriveDownloadRequest):
+    result = quark_drive_service.download_from_quark(req.fid, req.file_name, req.dir)
+    if not result.get("ok"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=result.get("message"))
+    return result
