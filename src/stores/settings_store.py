@@ -111,7 +111,11 @@ class SettingsStore:
         data = self.get()
         for key in LEGACY_SETTINGS_KEYS:
             data.pop(key, None)
-        for key in ("app_password", "aria2_secret", "quark_cookie", "wxpusher_app_token"):
+        secret_keys = (
+            "app_password", "aria2_secret", "quark_cookie", "wxpusher_app_token",
+            "telegram_bot_token", "gotify_token", "pushplus_token", "serverchan_key"
+        )
+        for key in secret_keys:
             data[f"{key}_configured"] = bool(data.get(key))
             data[key] = ""
         data["supported_cloud_types"] = SUPPORTED_CLOUD_TYPES

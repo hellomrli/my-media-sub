@@ -88,9 +88,28 @@ class SettingsUpdateRequest(BaseModel):
     quark_save_enabled: bool | None = None
     quark_cookie: str | None = None
     quark_save_root: str | None = None
+    quark_save_movie_dir: str | None = None
+    quark_save_series_dir: str | None = None
+    quark_save_anime_dir: str | None = None
+    custom_categories: list[dict] | None = None
     nas_sync_enabled: bool | None = None
     nas_sync_source: str | None = None
     nas_sync_target: str | None = None
+    wecom_bot_url: str | None = None
+    wxpusher_app_token: str | None = None
+    wxpusher_uids: str | None = None
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
+    bark_url: str | None = None
+    gotify_url: str | None = None
+    gotify_token: str | None = None
+    pushplus_token: str | None = None
+    serverchan_key: str | None = None
+    push_on_update: bool | None = None
+    push_on_failed: bool | None = None
+    push_on_completed: bool | None = None
+    push_on_save: bool | None = None
+    push_silent: bool | None = None
 
 
 class QuarkDriveListRequest(BaseModel):
