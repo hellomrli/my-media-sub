@@ -1,8 +1,36 @@
+# 敏感数据
 .env
-*.log
-node_modules/
+*.env
+data/
+settings.json
+test_settings.json
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
 __pycache__/
-.pytest_cache/
-dist/
-build/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Logs
+*.log
+nohup.out
+
+# Git credentials
+.git-credentials
