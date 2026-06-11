@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from ..auth import require_auth
 from ..services.push_test_service import test_all_push_channels, test_push_channel
 from ..services.push_history_service import push_history
+from ..services.daily_summary_service import send_daily_summary, generate_daily_summary
 from ..stores.settings_store import settings_store
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -34,3 +35,17 @@ def get_push_history(limit: int = 50):
 def get_push_stats():
     """获取推送统计"""
     return push_history.get_stats()
+
+
+@router.get("/api/push/daily-summary")
+def get_daily_summary():
+    """获取每日摘要数据"""
+    settings = settings_store.get()
+    return generate_daily_summary(settings)
+
+
+@router.post("/api/push/daily-summary")
+def send_daily_summary_now():
+    """立即发送每日摘要推送"""
+    settings = settings_store.get()
+    return send_daily_summary(settings)
