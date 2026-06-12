@@ -45,13 +45,12 @@ class RemotePanSouClient:
             return []
         
         try:
-            # Call remote PanSou API - request more results for filtering
+            # Call remote PanSou API with correct parameters
             api_url = f"{self.base_url}/api/search"
             params = {
-                "keyword": keyword,
-                "cloud": "quark",
-                "page": 1,
-                "size": min(limit * 10, 200)  # Request 10x more for keyword matching
+                "kw": keyword,           # 正确参数：kw 不是 keyword
+                "res": "merge",          # 结果类型：merge 返回 merged_by_type
+                "src": "all",            # 数据来源：all = TG频道 + 插件
             }
             resp = self.session.get(api_url, params=params, timeout=15)
             resp.raise_for_status()
@@ -63,47 +62,19 @@ class RemotePanSouClient:
             # Extract quark results from merged_by_type
             quark_results = data.get("data", {}).get("merged_by_type", {}).get("quark", [])
             
-            # Convert to internal format and score by keyword match
+            # Convert to internal format - no filtering needed, pansou already does it
             results = []
-            keyword_lower = keyword.lower()
-            keyword_words = [w for w in re.split(r"\s+", keyword_lower.strip()) if w]
-            
             for item in quark_results:
-                note = item.get("note", "")
-                note_lower = note.lower()
-                
-                # Calculate match score
-                score = 0
-                # Exact match gets highest score
-                if keyword_lower in note_lower:
-                    score = 100
-                else:
-                    # Word-by-word match
-                    matched_words = sum(1 for word in keyword_words if word in note_lower)
-                    score = matched_words * 10
-                
-                # Skip items with no keyword match
-                if score == 0:
-                    continue
-                
                 results.append({
                     "unique_id": f"pansou:{md5(item['url'].encode()).hexdigest()[:12]}",
-                    "note": note,
+                    "note": item.get("note", ""),
                     "url": item.get("url", ""),
                     "password": item.get("password", ""),
                     "source": item.get("source", "pansou"),
                     "datetime": item.get("datetime", datetime.now(timezone.utc).isoformat()),
                     "images": item.get("images", []),
                     "cloud_type": "quark",
-                    "_score": score,  # Internal score for sorting
                 })
-            
-            # Sort by score (highest first) then by title
-            results.sort(key=lambda x: (-x.get("_score", 0), x.get("note", "")))
-            
-            # Remove score field and return top results
-            for r in results:
-                r.pop("_score", None)
             
             return results[:limit]
         except Exception as e:
