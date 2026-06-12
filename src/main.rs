@@ -102,6 +102,9 @@ async fn main() -> Result<()> {
         // 订阅检查 API
         .route("/api/subscriptions/{id}/check", axum::routing::post(api::subscription_check::check_subscription))
         .route("/api/subscriptions/check-all", axum::routing::post(api::subscription_check::check_all_subscriptions))
+        // 自动转存 API
+        .route("/api/resources/{id}/save", axum::routing::post(api::auto_save::save_resource))
+        .route("/api/resources/save-all", axum::routing::post(api::auto_save::save_all_pending))
         .with_state(state)
         // 404 处理
         .fallback(not_found)
