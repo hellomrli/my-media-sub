@@ -1500,11 +1500,8 @@ driveSelectAll?.addEventListener('change', (e) => {
 });
 
 // ============ 网盘完整功能 ============
-const driveSelectModeBtn = document.querySelector('#driveSelectModeBtn');
-const driveBatchDeleteBtn = document.querySelector('#driveBatchDeleteBtn');
 const driveBatchMoveBtn = document.querySelector('#driveBatchMoveBtn');
 const driveBatchCopyBtn = document.querySelector('#driveBatchCopyBtn');
-const driveSelectAll = document.querySelector('#driveSelectAll');
 const driveSortBy = document.querySelector('#driveSortBy');
 const driveFilterType = document.querySelector('#driveFilterType');
 
