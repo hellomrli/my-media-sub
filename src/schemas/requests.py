@@ -134,3 +134,13 @@ class QuarkDriveDownloadRequest(BaseModel):
     fid: str = Field(..., min_length=1)
     file_name: str | None = None
     dir: str | None = None
+
+
+class QuarkDriveMoveRequest(BaseModel):
+    fids: list[str] = Field(default_factory=list)
+    target_fid: str = "0"
+
+
+class QuarkDriveCopyRequest(BaseModel):
+    fids: list[str] = Field(default_factory=list)
+    target_fid: str = "0"

@@ -164,3 +164,37 @@ def download_from_quark(fid: str, file_name: str | None = None, download_dir: st
         "direct_url": direct_url if use_proxy else None,
         "dir": final_dir,
     }
+
+
+def move_items(fids: list[str], target_fid: str = "0") -> dict[str, Any]:
+    fids = [fid for fid in fids if fid]
+    if not fids:
+        return {"ok": False, "message": "请选择要移动的文件"}
+    old_cookie = settings_store.get().get("quark_cookie") or ""
+    try:
+        client = _client()
+        data = client.move_items(fids, target_fid or "0")
+    except Exception as exc:
+        return {"ok": False, "message": f"移动失败：{exc}"}
+    _persist_cookie(client, old_cookie)
+    err = _quark_error(data)
+    if err:
+        return {"ok": False, "message": err}
+    return {"ok": True, "message": f"已移动 {len(fids)} 项"}
+
+
+def copy_items(fids: list[str], target_fid: str = "0") -> dict[str, Any]:
+    fids = [fid for fid in fids if fid]
+    if not fids:
+        return {"ok": False, "message": "请选择要复制的文件"}
+    old_cookie = settings_store.get().get("quark_cookie") or ""
+    try:
+        client = _client()
+        data = client.copy_items(fids, target_fid or "0")
+    except Exception as exc:
+        return {"ok": False, "message": f"复制失败：{exc}"}
+    _persist_cookie(client, old_cookie)
+    err = _quark_error(data)
+    if err:
+        return {"ok": False, "message": err}
+    return {"ok": True, "message": f"已复制 {len(fids)} 项"}

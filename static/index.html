@@ -105,15 +105,40 @@
               <button id="driveRefreshBtn" class="secondary small">刷新</button>
               <button id="driveNewFolderBtn" class="primary small">新建文件夹</button>
               <button id="driveBatchDeleteBtn" class="danger small" style="display: none;">批量删除</button>
+              <button id="driveBatchMoveBtn" class="secondary small" style="display: none;">批量移动</button>
+              <button id="driveBatchCopyBtn" class="secondary small" style="display: none;">批量复制</button>
               <button id="driveSelectModeBtn" class="secondary small">选择</button>
             </div>
           </div>
-          <div class="openlist-pathbar">
-            <span class="path-icon">⌂</span>
-            <p id="drivePath" class="drive-breadcrumb">根目录</p>
+          <div class="openlist-pathbar" style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="path-icon">⌂</span>
+              <p id="drivePath" class="drive-breadcrumb">根目录</p>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <label style="font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 4px;">
+                排序：
+                <select id="driveSortBy" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 13px;">
+                  <option value="name">名称</option>
+                  <option value="size">大小</option>
+                  <option value="time">时间</option>
+                </select>
+              </label>
+              <label style="font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 4px;">
+                类型：
+                <select id="driveFilterType" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 13px;">
+                  <option value="all">全部</option>
+                  <option value="folder">文件夹</option>
+                  <option value="video">视频</option>
+                  <option value="image">图片</option>
+                  <option value="document">文档</option>
+                  <option value="other">其他</option>
+                </select>
+              </label>
+            </div>
           </div>
           <div class="openlist-table-card">
-            <div class="table-head drive-head openlist-head" style="grid-template-columns: auto 1fr 120px 150px 180px;">
+            <div class="table-head drive-head openlist-head" style="grid-template-columns: auto 1fr 120px 150px 250px;">
               <span id="driveSelectAllBox" style="display: none;"><input type="checkbox" id="driveSelectAll" /></span>
               <span>名称</span>
               <span>大小</span>

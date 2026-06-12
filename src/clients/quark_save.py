@@ -146,6 +146,12 @@ class QuarkSaveClient:
     def rename_item(self, fid: str, name: str) -> dict[str, Any]:
         return self._post("/file/rename", {"fid": fid, "file_name": name})
 
+    def move_items(self, fids: list[str], target_fid: str = "0") -> dict[str, Any]:
+        return self._post("/file/move", {"action_type": 1, "exclude_fids": [], "filelist": fids, "to_pdir_fid": target_fid})
+
+    def copy_items(self, fids: list[str], target_fid: str = "0") -> dict[str, Any]:
+        return self._post("/file/copy", {"action_type": 1, "exclude_fids": [], "filelist": fids, "to_pdir_fid": target_fid})
+
     # ── Save share files ──────────────────────────────────────────────
 
     def save_share_files(

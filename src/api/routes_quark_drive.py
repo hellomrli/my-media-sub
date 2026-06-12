@@ -9,6 +9,8 @@ from ..schemas.requests import (
     QuarkDriveDownloadRequest,
     QuarkDriveListRequest,
     QuarkDriveRenameRequest,
+    QuarkDriveMoveRequest,
+    QuarkDriveCopyRequest,
 )
 from ..services import quark_drive_service
 
@@ -42,3 +44,13 @@ def download_file(req: QuarkDriveDownloadRequest):
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=result.get("message"))
     return result
+
+
+@router.post("/api/quark-drive/move")
+def move_items(req: QuarkDriveMoveRequest):
+    return quark_drive_service.move_items(req.fids, req.target_fid)
+
+
+@router.post("/api/quark-drive/copy")
+def copy_items(req: QuarkDriveCopyRequest):
+    return quark_drive_service.copy_items(req.fids, req.target_fid)

@@ -814,6 +814,10 @@ function formatBytes(bytes) {
 
 function renderDrive(items = []) {
   currentDriveItems = items;
+  
+  // 应用排序和筛选
+  const displayItems = sortAndFilterItems(items);
+  
   if (drivePath) drivePath.textContent = driveStack.map(item => item.name).join(' / ');
   if (driveBackBtn) driveBackBtn.disabled = driveStack.length <= 1;
   
@@ -827,12 +831,12 @@ function renderDrive(items = []) {
   }
   
   if (!driveBody) return;
-  if (!items.length) {
-    driveBody.innerHTML = '<p class="empty">当前目录为空。</p>';
+  if (!displayItems.length) {
+    driveBody.innerHTML = '<p class="empty">当前目录为空或没有符合筛选条件的文件。</p>';
     return;
   }
   
-  driveBody.innerHTML = items.map(item => {
+  driveBody.innerHTML = displayItems.map(item => {
     const size = formatFileSize(item.size || 0);
     const time = item.updated_at ? new Date(item.updated_at * 1000).toLocaleString('zh-CN', {
       year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
@@ -840,7 +844,7 @@ function renderDrive(items = []) {
     const isSelected = driveSelectedFids.has(item.fid);
     
     return `
-      <article class="drive-card ${item.is_dir ? 'is-folder' : 'is-file'} ${isSelected ? 'selected' : ''}" data-fid="${escapeHtml(item.fid)}" style="display: grid; grid-template-columns: ${driveSelectMode ? 'auto ' : ''}1fr 120px 150px 180px; align-items: center; padding: 12px; border-bottom: 1px solid var(--border); cursor: pointer;">
+      <article class="drive-card ${item.is_dir ? 'is-folder' : 'is-file'} ${isSelected ? 'selected' : ''}" data-fid="${escapeHtml(item.fid)}" style="display: grid; grid-template-columns: ${driveSelectMode ? 'auto ' : ''}1fr 120px 150px 250px; align-items: center; padding: 12px; border-bottom: 1px solid var(--border); cursor: pointer;">
         ${driveSelectMode ? `<input type="checkbox" class="drive-checkbox" data-fid="${escapeHtml(item.fid)}" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation();" />` : ''}
         <div class="drive-name ${item.is_dir ? 'dir' : 'file'}" style="display: flex; align-items: center; gap: 8px;">
           <span class="drive-icon">${item.is_dir ? '📁' : '📄'}</span>
@@ -848,7 +852,11 @@ function renderDrive(items = []) {
         </div>
         <div style="font-size: 13px; color: var(--muted);">${item.is_dir ? '-' : size}</div>
         <div style="font-size: 12px; color: var(--muted);">${time}</div>
-        <div class="card-actions drive-actions" style="justify-content: flex-end;">
+        <div class="card-actions drive-actions" style="justify-content: flex-end; gap: 4px; display: flex; flex-wrap: wrap;">
+          ${!item.is_dir ? `<button class="secondary small" data-drive-download="${escapeHtml(item.fid)}" data-drive-name="${escapeHtml(item.name)}" onclick="event.stopPropagation();">⬇️</button>` : ''}
+          ${!item.is_dir ? `<button class="secondary small" data-drive-aria2="${escapeHtml(item.fid)}" data-drive-name="${escapeHtml(item.name)}" onclick="event.stopPropagation();">Aria2</button>` : ''}
+          <button class="secondary small" data-drive-move="${escapeHtml(item.fid)}" onclick="event.stopPropagation();">移动</button>
+          <button class="secondary small" data-drive-copy="${escapeHtml(item.fid)}" onclick="event.stopPropagation();">复制</button>
           <button class="secondary small" data-drive-rename="${escapeHtml(item.fid)}" onclick="event.stopPropagation();">重命名</button>
           <button class="secondary small" data-drive-delete="${escapeHtml(item.fid)}" onclick="event.stopPropagation();">删除</button>
         </div>
@@ -874,8 +882,36 @@ function renderDrive(items = []) {
       } else {
         driveSelectedFids.delete(fid);
       }
-      updateBatchDeleteButton();
+      updateBatchButtons();
       renderDrive(currentDriveItems);
+    });
+  });
+  
+  driveBody.querySelectorAll('[data-drive-download]').forEach(btn => {
+    btn.addEventListener('click', event => {
+      event.stopPropagation();
+      downloadDriveItem(btn.dataset.driveDownload, btn.dataset.driveName);
+    });
+  });
+  
+  driveBody.querySelectorAll('[data-drive-aria2]').forEach(btn => {
+    btn.addEventListener('click', event => {
+      event.stopPropagation();
+      downloadDriveItem(btn.dataset.driveAria2, btn.dataset.driveName);
+    });
+  });
+  
+  driveBody.querySelectorAll('[data-drive-move]').forEach(btn => {
+    btn.addEventListener('click', event => {
+      event.stopPropagation();
+      moveDriveItem(btn.dataset.driveMove);
+    });
+  });
+  
+  driveBody.querySelectorAll('[data-drive-copy]').forEach(btn => {
+    btn.addEventListener('click', event => {
+      event.stopPropagation();
+      copyDriveItem(btn.dataset.driveCopy);
     });
   });
   
@@ -1390,13 +1426,6 @@ const driveSelectModeBtn = document.querySelector('#driveSelectModeBtn');
 const driveBatchDeleteBtn = document.querySelector('#driveBatchDeleteBtn');
 const driveSelectAll = document.querySelector('#driveSelectAll');
 
-function updateBatchDeleteButton() {
-  if (driveBatchDeleteBtn) {
-    driveBatchDeleteBtn.style.display = driveSelectedFids.size > 0 ? 'inline-block' : 'none';
-    driveBatchDeleteBtn.textContent = `批量删除 (${driveSelectedFids.size})`;
-  }
-}
-
 function toggleDriveSelectMode() {
   driveSelectMode = !driveSelectMode;
   if (!driveSelectMode) {
@@ -1435,5 +1464,200 @@ driveSelectAll?.addEventListener('change', (e) => {
     driveSelectedFids.clear();
   }
   updateBatchDeleteButton();
+  renderDrive(currentDriveItems);
+});
+
+// ============ 网盘完整功能 ============
+const driveSelectModeBtn = document.querySelector('#driveSelectModeBtn');
+const driveBatchDeleteBtn = document.querySelector('#driveBatchDeleteBtn');
+const driveBatchMoveBtn = document.querySelector('#driveBatchMoveBtn');
+const driveBatchCopyBtn = document.querySelector('#driveBatchCopyBtn');
+const driveSelectAll = document.querySelector('#driveSelectAll');
+const driveSortBy = document.querySelector('#driveSortBy');
+const driveFilterType = document.querySelector('#driveFilterType');
+
+let driveSortOrder = 'name';
+let driveFilterFileType = 'all';
+
+function updateBatchButtons() {
+  const count = driveSelectedFids.size;
+  if (driveBatchDeleteBtn) {
+    driveBatchDeleteBtn.style.display = count > 0 ? 'inline-block' : 'none';
+    driveBatchDeleteBtn.textContent = `批量删除 (${count})`;
+  }
+  if (driveBatchMoveBtn) {
+    driveBatchMoveBtn.style.display = count > 0 ? 'inline-block' : 'none';
+    driveBatchMoveBtn.textContent = `批量移动 (${count})`;
+  }
+  if (driveBatchCopyBtn) {
+    driveBatchCopyBtn.style.display = count > 0 ? 'inline-block' : 'none';
+    driveBatchCopyBtn.textContent = `批量复制 (${count})`;
+  }
+}
+
+function toggleDriveSelectMode() {
+  driveSelectMode = !driveSelectMode;
+  if (!driveSelectMode) {
+    driveSelectedFids.clear();
+  }
+  if (driveSelectModeBtn) {
+    driveSelectModeBtn.textContent = driveSelectMode ? '取消选择' : '选择';
+  }
+  updateBatchButtons();
+  renderDrive(currentDriveItems);
+}
+
+async function batchDeleteDrive() {
+  if (driveSelectedFids.size === 0) return;
+  if (!confirm(`确定删除选中的 ${driveSelectedFids.size} 项吗？此操作会移到夸克回收站/删除区。`)) return;
+  
+  const fids = Array.from(driveSelectedFids);
+  const data = await postJson('/api/quark-drive/delete', { fids });
+  setStatus(data.message || '操作完成', data.ok ? 'ok' : 'error');
+  
+  if (data.ok) {
+    driveSelectedFids.clear();
+    updateBatchButtons();
+    await loadDrive();
+  }
+}
+
+async function batchMoveDrive() {
+  if (driveSelectedFids.size === 0) return;
+  const targetFid = await selectTargetFolder('选择移动目标文件夹');
+  if (!targetFid) return;
+  
+  const fids = Array.from(driveSelectedFids);
+  const data = await postJson('/api/quark-drive/move', { fids, target_fid: targetFid });
+  setStatus(data.message || '操作完成', data.ok ? 'ok' : 'error');
+  
+  if (data.ok) {
+    driveSelectedFids.clear();
+    updateBatchButtons();
+    await loadDrive();
+  }
+}
+
+async function batchCopyDrive() {
+  if (driveSelectedFids.size === 0) return;
+  const targetFid = await selectTargetFolder('选择复制目标文件夹');
+  if (!targetFid) return;
+  
+  const fids = Array.from(driveSelectedFids);
+  const data = await postJson('/api/quark-drive/copy', { fids, target_fid: targetFid });
+  setStatus(data.message || '操作完成', data.ok ? 'ok' : 'error');
+  
+  if (data.ok) {
+    driveSelectedFids.clear();
+    updateBatchButtons();
+    await loadDrive();
+  }
+}
+
+async function moveDriveItem(fid) {
+  const targetFid = await selectTargetFolder('选择移动目标文件夹');
+  if (!targetFid) return;
+  
+  const data = await postJson('/api/quark-drive/move', { fids: [fid], target_fid: targetFid });
+  setStatus(data.message || '操作完成', data.ok ? 'ok' : 'error');
+  if (data.ok) await loadDrive();
+}
+
+async function copyDriveItem(fid) {
+  const targetFid = await selectTargetFolder('选择复制目标文件夹');
+  if (!targetFid) return;
+  
+  const data = await postJson('/api/quark-drive/copy', { fids: [fid], target_fid: targetFid });
+  setStatus(data.message || '操作完成', data.ok ? 'ok' : 'error');
+  if (data.ok) await loadDrive();
+}
+
+async function downloadDriveItem(fid, fileName) {
+  const data = await postJson('/api/quark-drive/download', { fid, file_name: fileName });
+  setStatus(data.message || '操作完成', data.ok ? 'ok' : 'error');
+}
+
+async function selectTargetFolder(title = '选择目标文件夹') {
+  const current = driveStack[driveStack.length - 1];
+  const options = [
+    { fid: '0', name: '根目录' },
+    ...driveStack.slice(1)
+  ];
+  
+  // 简化版：直接用 prompt 输入路径或选择当前文件夹
+  const choice = prompt(`${title}\n\n当前目录：${current.name}\n\n输入选项：\n0 - 根目录\n1 - 当前目录\n2 - 返回上级`, '1');
+  if (!choice) return null;
+  
+  if (choice === '0') return '0';
+  if (choice === '1') return current.fid;
+  if (choice === '2' && driveStack.length > 1) return driveStack[driveStack.length - 2].fid;
+  
+  return null;
+}
+
+function getFileType(name, isDir) {
+  if (isDir) return 'folder';
+  const ext = name.split('.').pop().toLowerCase();
+  const videoExts = ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', 'm4v', 'ts'];
+  const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'];
+  const docExts = ['pdf', 'doc', 'docx', 'txt', 'xls', 'xlsx', 'ppt', 'pptx'];
+  
+  if (videoExts.includes(ext)) return 'video';
+  if (imageExts.includes(ext)) return 'image';
+  if (docExts.includes(ext)) return 'document';
+  return 'other';
+}
+
+function sortAndFilterItems(items) {
+  let filtered = items;
+  
+  // 筛选
+  if (driveFilterFileType !== 'all') {
+    filtered = items.filter(item => {
+      const type = getFileType(item.name, item.is_dir);
+      return type === driveFilterFileType;
+    });
+  }
+  
+  // 排序
+  filtered.sort((a, b) => {
+    // 文件夹优先
+    if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+    
+    if (driveSortOrder === 'name') {
+      return a.name.localeCompare(b.name, 'zh-CN');
+    } else if (driveSortOrder === 'size') {
+      return (b.size || 0) - (a.size || 0);
+    } else if (driveSortOrder === 'time') {
+      return (b.updated_at || 0) - (a.updated_at || 0);
+    }
+    return 0;
+  });
+  
+  return filtered;
+}
+
+driveSelectModeBtn?.addEventListener('click', toggleDriveSelectMode);
+driveBatchDeleteBtn?.addEventListener('click', batchDeleteDrive);
+driveBatchMoveBtn?.addEventListener('click', batchMoveDrive);
+driveBatchCopyBtn?.addEventListener('click', batchCopyDrive);
+
+driveSelectAll?.addEventListener('change', (e) => {
+  if (e.target.checked) {
+    currentDriveItems.forEach(item => driveSelectedFids.add(item.fid));
+  } else {
+    driveSelectedFids.clear();
+  }
+  updateBatchButtons();
+  renderDrive(currentDriveItems);
+});
+
+driveSortBy?.addEventListener('change', (e) => {
+  driveSortOrder = e.target.value;
+  renderDrive(currentDriveItems);
+});
+
+driveFilterType?.addEventListener('change', (e) => {
+  driveFilterFileType = e.target.value;
   renderDrive(currentDriveItems);
 });
