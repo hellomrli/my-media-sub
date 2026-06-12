@@ -94,7 +94,7 @@ cp .env.example .env
 # 编辑 .env 文件配置夸克 Cookie、通知方式等
 
 # 5. 启动服务
-uvicorn src.app:app --host 0.0.0.0 --port 8787
+uvicorn src.app:app --host 0.0.0.0 --port 50001
 ```
 
 ### Docker 部署
@@ -102,7 +102,7 @@ uvicorn src.app:app --host 0.0.0.0 --port 8787
 ```bash
 docker run -d \
   --name my-media-sub \
-  -p 8787:8787 \
+  -p 50001:50001 \
   -v $(pwd)/data:/app/data \
   -e QUARK_COOKIE="your_cookie_here" \
   hellomrli/my-media-sub:latest
@@ -112,7 +112,7 @@ docker run -d \
 
 ### 1️⃣ 初始配置
 
-访问 `http://localhost:8787`，进入 **⚙️ 系统设置**：
+访问 `http://localhost:50001`，进入 **⚙️ 系统设置**：
 
 1. **基础设置** - 设置用户名密码（默认 admin/change-me）
 2. **夸克配置** - 配置夸克 Cookie 和分类目录
@@ -186,7 +186,7 @@ my-media-sub/
 pip install -r requirements.txt
 
 # 启动开发服务器（热重载）
-uvicorn src.app:app --reload --port 8787
+uvicorn src.app:app --reload --port 50001
 
 # 代码格式化
 ruff check --fix .

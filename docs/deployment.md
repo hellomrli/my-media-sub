@@ -12,7 +12,7 @@ cp .env.example .env
 
 ```env
 QUARK_SAVE_ROOT=/your/quark/save/root
-BOT_PORT=8787
+BOT_PORT=50001
 APP_USERNAME=admin
 APP_PASSWORD=your-strong-password
 ```
@@ -26,19 +26,19 @@ docker compose up -d --build
 4. Open WebUI:
 
 ```text
-http://127.0.0.1:8787/
+http://127.0.0.1:50001/
 ```
 
 5. Health check:
 
 ```bash
-curl http://127.0.0.1:8787/health
+curl http://127.0.0.1:50001/health
 ```
 
 6. Search test:
 
 ```bash
-curl -X POST http://127.0.0.1:8787/api/wechat/message   -H 'Content-Type: application/json'   -d '{"chat_id":"test","text":"想看 盗梦空间"}'
+curl -X POST http://127.0.0.1:50001/api/wechat/message   -H 'Content-Type: application/json'   -d '{"chat_id":"test","text":"想看 盗梦空间"}'
 ```
 
 ## API Endpoints
