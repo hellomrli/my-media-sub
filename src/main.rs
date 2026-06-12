@@ -116,9 +116,8 @@ async fn main() -> Result<()> {
         .route("/api/resources/save-all", axum::routing::post(api::auto_save::save_all_pending))
         .with_state(state)
         // 404 处理
+        .nest_service("/static", ServeDir::new("static"))
         .fallback(not_found)
-        // 静态文件服务
-        .fallback_service(ServeDir::new("static"))
         // 添加日志中间件
         .layer(TraceLayer::new_for_http());
 
