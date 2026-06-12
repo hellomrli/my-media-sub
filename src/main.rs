@@ -3,6 +3,7 @@ mod clients;
 mod config;
 mod error;
 mod models;
+mod services;
 mod store;
 
 use axum::{
@@ -98,6 +99,9 @@ async fn main() -> Result<()> {
         .route("/api/quark/save", axum::routing::post(api::quark::save_share))
         // 搜索 API
         .route("/api/search", get(api::search::search))
+        // 订阅检查 API
+        .route("/api/subscriptions/{id}/check", axum::routing::post(api::subscription_check::check_subscription))
+        .route("/api/subscriptions/check-all", axum::routing::post(api::subscription_check::check_all_subscriptions))
         .with_state(state)
         // 404 处理
         .fallback(not_found)
