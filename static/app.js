@@ -126,15 +126,47 @@ function cloudTypeName(type) {
   return appSettings?.cloud_type_names?.[type] || CLOUD_TYPE_NAMES_FALLBACK[type] || type || '未知网盘';
 }
 
-function showPage(pageId) {
+function showPage(pageId, pushState = true) {
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === pageId));
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.page === pageId));
   const activeTab = document.querySelector(`.tab[data-page=\"${pageId}\"]`);
   if (pageTitle && activeTab) pageTitle.textContent = activeTab.textContent.trim();
+  
+  // 添加到浏览器历史
+  if (pushState) {
+    const url = new URL(window.location);
+    url.searchParams.set('page', pageId);
+    window.history.pushState({ page: pageId }, '', url);
+  }
 }
 
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => showPage(tab.dataset.page));
+});
+
+// 处理浏览器后退/前进按钮
+window.addEventListener('popstate', (event) => {
+  if (event.state && event.state.page) {
+    showPage(event.state.page, false);
+  } else {
+    // 如果没有 state，从 URL 读取
+    const urlParams = new URLSearchParams(window.location.search);
+    const pageId = urlParams.get('page') || 'searchPage';
+    showPage(pageId, false);
+  }
+});
+
+// 页面加载时从 URL 恢复状态
+window.addEventListener('DOMContentLoaded', () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const pageId = urlParams.get('page');
+  if (pageId) {
+    showPage(pageId, false);
+  } else {
+    // 初始页面也添加到历史
+    const initialPage = document.querySelector('.page.active')?.id || 'searchPage';
+    window.history.replaceState({ page: initialPage }, '', `?page=${initialPage}`);
+  }
 });
 
 function setStatus(message, type = '') {
