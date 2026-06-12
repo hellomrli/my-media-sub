@@ -198,3 +198,41 @@ def copy_items(fids: list[str], target_fid: str = "0") -> dict[str, Any]:
     if err:
         return {"ok": False, "message": err}
     return {"ok": True, "message": f"已复制 {len(fids)} 项"}
+
+
+def resolve_path_to_fid(path: str) -> dict[str, Any]:
+    """根据路径（如 /媒体/电影）解析出对应的 fid"""
+    path = (path or "").strip().strip("/")
+    if not path:
+        return {"ok": True, "fid": "0", "name": "根目录", "path": "/"}
+    
+    parts = [p for p in path.split("/") if p]
+    current_fid = "0"
+    current_path = []
+    
+    old_cookie = settings_store.get().get("quark_cookie") or ""
+    try:
+        client = _client()
+        for part in parts:
+            items = client.list_dir(current_fid)
+            found = None
+            for item in items:
+                if item.get("file_name") == part and item.get("dir"):
+                    found = item
+                    break
+            
+            if not found:
+                return {"ok": False, "message": f"路径不存在：/{'/'.join(current_path + [part])}"}
+            
+            current_fid = found.get("fid")
+            current_path.append(part)
+        
+        _persist_cookie(client, old_cookie)
+        return {
+            "ok": True,
+            "fid": current_fid,
+            "name": parts[-1] if parts else "根目录",
+            "path": "/" + "/".join(current_path)
+        }
+    except Exception as exc:
+        return {"ok": False, "message": f"解析路径失败：{exc}"}

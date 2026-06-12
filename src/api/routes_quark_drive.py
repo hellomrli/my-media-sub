@@ -54,3 +54,9 @@ def move_items(req: QuarkDriveMoveRequest):
 @router.post("/api/quark-drive/copy")
 def copy_items(req: QuarkDriveCopyRequest):
     return quark_drive_service.copy_items(req.fids, req.target_fid)
+
+
+@router.post("/api/quark-drive/resolve-path")
+def resolve_path(req: dict):
+    path = req.get("path", "")
+    return quark_drive_service.resolve_path_to_fid(path)
