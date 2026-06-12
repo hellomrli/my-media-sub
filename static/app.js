@@ -103,6 +103,8 @@ let currentResultCloud = 'all';
 let lastSearchResults = [];
 let driveStack = [{ fid: '0', name: '根目录' }];
 let currentDriveItems = [];
+let driveSelectMode = false;
+let driveSelectedFids = new Set();
 
 const CLOUD_TYPE_NAMES_FALLBACK = {
   quark: '夸克网盘',
@@ -814,39 +816,90 @@ function renderDrive(items = []) {
   currentDriveItems = items;
   if (drivePath) drivePath.textContent = driveStack.map(item => item.name).join(' / ');
   if (driveBackBtn) driveBackBtn.disabled = driveStack.length <= 1;
+  
+  // 更新选择模式 UI
+  const selectAllBox = document.querySelector('#driveSelectAllBox');
+  const selectAll = document.querySelector('#driveSelectAll');
+  if (selectAllBox) selectAllBox.style.display = driveSelectMode ? 'block' : 'none';
+  if (selectAll) {
+    selectAll.checked = driveSelectedFids.size > 0 && driveSelectedFids.size === items.length;
+    selectAll.indeterminate = driveSelectedFids.size > 0 && driveSelectedFids.size < items.length;
+  }
+  
   if (!driveBody) return;
   if (!items.length) {
     driveBody.innerHTML = '<p class="empty">当前目录为空。</p>';
     return;
   }
-  driveBody.innerHTML = items.map(item => `
-    <article class="drive-card ${item.is_dir ? 'is-folder' : 'is-file'}" data-drive-open="${escapeHtml(item.fid)}">
-      <div class="drive-name ${item.is_dir ? 'dir' : 'file'}">
-        <span class="drive-icon">${item.is_dir ? '📁' : '📄'}</span>
-        <span class="drive-label"><strong>${escapeHtml(item.name || '-')}</strong></span>
-      </div>
-      <div class="card-actions drive-actions">
-        <button class="secondary small" data-drive-rename="${escapeHtml(item.fid)}">重命名</button>
-        <button class="secondary small" data-drive-delete="${escapeHtml(item.fid)}">删除</button>
-      </div>
-    </article>
-  `).join('');
-  driveBody.querySelectorAll('[data-drive-open]').forEach(el => {
+  
+  driveBody.innerHTML = items.map(item => {
+    const size = formatFileSize(item.size || 0);
+    const time = item.updated_at ? new Date(item.updated_at * 1000).toLocaleString('zh-CN', {
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+    }) : '-';
+    const isSelected = driveSelectedFids.has(item.fid);
+    
+    return `
+      <article class="drive-card ${item.is_dir ? 'is-folder' : 'is-file'} ${isSelected ? 'selected' : ''}" data-fid="${escapeHtml(item.fid)}" style="display: grid; grid-template-columns: ${driveSelectMode ? 'auto ' : ''}1fr 120px 150px 180px; align-items: center; padding: 12px; border-bottom: 1px solid var(--border); cursor: pointer;">
+        ${driveSelectMode ? `<input type="checkbox" class="drive-checkbox" data-fid="${escapeHtml(item.fid)}" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation();" />` : ''}
+        <div class="drive-name ${item.is_dir ? 'dir' : 'file'}" style="display: flex; align-items: center; gap: 8px;">
+          <span class="drive-icon">${item.is_dir ? '📁' : '📄'}</span>
+          <span class="drive-label"><strong>${escapeHtml(item.name || '-')}</strong></span>
+        </div>
+        <div style="font-size: 13px; color: var(--muted);">${item.is_dir ? '-' : size}</div>
+        <div style="font-size: 12px; color: var(--muted);">${time}</div>
+        <div class="card-actions drive-actions" style="justify-content: flex-end;">
+          <button class="secondary small" data-drive-rename="${escapeHtml(item.fid)}" onclick="event.stopPropagation();">重命名</button>
+          <button class="secondary small" data-drive-delete="${escapeHtml(item.fid)}" onclick="event.stopPropagation();">删除</button>
+        </div>
+      </article>
+    `;
+  }).join('');
+  
+  // 添加事件监听
+  driveBody.querySelectorAll('[data-fid]').forEach(el => {
     el.addEventListener('click', event => {
-      if (event.target.closest('button')) return;
-      const fid = el.dataset.driveOpen;
+      if (event.target.closest('button') || event.target.closest('input[type="checkbox"]')) return;
+      const fid = el.dataset.fid;
       const item = currentDriveItems.find(entry => entry.fid === fid);
       if (item?.is_dir) openDriveFolder(item);
     });
   });
-  driveBody.querySelectorAll('[data-drive-rename]').forEach(btn => btn.addEventListener('click', event => {
-    event.stopPropagation();
-    renameDriveItem(btn.dataset.driveRename);
-  }));
-  driveBody.querySelectorAll('[data-drive-delete]').forEach(btn => btn.addEventListener('click', event => {
-    event.stopPropagation();
-    deleteDriveItem(btn.dataset.driveDelete);
-  }));
+  
+  driveBody.querySelectorAll('.drive-checkbox').forEach(cb => {
+    cb.addEventListener('change', (e) => {
+      const fid = cb.dataset.fid;
+      if (cb.checked) {
+        driveSelectedFids.add(fid);
+      } else {
+        driveSelectedFids.delete(fid);
+      }
+      updateBatchDeleteButton();
+      renderDrive(currentDriveItems);
+    });
+  });
+  
+  driveBody.querySelectorAll('[data-drive-rename]').forEach(btn => {
+    btn.addEventListener('click', event => {
+      event.stopPropagation();
+      renameDriveItem(btn.dataset.driveRename);
+    });
+  });
+  
+  driveBody.querySelectorAll('[data-drive-delete]').forEach(btn => {
+    btn.addEventListener('click', event => {
+      event.stopPropagation();
+      deleteDriveItem(btn.dataset.driveDelete);
+    });
+  });
+}
+
+function formatFileSize(bytes) {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
 }
 
 async function loadDrive() {
@@ -1330,4 +1383,57 @@ document.querySelectorAll('.tab').forEach(tab => {
       setTimeout(loadPushHistory, 100);
     }
   });
+});
+
+// ============ 网盘批量操作 ============
+const driveSelectModeBtn = document.querySelector('#driveSelectModeBtn');
+const driveBatchDeleteBtn = document.querySelector('#driveBatchDeleteBtn');
+const driveSelectAll = document.querySelector('#driveSelectAll');
+
+function updateBatchDeleteButton() {
+  if (driveBatchDeleteBtn) {
+    driveBatchDeleteBtn.style.display = driveSelectedFids.size > 0 ? 'inline-block' : 'none';
+    driveBatchDeleteBtn.textContent = `批量删除 (${driveSelectedFids.size})`;
+  }
+}
+
+function toggleDriveSelectMode() {
+  driveSelectMode = !driveSelectMode;
+  if (!driveSelectMode) {
+    driveSelectedFids.clear();
+  }
+  if (driveSelectModeBtn) {
+    driveSelectModeBtn.textContent = driveSelectMode ? '取消选择' : '选择';
+    driveSelectModeBtn.className = driveSelectMode ? 'secondary small' : 'secondary small';
+  }
+  updateBatchDeleteButton();
+  renderDrive(currentDriveItems);
+}
+
+async function batchDeleteDrive() {
+  if (driveSelectedFids.size === 0) return;
+  if (!confirm(`确定删除选中的 ${driveSelectedFids.size} 项吗？此操作会移到夸克回收站/删除区。`)) return;
+  
+  const fids = Array.from(driveSelectedFids);
+  const data = await postJson('/api/quark-drive/delete', { fids });
+  setStatus(data.message || '操作完成', data.ok ? 'ok' : 'error');
+  
+  if (data.ok) {
+    driveSelectedFids.clear();
+    updateBatchDeleteButton();
+    await loadDrive();
+  }
+}
+
+driveSelectModeBtn?.addEventListener('click', toggleDriveSelectMode);
+driveBatchDeleteBtn?.addEventListener('click', batchDeleteDrive);
+
+driveSelectAll?.addEventListener('change', (e) => {
+  if (e.target.checked) {
+    currentDriveItems.forEach(item => driveSelectedFids.add(item.fid));
+  } else {
+    driveSelectedFids.clear();
+  }
+  updateBatchDeleteButton();
+  renderDrive(currentDriveItems);
 });

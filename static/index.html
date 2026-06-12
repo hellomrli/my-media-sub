@@ -104,6 +104,8 @@
               <button id="driveBackBtn" class="secondary small">← 返回上级</button>
               <button id="driveRefreshBtn" class="secondary small">刷新</button>
               <button id="driveNewFolderBtn" class="primary small">新建文件夹</button>
+              <button id="driveBatchDeleteBtn" class="danger small" style="display: none;">批量删除</button>
+              <button id="driveSelectModeBtn" class="secondary small">选择</button>
             </div>
           </div>
           <div class="openlist-pathbar">
@@ -111,8 +113,12 @@
             <p id="drivePath" class="drive-breadcrumb">根目录</p>
           </div>
           <div class="openlist-table-card">
-            <div class="table-head drive-head openlist-head">
-              <span>名称</span><span>操作</span>
+            <div class="table-head drive-head openlist-head" style="grid-template-columns: auto 1fr 120px 150px 180px;">
+              <span id="driveSelectAllBox" style="display: none;"><input type="checkbox" id="driveSelectAll" /></span>
+              <span>名称</span>
+              <span>大小</span>
+              <span>修改时间</span>
+              <span>操作</span>
             </div>
             <div id="driveBody" class="subscriptions-body drive-body openlist-body"><p class="empty">填写夸克 Cookie 后可浏览网盘内容。</p></div>
           </div>
