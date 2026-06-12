@@ -157,7 +157,7 @@ window.addEventListener('popstate', (event) => {
 });
 
 // 页面加载时从 URL 恢复状态
-window.addEventListener('DOMContentLoaded', () => {
+(function() {
   const urlParams = new URLSearchParams(window.location.search);
   const pageId = urlParams.get('page');
   if (pageId) {
@@ -167,7 +167,7 @@ window.addEventListener('DOMContentLoaded', () => {
     const initialPage = document.querySelector('.page.active')?.id || 'searchPage';
     window.history.replaceState({ page: initialPage }, '', `?page=${initialPage}`);
   }
-});
+})();
 
 function setStatus(message, type = '') {
   if (!message) {
