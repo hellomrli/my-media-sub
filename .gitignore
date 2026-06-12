@@ -35,3 +35,8 @@ nohup.out
 # Git credentials
 .git-credentials
 data/push_history.json
+
+
+# Added by cargo
+
+/target

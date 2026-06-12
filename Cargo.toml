@@ -1,0 +1,40 @@
+[package]
+name = "my-media-sub"
+version = "0.6.0"
+edition = "2021"
+authors = ["my-media-sub contributors"]
+description = "Media subscription and management system written in Rust"
+license = "MIT"
+
+[dependencies]
+# Web framework
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "trace"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP client - minimal features for now
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "2.0"
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
