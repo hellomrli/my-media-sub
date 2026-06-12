@@ -246,42 +246,89 @@
           </div>
           <div class="settings-block">
             <span class="eyebrow">📢 消息推送</span>
-            <p class="hint" style="margin:0 0 8px">配置后，订阅更新、失效、完结等事件会自动推送。</p>
+            <p class="hint" style="margin:0 0 16px">配置后，订阅更新、失效、完结等事件会自动推送。</p>
             
-            <div class="settings-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 12px;">
-              <label><input type="checkbox" id="setPushOnUpdate" /> 订阅更新</label>
-              <label><input type="checkbox" id="setPushOnFailed" /> 订阅失效</label>
-              <label><input type="checkbox" id="setPushOnCompleted" /> 订阅完结</label>
-              <label><input type="checkbox" id="setPushOnSave" /> 转存完成</label>
+            <!-- 推送事件选择 -->
+            <div style="background: var(--panel-strong); border-radius: var(--radius); padding: 16px; margin-bottom: 20px;">
+              <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px; color: var(--muted-strong);">推送事件</div>
+              <div class="settings-grid" style="grid-template-columns: repeat(4, 1fr); gap: 12px;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                  <input type="checkbox" id="setPushOnUpdate" style="width: 18px; height: 18px; cursor: pointer;" />
+                  <span>📦 订阅更新</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                  <input type="checkbox" id="setPushOnFailed" style="width: 18px; height: 18px; cursor: pointer;" />
+                  <span>⚠️ 订阅失效</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                  <input type="checkbox" id="setPushOnCompleted" style="width: 18px; height: 18px; cursor: pointer;" />
+                  <span>✅ 订阅完结</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                  <input type="checkbox" id="setPushOnSave" style="width: 18px; height: 18px; cursor: pointer;" />
+                  <span>💾 转存完成</span>
+                </label>
+              </div>
+              <label style="display: flex; align-items: center; gap: 8px; margin-top: 12px; cursor: pointer;">
+                <input type="checkbox" id="setPushSilent" style="width: 18px; height: 18px; cursor: pointer;" />
+                <span>🔕 静默模式（不发出通知声）</span>
+              </label>
             </div>
-            <label><input type="checkbox" id="setPushSilent" /> 静默模式（不发出通知声）</label>
             
-            <h4 style="margin: 16px 0 8px; font-size: 14px; font-weight: 600;">企业微信</h4>
-            <label>企业微信机器人 Webhook<input id="setWecomUrl" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." /></label>
-            
-            <h4 style="margin: 16px 0 8px; font-size: 14px; font-weight: 600;">WxPusher</h4>
-            <div class="settings-grid" style="grid-template-columns: 1fr 1fr;">
-              <label>App Token<input id="setWxpusherToken" type="password" placeholder="AT_xxxxxxxx" /></label>
-              <label>UIDs（逗号分隔）<input id="setWxpusherUids" placeholder="UID_xxx,UID_yyy" /></label>
+            <!-- 推送渠道配置 -->
+            <div style="display: grid; gap: 16px;">
+              <!-- 企业微信 -->
+              <div style="background: var(--panel-strong); border-radius: var(--radius); padding: 16px; border-left: 3px solid #10b981;">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                  <span style="font-size: 20px;">💬</span>
+                  <span style="font-size: 14px; font-weight: 600;">企业微信</span>
+                </div>
+                <label>Webhook URL<input id="setWecomUrl" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." /></label>
+              </div>
+              
+              <!-- WxPusher -->
+              <div style="background: var(--panel-strong); border-radius: var(--radius); padding: 16px; border-left: 3px solid #10b981;">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                  <span style="font-size: 20px;">📱</span>
+                  <span style="font-size: 14px; font-weight: 600;">WxPusher</span>
+                </div>
+                <div class="settings-grid" style="grid-template-columns: 1fr 1fr;">
+                  <label>App Token<input id="setWxpusherToken" type="password" placeholder="AT_xxxxxxxx" /></label>
+                  <label>UIDs（逗号分隔）<input id="setWxpusherUids" placeholder="UID_xxx,UID_yyy" /></label>
+                </div>
+              </div>
+              
+              <!-- Telegram -->
+              <div style="background: var(--panel-strong); border-radius: var(--radius); padding: 16px; border-left: 3px solid #74a7ff;">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                  <span style="font-size: 20px;">✈️</span>
+                  <span style="font-size: 14px; font-weight: 600;">Telegram</span>
+                </div>
+                <div class="settings-grid" style="grid-template-columns: 1fr 1fr;">
+                  <label>Bot Token<input id="setTelegramToken" type="password" placeholder="123456:ABC-DEF..." /></label>
+                  <label>Chat ID<input id="setTelegramChatId" placeholder="你的聊天 ID" /></label>
+                </div>
+              </div>
+              
+              <!-- 其他渠道 -->
+              <div style="background: var(--panel-strong); border-radius: var(--radius); padding: 16px; border-left: 3px solid #f59e0b;">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                  <span style="font-size: 20px;">🔔</span>
+                  <span style="font-size: 14px; font-weight: 600;">其他推送渠道</span>
+                </div>
+                <div class="settings-grid" style="grid-template-columns: 1fr 1fr; margin-bottom: 12px;">
+                  <label>Bark URL (iOS)<input id="setBarkUrl" placeholder="https://api.day.app/your_key" /></label>
+                  <label>PushPlus Token<input id="setPushplusToken" type="password" placeholder="你的 token" /></label>
+                </div>
+                <div class="settings-grid" style="grid-template-columns: 1fr 1fr; margin-bottom: 12px;">
+                  <label>Gotify URL<input id="setGotifyUrl" placeholder="https://gotify.example.com" /></label>
+                  <label>Gotify Token<input id="setGotifyToken" type="password" placeholder="Axxxxxx" /></label>
+                </div>
+                <label>Server酱 SendKey<input id="setServerchanKey" type="password" placeholder="SCTxxxxxx" /></label>
+              </div>
             </div>
-            
-            <h4 style="margin: 16px 0 8px; font-size: 14px; font-weight: 600;">Telegram</h4>
-            <div class="settings-grid" style="grid-template-columns: 1fr 1fr;">
-              <label>Bot Token<input id="setTelegramToken" type="password" placeholder="123456:ABC-DEF..." /></label>
-              <label>Chat ID<input id="setTelegramChatId" placeholder="你的聊天 ID" /></label>
-            </div>
-            
-            <h4 style="margin: 16px 0 8px; font-size: 14px; font-weight: 600;">其他推送渠道</h4>
-            <div class="settings-grid" style="grid-template-columns: 1fr 1fr;">
-              <label>Bark URL (iOS)<input id="setBarkUrl" placeholder="https://api.day.app/your_key" /></label>
-              <label>PushPlus Token<input id="setPushplusToken" type="password" placeholder="你的 token" /></label>
-            </div>
-            <div class="settings-grid" style="grid-template-columns: 1fr 1fr;">
-              <label>Gotify URL<input id="setGotifyUrl" placeholder="https://gotify.example.com" /></label>
-              <label>Gotify Token<input id="setGotifyToken" type="password" placeholder="Axxxxxx" /></label>
-            </div>
-            <label>Server酱 SendKey<input id="setServerchanKey" type="password" placeholder="SCTxxxxxx" /></label>
           </div>
+
           <div class="settings-block">
             <span class="eyebrow">📊 推送历史</span>
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
