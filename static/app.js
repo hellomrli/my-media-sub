@@ -1725,3 +1725,38 @@ document.addEventListener('DOMContentLoaded', function() {
     tabBtns[0].click();
   }
 });
+// 设置页面标签切换
+document.addEventListener('DOMContentLoaded', function() {
+  const settingsTabBtns = document.querySelectorAll('.settings-tab-btn');
+  const settingsTabContents = document.querySelectorAll('.settings-tab-content');
+  
+  settingsTabBtns.forEach(btn => {
+    btn.addEventListener('click', function() {
+      const targetTab = this.getAttribute('data-tab');
+      
+      // 更新按钮状态
+      settingsTabBtns.forEach(b => {
+        b.classList.remove('active');
+        b.style.color = 'var(--muted)';
+        b.style.borderBottomColor = 'transparent';
+      });
+      this.classList.add('active');
+      this.style.color = 'var(--text)';
+      this.style.borderBottomColor = 'var(--accent)';
+      
+      // 切换内容
+      settingsTabContents.forEach(content => {
+        if (content.getAttribute('data-tab') === targetTab) {
+          content.style.display = 'block';
+        } else {
+          content.style.display = 'none';
+        }
+      });
+    });
+  });
+  
+  // 初始化第一个标签
+  if (settingsTabBtns.length > 0) {
+    settingsTabBtns[0].click();
+  }
+});
