@@ -68,7 +68,7 @@ impl Default for Config {
         Self {
             server: ServerConfig {
                 host: "0.0.0.0".to_string(),
-                port: 50001,
+                port: 50002,  // Rust 版本使用 50002，避免和 Python 版本冲突
             },
             quark: QuarkConfig {
                 cookie: String::new(),

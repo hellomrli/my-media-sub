@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
 
 /// 订阅类型
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -51,19 +50,19 @@ pub struct Subscription {
     /// 订阅状态
     pub status: SubscriptionStatus,
     
-    /// 最后检查时间
+    /// 最后检查时间（Unix 时间戳）
     #[serde(default)]
-    pub last_check: Option<DateTime<Utc>>,
+    pub last_check: Option<i64>,
     
-    /// 最后更新时间
+    /// 最后更新时间（Unix 时间戳）
     #[serde(default)]
-    pub last_update: Option<DateTime<Utc>>,
+    pub last_update: Option<i64>,
     
-    /// 创建时间
-    pub created_at: DateTime<Utc>,
+    /// 创建时间（Unix 时间戳）
+    pub created_at: i64,
     
-    /// 更新时间
-    pub updated_at: DateTime<Utc>,
+    /// 更新时间（Unix 时间戳）
+    pub updated_at: i64,
     
     /// 备注
     #[serde(default)]
@@ -73,7 +72,10 @@ pub struct Subscription {
 impl Subscription {
     /// 创建新订阅
     pub fn new(name: String, media_type: MediaType, keywords: Vec<String>) -> Self {
-        let now = Utc::now();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             name,
@@ -94,25 +96,39 @@ impl Subscription {
     /// 标记为已完成
     pub fn mark_completed(&mut self) {
         self.status = SubscriptionStatus::Completed;
-        self.updated_at = Utc::now();
+        self.updated_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
     }
     
     /// 标记为已过期
     pub fn mark_expired(&mut self) {
         self.status = SubscriptionStatus::Expired;
-        self.updated_at = Utc::now();
+        self.updated_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
     }
     
     /// 更新最后检查时间
     pub fn update_check_time(&mut self) {
-        self.last_check = Some(Utc::now());
-        self.updated_at = Utc::now();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        self.last_check = Some(now);
+        self.updated_at = now;
     }
     
     /// 更新最后更新时间
     pub fn update_last_update(&mut self) {
-        self.last_update = Some(Utc::now());
-        self.updated_at = Utc::now();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        self.last_update = Some(now);
+        self.updated_at = now;
     }
 }
 

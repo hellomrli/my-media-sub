@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
 
 /// 资源来源
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -69,12 +68,12 @@ pub struct Resource {
     #[serde(default)]
     pub task_id: Option<String>,
     
-    /// 发现时间
-    pub discovered_at: DateTime<Utc>,
+    /// 发现时间（Unix 时间戳）
+    pub discovered_at: i64,
     
-    /// 转存时间
+    /// 转存时间（Unix 时间戳）
     #[serde(default)]
-    pub transferred_at: Option<DateTime<Utc>>,
+    pub transferred_at: Option<i64>,
     
     /// 备注
     #[serde(default)]
@@ -89,6 +88,10 @@ impl Resource {
         share_pwd: Option<String>,
         source: ResourceSource,
     ) -> Self {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             subscription_id: None,
@@ -101,7 +104,7 @@ impl Resource {
             status: ResourceStatus::Pending,
             save_path: None,
             task_id: None,
-            discovered_at: Utc::now(),
+            discovered_at: now,
             transferred_at: None,
             notes: String::new(),
         }
@@ -117,7 +120,12 @@ impl Resource {
     pub fn mark_transferred(&mut self, save_path: String) {
         self.status = ResourceStatus::Transferred;
         self.save_path = Some(save_path);
-        self.transferred_at = Some(Utc::now());
+        self.transferred_at = Some(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64
+        );
     }
     
     /// 标记为失败
