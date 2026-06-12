@@ -9,6 +9,7 @@ mod store;
 use axum::{
     routing::get,
     Router,
+    response::Redirect,
     Json,
     http::StatusCode,
 };
@@ -91,6 +92,7 @@ async fn main() -> Result<()> {
     let app = Router::new()
         // 健康检查
         .route("/api/health", get(health_check))
+        .route("/", axum::routing::get(|| async { axum::response::Redirect::permanent("/static/index.html") }))
         // 订阅 API
         .route("/api/subscriptions", get(api::subscriptions::list_subscriptions))
         .route("/api/subscriptions", axum::routing::post(api::subscriptions::create_subscription))
