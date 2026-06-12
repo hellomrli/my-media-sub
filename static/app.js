@@ -1760,3 +1760,71 @@ document.addEventListener('DOMContentLoaded', function() {
     settingsTabBtns[0].click();
   }
 });
+
+// ========== 设置页面主标签切换 ==========
+document.addEventListener('DOMContentLoaded', function() {
+  const mainTabBtns = document.querySelectorAll('.settings-main-tab');
+  const mainTabContents = document.querySelectorAll('.settings-main-content');
+  
+  mainTabBtns.forEach(btn => {
+    btn.addEventListener('click', function() {
+      const targetTab = this.getAttribute('data-tab');
+      
+      // 更新按钮状态
+      mainTabBtns.forEach(b => {
+        b.classList.remove('active');
+        b.style.color = 'var(--muted)';
+        b.style.borderBottomColor = 'transparent';
+      });
+      this.classList.add('active');
+      this.style.color = 'var(--text)';
+      this.style.borderBottomColor = 'var(--accent)';
+      
+      // 切换内容
+      mainTabContents.forEach(content => {
+        if (content.getAttribute('data-tab') === targetTab) {
+          content.style.display = 'block';
+        } else {
+          content.style.display = 'none';
+        }
+      });
+    });
+  });
+  
+  // 初始化第一个标签
+  if (mainTabBtns.length > 0) {
+    mainTabBtns[0].click();
+  }
+});
+
+// ========== 修改保存按钮事件绑定 ==========
+// 原来的 saveSettingsBtn 现在分成多个按钮
+document.addEventListener('DOMContentLoaded', function() {
+  const saveBasicBtn = document.getElementById('saveBasicSettingsBtn');
+  const saveQuarkBtn = document.getElementById('saveQuarkSettingsBtn');
+  const savePushBtn = document.getElementById('savePushSettingsBtn');
+  const saveAutomationBtn = document.getElementById('saveAutomationSettingsBtn');
+  const saveAdvancedBtn = document.getElementById('saveAdvancedSettingsBtn');
+  
+  // 统一保存处理函数
+  function saveAllSettings(btnElement, settingsName) {
+    if (btnElement) {
+      btnElement.addEventListener('click', function() {
+        // 触发原来的全局保存
+        const oldBtn = document.getElementById('saveSettingsBtn');
+        if (oldBtn && oldBtn.onclick) {
+          oldBtn.onclick();
+        }
+        // 或者触发原来绑定的事件
+        const event = new Event('click');
+        if (oldBtn) oldBtn.dispatchEvent(event);
+      });
+    }
+  }
+  
+  saveAllSettings(saveBasicBtn, '基础设置');
+  saveAllSettings(saveQuarkBtn, '夸克设置');
+  saveAllSettings(savePushBtn, '推送设置');
+  saveAllSettings(saveAutomationBtn, '自动化设置');
+  saveAllSettings(saveAdvancedBtn, '高级设置');
+});
