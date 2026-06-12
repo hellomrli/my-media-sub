@@ -1,3 +1,7 @@
+mod config;
+mod error;
+mod models;
+
 use axum::{
     routing::get,
     Router,
@@ -11,6 +15,9 @@ use tower_http::{
     trace::TraceLayer,
 };
 use tracing_subscriber;
+
+use config::Config;
+use error::Result;
 
 #[derive(Serialize)]
 struct HealthResponse {
@@ -32,9 +39,15 @@ async fn not_found() -> (StatusCode, &'static str) {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     // 初始化日志
     tracing_subscriber::fmt::init();
+
+    tracing::info!("🦀 Starting my-media-sub Rust version...");
+
+    // 加载配置
+    let config = Config::load()?;
+    tracing::info!("✅ Configuration loaded");
 
     // 构建路由
     let app = Router::new()
@@ -48,8 +61,13 @@ async fn main() {
         .layer(TraceLayer::new_for_http());
 
     // 绑定地址
-    let addr = SocketAddr::from(([0, 0, 0, 0], 50001));
-    tracing::info!("🦀 Rust server starting on http://{}...", addr);
+    let addr = SocketAddr::from((
+        config.server.host.parse::<std::net::IpAddr>()
+            .unwrap_or_else(|_| std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0))),
+        config.server.port,
+    ));
+    
+    tracing::info!("🚀 Server starting on http://{}...", addr);
 
     // 启动服务器
     let listener = tokio::net::TcpListener::bind(addr)
@@ -61,4 +79,6 @@ async fn main() {
     axum::serve(listener, app)
         .await
         .expect("Server error");
+
+    Ok(())
 }
