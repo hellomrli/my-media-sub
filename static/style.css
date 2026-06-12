@@ -340,14 +340,16 @@ select { color: var(--muted-strong); }
   }
   .result-card .index { position: absolute; }
   .result-card { position: relative; padding-left: 58px; }
-  .card-actions, .drive-actions { justify-content: flex-start; }
+  .card-actions, .drive-actions { justify-content: flex-start; flex-wrap: wrap; }
   .media-select { min-width: 104px; }
   .openlist-shell { min-height: auto; padding: 18px; border-radius: 20px; }
   .openlist-hero { display: grid; gap: 14px; }
-  .openlist-actions { justify-content: flex-start; width: 100%; }
+  .openlist-actions { justify-content: flex-start; width: 100%; flex-wrap: wrap; }
   .openlist-actions button { flex: 0 0 auto; }
+  .openlist-pathbar { flex-wrap: wrap; gap: 6px; }
   .drive-card { grid-template-columns: 1fr; gap: 9px; padding: 12px 14px; }
-  .drive-actions { width: 100%; }
+  .drive-actions { width: 100%; flex-wrap: wrap; }
+  .drive-actions button { flex: 1 1 auto; min-width: 80px; }
 }
 
 @media (max-width: 860px) {
@@ -358,14 +360,21 @@ select { color: var(--muted-strong); }
   .settings-grid, .form-grid { grid-template-columns: 1fr; }
   .settings-grid { gap: 12px; padding: 14px 14px 4px; }
   .settings-block { padding: 12px 14px 0; }
-  .panel-title-row { min-height: auto; padding: 14px; gap: 10px; align-items: flex-start; }
-  .panel-title-row > button { flex: 0 0 auto; }
+  .panel-title-row { min-height: auto; padding: 14px; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+  .panel-title-row > button { flex: 0 0 auto; min-width: 120px; }
   .two-col.active { gap: 12px; }
   .openlist-shell { padding: 14px; }
   .openlist-hero h2 { font-size: 24px; }
-  .openlist-actions { padding: 7px; border-radius: 14px; }
+  .openlist-actions { padding: 7px; border-radius: 14px; flex-wrap: wrap; }
+  .openlist-actions button { flex: 0 1 auto; min-width: 100px; }
+  .openlist-pathbar { flex-wrap: wrap; padding: 10px; }
+  .openlist-pathbar > div:first-child { flex: 1 1 100%; }
+  .openlist-pathbar > div:last-child { flex: 1 1 100%; display: flex; gap: 8px; margin-top: 8px; }
+  .openlist-pathbar label { flex: 1 1 auto; }
   .openlist-table-card { border-radius: 16px; }
   .drive-icon { flex-basis: 38px; width: 38px; height: 38px; font-size: 20px; }
+  .drive-actions { flex-wrap: wrap; }
+  .drive-actions button { flex: 1 1 auto; min-width: 90px; }
   .modal-card { width: min(720px, calc(100% - 20px)); margin: 10px auto; max-height: calc(100dvh - 20px); border-radius: 16px; }
   .modal-head { min-height: auto; padding: 14px; align-items: flex-start; gap: 12px; }
   .form-section { padding: 14px; }
@@ -399,18 +408,26 @@ select { color: var(--muted-strong); }
   .result-card .index { position: static; margin-bottom: 2px; }
   .result-title { -webkit-line-clamp: 3; }
   .meta span, .badge { min-height: 22px; }
-  .card-actions, .settings-actions, .modal-actions, .drive-toolbar, .drive-actions { display: grid; grid-template-columns: 1fr; width: 100%; }
-  .card-actions select { width: 100%; }
+  .card-actions, .settings-actions, .modal-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; width: 100%; }
+  .card-actions select { width: 100%; grid-column: 1 / -1; }
+  .drive-toolbar { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; width: 100%; }
+  .drive-toolbar button { width: 100%; }
+  .drive-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; width: 100%; }
+  .drive-actions button { width: 100%; min-width: 0; }
   .selected-panel pre { padding: 12px; font-size: 12px; }
   .openlist-shell { padding: 10px; border-radius: 16px; }
   .openlist-hero h2 { font-size: 22px; }
-  .openlist-actions { display: grid; grid-template-columns: 1fr; }
-  .openlist-pathbar { min-height: 42px; padding: 0 10px; border-radius: 12px; }
+  .openlist-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .openlist-actions button { width: 100%; }
+  .openlist-pathbar { min-height: 42px; padding: 0 10px; border-radius: 12px; flex-wrap: wrap; }
+  .openlist-pathbar > div:last-child { width: 100%; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 8px; }
+  .openlist-pathbar label { width: 100%; }
+  .openlist-pathbar select { width: 100%; font-size: 13px; }
   .drive-card { padding: 11px 10px; }
   .drive-name { align-items: flex-start; gap: 10px; }
   .drive-label strong { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.45; }
   .openlist-body .empty, .drive-body .empty { margin: 10px; padding: 28px 12px; }
-  .settings-actions { padding: 14px 14px 0; }
+  .settings-actions { padding: 14px 14px 0; grid-template-columns: repeat(2, 1fr); }
   .hint { margin: 10px 14px 0; }
   .modal { inset: 0; }
   .modal-card { width: 100%; min-height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; border-left: 0; border-right: 0; }
@@ -427,12 +444,22 @@ select { color: var(--muted-strong); }
   .brand { gap: 8px; }
   .brand-mark { width: 28px; height: 28px; }
   .tab { padding: 0 9px; }
-  .panel-title-row { padding: 12px; }
+  .panel-title-row { padding: 12px; flex-direction: column; align-items: stretch; }
+  .panel-title-row > button { width: 100%; }
   .toolbar, .insight-card, .settings-grid, .form-section { padding-inline: 10px; }
   .result-card, .sub-card { padding-inline: 10px; }
   .url, .drive-breadcrumb { font-size: 11px; }
   .openlist-hero p, .insight-card p, .page-head p { line-height: 1.55; }
+  .openlist-actions { grid-template-columns: 1fr; }
+  .openlist-actions button { width: 100%; }
+  .drive-toolbar { grid-template-columns: 1fr; }
+  .drive-toolbar button { width: 100%; }
+  .drive-actions { grid-template-columns: 1fr; }
+  .drive-actions button { width: 100%; }
+  .card-actions { grid-template-columns: 1fr; }
+  .card-actions button { width: 100%; }
   .modal-actions { grid-template-columns: 1fr; }
+  .modal-actions button { width: 100%; }
 }
 
 @media (hover: none) and (pointer: coarse) {
@@ -440,5 +467,126 @@ select { color: var(--muted-strong); }
     transform: none;
   }
   button, .openlist, input, select { min-height: 42px; }
+  .small { min-height: 36px; }
+  /* 触摸设备增大点击区域 */
+  .drive-checkbox { transform: scale(1.3); margin: 4px; }
+  .chip-grid input, .switch-grid input { transform: scale(1.2); }
+  /* 移除所有 hover 效果 */
+  button:hover, .openlist:hover { background: rgba(255, 255, 255, .035); border-color: var(--line); color: var(--muted-strong); }
+  .primary:hover { background: linear-gradient(135deg, var(--accent-dark), var(--accent)); }
+  .danger:hover { background: rgba(251,113,133,.10); border-color: rgba(251,113,133,.32); color: #fecdd3; }
+  .tab:hover { background: transparent; border-color: transparent; color: var(--muted); }
+  .tab.active:hover { background: rgba(113,112,255,.14); border-color: rgba(113,112,255,.32); color: var(--text); }
+  /* 触摸反馈 */
+  button:active, .openlist:active { opacity: 0.8; }
 }
 
+
+/* 横屏平板优化 (iPad Pro 横屏等) */
+@media (min-width: 1024px) and (max-width: 1280px) and (orientation: landscape) {
+  .app-frame { grid-template-columns: 240px minmax(0, 1fr); }
+  .app-shell { width: min(100% - 32px, 1140px); }
+}
+
+/* 移动端横屏优化 */
+@media (max-width: 860px) and (orientation: landscape) {
+  .openlist-shell { min-height: auto; }
+  .modal-card { max-height: calc(100vh - 20px); }
+}
+
+/* 超小屏优化 (iPhone SE 等) */
+@media (max-width: 375px) {
+  h1 { font-size: 24px; }
+  .openlist-hero h2 { font-size: 20px; }
+  .drive-icon { width: 34px; height: 34px; flex-basis: 34px; font-size: 18px; }
+  .drive-name { gap: 8px; }
+  button, input, select { font-size: 14px; }
+}
+
+/* 高分辨率屏幕优化 */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  body::before { background-size: 32px 32px; }
+}
+
+/* 暗色模式强制优化 */
+@media (prefers-color-scheme: dark) {
+  :root { color-scheme: dark; }
+}
+
+/* 减少动画（用户偏好） */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* 可访问性：大字体模式 */
+@media (prefers-contrast: more) {
+  :root {
+    --line: rgba(255, 255, 255, .14);
+    --line-soft: rgba(255, 255, 255, .10);
+    --text: #ffffff;
+    --muted: #a0a5b0;
+  }
+  button, input, select { border-width: 2px; }
+}
+
+/* iOS Safari 安全区域适配 */
+@supports (padding: max(0px)) {
+  .sidebar {
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
+  .app-shell {
+    padding-left: max(20px, env(safe-area-inset-left));
+    padding-right: max(20px, env(safe-area-inset-right));
+  }
+  @media (max-width: 640px) {
+    .sidebar {
+      padding-left: max(10px, env(safe-area-inset-left));
+      padding-right: max(10px, env(safe-area-inset-right));
+    }
+    .modal-card {
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+  }
+}
+
+/* 修复移动端 100vh 问题 (地址栏) */
+@supports (height: 100dvh) {
+  .sidebar { height: 100dvh; }
+  .modal-card { max-height: 100dvh; }
+  @media (max-width: 640px) {
+    .modal-card { min-height: 100dvh; max-height: 100dvh; }
+  }
+}
+
+/* 文件选择框在移动端的适配 */
+@media (max-width: 640px) {
+  .drive-card.selected {
+    background: rgba(113,112,255,.12);
+    border-color: rgba(113,112,255,.28);
+  }
+  .drive-checkbox {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+/* 网盘路径栏在移动端的优化 */
+@media (max-width: 640px) {
+  .drive-breadcrumb {
+    font-size: 12px;
+    max-width: 100%;
+  }
+}
+
+/* 批量操作按钮在移动端的优化 */
+@media (max-width: 640px) {
+  .drive-toolbar button[id*="Batch"] {
+    font-size: 13px;
+    padding: 0 12px;
+  }
+}
