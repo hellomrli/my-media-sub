@@ -24,9 +24,7 @@ def create_subscription_from_selection(chat_id: str, index: int, media_type: str
     item = sess.results[index - 1]
     if item.get("cloud_type") != "quark":
         raise ValueError("当前订阅 MVP 只支持夸克分享链接嗅探更新。")
-    if media_type == "movie":
-        raise ValueError("电影通常不会追更，请使用选择或下载，不创建订阅。")
-    if media_type not in {"series", "anime"}:
+    if media_type not in {"movie", "series", "anime"}:
         raise ValueError("媒体类型只能是 movie / series / anime。")
     return subscription_store.create_from_item(sess.keyword, item, notify_only=notify_only, media_type=media_type)
 
