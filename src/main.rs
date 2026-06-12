@@ -1,4 +1,5 @@
 mod api;
+mod clients;
 mod config;
 mod error;
 mod models;
@@ -46,6 +47,7 @@ async fn not_found() -> (StatusCode, &'static str) {
 /// 应用状态
 #[derive(Clone)]
 pub struct AppState {
+    pub config: Arc<Config>,
     pub subscriptions: Arc<JsonStore<Subscription>>,
     pub resources: Arc<JsonStore<Resource>>,
 }
@@ -70,6 +72,7 @@ async fn main() -> Result<()> {
     tracing::info!("✅ Data stores loaded");
 
     let state = AppState {
+        config: Arc::new(config.clone()),
         subscriptions,
         resources,
     };
@@ -90,6 +93,8 @@ async fn main() -> Result<()> {
         .route("/api/resources/{id}", get(api::resources::get_resource))
         .route("/api/resources/{id}", axum::routing::delete(api::resources::delete_resource))
         .route("/api/subscriptions/{id}/resources", get(api::resources::list_subscription_resources))
+        // 夸克 API
+        .route("/api/quark/probe", get(api::quark::probe_share))
         .with_state(state)
         // 404 处理
         .fallback(not_found)
