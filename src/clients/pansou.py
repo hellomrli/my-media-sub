@@ -24,12 +24,77 @@ class SearchSource:
     timeout: float = 8.0
 
 
+class RemotePanSouClient:
+    """Client for remote PanSou API service.
+    
+    Uses a deployed PanSou Go service with full plugin ecosystem (91+ plugins).
+    This provides much better search results than the inline implementation.
+    """
+
+    def __init__(self, base_url: str | None = None):
+        self.base_url = (base_url or "https://pansou.lxf87.com.cn").rstrip("/")
+        self.session = requests.Session()
+        self.session.headers.update({
+            "User-Agent": USER_AGENT,
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        })
+
+    def search(self, keyword: str, cloud_types: list[str] | None = None, limit: int = 10):
+        cloud_types = cloud_types or ["quark"]
+        if "quark" not in cloud_types:
+            return []
+        
+        try:
+            # Call remote PanSou API
+            api_url = f"{self.base_url}/api/search"
+            params = {
+                "keyword": keyword,
+                "cloud": "quark",
+                "page": 1,
+                "size": min(limit * 5, 200)  # Request more to account for deduplication
+            }
+            resp = self.session.get(api_url, params=params, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            
+            if data.get("code") != 0:
+                return []
+            
+            # Extract quark results from merged_by_type
+            quark_results = data.get("data", {}).get("merged_by_type", {}).get("quark", [])
+            
+            # Convert to internal format
+            results = []
+            for item in quark_results[:limit]:
+                results.append({
+                    "unique_id": f"pansou:{md5(item['url'].encode()).hexdigest()[:12]}",
+                    "note": item.get("note", "未命名资源"),
+                    "url": item.get("url", ""),
+                    "password": item.get("password", ""),
+                    "source": item.get("source", "pansou"),
+                    "datetime": item.get("datetime", datetime.now(timezone.utc).isoformat()),
+                    "images": item.get("images", []),
+                    "cloud_type": "quark",
+                })
+            
+            return results
+        except Exception as e:
+            # Fallback to empty results on error
+            return []
+
+    def search_quark(self, keyword: str, limit: int = 10):
+        return self.search(keyword, ["quark"], limit)
+
+    def _dedupe_and_rank(self, items: list[dict[str, Any]], keyword: str) -> list[dict[str, Any]]:
+        # Not needed for remote API, but keep for compatibility
+        return items
+
+
 class InlinePanSouClient:
     """Small in-process PanSou-style search aggregator.
 
-    PanSou itself is a Go service with a large plugin ecosystem. This client keeps
-    the API shape this project needs, but executes selected public-source plugins
-    directly inside the FastAPI process so no external PanSou service is required.
+    This is a fallback implementation with limited plugins.
+    Prefer RemotePanSouClient for better results.
     """
 
     sources = (
@@ -253,7 +318,7 @@ class InlinePanSouClient:
         return ranked
 
 
-PanSouClient = InlinePanSouClient
+PanSouClient = RemotePanSouClient
 
 
 def _item(title: str, url: str, source: str, rank: int, password: str = "") -> dict[str, Any]:
