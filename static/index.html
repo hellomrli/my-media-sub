@@ -275,22 +275,45 @@
               </label>
             </div>
             
-            <!-- 推送渠道配置 -->
-            <div style="display: grid; gap: 16px;">
+            <!-- 推送渠道标签页 -->
+            <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px; color: var(--muted-strong);">推送渠道配置</div>
+            <div style="display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid var(--line);">
+              <button class="push-tab-btn active" data-tab="wecom" style="background: none; border: none; padding: 12px 16px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; transition: all 0.2s;">
+                💬 企业微信
+              </button>
+              <button class="push-tab-btn" data-tab="wxpusher" style="background: none; border: none; padding: 12px 16px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; transition: all 0.2s;">
+                📱 WxPusher
+              </button>
+              <button class="push-tab-btn" data-tab="telegram" style="background: none; border: none; padding: 12px 16px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; transition: all 0.2s;">
+                ✈️ Telegram
+              </button>
+              <button class="push-tab-btn" data-tab="others" style="background: none; border: none; padding: 12px 16px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; transition: all 0.2s;">
+                🔔 其他
+              </button>
+            </div>
+            
+            <!-- 标签页内容 -->
+            <div style="background: var(--panel-strong); border-radius: var(--radius); padding: 20px; min-height: 120px;">
               <!-- 企业微信 -->
-              <div style="background: var(--panel-strong); border-radius: var(--radius); padding: 16px; border-left: 3px solid #10b981;">
-                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
-                  <span style="font-size: 20px;">💬</span>
-                  <span style="font-size: 14px; font-weight: 600;">企业微信</span>
+              <div class="push-tab-content" data-tab="wecom">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line);">
+                  <span style="font-size: 24px;">💬</span>
+                  <div>
+                    <div style="font-size: 15px; font-weight: 600;">企业微信机器人</div>
+                    <div style="font-size: 12px; color: var(--muted); margin-top: 2px;">通过 Webhook 发送消息到企业微信群</div>
+                  </div>
                 </div>
-                <label>Webhook URL<input id="setWecomUrl" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." /></label>
+                <label>Webhook URL<input id="setWecomUrl" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=***" /></label>
               </div>
               
               <!-- WxPusher -->
-              <div style="background: var(--panel-strong); border-radius: var(--radius); padding: 16px; border-left: 3px solid #10b981;">
-                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
-                  <span style="font-size: 20px;">📱</span>
-                  <span style="font-size: 14px; font-weight: 600;">WxPusher</span>
+              <div class="push-tab-content" data-tab="wxpusher" style="display: none;">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line);">
+                  <span style="font-size: 24px;">📱</span>
+                  <div>
+                    <div style="font-size: 15px; font-weight: 600;">WxPusher 微信推送</div>
+                    <div style="font-size: 12px; color: var(--muted); margin-top: 2px;">支持微信个人号推送</div>
+                  </div>
                 </div>
                 <div class="settings-grid" style="grid-template-columns: 1fr 1fr;">
                   <label>App Token<input id="setWxpusherToken" type="password" placeholder="AT_xxxxxxxx" /></label>
@@ -299,10 +322,13 @@
               </div>
               
               <!-- Telegram -->
-              <div style="background: var(--panel-strong); border-radius: var(--radius); padding: 16px; border-left: 3px solid #74a7ff;">
-                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
-                  <span style="font-size: 20px;">✈️</span>
-                  <span style="font-size: 14px; font-weight: 600;">Telegram</span>
+              <div class="push-tab-content" data-tab="telegram" style="display: none;">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line);">
+                  <span style="font-size: 24px;">✈️</span>
+                  <div>
+                    <div style="font-size: 15px; font-weight: 600;">Telegram Bot</div>
+                    <div style="font-size: 12px; color: var(--muted); margin-top: 2px;">通过 Telegram Bot 发送消息</div>
+                  </div>
                 </div>
                 <div class="settings-grid" style="grid-template-columns: 1fr 1fr;">
                   <label>Bot Token<input id="setTelegramToken" type="password" placeholder="123456:ABC-DEF..." /></label>
@@ -311,10 +337,13 @@
               </div>
               
               <!-- 其他渠道 -->
-              <div style="background: var(--panel-strong); border-radius: var(--radius); padding: 16px; border-left: 3px solid #f59e0b;">
-                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
-                  <span style="font-size: 20px;">🔔</span>
-                  <span style="font-size: 14px; font-weight: 600;">其他推送渠道</span>
+              <div class="push-tab-content" data-tab="others" style="display: none;">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line);">
+                  <span style="font-size: 24px;">🔔</span>
+                  <div>
+                    <div style="font-size: 15px; font-weight: 600;">其他推送服务</div>
+                    <div style="font-size: 12px; color: var(--muted); margin-top: 2px;">Bark、PushPlus、Gotify、Server酱</div>
+                  </div>
                 </div>
                 <div class="settings-grid" style="grid-template-columns: 1fr 1fr; margin-bottom: 12px;">
                   <label>Bark URL (iOS)<input id="setBarkUrl" placeholder="https://api.day.app/your_key" /></label>
@@ -328,6 +357,7 @@
               </div>
             </div>
           </div>
+
 
           <div class="settings-block">
             <span class="eyebrow">📊 推送历史</span>
