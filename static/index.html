@@ -539,5 +539,60 @@
   <script src="/static/app.js?v=20260612d"></script>
   <script src="/static/history-addon.js?v=20260612e"></script>
   <script src="/static/drive-base-path.js?v=20260612f"></script>
+
+  <script>
+  // 设置主标签切换（内联确保加载）
+  (function() {
+    function initSettingsTabs() {
+      const mainTabBtns = document.querySelectorAll('.settings-main-tab');
+      const mainTabContents = document.querySelectorAll('.settings-main-content');
+      
+      console.log('找到', mainTabBtns.length, '个主标签按钮');
+      console.log('找到', mainTabContents.length, '个主标签内容');
+      
+      mainTabBtns.forEach(btn => {
+        btn.addEventListener('click', function(e) {
+          e.preventDefault();
+          const targetTab = this.getAttribute('data-tab');
+          console.log('切换到标签:', targetTab);
+          
+          // 更新按钮状态
+          mainTabBtns.forEach(b => {
+            b.classList.remove('active');
+            b.style.color = 'var(--muted)';
+            b.style.borderBottomColor = 'transparent';
+          });
+          this.classList.add('active');
+          this.style.color = 'var(--text)';
+          this.style.borderBottomColor = 'var(--accent)';
+          
+          // 切换内容
+          mainTabContents.forEach(content => {
+            const contentTab = content.getAttribute('data-tab');
+            if (contentTab === targetTab) {
+              content.style.display = 'block';
+              console.log('显示:', contentTab);
+            } else {
+              content.style.display = 'none';
+            }
+          });
+        });
+      });
+      
+      // 初始化第一个标签
+      if (mainTabBtns.length > 0) {
+        console.log('初始化第一个标签');
+        mainTabBtns[0].click();
+      }
+    }
+    
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initSettingsTabs);
+    } else {
+      initSettingsTabs();
+    }
+  })();
+  </script>
+
 </body>
 </html>
