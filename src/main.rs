@@ -74,9 +74,18 @@ async fn main() -> Result<()> {
 
     let state = AppState {
         config: Arc::new(config.clone()),
+        subscriptions: subscriptions.clone(),
+        resources: resources.clone(),
+    };
+
+    // 启动定时任务调度器
+    let scheduler = Arc::new(services::Scheduler::new(
+        Arc::new(config.clone()),
         subscriptions,
         resources,
-    };
+    ));
+    scheduler.clone().start().await;
+    tracing::info!("✅ 定时任务调度器启动");
 
     // 构建路由
     let app = Router::new()
