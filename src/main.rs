@@ -96,6 +96,8 @@ async fn main() -> Result<()> {
         // 夸克 API
         .route("/api/quark/probe", get(api::quark::probe_share))
         .route("/api/quark/save", axum::routing::post(api::quark::save_share))
+        // 搜索 API
+        .route("/api/search", get(api::search::search))
         .with_state(state)
         // 404 处理
         .fallback(not_found)
