@@ -8,7 +8,8 @@ from ..stores.settings_store import settings_store
 from ..stores.subscription_store import subscription_store
 from .download_service import download_urls_with_aria2
 from .nas_sync_service import sync_to_nas
-from .push_service import get_push_service, PushScenarios
+from .push_service import PushScenarios
+from .push_helper import send_push_background
 from .quark_save_service import save_subscription_transfers
 from .search_service import sessions
 from .transfer_rule_service import build_transfer_plan
@@ -45,13 +46,12 @@ def probe_subscription(sub: dict[str, Any]) -> dict[str, Any]:
 def update_subscription(subscription_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
     result = subscription_store.update(subscription_id, patch)
     
-    # 如果设置为完结，发送推送
+    # 如果设置为完结，在后台异步发送推送（不阻塞）
     if result and patch.get("completed"):
         settings = settings_store.get()
         if settings.get("push_on_completed", True):
-            push_service = get_push_service(settings)
             title, message, level, scenario = PushScenarios.subscription_completed(result.get("title", "未知订阅"))
-            push_service.send(title, message, level, scenario=scenario)
+            send_push_background(settings, title, message, level, scenario=scenario)
     
     return result
 
@@ -76,25 +76,24 @@ def check_subscription(subscription_id: str) -> tuple[dict[str, Any] | None, lis
     updated, new_files, became_invalid = subscription_store.update_check(subscription_id, probe, plan)
     add_check_notifications(updated, new_files, became_invalid)
     
-    # 推送通知
+    # 在后台异步推送通知（不阻塞订阅检查）
     settings = settings_store.get()
-    push_service = get_push_service(settings)
     sub_title = updated.get("title") if updated else sub.get("title")
     
     if became_invalid and settings.get("push_on_failed", True):
         title, message, level, scenario = PushScenarios.subscription_failed(sub_title, probe.get("message", "未知错误"))
-        push_service.send(title, message, level, scenario=scenario)
+        send_push_background(settings, title, message, level, scenario=scenario)
     elif new_files and settings.get("push_on_update", True):
         items = [{"title": f} for f in new_files]
         title, message, level, scenario = PushScenarios.subscription_update(sub_title, items)
-        push_service.send(title, message, level, silent=settings.get("push_silent", False))
+        send_push_background(settings, title, message, level, silent=settings.get("push_silent", False), scenario=scenario)
     
     downloads = maybe_download_new_items(updated, plan)
     quark_saves = save_subscription_transfers(updated, plan)
     
     if quark_saves and settings.get("push_on_save", True):
         title, message, level, scenario = PushScenarios.save_completed(sub_title, len(quark_saves))
-        push_service.send(title, message, level, silent=settings.get("push_silent", False))
+        send_push_background(settings, title, message, level, silent=settings.get("push_silent", False), scenario=scenario)
     
     nas_syncs = sync_to_nas(updated, quark_saves)
     return updated, new_files, became_invalid, downloads, quark_saves, nas_syncs

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from ..stores.subscription_store import subscription_store
-from .push_service import get_push_service
+from .push_helper import send_push_sync
 
 logger = logging.getLogger(__name__)
 
@@ -77,9 +77,8 @@ def send_daily_summary(settings: dict[str, Any]) -> dict[str, Any]:
         
         message = "\n".join(message_lines)
         
-        # 发送推送
-        push_service = get_push_service(settings)
-        results = push_service.send(title, message, "info", scenario="daily_summary")
+        # 发送推送（同步方式，因为这是API直接调用）
+        results = send_push_sync(settings, title, message, "info", scenario="daily_summary")
         
         success_count = sum(1 for v in results.values() if v)
         

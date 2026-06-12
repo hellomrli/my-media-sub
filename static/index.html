@@ -249,6 +249,18 @@
             <label>Server酱 SendKey<input id="setServerchanKey" type="password" placeholder="SCTxxxxxx" /></label>
           </div>
           <div class="settings-block">
+            <span class="eyebrow">📊 推送历史</span>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <p class="hint" style="margin: 0;">最近的推送记录和统计信息</p>
+              <button id="refreshPushHistoryBtn" class="secondary small">刷新</button>
+            </div>
+            <div id="pushStatsBox" class="insight-card" style="margin-bottom: 12px; padding: 12px; background: var(--surface-2);"></div>
+            <div class="table-head" style="display: grid; grid-template-columns: 120px 1fr 100px 80px;">
+              <span>时间</span><span>标题</span><span>场景</span><span>结果</span>
+            </div>
+            <div id="pushHistoryList" style="max-height: 400px; overflow-y: auto;"></div>
+          </div>
+          <div class="settings-block">
             <span class="eyebrow">Cloud Types</span>
             <div id="settingsCloudTypes" class="chip-grid settings-clouds"></div>
           </div>

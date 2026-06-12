@@ -3,13 +3,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from .push_service import get_push_service
+from .push_helper import send_push_sync
 
 
 def test_push_channel(settings: dict[str, Any], channel: str) -> dict[str, Any]:
     """测试单个推送渠道"""
-    push_service = get_push_service(settings)
-    
     # 检查渠道是否配置
     channel_checks = {
         "wecom": lambda: bool(settings.get("wecom_bot_url")),
@@ -51,8 +49,7 @@ def test_push_channel(settings: dict[str, Any], channel: str) -> dict[str, Any]:
                 elif key == "serverchan":
                     test_settings["serverchan_key"] = ""
         
-        test_push = get_push_service(test_settings)
-        results = test_push.send(title, message, "info")
+        results = send_push_sync(test_settings, title, message, "info")
         
         if results.get(channel):
             return {"ok": True, "message": f"{channel} 推送测试成功！请检查是否收到消息"}
@@ -64,7 +61,8 @@ def test_push_channel(settings: dict[str, Any], channel: str) -> dict[str, Any]:
 
 def test_all_push_channels(settings: dict[str, Any]) -> dict[str, Any]:
     """测试所有已配置的推送渠道"""
-    push_service = get_push_service(settings)
+    from .push_service_async import AsyncPushService
+    push_service = AsyncPushService(settings)
     enabled = push_service.enabled_channels
     
     if not enabled:

@@ -157,9 +157,16 @@ function escapeHtml(value) {
 async function requestJson(url, options = {}) {
   const requestUrl = new URL(url, window.location.origin);
   const res = await fetch(requestUrl, options);
-  const data = await res.json().catch(() => ({}));
+  const text = await res.text().catch(() => '');
+  let data = {};
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === 'object') data = parsed;
+  } catch {
+    data = {};
+  }
   if (!res.ok) {
-    throw new Error(data.detail || data.message || `请求失败：${res.status}`);
+    throw new Error(data.detail || data.message || text.trim() || `请求失败：${res.status}`);
   }
   return data;
 }
@@ -1101,7 +1108,7 @@ manualProbeBtn?.addEventListener('click', async () => {
     `;
     manualProbeResult?.classList.remove('hidden');
     manualCreateSubBtn?.classList.remove('hidden');
-    setStatus('嗅探完成', 'success');
+    setStatus('嗅探完成', 'ok');
   } catch (err) {
     setStatus(`嗅探失败：${err.message}`, 'error');
   } finally {
@@ -1134,7 +1141,7 @@ manualCreateSubBtn?.addEventListener('click', async () => {
     });
     if (!res.ok) throw new Error('创建订阅失败');
     
-    setStatus('订阅创建成功', 'success');
+    setStatus('订阅创建成功', 'ok');
     manualSubscribeModal?.classList.add('hidden');
     await loadSubscriptions();
   } catch (err) {
@@ -1199,3 +1206,128 @@ addCustomCategoryBtn?.addEventListener('click', () => {
   loadCustomCategories(current);
 });
 
+
+// ============ 推送历史 ============
+const refreshPushHistoryBtn = document.querySelector('#refreshPushHistoryBtn');
+const pushHistoryList = document.querySelector('#pushHistoryList');
+const pushStatsBox = document.querySelector('#pushStatsBox');
+
+async function loadPushHistory() {
+  try {
+    const [historyRes, statsRes] = await Promise.all([
+      fetch('/api/push/history?limit=20', { headers }),
+      fetch('/api/push/stats', { headers })
+    ]);
+    
+    if (historyRes.ok) {
+      const historyData = await historyRes.json();
+      renderPushHistory(historyData.history || []);
+    }
+    
+    if (statsRes.ok) {
+      const statsData = await statsRes.json();
+      renderPushStats(statsData);
+    }
+  } catch (err) {
+    console.error('加载推送历史失败:', err);
+    showStatus('加载推送历史失败', 'error');
+  }
+}
+
+function renderPushStats(stats) {
+  if (!pushStatsBox) return;
+  
+  const total = stats.total || 0;
+  const successful = stats.successful || 0;
+  const failed = stats.failed || 0;
+  const successRate = total > 0 ? ((successful / total) * 100).toFixed(1) : 0;
+  
+  pushStatsBox.innerHTML = `
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; text-align: center;">
+      <div>
+        <div style="font-size: 24px; font-weight: 600; color: var(--accent);">${total}</div>
+        <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">总推送</div>
+      </div>
+      <div>
+        <div style="font-size: 24px; font-weight: 600; color: var(--success);">${successful}</div>
+        <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">成功</div>
+      </div>
+      <div>
+        <div style="font-size: 24px; font-weight: 600; color: var(--error);">${failed}</div>
+        <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">失败</div>
+      </div>
+      <div>
+        <div style="font-size: 24px; font-weight: 600; color: var(--text);">${successRate}%</div>
+        <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">成功率</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderPushHistory(history) {
+  if (!pushHistoryList) return;
+  
+  if (!history || history.length === 0) {
+    pushHistoryList.innerHTML = '<div class="empty-card" style="padding: 32px;">暂无推送记录</div>';
+    return;
+  }
+  
+  pushHistoryList.innerHTML = history.map(record => {
+    const time = new Date(record.timestamp * 1000).toLocaleString('zh-CN', {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    
+    const scenarioLabels = {
+      'subscription_update': '订阅更新',
+      'subscription_failed': '订阅失败',
+      'subscription_completed': '订阅完结',
+      'save_completed': '转存完成',
+      'save_failed': '转存失败',
+      'download_completed': '下载完成',
+      'daily_summary': '每日摘要',
+      'manual': '手动推送'
+    };
+    const scenarioLabel = scenarioLabels[record.scenario] || record.scenario;
+    
+    const channels = record.channels || [];
+    const results = record.results || {};
+    const successCount = channels.filter(ch => results[ch]).length;
+    const allSuccess = successCount === channels.length;
+    const allFailed = successCount === 0;
+    
+    let resultBadge = '';
+    if (allSuccess) {
+      resultBadge = '<span style="color: var(--success);">✓ 全部</span>';
+    } else if (allFailed) {
+      resultBadge = '<span style="color: var(--error);">✗ 全部</span>';
+    } else {
+      resultBadge = `<span style="color: var(--warning);">${successCount}/${channels.length}</span>`;
+    }
+    
+    return `
+      <div style="display: grid; grid-template-columns: 120px 1fr 100px 80px; padding: 12px; border-bottom: 1px solid var(--border); align-items: center;">
+        <div style="font-size: 12px; color: var(--muted);">${time}</div>
+        <div>
+          <div style="font-weight: 500;">${record.title || '无标题'}</div>
+          <div style="font-size: 12px; color: var(--muted); margin-top: 2px;">${(record.message || '').substring(0, 60)}${record.message && record.message.length > 60 ? '...' : ''}</div>
+        </div>
+        <div style="font-size: 13px;">${scenarioLabel}</div>
+        <div style="text-align: center;">${resultBadge}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+refreshPushHistoryBtn?.addEventListener('click', loadPushHistory);
+
+// 初始化时加载推送历史（如果在设置页面）
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    if (tab.dataset.page === 'settingsPage') {
+      setTimeout(loadPushHistory, 100);
+    }
+  });
+});
