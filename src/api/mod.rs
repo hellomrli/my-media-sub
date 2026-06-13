@@ -49,13 +49,13 @@ pub fn create_app(
     let serve_static = ServeDir::new("static")
         .append_index_html_on_directories(true);
 
+    // 构建路由：API 优先，静态文件作为 fallback
     Router::new()
         .route("/health", get(health))
         .merge(subscriptions::routes(subscription_store))
         .merge(settings::routes(settings_store))
         .merge(search::routes(pansou_client))
         .merge(notifications::routes(notification_store))
-        // 静态文件路由（放在最后，作为 fallback）
-        .nest_service("/", serve_static)
+        .fallback_service(serve_static)  // 关键修复：使用 fallback_service
         .layer(cors)
 }
