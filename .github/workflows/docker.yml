@@ -28,8 +28,13 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
+
+      - name: Update Rust to latest stable
+        run: |
+          rustup update stable
+          rustup default stable
+          rustc --version
+          cargo --version
 
       - name: Cache Cargo dependencies
         uses: actions/cache@v4
@@ -46,8 +51,11 @@ jobs:
 
       - name: Build Rust binary
         run: |
+          echo "=== Rust Version ==="
           rustc --version
           cargo --version
+          echo ""
+          echo "=== Building Release Binary ==="
           cargo build --release --verbose
 
       - name: Run tests
