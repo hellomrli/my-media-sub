@@ -1,5 +1,5 @@
 # Docker 忽略文件
-target/
+# target/  # 注释掉，因为 Dockerfile.local 需要使用构建产物
 .git/
 .gitignore
 *.log
