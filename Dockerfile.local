@@ -10,13 +10,16 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 复制本地构建的二进制文件
+# 复制预编译的二进制文件
 COPY target/release/my-media-sub /usr/local/bin/my-media-sub
+
+# 复制静态文件目录（Web UI）
+COPY static /app/static
 
 # 创建数据目录
 RUN mkdir -p /app/data
 
-# 设置环境变量
+# 环境变量
 ENV SERVER_HOST=0.0.0.0
 ENV SERVER_PORT=56001
 ENV DATA_DIR=/app/data
@@ -28,5 +31,5 @@ EXPOSE 56001
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:56001/health || exit 1
 
-# 运行
+# 启动应用
 CMD ["my-media-sub"]
