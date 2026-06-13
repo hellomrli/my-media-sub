@@ -1,6 +1,7 @@
 # 多阶段构建 Dockerfile for Rust 版本
 # Stage 1: 构建阶段
-FROM rust:1.83-slim as builder
+# 使用 latest 确保获得最新稳定版 Rust (支持 edition2024)
+FROM rust:latest as builder
 
 WORKDIR /app
 
