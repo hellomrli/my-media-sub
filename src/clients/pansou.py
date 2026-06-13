@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from hashlib import md5
 import html
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from hashlib import md5
 from typing import Any
 from urllib.parse import quote_plus
 
@@ -26,7 +26,7 @@ class SearchSource:
 
 class RemotePanSouClient:
     """Client for remote PanSou API service.
-    
+
     Uses a deployed PanSou Go service with full plugin ecosystem (91+ plugins).
     This provides much better search results than the inline implementation.
     """
@@ -43,7 +43,7 @@ class RemotePanSouClient:
         cloud_types = cloud_types or ["quark"]
         if "quark" not in cloud_types:
             return []
-        
+
         try:
             # Call remote PanSou API with correct parameters
             api_url = f"{self.base_url}/api/search"
@@ -55,13 +55,13 @@ class RemotePanSouClient:
             resp = self.session.get(api_url, params=params, timeout=15)
             resp.raise_for_status()
             data = resp.json()
-            
+
             if data.get("code") != 0:
                 return []
-            
+
             # Extract quark results from merged_by_type
             quark_results = data.get("data", {}).get("merged_by_type", {}).get("quark", [])
-            
+
             # Convert to internal format - no filtering needed, pansou already does it
             results = []
             for item in quark_results:
@@ -71,13 +71,13 @@ class RemotePanSouClient:
                     "url": item.get("url", ""),
                     "password": item.get("password", ""),
                     "source": item.get("source", "pansou"),
-                    "datetime": item.get("datetime", datetime.now(timezone.utc).isoformat()),
+                    "datetime": item.get("datetime", datetime.now(UTC).isoformat()),
                     "images": item.get("images", []),
                     "cloud_type": "quark",
                 })
-            
+
             return results[:limit]
-        except Exception as e:
+        except Exception:
             # Fallback to empty results on error
             return []
 
@@ -156,7 +156,6 @@ class InlinePanSouClient:
             title = _clean_text(entry.get("vod_name") or "")
             if not title or not _keyword_match(title, keyword):
                 continue
-            content = " ".join(str(entry.get(key) or "") for key in ("vod_remarks", "vod_year", "vod_area", "vod_actor", "vod_content"))
             text = " ".join(str(entry.get(key) or "") for key in ("vod_down_url", "vod_play_url", "vod_content"))
             for link in _extract_quark_links(text):
                 note = title
@@ -319,7 +318,7 @@ class InlinePanSouClient:
 
 class HybridPanSouClient:
     """Hybrid client that combines remote API and inline sources.
-    
+
     Uses both remote PanSou API and inline sources, then merges and deduplicates.
     This provides better coverage than either approach alone.
     """
@@ -327,32 +326,32 @@ class HybridPanSouClient:
     def __init__(self, base_url: str | None = None):
         self.remote = RemotePanSouClient(base_url)
         self.inline = InlinePanSouClient()
-        
+
     def search(self, keyword: str, cloud_types: list[str] | None = None, limit: int = 10):
         # Get results from both sources
         remote_results = self.remote.search(keyword, cloud_types, limit * 2)
         inline_results = self.inline.search(keyword, cloud_types, limit * 2)
-        
+
         # Merge and deduplicate by URL
         seen_urls = set()
         merged = []
-        
+
         # Prioritize inline results (better quality)
         for item in inline_results:
             url = _normalize_quark_url(item.get("url", ""))
             if url and url not in seen_urls:
                 seen_urls.add(url)
                 merged.append(item)
-        
+
         # Add remote results that aren't duplicates
         for item in remote_results:
             url = _normalize_quark_url(item.get("url", ""))
             if url and url not in seen_urls:
                 seen_urls.add(url)
                 merged.append(item)
-        
+
         return merged[:limit]
-    
+
     def search_quark(self, keyword: str, limit: int = 10):
         return self.search(keyword, ["quark"], limit)
 
@@ -362,14 +361,14 @@ PanSouClient = HybridPanSouClient
 
 def _item(title: str, url: str, source: str, rank: int, password: str = "") -> dict[str, Any]:
     url = _normalize_quark_url(url)
-    digest = md5(f"{title}|{url}".encode("utf-8")).hexdigest()[:12]
+    digest = md5(f"{title}|{url}".encode()).hexdigest()[:12]
     return {
         "unique_id": f"{source}:{digest}",
         "note": title,
         "url": url,
         "password": password,
         "source": source,
-        "datetime": datetime.now(timezone.utc).isoformat(),
+        "datetime": datetime.now(UTC).isoformat(),
         "images": [],
         "cloud_type": "quark",
         "_rank": rank,

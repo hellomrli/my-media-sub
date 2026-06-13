@@ -7,7 +7,6 @@ from urllib.parse import urlparse
 
 import requests
 
-
 QUARK_API_BASE = "https://drive.quark.cn/1/clouddrive"
 
 

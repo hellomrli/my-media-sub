@@ -16,15 +16,15 @@ logger = logging.getLogger(__name__)
 
 def send_wecom_bot(webhook_url: str, title: str, message: str, level: str = "info") -> bool:
     """Send a notification via 企业微信机器人 webhook.
-    
+
     Supports text and markdown formats. Uses markdown for rich formatting
     when level is warning/error to highlight.
     """
     if not webhook_url:
         return False
-    
+
     emoji = {"info": "ℹ️", "warning": "⚠️", "error": "❌"}.get(level, "ℹ️")
-    
+
     payload = {
         "msgtype": "markdown",
         "markdown": {
@@ -35,7 +35,7 @@ def send_wecom_bot(webhook_url: str, title: str, message: str, level: str = "inf
             )
         },
     }
-    
+
     try:
         resp = requests.post(webhook_url, json=payload, timeout=10)
         data = resp.json()
@@ -50,7 +50,7 @@ def send_wecom_bot(webhook_url: str, title: str, message: str, level: str = "inf
 
 def send_wxpusher(app_token: str, title: str, message: str, uids: list[str] | None = None, topic_ids: list[int] | None = None) -> bool:
     """Send a notification via WxPusher.
-    
+
     Args:
         app_token: WxPusher application token
         title: Notification title
@@ -60,7 +60,7 @@ def send_wxpusher(app_token: str, title: str, message: str, uids: list[str] | No
     """
     if not app_token:
         return False
-    
+
     payload = {
         "appToken": app_token,
         "content": f"<h3>{title}</h3><p>{message}</p>",
@@ -69,7 +69,7 @@ def send_wxpusher(app_token: str, title: str, message: str, uids: list[str] | No
         "uids": uids or [],
         "topicIds": topic_ids or [],
     }
-    
+
     try:
         resp = requests.post(
             "https://wxpusher.zjiecode.com/api/send/message",
@@ -92,7 +92,7 @@ def send_notification(settings: dict[str, Any], level: str, title: str, message:
     wecom_url = settings.get("wecom_bot_url", "")
     if wecom_url:
         send_wecom_bot(wecom_url, title, message, level)
-    
+
     # WxPusher
     wxpusher_token = settings.get("wxpusher_app_token", "")
     if wxpusher_token:

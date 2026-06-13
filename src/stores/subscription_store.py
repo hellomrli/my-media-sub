@@ -7,7 +7,12 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from ..services.transfer_rule_service import build_transfer_plan, default_transfer_rules, normalize_rules, summarize_rules
+from ..services.transfer_rule_service import (
+    build_transfer_plan,
+    default_transfer_rules,
+    normalize_rules,
+    summarize_rules,
+)
 
 SUBSCRIPTIONS_PATH = Path(os.getenv("SUBSCRIPTIONS_PATH", "./data/subscriptions.json"))
 

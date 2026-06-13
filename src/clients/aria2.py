@@ -5,7 +5,6 @@ from typing import Any
 
 import requests
 
-
 _counter = itertools.count(1)
 
 
@@ -37,7 +36,7 @@ class Aria2Client:
 
     def add_uri(self, urls: list[str], download_dir: str = "", options: dict | None = None):
         """Add a download task.
-        
+
         Args:
             urls: List of URLs to download
             download_dir: Optional download directory

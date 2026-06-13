@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Callable
+from collections.abc import Callable
 from datetime import datetime
 from functools import wraps
+from typing import Any
 
 import requests
 
@@ -35,11 +36,11 @@ def retry_on_failure(max_retries: int = 3, delay: float = 1.0):
 
 class PushService:
     """统一推送服务"""
-    
+
     def __init__(self, settings: dict[str, Any]):
         self.settings = settings
         self.enabled_channels = self._get_enabled_channels()
-    
+
     def _get_enabled_channels(self) -> list[str]:
         """获取已启用的推送渠道"""
         channels = []
@@ -58,7 +59,7 @@ class PushService:
         if self.settings.get("serverchan_key"):
             channels.append("serverchan")
         return channels
-    
+
     def send(self, title: str, message: str, level: str = "info", silent: bool = False, scenario: str = "manual") -> dict[str, bool]:
         """发送推送到所有启用的渠道"""
         results = {}
@@ -81,16 +82,16 @@ class PushService:
             except Exception as exc:
                 logger.error(f"{channel} 推送异常: {exc}")
                 results[channel] = False
-        
+
         # 记录推送历史
         try:
             from .push_history_service import push_history
             push_history.add_record(title, message, self.enabled_channels, results, scenario)
         except Exception as e:
             logger.error(f"记录推送历史失败: {e}")
-        
+
         return results
-    
+
     @retry_on_failure(max_retries=3, delay=1.0)
     def _send_wecom(self, title: str, message: str, level: str) -> bool:
         """企业微信机器人"""
@@ -106,7 +107,7 @@ class PushService:
         }
         resp = requests.post(url, json=payload, timeout=10)
         return resp.json().get("errcode") == 0
-    
+
     @retry_on_failure(max_retries=3, delay=1.0)
     def _send_wxpusher(self, title: str, message: str) -> bool:
         """WxPusher"""
@@ -124,7 +125,7 @@ class PushService:
         }
         resp = requests.post("https://wxpusher.zjiecode.com/api/send/message", json=payload, timeout=10)
         return resp.json().get("code") == 1000
-    
+
     @retry_on_failure(max_retries=3, delay=1.0)
     def _send_telegram(self, title: str, message: str, level: str, silent: bool) -> bool:
         """Telegram Bot"""
@@ -142,7 +143,7 @@ class PushService:
         }
         resp = requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json=payload, timeout=10)
         return resp.json().get("ok", False)
-    
+
     @retry_on_failure(max_retries=3, delay=1.0)
     def _send_bark(self, title: str, message: str, level: str) -> bool:
         """Bark (iOS)"""
@@ -158,7 +159,7 @@ class PushService:
         }
         resp = requests.post(f"{url}/push", json=payload, timeout=10)
         return resp.json().get("code") == 200
-    
+
     @retry_on_failure(max_retries=3, delay=1.0)
     def _send_gotify(self, title: str, message: str, level: str) -> bool:
         """Gotify"""
@@ -174,7 +175,7 @@ class PushService:
         }
         resp = requests.post(f"{url}/message?token={token}", json=payload, timeout=10)
         return resp.status_code == 200
-    
+
     @retry_on_failure(max_retries=3, delay=1.0)
     def _send_pushplus(self, title: str, message: str) -> bool:
         """PushPlus"""
@@ -189,7 +190,7 @@ class PushService:
         }
         resp = requests.post("http://www.pushplus.plus/send", json=payload, timeout=10)
         return resp.json().get("code") == 200
-    
+
     @retry_on_failure(max_retries=3, delay=1.0)
     def _send_serverchan(self, title: str, message: str) -> bool:
         """Server酱"""
@@ -207,7 +208,7 @@ class PushService:
 # 推送场景模板
 class PushScenarios:
     """推送场景和消息模板"""
-    
+
     @staticmethod
     def subscription_update(sub_title: str, new_items: list) -> tuple[str, str, str, str]:
         """订阅更新"""
@@ -221,7 +222,7 @@ class PushScenarios:
             "info",
             "subscription_update"
         )
-    
+
     @staticmethod
     def subscription_failed(sub_title: str, reason: str) -> tuple[str, str, str, str]:
         """订阅失败"""
@@ -231,7 +232,7 @@ class PushScenarios:
             "error",
             "subscription_failed"
         )
-    
+
     @staticmethod
     def subscription_completed(sub_title: str) -> tuple[str, str, str, str]:
         """订阅完成"""
@@ -241,17 +242,17 @@ class PushScenarios:
             "success",
             "subscription_completed"
         )
-    
+
     @staticmethod
     def download_completed(item_title: str) -> tuple[str, str, str, str]:
         """下载完成"""
         return (
-            f"⬇️ 下载完成",
+            "⬇️ 下载完成",
             f"已完成：{item_title}",
             "success",
             "download_completed"
         )
-    
+
     @staticmethod
     def save_completed(sub_title: str, count: int) -> tuple[str, str, str, str]:
         """转存完成"""
@@ -261,7 +262,7 @@ class PushScenarios:
             "success",
             "save_completed"
         )
-    
+
     @staticmethod
     def save_failed(sub_title: str, reason: str) -> tuple[str, str, str, str]:
         """转存失败"""
@@ -271,7 +272,7 @@ class PushScenarios:
             "warning",
             "save_failed"
         )
-    
+
     @staticmethod
     def daily_summary(total_subs: int, active_subs: int, new_items: int) -> tuple[str, str, str]:
         """每日摘要"""

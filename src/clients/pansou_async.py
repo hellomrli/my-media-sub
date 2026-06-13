@@ -1,17 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from hashlib import md5
 import html
 import re
+from dataclasses import dataclass
+from hashlib import md5
 from typing import Any
 from urllib.parse import quote_plus
 
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
-
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 QUARK_URL_RE = re.compile(r"https?://pan\.(?:quark|qoark)\.cn/s/[A-Za-z0-9_-]{8,}", re.I)
@@ -71,18 +69,18 @@ class InlinePanSouClientAsync:
         cloud_types = cloud_types or ["quark"]
         if "quark" not in cloud_types:
             return []
-        
+
         async with httpx.AsyncClient(headers=self.headers) as client:
             tasks = [self._search_source(client, source, keyword) for source in self.sources]
             results_lists = await asyncio.gather(*tasks, return_exceptions=True)
-            
+
         results: list[dict[str, Any]] = []
         for result in results_lists:
             if isinstance(result, Exception):
                 continue
             if isinstance(result, list):
                 results.extend(result)
-        
+
         ranked = self._dedupe_and_rank(results, keyword)
         return ranked[:limit]
 
@@ -235,11 +233,11 @@ class InlinePanSouClientAsync:
                     seen[key] = item
             else:
                 seen[key] = item
-        
+
         for item in seen.values():
             item["source_rank"] = self._source_rank(item.get("source", ""))
             item["title_match_score"] = self._title_score(item.get("note", ""), keyword)
-        
+
         ranked = sorted(seen.values(), key=lambda x: (x["source_rank"], -x["title_match_score"]))
         return ranked
 

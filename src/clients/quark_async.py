@@ -8,7 +8,6 @@ from urllib.parse import urlparse
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-
 QUARK_API_BASE = "https://drive.quark.cn/1/clouddrive"
 
 
@@ -113,17 +112,17 @@ class QuarkShareProbeAsync:
         pwd_id = self.extract_pwd_id(url)
         if not pwd_id:
             return QuarkShareInfo(False, "invalid_url", "无法从 URL 提取 pwd_id", [])
-        
+
         async with httpx.AsyncClient() as client:
             try:
                 stoken, err = await self.get_share_token(client, pwd_id, password)
                 if err or not stoken:
                     return QuarkShareInfo(False, "token_failed", err or "获取 token 失败", [])
-                
+
                 files, err = await self.list_share_files(client, pwd_id, stoken)
                 if err or files is None:
                     return QuarkShareInfo(False, "list_failed", err or "列出文件失败", [])
-                
+
                 episode_count = self.count_episodes(files)
                 return QuarkShareInfo(True, "ok", "探测成功", files, len(files), episode_count)
             except Exception as e:

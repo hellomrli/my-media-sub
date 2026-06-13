@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 import shutil
+from pathlib import Path
 from typing import Any
 
 from ..stores.notification_store import notification_store

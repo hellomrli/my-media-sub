@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
 from datetime import datetime
 from functools import wraps
+from typing import Any
 
 import httpx
 
@@ -35,20 +35,20 @@ def async_retry_on_failure(max_retries: int = 3, delay: float = 1.0):
 
 class AsyncPushService:
     """异步推送服务"""
-    
+
     def __init__(self, settings: dict[str, Any]):
         self.settings = settings
         self.enabled_channels = self._get_enabled_channels()
         self._client: httpx.AsyncClient | None = None
-    
+
     async def __aenter__(self):
         self._client = httpx.AsyncClient(timeout=10.0)
         return self
-    
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self._client:
             await self._client.aclose()
-    
+
     def _get_enabled_channels(self) -> list[str]:
         """获取已启用的推送渠道"""
         channels = []
@@ -67,19 +67,19 @@ class AsyncPushService:
         if self.settings.get("serverchan_key"):
             channels.append("serverchan")
         return channels
-    
+
     async def send(
-        self, 
-        title: str, 
-        message: str, 
-        level: str = "info", 
-        silent: bool = False, 
+        self,
+        title: str,
+        message: str,
+        level: str = "info",
+        silent: bool = False,
         scenario: str = "manual"
     ) -> dict[str, bool]:
         """异步发送推送到所有启用的渠道"""
         if not self._client:
             self._client = httpx.AsyncClient(timeout=10.0)
-        
+
         # 并发发送到所有渠道
         tasks = []
         for channel in self.enabled_channels:
@@ -97,28 +97,28 @@ class AsyncPushService:
                 tasks.append(self._send_pushplus(title, message))
             elif channel == "serverchan":
                 tasks.append(self._send_serverchan(title, message))
-        
+
         # 并发执行，失败不影响其他渠道
         results_list = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         # 组装结果
         results = {}
-        for channel, result in zip(self.enabled_channels, results_list):
+        for channel, result in zip(self.enabled_channels, results_list, strict=False):
             if isinstance(result, Exception):
                 logger.error(f"{channel} 推送异常: {result}")
                 results[channel] = False
             else:
                 results[channel] = result
-        
+
         # 异步记录推送历史
         try:
             from .push_history_service import push_history
             push_history.add_record(title, message, self.enabled_channels, results, scenario)
         except Exception as e:
             logger.error(f"记录推送历史失败: {e}")
-        
+
         return results
-    
+
     @async_retry_on_failure(max_retries=3, delay=1.0)
     async def _send_wecom(self, title: str, message: str, level: str) -> bool:
         """企业微信机器人"""
@@ -134,7 +134,7 @@ class AsyncPushService:
         }
         resp = await self._client.post(url, json=payload)
         return resp.json().get("errcode") == 0
-    
+
     @async_retry_on_failure(max_retries=3, delay=1.0)
     async def _send_wxpusher(self, title: str, message: str) -> bool:
         """WxPusher"""
@@ -152,7 +152,7 @@ class AsyncPushService:
         }
         resp = await self._client.post("https://wxpusher.zjiecode.com/api/send/message", json=payload)
         return resp.json().get("code") == 1000
-    
+
     @async_retry_on_failure(max_retries=3, delay=1.0)
     async def _send_telegram(self, title: str, message: str, level: str, silent: bool) -> bool:
         """Telegram Bot"""
@@ -170,7 +170,7 @@ class AsyncPushService:
         }
         resp = await self._client.post(f"https://api.telegram.org/bot{token}/sendMessage", json=payload)
         return resp.json().get("ok", False)
-    
+
     @async_retry_on_failure(max_retries=3, delay=1.0)
     async def _send_bark(self, title: str, message: str, level: str) -> bool:
         """Bark (iOS)"""
@@ -186,7 +186,7 @@ class AsyncPushService:
         }
         resp = await self._client.post(f"{url}/push", json=payload)
         return resp.json().get("code") == 200
-    
+
     @async_retry_on_failure(max_retries=3, delay=1.0)
     async def _send_gotify(self, title: str, message: str, level: str) -> bool:
         """Gotify"""
@@ -202,7 +202,7 @@ class AsyncPushService:
         }
         resp = await self._client.post(f"{url}/message?token={token}", json=payload)
         return resp.status_code == 200
-    
+
     @async_retry_on_failure(max_retries=3, delay=1.0)
     async def _send_pushplus(self, title: str, message: str) -> bool:
         """PushPlus"""
@@ -217,7 +217,7 @@ class AsyncPushService:
         }
         resp = await self._client.post("http://www.pushplus.plus/send", json=payload)
         return resp.json().get("code") == 200
-    
+
     @async_retry_on_failure(max_retries=3, delay=1.0)
     async def _send_serverchan(self, title: str, message: str) -> bool:
         """Server酱"""
@@ -235,7 +235,7 @@ class AsyncPushService:
 # 推送场景模板（复用同步版本）
 class PushScenarios:
     """推送场景和消息模板"""
-    
+
     @staticmethod
     def subscription_update(sub_title: str, new_items: list) -> tuple[str, str, str, str]:
         """订阅更新"""
@@ -249,7 +249,7 @@ class PushScenarios:
             "info",
             "subscription_update"
         )
-    
+
     @staticmethod
     def subscription_failed(sub_title: str, reason: str) -> tuple[str, str, str, str]:
         """订阅失效"""
@@ -259,7 +259,7 @@ class PushScenarios:
             "error",
             "subscription_failed"
         )
-    
+
     @staticmethod
     def subscription_completed(sub_title: str) -> tuple[str, str, str, str]:
         """订阅完成"""
@@ -269,17 +269,17 @@ class PushScenarios:
             "success",
             "subscription_completed"
         )
-    
+
     @staticmethod
     def download_completed(item_title: str) -> tuple[str, str, str, str]:
         """下载完成"""
         return (
-            f"⬇️ 下载完成",
+            "⬇️ 下载完成",
             f"已完成：{item_title}",
             "success",
             "download_completed"
         )
-    
+
     @staticmethod
     def save_completed(sub_title: str, count: int) -> tuple[str, str, str, str]:
         """转存完成"""
@@ -289,7 +289,7 @@ class PushScenarios:
             "success",
             "save_completed"
         )
-    
+
     @staticmethod
     def save_failed(sub_title: str, reason: str) -> tuple[str, str, str, str]:
         """转存失败"""
@@ -299,7 +299,7 @@ class PushScenarios:
             "warning",
             "save_failed"
         )
-    
+
     @staticmethod
     def daily_summary(total_subs: int, active_subs: int, new_items: int) -> tuple[str, str, str]:
         """每日摘要"""

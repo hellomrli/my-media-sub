@@ -8,29 +8,28 @@ Usage:
 
 import asyncio
 import json
-import sys
 from pathlib import Path
 
 
 async def migrate():
     """Main migration function."""
     print("🔄 Starting migration from JSON to SQLite...")
-    
+
     # Import after adding project to path
-    from src.database import init_db, async_session, Subscription, Notification
-    from datetime import datetime
-    
+
+    from src.database import Notification, Subscription, async_session, init_db
+
     # Initialize database
     print("📦 Initializing database...")
     await init_db()
-    
+
     # Migrate subscriptions
     subscriptions_file = Path("data/subscriptions.json")
     if subscriptions_file.exists():
         print(f"📂 Found subscriptions file: {subscriptions_file}")
-        with open(subscriptions_file, "r", encoding="utf-8") as f:
+        with open(subscriptions_file, encoding="utf-8") as f:
             subscriptions_data = json.load(f)
-        
+
         async with async_session() as session:
             for sub_data in subscriptions_data:
                 # Convert old format to new
@@ -51,19 +50,19 @@ async def migrate():
                 )
                 session.add(sub)
                 print(f"  ✅ Migrated subscription: {sub.keyword}")
-            
+
             await session.commit()
         print(f"✅ Migrated {len(subscriptions_data)} subscriptions")
     else:
         print("⚠️  No subscriptions file found, skipping...")
-    
+
     # Migrate notifications
     notifications_file = Path("data/notifications.json")
     if notifications_file.exists():
         print(f"📂 Found notifications file: {notifications_file}")
-        with open(notifications_file, "r", encoding="utf-8") as f:
+        with open(notifications_file, encoding="utf-8") as f:
             notifications_data = json.load(f)
-        
+
         async with async_session() as session:
             for notif_data in notifications_data:
                 notif = Notification(
@@ -74,21 +73,21 @@ async def migrate():
                     subscription_id=notif_data.get("subscription_id"),
                 )
                 session.add(notif)
-            
+
             await session.commit()
         print(f"✅ Migrated {len(notifications_data)} notifications")
     else:
         print("⚠️  No notifications file found, skipping...")
-    
+
     # Migrate settings to .env
     settings_file = Path("data/settings.json")
     env_file = Path(".env")
-    
+
     if settings_file.exists() and not env_file.exists():
         print(f"📂 Found settings file: {settings_file}")
-        with open(settings_file, "r", encoding="utf-8") as f:
+        with open(settings_file, encoding="utf-8") as f:
             settings_data = json.load(f)
-        
+
         env_lines = [
             "# Migrated from settings.json",
             f"QUARK_COOKIE={settings_data.get('quark_cookie', '')}",
@@ -103,17 +102,17 @@ async def migrate():
             f"SUBSCRIPTION_SCHEDULER_ENABLED={str(settings_data.get('subscription_scheduler_enabled', False)).lower()}",
             f"SUBSCRIPTION_CHECK_INTERVAL_MINUTES={settings_data.get('subscription_check_interval_minutes', 60)}",
         ]
-        
+
         with open(env_file, "w", encoding="utf-8") as f:
             f.write("\n".join(env_lines))
-        
+
         print(f"✅ Migrated settings to {env_file}")
     else:
         if env_file.exists():
             print("⚠️  .env already exists, skipping settings migration")
         else:
             print("⚠️  No settings file found, skipping...")
-    
+
     print("\n🎉 Migration completed!")
     print("\n📋 Next steps:")
     print("  1. Review the migrated data in data/app.db")

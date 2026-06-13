@@ -16,15 +16,15 @@ def generate_daily_summary(settings: dict[str, Any]) -> dict[str, Any]:
     # 获取昨天的日期范围
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     yesterday = today - timedelta(days=1)
-    
+
     subscriptions = subscription_store.list()
-    
+
     # 统计数据
     total_subs = len(subscriptions)
     active_subs = sum(1 for s in subscriptions if not s.get("completed"))
     new_items_count = 0
     updated_subs = []
-    
+
     # 统计昨天的更新
     for sub in subscriptions:
         items = sub.get("items", [])
@@ -39,7 +39,7 @@ def generate_daily_summary(settings: dict[str, Any]) -> dict[str, Any]:
                     "title": sub.get("title", "未知"),
                     "count": new_count
                 })
-    
+
     summary = {
         "date": yesterday.strftime("%Y-%m-%d"),
         "total_subscriptions": total_subs,
@@ -48,7 +48,7 @@ def generate_daily_summary(settings: dict[str, Any]) -> dict[str, Any]:
         "updated_subscriptions": len(updated_subs),
         "updates": updated_subs[:10],  # 最多显示10个
     }
-    
+
     return summary
 
 
@@ -56,32 +56,32 @@ def send_daily_summary(settings: dict[str, Any]) -> dict[str, Any]:
     """发送每日摘要推送"""
     try:
         summary = generate_daily_summary(settings)
-        
+
         if summary["new_items_count"] == 0:
             logger.info("昨日无新增资源，跳过每日摘要推送")
             return {"ok": True, "message": "无新增资源", "skipped": True}
-        
+
         # 构建消息
         title = f"📊 每日摘要 ({summary['date']})"
-        
+
         message_lines = [
             f"订阅总数：{summary['total_subscriptions']} (活跃 {summary['active_subscriptions']})",
             f"新增资源：{summary['new_items_count']} 项",
             f"更新订阅：{summary['updated_subscriptions']} 个",
         ]
-        
+
         if summary["updates"]:
             message_lines.append("\n📺 更新列表：")
             for upd in summary["updates"]:
                 message_lines.append(f"• {upd['title']} (+{upd['count']})")
-        
+
         message = "\n".join(message_lines)
-        
+
         # 发送推送（同步方式，因为这是API直接调用）
         results = send_push_sync(settings, title, message, "info", scenario="daily_summary")
-        
+
         success_count = sum(1 for v in results.values() if v)
-        
+
         return {
             "ok": success_count > 0,
             "message": f"每日摘要已发送到 {success_count} 个渠道",

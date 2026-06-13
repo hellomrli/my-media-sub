@@ -56,20 +56,20 @@ def title_similarity(title1: str, title2: str) -> float:
 def deduplicate_results(results: list[dict[str, Any]], similarity_threshold: float = 0.85) -> list[dict[str, Any]]:
     """
     Deduplicate search results based on title similarity and quality preference.
-    
+
     For similar titles, keep the one with better quality.
     """
     if not results:
         return []
-    
+
     # Group by normalized title
     groups: dict[str, list[dict[str, Any]]] = {}
-    
+
     for item in results:
         title = item.get("title") or item.get("note") or ""
         if not title:
             continue
-        
+
         # Find similar group
         found_group = False
         for group_key in groups:
@@ -77,10 +77,10 @@ def deduplicate_results(results: list[dict[str, Any]], similarity_threshold: flo
                 groups[group_key].append(item)
                 found_group = True
                 break
-        
+
         if not found_group:
             groups[title] = [item]
-    
+
     # Select best from each group
     deduplicated = []
     for group_items in groups.values():
@@ -90,7 +90,7 @@ def deduplicate_results(results: list[dict[str, Any]], similarity_threshold: flo
             # Sort by quality preference
             best = min(group_items, key=lambda x: quality_rank(extract_quality(x.get("title") or x.get("note") or "")))
             deduplicated.append(best)
-    
+
     return deduplicated
 
 

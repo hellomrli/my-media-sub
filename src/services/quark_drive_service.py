@@ -97,7 +97,7 @@ def delete_items(fids: list[str]) -> dict[str, Any]:
 
 def download_from_quark(fid: str, file_name: str | None = None, download_dir: str | None = None, use_proxy: bool = True) -> dict[str, Any]:
     """Get a download URL from Quark drive and submit it to Aria2.
-    
+
     Args:
         fid: Quark file ID
         file_name: Optional custom filename
@@ -106,7 +106,7 @@ def download_from_quark(fid: str, file_name: str | None = None, download_dir: st
     """
     settings = settings_store.get()
     old_cookie = settings.get("quark_cookie") or ""
-    
+
     # Get file metadata
     try:
         client = _client()
@@ -205,11 +205,11 @@ def resolve_path_to_fid(path: str) -> dict[str, Any]:
     path = (path or "").strip().strip("/")
     if not path:
         return {"ok": True, "fid": "0", "name": "根目录", "path": "/"}
-    
+
     parts = [p for p in path.split("/") if p]
     current_fid = "0"
     current_path = []
-    
+
     old_cookie = settings_store.get().get("quark_cookie") or ""
     try:
         client = _client()
@@ -220,13 +220,13 @@ def resolve_path_to_fid(path: str) -> dict[str, Any]:
                 if item.get("file_name") == part and item.get("dir"):
                     found = item
                     break
-            
+
             if not found:
                 return {"ok": False, "message": f"路径不存在：/{'/'.join(current_path + [part])}"}
-            
+
             current_fid = found.get("fid")
             current_path.append(part)
-        
+
         _persist_cookie(client, old_cookie)
         return {
             "ok": True,

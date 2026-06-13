@@ -3,9 +3,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from ..auth import require_auth
-from ..services.push_test_service import test_all_push_channels, test_push_channel
+from ..services.daily_summary_service import generate_daily_summary, send_daily_summary
 from ..services.push_history_service import push_history
-from ..services.daily_summary_service import send_daily_summary, generate_daily_summary
+from ..services.push_test_service import test_all_push_channels, test_push_channel
 from ..stores.settings_store import settings_store
 
 router = APIRouter(dependencies=[Depends(require_auth)])

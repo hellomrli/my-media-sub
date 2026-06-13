@@ -26,20 +26,20 @@ from .task_queue import task_queue
 async def lifespan(app: FastAPI):
     # Initialize database
     await init_db()
-    
+
     # Start task queue
     await task_queue.start()
-    
+
     # Start scheduler if enabled
     if settings.subscription_scheduler_enabled:
         start_scheduler()
-    
+
     try:
         yield
     finally:
         # Stop scheduler
         await stop_scheduler()
-        
+
         # Stop task queue
         await task_queue.stop()
 
@@ -60,7 +60,7 @@ def create_app() -> FastAPI:
     @app.get("/health")
     def health():
         return health_payload()
-    
+
     @app.get("/api/queue/status")
     async def queue_status():
         return task_queue.status()
