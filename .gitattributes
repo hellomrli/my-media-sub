@@ -1,0 +1,11 @@
+# GitHub 语言统计配置
+# 忽略文档和配置文件
+
+*.md linguist-documentation
+*.json linguist-detectable=false
+*.toml linguist-detectable=false
+*.yml linguist-detectable=false
+*.yaml linguist-detectable=false
+
+# 标记主要语言
+*.rs linguist-language=Rust
