@@ -1,118 +1,189 @@
 use crate::error::{AppError, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::time::Duration;
 
 const DEFAULT_PANSOU_URL: &str = "https://pansou.lxf87.com.cn";
-
-/// 搜索结果
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchResult {
-    /// 分享链接
-    pub url: String,
-    /// 提取码
-    #[serde(default)]
-    pub password: String,
-    /// 标题/备注
-    pub note: String,
-    /// 时间
-    #[serde(default)]
-    pub datetime: String,
-    /// 来源
-    pub source: String,
-}
+const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
 /// PanSou API 响应
 #[derive(Debug, Deserialize)]
 struct PanSouResponse {
     code: i32,
-    #[serde(default)]
-    data: PanSouData,
+    data: Option<PanSouData>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Deserialize)]
 struct PanSouData {
-    #[serde(default)]
-    merged_by_type: HashMap<String, Vec<SearchResult>>,
+    merged_by_type: Option<MergedByType>,
 }
 
-/// PanSou 搜索客户端
+#[derive(Debug, Deserialize)]
+struct MergedByType {
+    quark: Option<Vec<PanSouItem>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PanSouItem {
+    url: String,
+    password: Option<String>,
+    note: Option<String>,
+    source: Option<String>,
+    datetime: Option<String>,
+    images: Option<Vec<String>>,
+}
+
+/// 搜索结果（统一格式）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchResult {
+    pub unique_id: String,
+    pub note: String,
+    pub url: String,
+    pub password: String,
+    pub source: String,
+    pub datetime: String,
+    pub images: Vec<String>,
+    pub cloud_type: String,
+}
+
+/// Remote PanSou 客户端
 pub struct PanSouClient {
-    client: Client,
     base_url: String,
+    client: Client,
 }
 
 impl PanSouClient {
-    /// 创建新的 PanSou 客户端
     pub fn new(base_url: Option<String>) -> Self {
         let client = Client::builder()
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .user_agent(USER_AGENT)
+            .timeout(Duration::from_secs(15))
             .build()
             .unwrap();
-        
-        let base_url = base_url
-            .unwrap_or_else(|| DEFAULT_PANSOU_URL.to_string())
-            .trim_end_matches('/').to_string();
 
-        Self { client, base_url }
+        Self {
+            base_url: base_url.unwrap_or_else(|| DEFAULT_PANSOU_URL.to_string()),
+            client,
+        }
     }
 
-    /// 搜索
+    /// 搜索资源（仅支持夸克）
     pub async fn search(
         &self,
         keyword: &str,
-        cloud_type: &str,
+        cloud_types: &[String],
         limit: usize,
     ) -> Result<Vec<SearchResult>> {
-        let api_url = format!("{}/api/search", self.base_url);
-        
-        let mut params = HashMap::new();
-        params.insert("kw", keyword);
-        params.insert("res", "merge");
-        params.insert("src", "all");
-
-        let resp = self.client
-            .get(&api_url)
-            .query(&params)
-            .timeout(std::time::Duration::from_secs(15))
-            .send()
-            .await
-            .map_err(|e| AppError::Http(format!("搜索请求失败: {}", e)))?;
-
-        let data: PanSouResponse = resp.json()
-            .await
-            .map_err(|e| AppError::Http(format!("解析搜索结果失败: {}", e)))?;
-
-        if data.code != 0 {
-            return Ok(Vec::new());
+        // 只支持夸克
+        if !cloud_types.contains(&"quark".to_string()) {
+            return Ok(vec![]);
         }
 
-        let results = data.data.merged_by_type
-            .get(cloud_type)
-            .cloned()
+        let api_url = format!("{}/api/search", self.base_url);
+        let resp = self
+            .client
+            .get(&api_url)
+            .query(&[
+                ("kw", keyword),
+                ("res", "merge"),
+                ("src", "all"),
+            ])
+            .send()
+            .await
+            .map_err(|e| AppError::Http(format!("PanSou 请求失败: {}", e)))?;
+
+        if !resp.status().is_success() {
+            return Err(AppError::Http(format!(
+                "PanSou 返回错误: {}",
+                resp.status()
+            )));
+        }
+
+        let data: PanSouResponse = resp
+            .json()
+            .await
+            .map_err(|e| AppError::Http(format!("解析 PanSou 响应失败: {}", e)))?;
+
+        if data.code != 0 {
+            return Ok(vec![]);
+        }
+
+        let quark_results = data
+            .data
+            .and_then(|d| d.merged_by_type)
+            .and_then(|m| m.quark)
             .unwrap_or_default();
 
-        Ok(results.into_iter().take(limit).collect())
+        let mut results = Vec::new();
+        for item in quark_results {
+            let url = item.url;
+            let unique_id = format!("pansou:{}", md5_short(&url));
+            results.push(SearchResult {
+                unique_id,
+                note: item.note.unwrap_or_default(),
+                url: url.clone(),
+                password: item.password.unwrap_or_default(),
+                source: item.source.unwrap_or_else(|| "pansou".to_string()),
+                datetime: item.datetime.unwrap_or_else(|| {
+                    chrono::Utc::now().to_rfc3339()
+                }),
+                images: item.images.unwrap_or_default(),
+                cloud_type: "quark".to_string(),
+            });
+
+            if results.len() >= limit {
+                break;
+            }
+        }
+
+        Ok(results)
     }
 
-    /// 搜索夸克网盘
+    /// 搜索夸克资源
     pub async fn search_quark(&self, keyword: &str, limit: usize) -> Result<Vec<SearchResult>> {
-        self.search(keyword, "quark", limit).await
+        self.search(keyword, &vec!["quark".to_string()], limit)
+            .await
     }
+}
+
+impl Default for PanSouClient {
+    fn default() -> Self {
+        Self::new(None)
+    }
+}
+
+/// 简单的 MD5 摘要（前 12 位）
+fn md5_short(s: &str) -> String {
+    format!("{:x}", md5::compute(s.as_bytes()))
+        .chars()
+        .take(12)
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_md5_short() {
+        let result = md5_short("https://pan.quark.cn/s/test");
+        assert_eq!(result.len(), 12);
+    }
+
     #[tokio::test]
-    #[ignore] // 需要网络连接
-    async fn test_search() {
+    async fn test_pansou_client_creation() {
         let client = PanSouClient::new(None);
-        let results = client.search_quark("测试", 10).await.unwrap();
-        println!("Found {} results", results.len());
-        for result in results.iter().take(3) {
-            println!("- {}: {}", result.note, result.url);
+        assert_eq!(client.base_url, DEFAULT_PANSOU_URL);
+    }
+
+    // 真实 API 测试（需要网络）
+    #[tokio::test]
+    #[ignore] // 默认跳过，手动运行: cargo test -- --ignored
+    async fn test_pansou_search_real() {
+        let client = PanSouClient::new(None);
+        let results = client.search_quark("测试", 5).await.unwrap();
+        println!("找到 {} 个结果", results.len());
+        for (i, r) in results.iter().enumerate() {
+            println!("  [{}] {} - {}", i + 1, r.note, r.url);
         }
     }
 }

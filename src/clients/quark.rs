@@ -1,354 +1,409 @@
 use crate::error::{AppError, Result};
-use reqwest::{Client, Response};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::collections::HashMap;
+use std::time::Duration;
 
 const QUARK_API_BASE: &str = "https://drive.quark.cn/1/clouddrive";
-
-/// 夸克分享文件信息
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QuarkFile {
-    /// 文件 ID
-    pub fid: String,
-    /// 文件名
-    pub name: String,
-    /// 是否是目录
-    pub is_dir: bool,
-    /// 文件大小
-    pub size: i64,
-    /// 分享文件 token
-    #[serde(default)]
-    pub share_fid_token: String,
-    /// 文件类型
-    #[serde(default)]
-    pub format_type: Option<String>,
-}
 
 /// 夸克分享探测结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuarkShareInfo {
-    /// 是否成功
     pub ok: bool,
-    /// 状态：ok/locked/invalid_url/bad/error
     pub state: String,
-    /// 消息
     pub message: String,
-    /// 文件列表
     pub files: Vec<QuarkFile>,
-    /// 文件总数
     pub file_count: usize,
-    /// 疑似集数
     pub episode_count: usize,
 }
 
-/// 夸克客户端
-pub struct QuarkClient {
-    client: Client,
-    cookie: String,
+/// 夸克文件
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuarkFile {
+    pub name: String,
+    pub fid: String,
+    pub share_fid_token: String,
+    pub is_dir: bool,
+    pub size: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub format_type: Option<i32>,
 }
 
-impl QuarkClient {
-    /// 创建新的夸克客户端
-    pub fn new(cookie: String) -> Self {
+/// 夸克分享探测客户端
+pub struct QuarkShareProbe {
+    cookie: String,
+    client: Client,
+}
+
+#[derive(Deserialize)]
+struct TokenResponse {
+    code: i32,
+    message: Option<String>,
+    msg: Option<String>,
+    data: Option<TokenData>,
+}
+
+#[derive(Deserialize)]
+struct TokenData {
+    stoken: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct FileListResponse {
+    code: i32,
+    message: Option<String>,
+    msg: Option<String>,
+    data: Option<FileListData>,
+}
+
+#[derive(Deserialize)]
+struct FileListData {
+    list: Option<Vec<HashMap<String, serde_json::Value>>>,
+}
+
+impl QuarkShareProbe {
+    pub fn new(cookie: impl Into<String>) -> Self {
+        let cookie = cookie.into();
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                .parse()
+                .unwrap(),
+        );
+        headers.insert("Accept", "application/json, text/plain, */*".parse().unwrap());
+        headers.insert("Referer", "https://pan.quark.cn/".parse().unwrap());
+        headers.insert("Origin", "https://pan.quark.cn".parse().unwrap());
+
+        if !cookie.is_empty() {
+            headers.insert("Cookie", cookie.parse().unwrap());
+        }
+
         let client = Client::builder()
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .default_headers(headers)
+            .timeout(Duration::from_secs(20))
             .build()
             .unwrap();
-        
-        Self { client, cookie }
+
+        Self { cookie, client }
     }
 
-    /// 更新 Cookie（从响应头提取）
-    fn update_cookie(&mut self, resp: &Response) {
-        if let Some(set_cookie) = resp.headers().get("set-cookie") {
-            if let Ok(cookie_str) = set_cookie.to_str() {
-                // 简单解析 Set-Cookie 头
-                for part in cookie_str.split(';') {
-                    let part = part.trim();
-                    if part.contains('=') {
-                        let mut split = part.splitn(2, '=');
-                        if let (Some(name), Some(value)) = (split.next(), split.next()) {
-                            if name == "__puus" || name == "__pus" {
-                                self.cookie = self.set_cookie_value(name, value);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// 设置 Cookie 值
-    fn set_cookie_value(&self, name: &str, value: &str) -> String {
-        let parts: Vec<&str> = self.cookie.split(';').map(|s| s.trim()).collect();
-        let mut new_parts = Vec::new();
-        let mut replaced = false;
-
-        for part in parts {
-            if part.starts_with(&format!("{}=", name)) {
-                new_parts.push(format!("{}={}", name, value));
-                replaced = true;
-            } else {
-                new_parts.push(part.to_string());
-            }
-        }
-
-        if !replaced {
-            new_parts.push(format!("{}={}", name, value));
-        }
-
-        new_parts.join("; ")
-    }
-
-    /// 提取 pwd_id
+    /// 从分享链接提取 pwd_id
     pub fn extract_pwd_id(url: &str) -> Option<String> {
-        use regex::Regex;
-        let re = Regex::new(r"/s/([A-Za-z0-9_-]+)").ok()?;
-        re.captures(url)?.get(1).map(|m| m.as_str().to_string())
-    }
-
-    /// POST 请求
-    async fn post(&mut self, path: &str, payload: &Value) -> Result<Value> {
-        let url = format!("{}{}", QUARK_API_BASE, path);
-        let mut params = HashMap::new();
-        params.insert("pr", "ucpro");
-        params.insert("fr", "pc");
-
-        let resp = self.client
-            .post(&url)
-            .query(&params)
-            .header("Cookie", &self.cookie)
-            .header("Accept", "application/json")
-            .header("Referer", "https://pan.quark.cn/")
-            .header("Origin", "https://pan.quark.cn")
-            .json(payload)
-            .send()
-            .await
-            .map_err(|e| AppError::Http(e.to_string()))?;
-
-        self.update_cookie(&resp);
-
-        let json = resp.json::<Value>()
-            .await
-            .map_err(|e| AppError::Http(e.to_string()))?;
-
-        Ok(json)
-    }
-
-    /// GET 请求
-    async fn get(&mut self, path: &str, params: &HashMap<&str, String>) -> Result<Value> {
-        let url = format!("{}{}", QUARK_API_BASE, path);
-        let mut full_params = HashMap::new();
-        full_params.insert("pr", "ucpro".to_string());
-        full_params.insert("fr", "pc".to_string());
-        
-        for (k, v) in params {
-            full_params.insert(*k, v.clone());
-        }
-
-        let resp = self.client
-            .get(&url)
-            .query(&full_params)
-            .header("Cookie", &self.cookie)
-            .header("Accept", "application/json")
-            .header("Referer", "https://pan.quark.cn/")
-            .send()
-            .await
-            .map_err(|e| AppError::Http(e.to_string()))?;
-
-        self.update_cookie(&resp);
-
-        let json = resp.json::<Value>()
-            .await
-            .map_err(|e| AppError::Http(e.to_string()))?;
-
-        Ok(json)
+        let re = regex::Regex::new(r"/s/([A-Za-z0-9_-]+)").ok()?;
+        re.captures(url)
+            .and_then(|c| c.get(1))
+            .map(|m| m.as_str().to_string())
     }
 
     /// 获取分享 token
-    pub async fn get_share_token(&mut self, pwd_id: &str, passcode: &str) -> Result<String> {
+    async fn get_share_token(
+        &self,
+        pwd_id: &str,
+        passcode: &str,
+    ) -> Result<(Option<String>, Option<String>)> {
+        let url = format!("{}/share/sharepage/token", QUARK_API_BASE);
         let payload = serde_json::json!({
             "pwd_id": pwd_id,
-            "passcode": passcode
+            "passcode": passcode,
         });
 
-        let data = self.post("/share/sharepage/token", &payload).await?;
+        let resp = self
+            .client
+            .post(&url)
+            .query(&[("pr", "ucpro"), ("fr", "pc")])
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| AppError::Http(format!("请求夸克 token 失败: {}", e)))?;
 
-        let code = data["code"].as_i64().unwrap_or(-1);
-        if code != 0 {
-            let msg = data["message"].as_str()
-                .or(data["msg"].as_str())
-                .unwrap_or("获取 token 失败");
-            return Err(AppError::Http(msg.to_string()));
+        let data: TokenResponse = resp
+            .json()
+            .await
+            .map_err(|e| AppError::Http(format!("解析夸克 token 响应失败: {}", e)))?;
+
+        if data.code != 0 {
+            let msg = data.message.or(data.msg).unwrap_or_else(|| "未知错误".to_string());
+            return Ok((None, Some(msg)));
         }
 
-        let token = data["data"]["stoken"]
-            .as_str()
-            .ok_or_else(|| AppError::Http("未能获取 stoken".to_string()))?;
-
-        Ok(token.to_string())
+        let token = data.data.and_then(|d| d.stoken);
+        Ok((token, None))
     }
 
-    /// 列出文件
-    pub async fn list_files(
-        &mut self,
+    /// 列出分享文件
+    async fn list_files(
+        &self,
         pwd_id: &str,
         stoken: &str,
         pdir_fid: &str,
-    ) -> Result<Vec<QuarkFile>> {
-        let mut params = HashMap::new();
-        params.insert("pwd_id", pwd_id.to_string());
-        params.insert("stoken", stoken.to_string());
-        params.insert("pdir_fid", pdir_fid.to_string());
-        params.insert("force", "0".to_string());
-        params.insert("_page", "1".to_string());
-        params.insert("_size", "100".to_string());
-        params.insert("_fetch_total", "1".to_string());
-        params.insert("_fetch_sub_dirs", "0".to_string());
-        params.insert("_sort", "file_type:asc,file_name:asc".to_string());
+    ) -> Result<(Vec<HashMap<String, serde_json::Value>>, Option<String>)> {
+        let url = format!("{}/share/sharepage/detail", QUARK_API_BASE);
 
-        let data = self.get("/share/sharepage/detail", &params).await?;
+        let resp = self
+            .client
+            .get(&url)
+            .query(&[
+                ("pr", "ucpro"),
+                ("fr", "pc"),
+                ("pwd_id", pwd_id),
+                ("stoken", stoken),
+                ("pdir_fid", pdir_fid),
+                ("force", "0"),
+                ("_page", "1"),
+                ("_size", "100"),
+                ("_fetch_total", "1"),
+                ("_fetch_sub_dirs", "0"),
+                ("_sort", "file_type:asc,file_name:asc"),
+            ])
+            .send()
+            .await
+            .map_err(|e| AppError::Http(format!("请求夸克文件列表失败: {}", e)))?;
 
-        let code = data["code"].as_i64().unwrap_or(-1);
-        if code != 0 {
-            let msg = data["message"].as_str()
-                .or(data["msg"].as_str())
-                .unwrap_or("列出文件失败");
-            return Err(AppError::Http(msg.to_string()));
+        let data: FileListResponse = resp
+            .json()
+            .await
+            .map_err(|e| AppError::Http(format!("解析夸克文件列表失败: {}", e)))?;
+
+        if data.code != 0 {
+            let msg = data.message.or(data.msg).unwrap_or_else(|| "未知错误".to_string());
+            return Ok((vec![], Some(msg)));
         }
 
-        let list = data["data"]["list"].as_array()
-            .ok_or_else(|| AppError::Http("文件列表格式错误".to_string()))?;
-
-        let mut files = Vec::new();
-        for item in list {
-            let fid = item["fid"].as_str()
-                .or(item["file_id"].as_str())
-                .unwrap_or("")
-                .to_string();
-            
-            let name = item["file_name"].as_str()
-                .or(item["name"].as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let is_dir = item["dir"].as_bool().unwrap_or(false)
-                || item["file"].as_bool() == Some(false)
-                || (item["file_type"].as_i64() == Some(0) 
-                    && item["size"].as_i64().unwrap_or(0) == 0);
-
-            let share_fid_token = item["share_fid_token"].as_str()
-                .or(item["file_token"].as_str())
-                .unwrap_or("")
-                .to_string();
-
-            files.push(QuarkFile {
-                fid,
-                name,
-                is_dir,
-                size: item["size"].as_i64().unwrap_or(0),
-                share_fid_token,
-                format_type: item["format_type"].as_str().map(|s| s.to_string()),
-            });
-        }
-
-        Ok(files)
+        let list = data.data.and_then(|d| d.list).unwrap_or_default();
+        Ok((list, None))
     }
 
     /// 探测分享链接
-    pub async fn probe(&mut self, url: &str, passcode: &str, max_files: usize) -> QuarkShareInfo {
+    pub async fn probe(
+        &self,
+        url: &str,
+        passcode: &str,
+        max_files: usize,
+    ) -> QuarkShareInfo {
         let pwd_id = match Self::extract_pwd_id(url) {
             Some(id) => id,
-            None => return QuarkShareInfo {
-                ok: false,
-                state: "invalid_url".to_string(),
-                message: "不是有效的夸克分享链接".to_string(),
-                files: vec![],
-                file_count: 0,
-                episode_count: 0,
-            },
-        };
-
-        // 获取 token
-        let stoken = match self.get_share_token(&pwd_id, passcode).await {
-            Ok(token) => token,
-            Err(e) => {
-                let msg = e.to_string();
-                let state = if msg.contains("提取码") || msg.contains("密码") {
-                    "locked"
-                } else {
-                    "bad"
-                };
+            None => {
                 return QuarkShareInfo {
                     ok: false,
-                    state: state.to_string(),
-                    message: msg,
+                    state: "invalid_url".to_string(),
+                    message: "不是有效的夸克分享链接".to_string(),
                     files: vec![],
                     file_count: 0,
                     episode_count: 0,
-                };
+                }
             }
         };
 
-        // 递归列出所有文件
-        let mut all_files = Vec::new();
-        let mut queue = match self.list_files(&pwd_id, &stoken, "0").await {
-            Ok(files) => files,
-            Err(e) => return QuarkShareInfo {
+        // 获取 token
+        let (stoken, err) = match self.get_share_token(&pwd_id, passcode).await {
+            Ok(result) => result,
+            Err(e) => {
+                return QuarkShareInfo {
+                    ok: false,
+                    state: "error".to_string(),
+                    message: e.to_string(),
+                    files: vec![],
+                    file_count: 0,
+                    episode_count: 0,
+                }
+            }
+        };
+
+        if let Some(err_msg) = err {
+            let state = if err_msg.contains("提取码") || err_msg.contains("密码") || err_msg.to_lowercase().contains("pass") {
+                "locked"
+            } else {
+                "bad"
+            };
+            return QuarkShareInfo {
                 ok: false,
-                state: "bad".to_string(),
-                message: e.to_string(),
+                state: state.to_string(),
+                message: err_msg,
                 files: vec![],
                 file_count: 0,
                 episode_count: 0,
-            },
+            };
+        }
+
+        let stoken = match stoken {
+            Some(t) => t,
+            None => {
+                return QuarkShareInfo {
+                    ok: false,
+                    state: "bad".to_string(),
+                    message: "未能获取分享 token".to_string(),
+                    files: vec![],
+                    file_count: 0,
+                    episode_count: 0,
+                }
+            }
         };
 
-        while !queue.is_empty() && all_files.len() < max_files {
-            let item = queue.remove(0);
-            let is_dir = item.is_dir;
-            let fid = item.fid.clone();
-            
-            all_files.push(item);
+        // 获取文件列表
+        let (raw, err) = match self.list_files(&pwd_id, &stoken, "0").await {
+            Ok(result) => result,
+            Err(e) => {
+                return QuarkShareInfo {
+                    ok: false,
+                    state: "error".to_string(),
+                    message: e.to_string(),
+                    files: vec![],
+                    file_count: 0,
+                    episode_count: 0,
+                }
+            }
+        };
 
-            if is_dir && all_files.len() < max_files {
-                if let Ok(children) = self.list_files(&pwd_id, &stoken, &fid).await {
+        if let Some(err_msg) = err {
+            return QuarkShareInfo {
+                ok: false,
+                state: "bad".to_string(),
+                message: err_msg,
+                files: vec![],
+                file_count: 0,
+                episode_count: 0,
+            };
+        }
+
+        // 递归遍历文件夹
+        let mut files = Vec::new();
+        let mut queue = raw;
+
+        while !queue.is_empty() && files.len() < max_files {
+            let item = queue.remove(0);
+            let fid = item
+                .get("fid")
+                .or_else(|| item.get("file_id"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let name = item
+                .get("file_name")
+                .or_else(|| item.get("name"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            let is_dir = item.get("dir").and_then(|v| v.as_bool()).unwrap_or(false)
+                || (item.get("file").and_then(|v| v.as_bool()) == Some(false))
+                || (item.get("file_type").and_then(|v| v.as_i64()) == Some(0)
+                    && item.get("format_type").is_none()
+                    && item.get("size").and_then(|v| v.as_i64()).unwrap_or(0) == 0);
+
+            files.push(QuarkFile {
+                name: name.clone(),
+                fid: fid.clone(),
+                share_fid_token: item
+                    .get("share_fid_token")
+                    .or_else(|| item.get("file_token"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                is_dir,
+                size: item.get("size").and_then(|v| v.as_i64()).unwrap_or(0),
+                category: item.get("category").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                format_type: item.get("format_type").or_else(|| item.get("file_type")).and_then(|v| v.as_i64()).map(|n| n as i32),
+            });
+
+            // 如果是目录且未达上限，递归获取
+            if is_dir && !fid.is_empty() && files.len() < max_files {
+                if let Ok((children, None)) = self.list_files(&pwd_id, &stoken, &fid).await {
                     queue.extend(children);
                 }
             }
         }
 
-        let episode_count = Self::count_episodes(&all_files);
-        let file_count = all_files.len();
+        let episode_count = count_episodes(&files);
 
         QuarkShareInfo {
             ok: true,
             state: "ok".to_string(),
             message: "链接可访问".to_string(),
-            files: all_files,
-            file_count,
+            file_count: files.len(),
             episode_count,
+            files,
         }
     }
+}
 
-    /// 统计集数
-    fn count_episodes(files: &[QuarkFile]) -> usize {
-        use regex::Regex;
-        
-        let patterns = vec![
-            Regex::new(r"(?:^|[^A-Za-z])S\d{1,2}E\d{1,3}(?:[^A-Za-z]|$)").unwrap(),
-            Regex::new(r"(?:第\s*\d{1,3}\s*[集话])").unwrap(),
-            Regex::new(r"(?:^|[^\d])E\d{1,3}(?:[^\d]|$)").unwrap(),
-            Regex::new(r"(?:^|[^\d])\d{1,3}\s*\.\s*(?:mkv|mp4|avi|ts|mov|wmv)$").unwrap(),
+impl Default for QuarkShareProbe {
+    fn default() -> Self {
+        Self::new("")
+    }
+}
+
+/// 统计集数（简化版）
+fn count_episodes(files: &[QuarkFile]) -> usize {
+    use regex::Regex;
+    let patterns = vec![
+        Regex::new(r"(?i)(?:^|[^A-Za-z])S\d{1,2}E\d{1,3}(?:[^A-Za-z]|$)").unwrap(),
+        Regex::new(r"(?:第\s*\d{1,3}\s*[集话])").unwrap(),
+        Regex::new(r"(?i)(?:^|[^\d])E\d{1,3}(?:[^\d]|$)").unwrap(),
+        Regex::new(r"(?i)(?:^|[^\d])\d{1,3}\s*\.\s*(?:mkv|mp4|avi|ts|mov|wmv)$").unwrap(),
+    ];
+
+    files
+        .iter()
+        .filter(|f| {
+            let lower = f.name.to_lowercase();
+            let is_video = [".mkv", ".mp4", ".avi", ".ts", ".mov", ".wmv", ".flv", ".m4v"]
+                .iter()
+                .any(|ext| lower.ends_with(ext));
+            is_video && patterns.iter().any(|p| p.is_match(&f.name))
+        })
+        .count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_pwd_id() {
+        let url = "https://pan.quark.cn/s/abc123def456";
+        assert_eq!(QuarkShareProbe::extract_pwd_id(url), Some("abc123def456".to_string()));
+
+        let url2 = "https://pan.quark.cn/s/test_ID-789";
+        assert_eq!(QuarkShareProbe::extract_pwd_id(url2), Some("test_ID-789".to_string()));
+
+        assert_eq!(QuarkShareProbe::extract_pwd_id("invalid"), None);
+    }
+
+    #[test]
+    fn test_count_episodes() {
+        let files = vec![
+            QuarkFile {
+                name: "第01集.mkv".to_string(),
+                fid: "1".to_string(),
+                share_fid_token: "".to_string(),
+                is_dir: false,
+                size: 1000,
+                category: None,
+                format_type: None,
+            },
+            QuarkFile {
+                name: "S01E02.mp4".to_string(),
+                fid: "2".to_string(),
+                share_fid_token: "".to_string(),
+                is_dir: false,
+                size: 2000,
+                category: None,
+                format_type: None,
+            },
+            QuarkFile {
+                name: "预告.mp4".to_string(),
+                fid: "3".to_string(),
+                share_fid_token: "".to_string(),
+                is_dir: false,
+                size: 500,
+                category: None,
+                format_type: None,
+            },
         ];
 
-        let video_exts = ["mkv", "mp4", "avi", "ts", "mov", "wmv", "flv", "m4v"];
-
-        files.iter().filter(|f| {
-            let name_lower = f.name.to_lowercase();
-            let is_video = video_exts.iter().any(|ext| name_lower.ends_with(ext));
-            is_video && patterns.iter().any(|p| p.is_match(&f.name))
-        }).count()
+        assert_eq!(count_episodes(&files), 2);
     }
 }

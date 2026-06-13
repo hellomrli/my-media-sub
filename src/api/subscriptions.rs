@@ -1,92 +1,206 @@
 use axum::{
-    extract::State,
+    extract::{Path, Query, State},
     http::StatusCode,
-    Json,
     response::IntoResponse,
+    routing::{delete, get, post, put},
+    Json, Router,
 };
-use serde_json::json;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
-use crate::{
-    error::Result,
-    models::{Subscription, SubscriptionStatus, MediaType, CreateSubscriptionRequest},
-    AppState,
-};
+use crate::error::{AppError, Result};
+use crate::models::Subscription;
+use crate::store::SubscriptionStore;
 
-/// 获取所有订阅
-pub async fn list_subscriptions(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse> {
-    let subscriptions = state.subscriptions.all().await;
-    Ok(Json(subscriptions))
+/// 订阅路由状态
+pub struct SubscriptionState {
+    pub store: Arc<SubscriptionStore>,
+}
+
+/// 创建订阅请求
+#[derive(Debug, Deserialize)]
+pub struct CreateSubscriptionRequest {
+    pub title: String,
+    pub url: String,
+    #[serde(default)]
+    pub password: String,
+    #[serde(default)]
+    pub media_type: String,
+    #[serde(default)]
+    pub season: i32,
+    #[serde(default)]
+    pub cloud_type: String,
+}
+
+/// 更新订阅请求
+#[derive(Debug, Deserialize)]
+pub struct UpdateSubscriptionRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notify_only: Option<bool>,
+}
+
+/// 通用响应
+#[derive(Serialize)]
+struct Response<T> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data: Option<T>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+}
+
+impl<T> Response<T> {
+    fn ok(data: T) -> Self {
+        Self {
+            data: Some(data),
+            message: None,
+        }
+    }
+
+    fn error(message: String) -> Response<()> {
+        Response {
+            data: None,
+            message: Some(message),
+        }
+    }
+}
+
+/// 列出所有订阅
+async fn list_subscriptions(
+    State(state): State<Arc<SubscriptionState>>,
+) -> Result<Json<Response<Vec<Subscription>>>> {
+    let subscriptions = state.store.list().await;
+    Ok(Json(Response::ok(subscriptions)))
 }
 
 /// 获取单个订阅
-pub async fn get_subscription(
-    State(state): State<AppState>,
-    axum::extract::Path(id): axum::extract::Path<String>,
+async fn get_subscription(
+    State(state): State<Arc<SubscriptionState>>,
+    Path(id): Path<String>,
 ) -> Result<impl IntoResponse> {
-    let subscription = state.subscriptions
-        .find(|s| s.id == id)
-        .await
-        .ok_or_else(|| crate::error::AppError::NotFound(format!("Subscription {} not found", id)))?;
-    
-    Ok(Json(subscription))
+    match state.store.get(&id).await {
+        Some(sub) => Ok(Json(Response::ok(sub))),
+        None => Err(AppError::NotFound("订阅不存在".to_string())),
+    }
 }
 
 /// 创建订阅
-pub async fn create_subscription(
-    State(state): State<AppState>,
+async fn create_subscription(
+    State(state): State<Arc<SubscriptionState>>,
     Json(req): Json<CreateSubscriptionRequest>,
 ) -> Result<impl IntoResponse> {
-    let mut subscription = Subscription::new(
-        req.name,
-        req.media_type,
-        req.keywords,
-    );
-    
-    subscription.share_url = req.share_url;
-    subscription.share_pwd = req.share_pwd;
-    subscription.save_dir = req.save_dir;
-    subscription.notes = req.notes;
-    
-    state.subscriptions.add(subscription.clone()).await?;
-    
-    Ok((StatusCode::CREATED, Json(subscription)))
+    let id = format!("{:x}", md5::compute(format!("{}:{}", req.url, req.title)));
+    let id = &id[..12];
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    let subscription = Subscription {
+        id: id.to_string(),
+        title: req.title,
+        source_title: String::new(),
+        media_type: if req.media_type.is_empty() {
+            "series".to_string()
+        } else {
+            req.media_type
+        },
+        season: if req.season > 0 { req.season } else { 1 },
+        current_episode_number: 0,
+        total_episode_number: None,
+        source_group: String::new(),
+        cloud_type: if req.cloud_type.is_empty() {
+            "quark".to_string()
+        } else {
+            req.cloud_type
+        },
+        url: req.url,
+        password: req.password,
+        known_files: vec![],
+        known_file_keys: vec![],
+        known_episodes: vec![],
+        transferred_files: vec![],
+        transferred_file_keys: vec![],
+        last_probe: None,
+        last_plan_summary: String::new(),
+        notify_only: false,
+        enabled: true,
+        completed: false,
+        rules: Default::default(),
+        created_at: now,
+        updated_at: now,
+        last_checked_at: now,
+        last_new_files: vec![],
+        last_new_episodes: vec![],
+        last_check_summary: String::new(),
+        check_history: vec![],
+        status: "active".to_string(),
+        invalid_since: None,
+        last_error: String::new(),
+        rule_summary: String::new(),
+    };
+
+    let created = state.store.create(subscription).await?;
+    Ok((StatusCode::CREATED, Json(Response::ok(created))))
+}
+
+/// 更新订阅
+async fn update_subscription(
+    State(state): State<Arc<SubscriptionState>>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateSubscriptionRequest>,
+) -> Result<impl IntoResponse> {
+    let updated = state
+        .store
+        .update(&id, |sub| {
+            if let Some(title) = req.title {
+                sub.title = title;
+            }
+            if let Some(enabled) = req.enabled {
+                sub.enabled = enabled;
+            }
+            if let Some(notify_only) = req.notify_only {
+                sub.notify_only = notify_only;
+            }
+            sub.updated_at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64;
+        })
+        .await?;
+
+    match updated {
+        Some(sub) => Ok(Json(Response::ok(sub))),
+        None => Err(AppError::NotFound("订阅不存在".to_string())),
+    }
 }
 
 /// 删除订阅
-pub async fn delete_subscription(
-    State(state): State<AppState>,
-    axum::extract::Path(id): axum::extract::Path<String>,
+async fn delete_subscription(
+    State(state): State<Arc<SubscriptionState>>,
+    Path(id): Path<String>,
 ) -> Result<impl IntoResponse> {
-    let removed = state.subscriptions
-        .remove(|s| s.id == id)
-        .await?;
-    
-    if removed {
-        Ok(Json(json!({ "success": true, "message": "Subscription deleted" })))
+    let deleted = state.store.delete(&id).await?;
+    if deleted {
+        Ok((StatusCode::NO_CONTENT, ()))
     } else {
-        Err(crate::error::AppError::NotFound(format!("Subscription {} not found", id)))
+        Err(AppError::NotFound("订阅不存在".to_string()))
     }
 }
 
-/// 更新订阅状态
-pub async fn update_subscription_status(
-    State(state): State<AppState>,
-    axum::extract::Path(id): axum::extract::Path<String>,
-    Json(status): Json<SubscriptionStatus>,
-) -> Result<impl IntoResponse> {
-    let updated = state.subscriptions
-        .update(
-            |s| s.id == id,
-            |s| s.status = status,
-        )
-        .await?;
-    
-    if updated {
-        let subscription = state.subscriptions.find(|s| s.id == id).await.unwrap();
-        Ok(Json(subscription))
-    } else {
-        Err(crate::error::AppError::NotFound(format!("Subscription {} not found", id)))
-    }
+/// 创建订阅路由
+pub fn routes(store: Arc<SubscriptionStore>) -> Router {
+    let state = Arc::new(SubscriptionState { store });
+
+    Router::new()
+        .route("/api/subscriptions", get(list_subscriptions))
+        .route("/api/subscriptions", post(create_subscription))
+        .route("/api/subscriptions/{id}", get(get_subscription))
+        .route("/api/subscriptions/{id}", put(update_subscription))
+        .route("/api/subscriptions/{id}", delete(delete_subscription))
+        .with_state(state)
 }

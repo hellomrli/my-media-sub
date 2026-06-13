@@ -1,6 +1,54 @@
 pub mod subscriptions;
-pub mod resources;
-pub mod quark;
+pub mod settings;
 pub mod search;
-pub mod subscription_check;
-pub mod auto_save;
+pub mod notifications;
+
+use axum::{
+    http::StatusCode,
+    response::{IntoResponse, Json},
+    routing::get,
+    Router,
+};
+use serde::Serialize;
+use std::sync::Arc;
+use tower_http::cors::{Any, CorsLayer};
+
+use crate::clients::PanSouClient;
+use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
+
+/// 健康检查响应
+#[derive(Serialize)]
+struct HealthResponse {
+    status: String,
+    version: String,
+}
+
+/// 健康检查
+async fn health() -> impl IntoResponse {
+    Json(HealthResponse {
+        status: "ok".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+    })
+}
+
+/// 创建主应用路由
+pub fn create_app(
+    subscription_store: Arc<SubscriptionStore>,
+    settings_store: Arc<SettingsStore>,
+    notification_store: Arc<NotificationStore>,
+    pansou_client: Arc<PanSouClient>,
+) -> Router {
+    // CORS 配置
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    Router::new()
+        .route("/health", get(health))
+        .merge(subscriptions::routes(subscription_store))
+        .merge(settings::routes(settings_store))
+        .merge(search::routes(pansou_client))
+        .merge(notifications::routes(notification_store))
+        .layer(cors)
+}

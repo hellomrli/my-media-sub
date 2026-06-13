@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tokio::sync::RwLock;
 
-/// JSON 文件存储（原子写入）
+/// JSON 文件存储
 pub struct JsonStore<T> {
     /// 数据文件路径
     path: PathBuf,
@@ -45,7 +45,7 @@ where
         Ok(())
     }
 
-    /// 保存数据到文件（原子写入：先写 .tmp，再 replace）
+    /// 保存数据到文件
     pub async fn save(&self) -> Result<()> {
         // 确保目录存在
         if let Some(parent) = self.path.parent() {
@@ -57,13 +57,8 @@ where
         let content = serde_json::to_string_pretty(&*cache)
             .map_err(|e| AppError::Database(format!("Failed to serialize JSON: {}", e)))?;
 
-        // 原子写入：先写临时文件，再 replace
-        let tmp_path = self.path.with_extension("tmp");
-        fs::write(&tmp_path, content)
-            .map_err(|e| AppError::Database(format!("Failed to write tmp file: {}", e)))?;
-
-        fs::rename(&tmp_path, &self.path)
-            .map_err(|e| AppError::Database(format!("Failed to rename tmp file: {}", e)))?;
+        fs::write(&self.path, content)
+            .map_err(|e| AppError::Database(format!("Failed to write file: {}", e)))?;
 
         Ok(())
     }
@@ -106,7 +101,7 @@ where
         F: Fn(&T) -> bool,
     {
         let mut cache = self.cache.write().await;
-
+        
         if let Some(item) = cache.iter_mut().find(|item| predicate(item)) {
             updater(item);
             drop(cache);
@@ -127,11 +122,11 @@ where
         cache.retain(|item| !predicate(item));
         let removed = cache.len() != initial_len;
         drop(cache);
-
+        
         if removed {
             self.save().await?;
         }
-
+        
         Ok(removed)
     }
 
@@ -147,5 +142,55 @@ where
     pub async fn count(&self) -> usize {
         let cache = self.cache.read().await;
         cache.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+    struct TestData {
+        id: String,
+        name: String,
+    }
+
+    #[tokio::test]
+    async fn test_json_store() {
+        let temp_file = std::env::temp_dir().join("test_store.json");
+        let store = JsonStore::new(&temp_file);
+
+        // 加载（空文件）
+        store.load().await.unwrap();
+        assert_eq!(store.count().await, 0);
+
+        // 添加数据
+        let item1 = TestData {
+            id: "1".to_string(),
+            name: "Test 1".to_string(),
+        };
+        store.add(item1.clone()).await.unwrap();
+        assert_eq!(store.count().await, 1);
+
+        // 查找数据
+        let found = store.find(|item| item.id == "1").await;
+        assert_eq!(found, Some(item1.clone()));
+
+        // 更新数据
+        store.update(
+            |item| item.id == "1",
+            |item| item.name = "Updated".to_string(),
+        ).await.unwrap();
+
+        let updated = store.find(|item| item.id == "1").await.unwrap();
+        assert_eq!(updated.name, "Updated");
+
+        // 删除数据
+        store.remove(|item| item.id == "1").await.unwrap();
+        assert_eq!(store.count().await, 0);
+
+        // 清理
+        let _ = fs::remove_file(&temp_file);
     }
 }
