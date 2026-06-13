@@ -12,6 +12,7 @@ use axum::{
 use serde::Serialize;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::ServeDir;
 
 use crate::clients::PanSouClient;
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
@@ -44,11 +45,17 @@ pub fn create_app(
         .allow_methods(Any)
         .allow_headers(Any);
 
+    // 静态文件服务
+    let serve_static = ServeDir::new("static")
+        .append_index_html_on_directories(true);
+
     Router::new()
         .route("/health", get(health))
         .merge(subscriptions::routes(subscription_store))
         .merge(settings::routes(settings_store))
         .merge(search::routes(pansou_client))
         .merge(notifications::routes(notification_store))
+        // 静态文件路由（放在最后，作为 fallback）
+        .nest_service("/", serve_static)
         .layer(cors)
 }
