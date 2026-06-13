@@ -1,11 +1,49 @@
+# Docker Compose 配置
+version: '3.8'
+
 services:
   my-media-sub:
-    build: .
-    container_name: my-media-sub
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: my-media-sub-rust
     restart: unless-stopped
-    env_file:
-      - .env
     ports:
-      - "8787:8787"
+      - "56001:56001"
     volumes:
-      - ./data:/data
+      # 数据持久化
+      - ./data:/app/data
+    environment:
+      # 服务器配置
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=56001
+      - SERVER_USERNAME=admin
+      - SERVER_PASSWORD=change-me
+
+      # 数据目录
+      - DATA_DIR=/app/data
+
+      # 夸克 Cookie（可选）
+      # - QUARK_COOKIE=your_cookie_here
+
+      # 推送配置（可选）
+      # - WECOM_BOT_URL=https://qyapi.weixin.qq.com/...
+      # - TELEGRAM_BOT_TOKEN=your_token
+      # - TELEGRAM_CHAT_ID=your_chat_id
+      # - BARK_URL=https://api.day.app/your_key
+      # - GOTIFY_URL=https://gotify.example.com
+      # - GOTIFY_TOKEN=your_token
+      # - PUSHPLUS_TOKEN=your_token
+      # - SERVERCHAN_KEY=your_key
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:56001/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - media-sub-network
+
+networks:
+  media-sub-network:
+    driver: bridge

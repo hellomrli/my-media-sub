@@ -1,0 +1,16 @@
+# Docker 忽略文件
+target/
+.git/
+.gitignore
+*.log
+.env
+data/
+src.backup/
+*.sh
+README.md
+RUST_MIGRATION_V2.md
+.claude/
+.ruff_cache/
+__pycache__/
+*.pyc
+.pytest_cache/
