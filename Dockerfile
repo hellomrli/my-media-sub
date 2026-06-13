@@ -1,6 +1,6 @@
 # 多阶段构建 Dockerfile for Rust 版本
 # Stage 1: 构建阶段
-FROM rust:1.80-slim as builder
+FROM rust:1.83-slim as builder
 
 WORKDIR /app
 
