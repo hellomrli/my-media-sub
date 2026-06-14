@@ -208,6 +208,16 @@ async fn delete_subscription(
     }
 }
 
+/// 检查响应
+#[derive(Serialize)]
+struct CheckResponse {
+    subscription_id: String,
+    new_files: Vec<String>,
+    new_episodes: Vec<i32>,
+    became_invalid: bool,
+    summary: String,
+}
+
 /// 检查单个订阅
 async fn check_subscription(
     State(state): State<Arc<SubscriptionState>>,
@@ -256,16 +266,6 @@ async fn check_all_subscriptions(
         .collect();
 
     Ok(Json(Response::ok(responses)))
-}
-
-/// 检查响应
-#[derive(Serialize)]
-struct CheckResponse {
-    subscription_id: String,
-    new_files: Vec<String>,
-    new_episodes: Vec<i32>,
-    became_invalid: bool,
-    summary: String,
 }
 
 /// 创建订阅路由

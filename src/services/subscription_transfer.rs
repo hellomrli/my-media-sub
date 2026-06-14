@@ -2,10 +2,38 @@ use std::sync::Arc;
 use tracing::{info, warn};
 
 use crate::clients::quark::{QuarkFile, QuarkShareProbe};
-use crate::clients::quark_save::QuarkSaveClient;
+use crate::clients::quark_save::{QuarkSaveClient, NormalizedItem};
 use crate::error::{AppError, Result};
 use crate::models::subscription::Subscription;
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
+
+/// 递归收集目录下所有视频文件（独立函数，使用 Box 解决递归问题）
+fn collect_video_files_recursive<'a>(
+    save_client: &'a QuarkSaveClient,
+    parent_fid: &'a str,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<NormalizedItem>>> + Send + 'a>> {
+    Box::pin(async move {
+        use crate::services::is_video_name;
+        let mut video_files = Vec::new();
+
+        let items = save_client.list_dir(parent_fid).await?;
+
+        for item in items {
+            if item.is_dir {
+                // 递归进入子目录
+                match collect_video_files_recursive(save_client, &item.fid).await {
+                    Ok(mut sub_videos) => video_files.append(&mut sub_videos),
+                    Err(e) => warn!("读取子目录 {} 失败: {}", item.file_name, e),
+                }
+            } else if is_video_name(&item.file_name) {
+                // 是视频文件，加入列表
+                video_files.push(item);
+            }
+        }
+
+        Ok(video_files)
+    })
+}
 
 /// 订阅自动转存服务
 pub struct SubscriptionTransferService {
@@ -215,37 +243,30 @@ impl SubscriptionTransferService {
         file_names: &[String],
         sub: &Subscription,
     ) -> Result<()> {
-        use crate::services::detect_episode;
+        use crate::services::{detect_episode, is_video_name};
 
-        // 列出目标目录的文件
-        let items = save_client.list_dir(target_fid).await?;
+        info!("开始重命名文件，目标目录 fid: {}", target_fid);
 
-        for file_name in file_names {
-            // 找到对应的文件
-            let item = items.iter().find(|i| &i.file_name == file_name);
-            if item.is_none() {
-                warn!("未找到文件 {} 无法重命名", file_name);
-                continue;
-            }
+        // 递归收集所有视频文件
+        let video_files = collect_video_files_recursive(save_client, target_fid).await?;
+        info!("找到 {} 个视频文件", video_files.len());
 
-            let item = item.unwrap();
-            if item.is_dir {
-                continue; // 跳过目录
-            }
-
+        // 只重命名本次转存的文件对应的视频
+        // 通过文件名匹配（transferred_files 中可能包含文件夹名）
+        for video_file in &video_files {
             // 提取集数
-            let episode_info = detect_episode(file_name);
+            let episode_info = detect_episode(&video_file.file_name);
             if episode_info.episode.is_none() {
-                warn!("无法从 {} 提取集数，跳过重命名", file_name);
+                info!("无法从 {} 提取集数，跳过重命名", video_file.file_name);
                 continue;
             }
 
             let episode_num = episode_info.episode.unwrap();
 
             // 生成新文件名
-            let new_name = if sub.rules.rename_template.contains("{}") {
+            let new_name = if sub.rules.rename_template.contains("") {
                 // 模板格式: "动画名称.S01E{}"
-                let ext = std::path::Path::new(file_name)
+                let ext = std::path::Path::new(&video_file.file_name)
                     .extension()
                     .and_then(|e| e.to_str())
                     .unwrap_or("mkv");
@@ -256,15 +277,16 @@ impl SubscriptionTransferService {
             };
 
             // 如果新旧文件名相同，跳过
-            if new_name == *file_name {
+            if new_name == video_file.file_name {
+                info!("文件名已经匹配模板，跳过: {}", video_file.file_name);
                 continue;
             }
 
             // 执行重命名
-            info!("重命名: {} -> {}", file_name, new_name);
-            match save_client.rename_item(&item.fid, &new_name).await {
+            info!("重命名: {} -> {}", video_file.file_name, new_name);
+            match save_client.rename_item(&video_file.fid, &new_name).await {
                 Ok(_) => info!("重命名成功: {}", new_name),
-                Err(e) => warn!("重命名失败 {}: {}", file_name, e),
+                Err(e) => warn!("重命名失败 {}: {}", video_file.file_name, e),
             }
         }
 
