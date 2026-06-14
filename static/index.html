@@ -281,16 +281,16 @@
             <template x-for="sub in subscriptions" :key="sub.id">
               <div class="bg-dark-card rounded-lg p-5 border border-dark-border hover:border-blue-500 transition-colors">
                 <div class="flex justify-between items-start mb-3">
-                  <h4 class="text-white font-semibold text-lg" x-text="sub.name"></h4>
+                  <h4 class="text-white font-semibold text-lg" x-text="sub.title"></h4>
                   <span :class="{'bg-green-600/20 text-green-400': sub.status === 'active', 'bg-gray-600/20 text-gray-400': sub.status === 'completed', 'bg-red-600/20 text-red-400': sub.status === 'invalid'}" class="px-2 py-1 rounded text-xs font-medium" x-text="sub.status"></span>
                 </div>
                 <div class="space-y-2 text-sm text-gray-400 mb-4">
-                  <div class="flex items-center gap-2"><span class="w-16">类型:</span><span x-text="sub.media_type" class="text-blue-400"></span></div>
-                  <div class="flex items-center gap-2"><span class="w-16">关键词:</span><span x-text="sub.keywords.join(', ')" class="text-gray-300"></span></div>
-                  <div x-show="sub.latest_episode" class="flex items-center gap-2"><span class="w-16">最新:</span><span x-text="'第' + sub.latest_episode + '集'" class="text-green-400"></span></div>
+                  <div class="flex items-center gap-2"><span class="w-20">媒体类型:</span><span x-text="sub.media_type" class="text-blue-400"></span></div>
+                  <div x-show="sub.current_episode_number > 0" class="flex items-center gap-2"><span class="w-20">当前进度:</span><span x-text="'第 ' + sub.current_episode_number + ' 集'" class="text-green-400"></span></div>
+                  <div class="flex items-center gap-2"><span class="w-20">最后检查:</span><span x-text="new Date(sub.last_checked_at * 1000).toLocaleString()" class="text-gray-400 text-xs"></span></div>
                 </div>
                 <div class="flex gap-2">
-                  <button @click="editSubscription(sub)" class="flex-1 px-3 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded transition-colors text-sm">编辑</button>
+                  <button @click="checkSubscription(sub.id)" class="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-sm">立即检查</button>
                   <button @click="deleteSubscription(sub.id)" class="px-3 py-2 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded transition-colors text-sm">删除</button>
                 </div>
               </div>
@@ -1048,9 +1048,35 @@
           try {
             const response = await fetch('/api/subscriptions');
             const data = await response.json();
-            this.subscriptions = data.subscriptions || [];
+            this.subscriptions = data.data || [];
+            console.log('加载订阅:', this.subscriptions.length, '个');
           } catch (error) {
             console.error('加载订阅失败:', error);
+          }
+        },
+
+        async checkSubscription(id) {
+          try {
+            this.showNotification('info', '正在检查订阅...');
+            const response = await fetch(`/api/subscriptions/${id}/check`, {
+              method: 'POST'
+            });
+            const data = await response.json();
+
+            if (response.ok && data.data) {
+              const result = data.data;
+              if (result.new_files.length > 0) {
+                this.showNotification('success', `发现 ${result.new_files.length} 个新文件`);
+              } else {
+                this.showNotification('info', '无更新');
+              }
+              await this.loadSubscriptions();
+            } else {
+              this.showNotification('error', data.message || '检查失败');
+            }
+          } catch (error) {
+            console.error('检查订阅失败:', error);
+            this.showNotification('error', '检查订阅失败');
           }
         },
 

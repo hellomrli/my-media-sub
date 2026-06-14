@@ -185,10 +185,16 @@ impl SubscriptionTransferService {
             .save_share_files(&pwd_id, &stoken, &fid_list, &fid_token_list, &target_fid)
             .await?;
 
-        // 9. 更新订阅的 transferred_files
+        // 9. 如果设置了重命名模板，执行重命名
+        if !sub.rules.rename_template.is_empty() {
+            info!("开始重命名文件，模板: {}", sub.rules.rename_template);
+            self.rename_transferred_files(&save_client, &target_fid, new_file_names, &sub).await?;
+        }
+
+        // 10. 更新订阅的 transferred_files
         self.mark_files_as_transferred(&sub.id, new_file_names).await?;
 
-        // 10. 发送转存成功通知
+        // 11. 发送转存成功通知
         self.send_transfer_notification(&sub, new_file_names, &target_dir).await;
 
         info!("成功转存 {} 个文件", fid_list.len());
@@ -199,6 +205,70 @@ impl SubscriptionTransferService {
             skipped: false,
             reason: format!("已转存到 {}", target_dir),
         })
+    }
+
+    /// 重命名转存后的文件
+    async fn rename_transferred_files(
+        &self,
+        save_client: &QuarkSaveClient,
+        target_fid: &str,
+        file_names: &[String],
+        sub: &Subscription,
+    ) -> Result<()> {
+        use crate::services::detect_episode;
+
+        // 列出目标目录的文件
+        let items = save_client.list_dir(target_fid).await?;
+
+        for file_name in file_names {
+            // 找到对应的文件
+            let item = items.iter().find(|i| &i.file_name == file_name);
+            if item.is_none() {
+                warn!("未找到文件 {} 无法重命名", file_name);
+                continue;
+            }
+
+            let item = item.unwrap();
+            if item.is_dir {
+                continue; // 跳过目录
+            }
+
+            // 提取集数
+            let episode_info = detect_episode(file_name);
+            if episode_info.episode.is_none() {
+                warn!("无法从 {} 提取集数，跳过重命名", file_name);
+                continue;
+            }
+
+            let episode_num = episode_info.episode.unwrap();
+
+            // 生成新文件名
+            let new_name = if sub.rules.rename_template.contains("{}") {
+                // 模板格式: "动画名称.S01E{}"
+                let ext = std::path::Path::new(file_name)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("mkv");
+                format!("{}.{}", sub.rules.rename_template.replace("{}", &format!("{:02}", episode_num)), ext)
+            } else {
+                warn!("重命名模板格式不正确: {}", sub.rules.rename_template);
+                continue;
+            };
+
+            // 如果新旧文件名相同，跳过
+            if new_name == *file_name {
+                continue;
+            }
+
+            // 执行重命名
+            info!("重命名: {} -> {}", file_name, new_name);
+            match save_client.rename_item(&item.fid, &new_name).await {
+                Ok(_) => info!("重命名成功: {}", new_name),
+                Err(e) => warn!("重命名失败 {}: {}", file_name, e),
+            }
+        }
+
+        Ok(())
     }
 
     /// 确定目标目录

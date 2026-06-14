@@ -108,32 +108,8 @@ async fn list_drive(
 
     match client.list_dir(&fid).await {
         Ok(items) => {
-            // 将 HashMap 转换为 NormalizedItem
-            let normalized: Vec<NormalizedItem> = items
-                .iter()
-                .filter_map(|item| {
-                    let fid = item.get("fid")?.as_str()?.to_string();
-                    let file_name = item.get("file_name")?.as_str()?.to_string();
-                    let file = item.get("file")?.as_bool().unwrap_or(true);
-                    let size = item.get("size")?.as_i64().unwrap_or(0);
-                    let updated_at = item
-                        .get("updated_at")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0)
-                        .to_string();
-
-                    Some(NormalizedItem {
-                        fid,
-                        file_name,
-                        file,
-                        is_dir: !file,
-                        size,
-                        updated_at,
-                    })
-                })
-                .collect();
-
-            Ok(Json(ListResponse { list: normalized }))
+            // items 已经是 Vec<NormalizedItem>，直接返回
+            Ok(Json(ListResponse { list: items }))
         }
         Err(e) => {
             tracing::error!("列出目录失败: {}", e);
