@@ -740,8 +740,7 @@
         // ===== 网盘 =====
         async loadDrive() {
           try {
-            const path = encodeURIComponent(this.driveCurrentPath);
-            const response = await fetch(`/api/drive?path=${path}`);
+            const response = await fetch(`/api/drive?fid=${this.driveCurrentFid}`);
             const data = await response.json();
             this.driveItems = data.list || [];
           } catch (error) {
@@ -751,15 +750,21 @@
         },
 
         driveGoBack() {
-          const parts = this.driveCurrentPath.split('/').filter(p => p);
-          parts.pop();
-          this.driveCurrentPath = '/' + parts.join('/');
-          this.loadDrive();
+          if (this.driveFidStack.length > 1) {
+            this.driveFidStack.pop();
+            const parent = this.driveFidStack[this.driveFidStack.length - 1];
+            this.driveCurrentFid = parent.fid;
+            this.driveCurrentPath = this.driveFidStack.map(d => d.name).join('/') || '/';
+            this.loadDrive();
+          }
         },
 
         driveItemClick(item) {
           if (!item.file) {
-            this.driveCurrentPath = this.driveCurrentPath === '/' ? `/${item.file_name}` : `${this.driveCurrentPath}/${item.file_name}`;
+            // 进入子目录
+            this.driveFidStack.push({fid: item.fid, name: item.file_name});
+            this.driveCurrentFid = item.fid;
+            this.driveCurrentPath = this.driveFidStack.map(d => d.name).join('/');
             this.loadDrive();
           }
         },
