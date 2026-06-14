@@ -98,8 +98,8 @@ impl QuarkShareProbe {
             .map(|m| m.as_str().to_string())
     }
 
-    /// 获取分享 token
-    async fn get_share_token(
+    /// 获取分享 token（公开方法，用于转存功能）
+    pub async fn get_share_token(
         &self,
         pwd_id: &str,
         passcode: &str,

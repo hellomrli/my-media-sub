@@ -3,6 +3,7 @@ pub mod settings;
 pub mod search;
 pub mod notifications;
 pub mod drive;
+pub mod transfer;
 
 use axum::{
     http::StatusCode,
@@ -56,9 +57,10 @@ pub fn create_app(
         .route("/health", get(health))
         .merge(subscriptions::routes(subscription_store))
         .merge(settings::routes(settings_store.clone()))
-        .merge(search::routes(pansou_client, quark_probe))
+        .merge(search::routes(pansou_client, quark_probe.clone()))
         .merge(notifications::routes(notification_store))
-        .merge(drive::routes(settings_store))
+        .merge(drive::routes(settings_store.clone()))
+        .merge(transfer::routes(settings_store, quark_probe))
         .fallback_service(serve_static)
         .layer(cors)
 }
