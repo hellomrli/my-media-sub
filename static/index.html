@@ -170,15 +170,19 @@
           <div x-show="searchResults.length > 0" class="space-y-3">
             <template x-for="(result, idx) in searchResults" :key="idx">
               <div class="bg-dark-card rounded-lg p-4 border border-dark-border hover:border-blue-500 transition-colors">
-                <div class="flex justify-between items-start">
-                  <div class="flex-1">
-                    <h4 class="text-white font-medium mb-2" x-text="result.title"></h4>
-                    <div class="flex gap-4 text-sm text-gray-400">
-                      <span x-text="result.cloud_type" class="px-2 py-1 bg-blue-600/20 text-blue-400 rounded"></span>
-                      <span x-text="result.size"></span>
-                    </div>
+                <div class="flex justify-between items-start gap-4">
+                  <div x-show="result.images && result.images.length > 0" class="flex-shrink-0">
+                    <img :src="result.images[0]" :alt="result.note" class="w-20 h-28 object-cover rounded" onerror="this.style.display='none'" />
                   </div>
-                  <button @click="createSubscriptionFromSearch(result)" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-colors">订阅</button>
+                  <div class="flex-1">
+                    <h4 class="text-white font-medium mb-2" x-text="result.note"></h4>
+                    <div class="flex gap-4 text-sm text-gray-400 mb-2">
+                      <span x-text="result.cloud_type" class="px-2 py-1 bg-blue-600/20 text-blue-400 rounded"></span>
+                      <span x-show="result.source" x-text="result.source" class="text-gray-500"></span>
+                    </div>
+                    <a :href="result.url" target="_blank" class="text-xs text-blue-400 hover:text-blue-300 break-all" x-text="result.url"></a>
+                  </div>
+                  <button @click="createSubscriptionFromSearch(result)" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-colors flex-shrink-0">订阅</button>
                 </div>
               </div>
             </template>
@@ -615,7 +619,7 @@
         },
 
         createSubscriptionFromSearch(result) {
-          this.newSubscription = {name: result.title, media_type: 'series', keywords: result.title};
+          this.newSubscription = {name: result.note, media_type: 'series', keywords: result.note};
           this.showAddSubscription = true;
         },
 
