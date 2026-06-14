@@ -8,7 +8,7 @@ test_settings.json
 *.sqlite
 *.sqlite3
 
-# Python
+# Python (legacy)
 __pycache__/
 *.py[cod]
 *$py.class
@@ -17,6 +17,17 @@ __pycache__/
 venv/
 ENV/
 env/
+.ruff_cache/
+
+# Rust
+/target
+Cargo.lock
+
+# 构建产物
+*.tar.gz
+*.zip
+*.deb
+*.rpm
 
 # IDE
 .vscode/
@@ -28,15 +39,12 @@ env/
 .DS_Store
 Thumbs.db
 
-# Logs
+# Logs 和运行时
 *.log
 nohup.out
+logs/
+.local-runtime/
 
 # Git credentials
 .git-credentials
 data/push_history.json
-
-
-# Added by cargo
-
-/target
