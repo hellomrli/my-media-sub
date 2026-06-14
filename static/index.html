@@ -1049,7 +1049,13 @@
           try {
             const response = await fetch('/api/settings');
             const data = await response.json();
-            this.settings = {...this.settings, ...data};
+            // 直接使用服务器返回的 data 对象
+            if (data.data) {
+              this.settings = {...this.settings, ...data.data};
+            } else {
+              this.settings = {...this.settings, ...data};
+            }
+            console.log('✅ 设置已加载:', this.settings);
           } catch (error) {
             console.error('加载设置失败:', error);
           }
