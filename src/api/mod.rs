@@ -2,6 +2,7 @@ pub mod subscriptions;
 pub mod settings;
 pub mod search;
 pub mod notifications;
+pub mod quark;
 
 use axum::{
     http::StatusCode,
@@ -57,6 +58,7 @@ pub fn create_app(
         .merge(settings::routes(settings_store))
         .merge(search::routes(pansou_client, quark_probe))
         .merge(notifications::routes(notification_store))
+        .merge(quark::routes())
         .fallback_service(serve_static)  // 关键修复：使用 fallback_service
         .layer(cors)
 }
