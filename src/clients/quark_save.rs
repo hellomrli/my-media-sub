@@ -137,7 +137,7 @@ impl QuarkSaveClient {
     // ── 目录管理 ──────────────────────────────────────────
 
     /// 列出目录内容
-    pub async fn list_dir(&self, parent_fid: &str) -> Result<Vec<HashMap<String, Value>>> {
+    pub async fn list_dir(&self, parent_fid: &str) -> Result<Vec<NormalizedItem>> {
         let data = self
             .get(
                 "/file/sort",
@@ -162,8 +162,14 @@ impl QuarkSaveClient {
             .and_then(|d| d.get("list").cloned())
             .and_then(|v| v.as_array().cloned())
             .unwrap_or_default()
-            .into_iter()
-            .filter_map(|v| v.as_object().map(|o| o.iter().map(|(k, v)| (k.clone(), v.clone())).collect()))
+            .iter()
+            .filter_map(|v| v.as_object())
+            .map(|item| {
+                let map: HashMap<String, Value> = item.iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                Self::normalize_item(&map)
+            })
             .collect();
 
         Ok(list)
@@ -234,21 +240,8 @@ impl QuarkSaveClient {
             let mut found = None;
 
             for item in items {
-                let name = item
-                    .get("file_name")
-                    .or_else(|| item.get("name"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let is_dir = item.get("dir").and_then(|v| v.as_bool()).unwrap_or(false)
-                    || (item.get("file").and_then(|v| v.as_bool()) == Some(false))
-                    || (item.get("file_type").and_then(|v| v.as_i64()) == Some(0));
-
-                if is_dir && name == part {
-                    found = item
-                        .get("fid")
-                        .or_else(|| item.get("file_id"))
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
+                if item.is_dir && item.file_name == part {
+                    found = Some(item.fid.clone());
                     break;
                 }
             }
