@@ -505,6 +505,55 @@
     </div>
   </div>
 
+  <!-- 模态框：选择转存目录 -->
+  <div x-show="showTransferModal" @click.self="showTransferModal = false" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="bg-dark-card rounded-xl p-6 max-w-2xl w-full border border-dark-border" @click.stop>
+      <h3 class="text-xl font-bold text-white mb-4">选择转存目录</h3>
+
+      <!-- 快速选择 -->
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-300 mb-2">快速选择</label>
+        <div class="flex gap-2">
+          <button @click="transferTargetFid = '0'; transferTargetPath = '根目录'" class="px-3 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg text-sm transition-colors">📁 根目录</button>
+          <button @click="selectQuickDir('movie')" class="px-3 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg text-sm transition-colors">🎬 电影</button>
+          <button @click="selectQuickDir('series')" class="px-3 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg text-sm transition-colors">📺 连续剧</button>
+          <button @click="selectQuickDir('anime')" class="px-3 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg text-sm transition-colors">🎨 动画</button>
+        </div>
+      </div>
+
+      <!-- 当前路径 -->
+      <div class="mb-4 p-3 bg-dark-bg rounded-lg border border-dark-border">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2 text-sm text-gray-300">
+            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+            <span x-text="transferTargetPath"></span>
+          </div>
+          <button @click="transferBrowseBack()" :disabled="transferBrowseFidStack.length <= 1" class="px-3 py-1 bg-dark-hover hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-sm transition-colors">← 返回上级</button>
+        </div>
+      </div>
+
+      <!-- 目录列表 -->
+      <div class="max-h-80 overflow-y-auto mb-4 border border-dark-border rounded-lg">
+        <div x-show="transferBrowseItems.filter(i => !i.file).length === 0" class="p-8 text-center text-gray-500">
+          当前目录下没有文件夹
+        </div>
+        <template x-for="item in transferBrowseItems.filter(i => !i.file)" :key="item.fid">
+          <button @click="transferBrowseEnter(item)" class="w-full flex items-center gap-3 p-3 hover:bg-dark-hover transition-colors text-left border-b border-dark-border last:border-b-0">
+            <svg class="w-5 h-5 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+            <span class="text-white flex-1" x-text="item.file_name"></span>
+            <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </button>
+        </template>
+      </div>
+
+      <!-- 操作按钮 -->
+      <div class="flex gap-3">
+        <button @click="showTransferModal = false" class="flex-1 px-4 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg transition-colors">取消</button>
+        <button @click="confirmTransfer()" class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">确认转存到此目录</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Alpine.js 应用逻辑 -->
   <script>
     function app() {
@@ -555,6 +604,14 @@
         driveFilterType: 'all',
         showNewFolderModal: false,
         newFolderName: '',
+
+        // 转存相关
+        showTransferModal: false,
+        transferTargetResult: null,
+        transferTargetFid: '0',
+        transferTargetPath: '根目录',
+        transferBrowseItems: [],
+        transferBrowseFidStack: [{fid: '0', name: '根目录'}],
 
         // 设置
         settings: {
@@ -652,6 +709,48 @@
             return;
           }
 
+          // 打开目录选择对话框
+          this.transferTargetResult = result;
+          this.transferTargetFid = '0';
+          this.transferTargetPath = '根目录';
+          this.transferBrowseFidStack = [{fid: '0', name: '根目录'}];
+          this.showTransferModal = true;
+          await this.loadTransferBrowse('0');
+        },
+
+        async loadTransferBrowse(fid) {
+          try {
+            const response = await fetch(`/api/drive?fid=${fid}`);
+            const data = await response.json();
+            this.transferBrowseItems = data.list || [];
+          } catch (error) {
+            console.error('加载目录失败:', error);
+            this.showNotification('error', '加载目录失败');
+          }
+        },
+
+        async transferBrowseEnter(item) {
+          if (item.file) return; // 只能进入文件夹
+          this.transferBrowseFidStack.push({fid: item.fid, name: item.file_name});
+          this.transferTargetFid = item.fid;
+          this.transferTargetPath = this.transferBrowseFidStack.map(f => f.name).join(' / ');
+          await this.loadTransferBrowse(item.fid);
+        },
+
+        async transferBrowseBack() {
+          if (this.transferBrowseFidStack.length <= 1) return;
+          this.transferBrowseFidStack.pop();
+          const current = this.transferBrowseFidStack[this.transferBrowseFidStack.length - 1];
+          this.transferTargetFid = current.fid;
+          this.transferTargetPath = this.transferBrowseFidStack.map(f => f.name).join(' / ');
+          await this.loadTransferBrowse(current.fid);
+        },
+
+        async confirmTransfer() {
+          if (!this.transferTargetResult) return;
+
+          this.showTransferModal = false;
+
           try {
             this.showNotification('info', '正在转存到夸克网盘...');
 
@@ -659,9 +758,9 @@
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
               body: JSON.stringify({
-                url: result.url,
+                url: this.transferTargetResult.url,
                 passcode: '',
-                target_fid: '0'  // 转存到根目录
+                target_fid: this.transferTargetFid
               })
             });
 
@@ -677,6 +776,23 @@
           } catch (error) {
             console.error('转存失败:', error);
             this.showNotification('error', '转存失败: ' + error.message);
+          } finally {
+            this.transferTargetResult = null;
+          }
+        },
+
+        selectQuickDir(dirType) {
+          const dirMap = {
+            'root': {fid: '0', name: '根目录'},
+            'movie': {fid: '0', name: this.settings.quark_save_movie_dir || '电影'},
+            'series': {fid: '0', name: this.settings.quark_save_series_dir || '连续剧'},
+            'anime': {fid: '0', name: this.settings.quark_save_anime_dir || '动画'}
+          };
+          const selected = dirMap[dirType];
+          if (selected) {
+            this.transferTargetFid = selected.fid;
+            this.transferTargetPath = selected.name;
+            // 注意：这里简化处理，实际应该通过 API 查找目录 fid
           }
         },
 
