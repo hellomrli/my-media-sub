@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use crate::error::{AppError, Result};
 use crate::models::Subscription;
-use crate::services::{CheckResult, SubscriptionCheckService};
+use crate::services::{CheckResult, SubscriptionCheckService, SubscriptionTransferService};
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
 /// 订阅路由状态
@@ -262,10 +262,16 @@ pub fn routes(
     settings_store: Arc<SettingsStore>,
     notification_store: Arc<NotificationStore>,
 ) -> Router {
-    let check_service = Arc::new(SubscriptionCheckService::new(
+    let transfer_service = Arc::new(SubscriptionTransferService::new(
         store.clone(),
+        settings_store.clone(),
         notification_store.clone(),
     ));
+
+    let check_service = Arc::new(
+        SubscriptionCheckService::new(store.clone(), notification_store.clone())
+            .with_transfer_service(transfer_service),
+    );
 
     let state = Arc::new(SubscriptionState {
         store,

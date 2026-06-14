@@ -5,11 +5,13 @@ use crate::clients::quark::QuarkShareProbe;
 use crate::error::{AppError, Result};
 use crate::models::subscription::{CheckHistoryItem, ProbeFile, ProbeResult, Subscription};
 use crate::store::{NotificationStore, SubscriptionStore};
+use crate::services::SubscriptionTransferService;
 
 /// 订阅检查服务
 pub struct SubscriptionCheckService {
     subscription_store: Arc<SubscriptionStore>,
     notification_store: Arc<NotificationStore>,
+    transfer_service: Option<Arc<SubscriptionTransferService>>,
 }
 
 impl SubscriptionCheckService {
@@ -20,7 +22,14 @@ impl SubscriptionCheckService {
         Self {
             subscription_store,
             notification_store,
+            transfer_service: None,
         }
+    }
+
+    /// 设置转存服务（可选，用于自动转存）
+    pub fn with_transfer_service(mut self, transfer_service: Arc<SubscriptionTransferService>) -> Self {
+        self.transfer_service = Some(transfer_service);
+        self
     }
 
     /// 检查单个订阅
@@ -76,6 +85,22 @@ impl SubscriptionCheckService {
         if !new_file_names.is_empty() {
             self.send_update_notification(&sub, &new_file_names, &new_episodes)
                 .await;
+        }
+
+        // 6. 自动转存（如果配置了转存服务）
+        if !new_file_names.is_empty() {
+            if let Some(transfer_service) = &self.transfer_service {
+                match transfer_service.auto_transfer_new_files(&sub.id, &new_file_names).await {
+                    Ok(result) => {
+                        if !result.skipped {
+                            info!("自动转存成功: {}", result.reason);
+                        }
+                    }
+                    Err(e) => {
+                        warn!("自动转存失败: {}", e);
+                    }
+                }
+            }
         }
 
         Ok(CheckResult {
