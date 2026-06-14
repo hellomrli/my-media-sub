@@ -2,7 +2,7 @@ pub mod subscriptions;
 pub mod settings;
 pub mod search;
 pub mod notifications;
-pub mod quark;
+pub mod drive;
 
 use axum::{
     http::StatusCode,
@@ -55,10 +55,10 @@ pub fn create_app(
     Router::new()
         .route("/health", get(health))
         .merge(subscriptions::routes(subscription_store))
-        .merge(settings::routes(settings_store))
+        .merge(settings::routes(settings_store.clone()))
         .merge(search::routes(pansou_client, quark_probe))
         .merge(notifications::routes(notification_store))
-        .merge(quark::routes())
-        .fallback_service(serve_static)  // 关键修复：使用 fallback_service
+        .merge(drive::routes(settings_store))
+        .fallback_service(serve_static)
         .layer(cors)
 }
