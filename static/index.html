@@ -24,9 +24,55 @@
     ::-webkit-scrollbar-track { background: #0f1419; }
     ::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+
+    /* Toast notification styles */
+    .toast-container {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      pointer-events: none;
+    }
+
+    .toast {
+      pointer-events: auto;
+      padding: 16px 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 300px;
+      max-width: 500px;
+      animation: slideIn 0.3s ease-out;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    .toast-success { background: #065f46; border-color: #10b981; }
+    .toast-error { background: #7f1d1d; border-color: #ef4444; }
+    .toast-info { background: #1e3a8a; border-color: #3b82f6; }
+    .toast-warning { background: #78350f; border-color: #f59e0b; }
   </style>
 </head>
 <body class="bg-dark-bg text-gray-200 min-h-screen" x-data="app()" x-cloak>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
   <div class="flex h-screen overflow-hidden">
 
     <!-- 侧边栏 -->
@@ -124,19 +170,15 @@
           <div x-show="searchResults.length > 0" class="space-y-3">
             <template x-for="(result, idx) in searchResults" :key="idx">
               <div class="bg-dark-card rounded-lg p-4 border border-dark-border hover:border-blue-500 transition-colors">
-                <div class="flex justify-between items-start gap-4">
-                  <div x-show="result.images && result.images.length > 0" class="flex-shrink-0">
-                    <img :src="result.images[0]" :alt="result.note" class="w-20 h-28 object-cover rounded" onerror="this.style.display='none'" />
-                  </div>
+                <div class="flex justify-between items-start">
                   <div class="flex-1">
-                    <h4 class="text-white font-medium mb-2" x-text="result.note"></h4>
-                    <div class="flex gap-4 text-sm text-gray-400 mb-2">
+                    <h4 class="text-white font-medium mb-2" x-text="result.title"></h4>
+                    <div class="flex gap-4 text-sm text-gray-400">
                       <span x-text="result.cloud_type" class="px-2 py-1 bg-blue-600/20 text-blue-400 rounded"></span>
-                      <span x-show="result.source" x-text="result.source" class="text-gray-500"></span>
+                      <span x-text="result.size"></span>
                     </div>
-                    <a :href="result.url" target="_blank" class="text-xs text-blue-400 hover:text-blue-300 break-all" x-text="result.url"></a>
                   </div>
-                  <button @click="createSubscriptionFromSearch(result)" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-colors flex-shrink-0">订阅</button>
+                  <button @click="createSubscriptionFromSearch(result)" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-colors">订阅</button>
                 </div>
               </div>
             </template>
@@ -553,31 +595,22 @@
           this.searching = true;
           this.searchResults = [];
           try {
-            const response = await fetch('/api/search', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({
-                keyword: this.searchQuery,
-                limit: 50
-              })
-            });
+            const params = new URLSearchParams({query: this.searchQuery});
+            if (this.selectedCloudTypes.length > 0) params.append('cloud_types', this.selectedCloudTypes.join(','));
+            const response = await fetch(`/api/search?${params}`);
             const data = await response.json();
-            this.searchResults = data.data || [];
-            if (this.searchResults.length > 0) {
-              this.showNotification('success', `找到 ${this.searchResults.length} 个结果`);
-            } else {
-              this.showNotification('info', '未找到结果');
-            }
+            this.searchResults = data.results || [];
+            this.showNotification('success', `找到 ${this.searchResults.length} 个结果`);
           } catch (error) {
             console.error('搜索失败:', error);
-            this.showNotification('error', '搜索失败：' + error.message);
+            this.showNotification('error', '搜索失败');
           } finally {
             this.searching = false;
           }
         },
 
         createSubscriptionFromSearch(result) {
-          this.newSubscription = {name: result.note, media_type: 'series', keywords: result.note};
+          this.newSubscription = {name: result.title, media_type: 'series', keywords: result.title};
           this.showAddSubscription = true;
         },
 
@@ -767,11 +800,49 @@
         },
 
         sortDriveItems() {
-          // 客户端排序逻辑
+          const items = [...this.driveItems];
+          items.sort((a, b) => {
+            // 文件夹优先
+            if (!a.file && b.file) return -1;
+            if (a.file && !b.file) return 1;
+
+            if (this.driveSortBy === 'name') {
+              return a.file_name.localeCompare(b.file_name, 'zh-CN');
+            } else if (this.driveSortBy === 'size') {
+              return (b.size || 0) - (a.size || 0);
+            } else if (this.driveSortBy === 'time') {
+              return (b.updated_at || 0) - (a.updated_at || 0);
+            }
+            return 0;
+          });
+          this.driveItems = items;
         },
 
         filterDriveItems() {
           // 由 computed 属性处理
+        },
+
+        async batchDeleteDrive() {
+          if (this.driveSelectedItems.length === 0) return;
+          if (!confirm(`确定删除选中的 ${this.driveSelectedItems.length} 个项目？`)) return;
+
+          try {
+            const promises = this.driveSelectedItems.map(fid =>
+              fetch('/api/drive/delete', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({fid})
+              })
+            );
+            await Promise.all(promises);
+            this.showNotification('success', `已删除 ${this.driveSelectedItems.length} 项`);
+            this.driveSelectedItems = [];
+            this.driveSelectMode = false;
+            await this.loadDrive();
+          } catch (error) {
+            console.error('批量删除失败:', error);
+            this.showNotification('error', '批量删除失败');
+          }
         },
 
         formatSize(bytes) {
@@ -814,18 +885,85 @@
         },
 
         async testQuark() {
-          this.showNotification('info', '测试中...');
-          // TODO: 实现测试逻辑
+          this.showNotification('info', '测试夸克连接中...');
+          try {
+            const response = await fetch('/api/quark/test', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({cookie: this.settings.quark_cookie})
+            });
+            const data = await response.json();
+            if (response.ok && data.success) {
+              this.showNotification('success', `测试成功！用户: ${data.nickname || '未知'}`);
+            } else {
+              this.showNotification('error', data.error || '测试失败，请检查 Cookie');
+            }
+          } catch (error) {
+            console.error('测试失败:', error);
+            this.showNotification('error', '连接失败，请检查配置');
+          }
         },
 
         async testPush() {
-          this.showNotification('info', '发送测试推送...');
-          // TODO: 实现测试逻辑
+          this.showNotification('info', '发送测试推送中...');
+          try {
+            const response = await fetch('/api/push/test', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({
+                title: '测试推送',
+                message: '这是一条来自媒体订阅系统的测试消息',
+                settings: this.settings
+              })
+            });
+            const data = await response.json();
+            if (response.ok) {
+              const sent = data.sent || [];
+              if (sent.length > 0) {
+                this.showNotification('success', `推送成功：${sent.join(', ')}`);
+              } else {
+                this.showNotification('warning', '未配置推送渠道或推送失败');
+              }
+            } else {
+              this.showNotification('error', data.error || '推送失败');
+            }
+          } catch (error) {
+            console.error('推送失败:', error);
+            this.showNotification('error', '推送失败，请检查配置');
+          }
         },
 
         showNotification(type, message) {
-          console.log(`[${type}] ${message}`);
-          alert(message);
+          const container = document.getElementById('toastContainer');
+          if (!container) {
+            console.log(`[${type}] ${message}`);
+            alert(message);
+            return;
+          }
+
+          const toast = document.createElement('div');
+          toast.className = `toast toast-${type}`;
+
+          const icon = {
+            success: '✓',
+            error: '✕',
+            warning: '⚠',
+            info: 'ℹ'
+          }[type] || 'ℹ';
+
+          toast.innerHTML = `
+            <span style="font-size: 20px; font-weight: bold;">${icon}</span>
+            <span style="flex: 1; color: white;">${message}</span>
+          `;
+
+          container.appendChild(toast);
+
+          setTimeout(() => {
+            toast.style.transition = 'all 0.3s ease-out';
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateX(400px)';
+            setTimeout(() => toast.remove(), 300);
+          }, 3000);
         }
       }
     }
