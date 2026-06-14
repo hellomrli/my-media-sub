@@ -156,15 +156,36 @@ async fn save_with_probe(
         crate::error::AppError::Http("未能获取分享 token".to_string())
     })?;
 
-    // 2. 收集顶层文件的 fid 和 share_fid_token
+    tracing::info!("转存: pwd_id={}, stoken={}, target_fid={}", pwd_id, stoken, target_fid);
+
+    // 2. 重新列出分享文件以获取最新的 share_fid_token
+    // 这是关键：不能使用探测时的 token，需要重新获取
+    let (fresh_files, err) = probe.list_share_files(pwd_id, &stoken, "0").await?;
+
+    if let Some(err_msg) = err {
+        return Err(crate::error::AppError::Http(format!("重新获取文件列表失败: {}", err_msg)));
+    }
+
+    // 3. 收集顶层文件的 fid 和 share_fid_token
     let mut fid_list = Vec::new();
     let mut fid_token_list = Vec::new();
 
-    for file in files {
-        // 只转存顶层的文件和文件夹
-        if !file.fid.is_empty() && !file.share_fid_token.is_empty() {
-            fid_list.push(file.fid.clone());
-            fid_token_list.push(file.share_fid_token.clone());
+    for item in &fresh_files {
+        let fid = item
+            .get("fid")
+            .or_else(|| item.get("file_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let share_fid_token = item
+            .get("share_fid_token")
+            .or_else(|| item.get("file_token"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        if !fid.is_empty() && !share_fid_token.is_empty() {
+            fid_list.push(fid.to_string());
+            fid_token_list.push(share_fid_token.to_string());
+            tracing::debug!("文件: {} -> token: {}", fid, share_fid_token);
         }
     }
 
@@ -174,7 +195,9 @@ async fn save_with_probe(
         ));
     }
 
-    // 3. 调用转存 API
+    tracing::info!("准备转存 {} 个文件/文件夹", fid_list.len());
+
+    // 4. 调用转存 API
     save_client
         .save_share_files(pwd_id, &stoken, &fid_list, &fid_token_list, target_fid)
         .await?;
