@@ -273,6 +273,12 @@ impl SubscriptionTransferService {
 
     /// 确定目标目录
     fn determine_target_directory(&self, sub: &Subscription, settings: &crate::models::Settings) -> String {
+        // 如果订阅设置了 target_dir，优先使用
+        if !sub.rules.target_dir.is_empty() {
+            return sub.rules.target_dir.clone();
+        }
+
+        // 否则根据媒体类型选择分类目录
         let base = if settings.quark_save_root.is_empty() {
             String::new()
         } else {

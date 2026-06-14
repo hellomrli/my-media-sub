@@ -34,6 +34,14 @@ pub struct CreateSubscriptionRequest {
     pub season: i32,
     #[serde(default)]
     pub cloud_type: String,
+    #[serde(default)]
+    pub target_dir: String,
+    #[serde(default)]
+    pub target_fid: String,
+    #[serde(default)]
+    pub rename_template: String,
+    #[serde(default)]
+    pub notify_only: bool,
 }
 
 /// 更新订阅请求
@@ -131,10 +139,14 @@ async fn create_subscription(
         transferred_file_keys: vec![],
         last_probe: None,
         last_plan_summary: String::new(),
-        notify_only: false,
+        notify_only: req.notify_only,
         enabled: true,
         completed: false,
-        rules: Default::default(),
+        rules: crate::models::rules::TransferRules {
+            target_dir: req.target_dir,
+            rename_template: req.rename_template,
+            ..Default::default()
+        },
         created_at: now,
         updated_at: now,
         last_checked_at: now,
