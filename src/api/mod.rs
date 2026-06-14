@@ -55,7 +55,11 @@ pub fn create_app(
     // 构建路由：API 优先，静态文件作为 fallback
     Router::new()
         .route("/health", get(health))
-        .merge(subscriptions::routes(subscription_store))
+        .merge(subscriptions::routes(
+            subscription_store,
+            settings_store.clone(),
+            notification_store.clone(),
+        ))
         .merge(settings::routes(settings_store.clone()))
         .merge(search::routes(pansou_client, quark_probe.clone()))
         .merge(notifications::routes(notification_store))
