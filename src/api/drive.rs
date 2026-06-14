@@ -94,7 +94,7 @@ async fn list_drive(
                 .iter()
                 .filter_map(|item| {
                     let fid = item.get("fid")?.as_str()?.to_string();
-                    let name = item.get("file_name")?.as_str()?.to_string();
+                    let file_name = item.get("file_name")?.as_str()?.to_string();
                     let file = item.get("file")?.as_bool().unwrap_or(true);
                     let size = item.get("size")?.as_i64().unwrap_or(0);
                     let updated_at = item
@@ -105,7 +105,8 @@ async fn list_drive(
 
                     Some(NormalizedItem {
                         fid,
-                        name,
+                        file_name,
+                        file,
                         is_dir: !file,
                         size,
                         updated_at,

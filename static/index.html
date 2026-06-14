@@ -893,7 +893,7 @@
         async saveSettings() {
           try {
             const response = await fetch('/api/settings', {
-              method: 'PUT',
+              method: 'POST',  // 改为 POST
               headers: {'Content-Type': 'application/json'},
               body: JSON.stringify(this.settings)
             });
