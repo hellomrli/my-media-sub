@@ -133,6 +133,16 @@ impl QuarkShareProbe {
         Ok((token, None))
     }
 
+    /// 列出分享文件（公开方法，用于转存功能）
+    pub async fn list_share_files(
+        &self,
+        pwd_id: &str,
+        stoken: &str,
+        pdir_fid: &str,
+    ) -> Result<(Vec<HashMap<String, serde_json::Value>>, Option<String>)> {
+        self.list_files(pwd_id, stoken, pdir_fid).await
+    }
+
     /// 列出分享文件
     async fn list_files(
         &self,
