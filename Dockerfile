@@ -36,6 +36,9 @@ RUN apt-get update && apt-get install -y \
 # 从构建阶段复制二进制文件
 COPY --from=builder /app/target/release/my-media-sub /usr/local/bin/my-media-sub
 
+# 复制静态文件
+COPY static /app/static
+
 # 创建数据目录
 RUN mkdir -p /app/data
 
