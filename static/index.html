@@ -577,37 +577,56 @@
       <div class="space-y-4 mb-6">
         <div>
           <label class="block text-sm font-medium text-gray-300 mb-2">订阅名称</label>
-          <input type="text" x-model="newSubscription.title" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="例如：风起洛阳 第二季" />
+          <input type="text" x-model="newSubscription.title" @input="updateSubscriptionDefaults()" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="例如：风起洛阳 第二季" />
         </div>
 
         <div>
           <label class="block text-sm font-medium text-gray-300 mb-2">媒体类型</label>
           <div class="grid grid-cols-3 gap-2">
-            <button @click="newSubscription.media_type = 'movie'" :class="newSubscription.media_type === 'movie' ? 'bg-blue-600' : 'bg-dark-hover hover:bg-gray-700'" class="px-4 py-2 rounded-lg text-white transition-colors">🎬 电影</button>
-            <button @click="newSubscription.media_type = 'series'" :class="newSubscription.media_type === 'series' ? 'bg-blue-600' : 'bg-dark-hover hover:bg-gray-700'" class="px-4 py-2 rounded-lg text-white transition-colors">📺 连续剧</button>
-            <button @click="newSubscription.media_type = 'anime'" :class="newSubscription.media_type === 'anime' ? 'bg-blue-600' : 'bg-dark-hover hover:bg-gray-700'" class="px-4 py-2 rounded-lg text-white transition-colors">🎨 动画</button>
-          </div>
-        </div>
-
-        <div>
-          <label class="block text-sm font-medium text-gray-300 mb-2">目标目录</label>
-          <div class="flex gap-2 mb-2">
-            <button @click="selectQuickDirForSub('movie')" class="px-3 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg text-sm transition-colors">🎬 电影</button>
-            <button @click="selectQuickDirForSub('series')" class="px-3 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg text-sm transition-colors">📺 连续剧</button>
-            <button @click="selectQuickDirForSub('anime')" class="px-3 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg text-sm transition-colors">🎨 动画</button>
-            <button @click="browseTargetDir()" class="px-3 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg text-sm transition-colors">📁 浏览...</button>
-          </div>
-          <div class="p-3 bg-dark-bg rounded-lg border border-dark-border text-sm text-gray-300">
-            <span x-text="newSubscription.target_path || '根目录'"></span>
+            <button @click="newSubscription.media_type = 'movie'; updateSubscriptionDefaults()" :class="newSubscription.media_type === 'movie' ? 'bg-blue-600' : 'bg-dark-hover hover:bg-gray-700'" class="px-4 py-2 rounded-lg text-white transition-colors">🎬 电影</button>
+            <button @click="newSubscription.media_type = 'series'; updateSubscriptionDefaults()" :class="newSubscription.media_type === 'series' ? 'bg-blue-600' : 'bg-dark-hover hover:bg-gray-700'" class="px-4 py-2 rounded-lg text-white transition-colors">📺 连续剧</button>
+            <button @click="newSubscription.media_type = 'anime'; updateSubscriptionDefaults()" :class="newSubscription.media_type === 'anime' ? 'bg-blue-600' : 'bg-dark-hover hover:bg-gray-700'" class="px-4 py-2 rounded-lg text-white transition-colors">🎨 动画</button>
           </div>
         </div>
 
         <!-- 持续追更模式的额外选项 -->
         <div x-show="subscriptionMode === 'continuous'" class="space-y-4">
           <div>
-            <label class="block text-sm font-medium text-gray-300 mb-2">重命名模板（可选）</label>
-            <input type="text" x-model="newSubscription.rename_template" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="例如：风起洛阳.S01E{} ({}会被替换为集数)" />
-            <p class="mt-1 text-xs text-gray-500">留空则保持原文件名。示例：风起洛阳.S01E{} → 风起洛阳.S01E01.mkv</p>
+            <label class="flex items-center justify-between text-sm font-medium text-gray-300 mb-2">
+              <span>转存目录</span>
+              <button @click="newSubscription.custom_dir = !newSubscription.custom_dir" class="text-xs text-blue-400 hover:text-blue-300">
+                <span x-text="newSubscription.custom_dir ? '使用默认' : '自定义'"></span>
+              </button>
+            </label>
+
+            <div x-show="!newSubscription.custom_dir" class="p-3 bg-dark-bg rounded-lg border border-dark-border text-sm">
+              <span class="text-gray-400">自动：</span>
+              <span class="text-green-400" x-text="getDefaultTargetDir()"></span>
+            </div>
+
+            <div x-show="newSubscription.custom_dir" class="space-y-2">
+              <input type="text" x-model="newSubscription.target_dir_name" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="目录名称，例如：风起洛阳" />
+              <p class="text-xs text-gray-500">将创建在分类目录下，例如：/NAS/动画/风起洛阳</p>
+            </div>
+          </div>
+
+          <div>
+            <label class="flex items-center justify-between text-sm font-medium text-gray-300 mb-2">
+              <span>重命名模板</span>
+              <button @click="newSubscription.custom_rename = !newSubscription.custom_rename" class="text-xs text-blue-400 hover:text-blue-300">
+                <span x-text="newSubscription.custom_rename ? '使用默认' : '自定义'"></span>
+              </button>
+            </label>
+
+            <div x-show="!newSubscription.custom_rename" class="p-3 bg-dark-bg rounded-lg border border-dark-border text-sm">
+              <span class="text-gray-400">自动：</span>
+              <span class="text-green-400" x-text="getDefaultRenameTemplate()"></span>
+            </div>
+
+            <div x-show="newSubscription.custom_rename" class="space-y-2">
+              <input type="text" x-model="newSubscription.rename_template" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="例如：风起洛阳.S01E{}" />
+              <p class="text-xs text-gray-500">{} 会被替换为集数，例如：风起洛阳.S01E{} → 风起洛阳.S01E01.mkv</p>
+            </div>
           </div>
 
           <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
@@ -671,7 +690,10 @@
           media_type: 'series',
           target_path: '',
           target_fid: '0',
+          target_dir_name: '',
           rename_template: '',
+          custom_dir: false,
+          custom_rename: false,
           notify_only: false
         },
 
@@ -799,9 +821,41 @@
             media_type: 'series',
             target_path: '',
             target_fid: '0',
+            target_dir_name: '',
+            rename_template: '',
+            custom_dir: false,
+            custom_rename: false,
             notify_only: false
           };
           this.showSubscriptionDialog = true;
+        },
+
+        // 更新订阅默认值
+        updateSubscriptionDefaults() {
+          if (!this.newSubscription.custom_dir) {
+            this.newSubscription.target_dir_name = this.newSubscription.title;
+          }
+          if (!this.newSubscription.custom_rename) {
+            this.newSubscription.rename_template = '';
+          }
+        },
+
+        // 获取默认目标目录
+        getDefaultTargetDir() {
+          const baseDir = {
+            'movie': this.settings.quark_save_movie_dir || '/NAS/电影',
+            'series': this.settings.quark_save_series_dir || '/NAS/连续剧',
+            'anime': this.settings.quark_save_anime_dir || '/NAS/动画'
+          }[this.newSubscription.media_type] || '/NAS';
+
+          const folderName = this.newSubscription.title || '未命名';
+          return `${baseDir}/${folderName}`;
+        },
+
+        // 获取默认重命名模板
+        getDefaultRenameTemplate() {
+          const title = this.newSubscription.title || '未命名';
+          return `${title}.S01E{}`;
         },
 
         // 为订阅选择快速目录
@@ -891,6 +945,33 @@
         // 创建持续订阅
         async createContinuousSubscription() {
           try {
+            // 计算最终的目标目录和重命名模板
+            let finalTargetDir = '';
+            let finalRenameTemplate = '';
+
+            if (this.newSubscription.custom_dir) {
+              // 使用自定义目录名称
+              const baseDir = {
+                'movie': this.settings.quark_save_movie_dir || '/NAS/电影',
+                'series': this.settings.quark_save_series_dir || '/NAS/连续剧',
+                'anime': this.settings.quark_save_anime_dir || '/NAS/动画'
+              }[this.newSubscription.media_type] || '/NAS';
+
+              const dirName = this.newSubscription.target_dir_name.trim() || this.newSubscription.title;
+              finalTargetDir = `${baseDir}/${dirName}`;
+            } else {
+              // 使用默认目录（基于订阅名称）
+              finalTargetDir = this.getDefaultTargetDir();
+            }
+
+            if (this.newSubscription.custom_rename) {
+              // 使用自定义重命名模板
+              finalRenameTemplate = this.newSubscription.rename_template.trim();
+            } else {
+              // 使用默认重命名模板
+              finalRenameTemplate = this.getDefaultRenameTemplate();
+            }
+
             const response = await fetch('/api/subscriptions', {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
@@ -899,9 +980,9 @@
                 url: this.newSubscription.url,
                 password: this.newSubscription.password,
                 media_type: this.newSubscription.media_type,
-                target_dir: this.newSubscription.target_path || '',
-                target_fid: this.newSubscription.target_fid || '0',
-                rename_template: this.newSubscription.rename_template || '',
+                target_dir: finalTargetDir,
+                target_fid: '0',
+                rename_template: finalRenameTemplate,
                 notify_only: this.newSubscription.notify_only
               })
             });
