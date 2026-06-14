@@ -531,7 +531,7 @@
         searchResults: [],
         cloudTypes: ['夸克', '阿里云盘', '百度网盘', '迅雷'],
         selectedCloudTypes: [],
-        searchOptions: {checkLinks: true, probeFiles: true, filterBad: true},
+        searchOptions: {checkLinks: false, probeFiles: true, filterBad: true},
 
         // 订阅
         subscriptions: [],
@@ -599,22 +599,29 @@
           this.searching = true;
           this.searchResults = [];
           try {
-            this.showNotification('info', '搜索中，正在检测链接有效性...');
+            // 根据用户选择显示不同提示
+            if (this.searchOptions.checkLinks) {
+              this.showNotification('info', '搜索中，正在检测链接有效性...');
+            }
+
             const response = await fetch('/api/search', {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
               body: JSON.stringify({
                 keyword: this.searchQuery,
                 limit: 50,
-                check_links: true  // 启用链接检测
+                check_links: this.searchOptions.checkLinks  // 使用用户选择
               })
             });
             const data = await response.json();
             this.searchResults = data.data || [];
+
             if (this.searchResults.length > 0) {
-              this.showNotification('success', `找到 ${this.searchResults.length} 个有效结果`);
+              const suffix = this.searchOptions.checkLinks ? '个有效结果' : '个结果';
+              this.showNotification('success', `找到 ${this.searchResults.length} ${suffix}`);
             } else {
-              this.showNotification('warning', '未找到有效资源，请尝试其他关键词');
+              const msg = this.searchOptions.checkLinks ? '未找到有效资源，请尝试其他关键词' : '未找到结果';
+              this.showNotification('warning', msg);
             }
           } catch (error) {
             console.error('搜索失败:', error);
