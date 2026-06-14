@@ -10,6 +10,7 @@ mod clients;
 mod api;
 
 use clients::{PanSouClient, QuarkShareProbe};
+use services::{SubscriptionCheckService, SubscriptionTransferService, SubscriptionScheduler};
 use store::{NotificationStore, SettingsStore, SubscriptionStore};
 use error::Result;
 
@@ -48,6 +49,29 @@ async fn main() -> Result<()> {
     let quark_probe = Arc::new(QuarkShareProbe::new(quark_cookie));
 
     tracing::info!("✅ Clients initialized");
+
+    // 初始化订阅服务
+    let transfer_service = Arc::new(SubscriptionTransferService::new(
+        subscription_store.clone(),
+        settings_store.clone(),
+        notification_store.clone(),
+    ));
+
+    let check_service = Arc::new(
+        SubscriptionCheckService::new(subscription_store.clone(), notification_store.clone())
+            .with_transfer_service(transfer_service),
+    );
+
+    // 初始化调度器
+    let scheduler = Arc::new(
+        SubscriptionScheduler::new(check_service, settings_store.clone())
+            .await?,
+    );
+
+    // 启动调度器
+    scheduler.start().await?;
+
+    tracing::info!("✅ Services initialized");
 
     // 创建应用
     let app = api::create_app(
