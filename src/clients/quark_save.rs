@@ -25,7 +25,8 @@ struct ApiResponse {
 #[derive(Debug, Clone, Serialize)]
 pub struct NormalizedItem {
     pub fid: String,
-    pub name: String,
+    pub file_name: String,  // 改为 file_name 以匹配前端
+    pub file: bool,         // 添加 file 字段
     pub is_dir: bool,
     pub size: i64,
     pub updated_at: String,
@@ -176,12 +177,13 @@ impl QuarkSaveClient {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let name = item
+        let file_name = item
             .get("file_name")
             .or_else(|| item.get("name"))
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
+        let file = item.get("file").and_then(|v| v.as_bool()).unwrap_or(true);
         let is_dir = item.get("dir").and_then(|v| v.as_bool()).unwrap_or(false)
             || (item.get("file").and_then(|v| v.as_bool()) == Some(false))
             || (item.get("file_type").and_then(|v| v.as_i64()) == Some(0));
@@ -196,7 +198,8 @@ impl QuarkSaveClient {
 
         NormalizedItem {
             fid,
-            name,
+            file_name,
+            file,
             is_dir,
             size,
             updated_at,
