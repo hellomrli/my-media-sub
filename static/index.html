@@ -182,7 +182,10 @@
                     </div>
                     <a :href="result.url" target="_blank" class="text-xs text-blue-400 hover:text-blue-300 break-all" x-text="result.url"></a>
                   </div>
-                  <button @click="createSubscriptionFromSearch(result)" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-colors flex-shrink-0">订阅</button>
+                  <div class="flex gap-2">
+                    <button @click="transferToQuark(result)" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors flex-shrink-0">转存</button>
+                    <button @click="createSubscriptionFromSearch(result)" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-colors flex-shrink-0">订阅</button>
+                  </div>
                 </div>
               </div>
             </template>
@@ -636,6 +639,45 @@
         createSubscriptionFromSearch(result) {
           this.newSubscription = {name: result.note, media_type: 'series', keywords: result.note};
           this.showAddSubscription = true;
+        },
+
+        async transferToQuark(result) {
+          if (!this.settings.quark_cookie) {
+            this.showNotification('error', '请先在设置中配置夸克 Cookie');
+            return;
+          }
+
+          if (!result.url) {
+            this.showNotification('error', '缺少分享链接');
+            return;
+          }
+
+          try {
+            this.showNotification('info', '正在转存到夸克网盘...');
+
+            const response = await fetch('/api/transfer', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({
+                url: result.url,
+                passcode: '',
+                target_fid: '0'  // 转存到根目录
+              })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+              const msg = data.message || `转存成功，共 ${data.saved_count || 0} 个文件`;
+              this.showNotification('success', msg);
+            } else {
+              const msg = data.message || '转存失败';
+              this.showNotification('error', msg);
+            }
+          } catch (error) {
+            console.error('转存失败:', error);
+            this.showNotification('error', '转存失败: ' + error.message);
+          }
         },
 
         // ===== 订阅 =====
