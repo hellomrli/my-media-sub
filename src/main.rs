@@ -9,7 +9,7 @@ mod services;
 mod clients;
 mod api;
 
-use clients::PanSouClient;
+use clients::{PanSouClient, QuarkShareProbe};
 use store::{NotificationStore, SettingsStore, SubscriptionStore};
 use error::Result;
 
@@ -41,6 +41,12 @@ async fn main() -> Result<()> {
 
     // 初始化客户端
     let pansou_client = Arc::new(PanSouClient::default());
+
+    // 获取夸克 Cookie（用于探测链接）
+    let settings = settings_store.get().await;
+    let quark_cookie = settings.quark_cookie.clone();
+    let quark_probe = Arc::new(QuarkShareProbe::new(quark_cookie));
+
     tracing::info!("✅ Clients initialized");
 
     // 创建应用
@@ -49,6 +55,7 @@ async fn main() -> Result<()> {
         settings_store,
         notification_store,
         pansou_client,
+        quark_probe,
     );
 
     // 绑定地址

@@ -14,7 +14,7 @@ use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 
-use crate::clients::PanSouClient;
+use crate::clients::{PanSouClient, QuarkShareProbe};
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
 /// 健康检查响应
@@ -38,6 +38,7 @@ pub fn create_app(
     settings_store: Arc<SettingsStore>,
     notification_store: Arc<NotificationStore>,
     pansou_client: Arc<PanSouClient>,
+    quark_probe: Arc<QuarkShareProbe>,
 ) -> Router {
     // CORS 配置
     let cors = CorsLayer::new()
@@ -54,7 +55,7 @@ pub fn create_app(
         .route("/health", get(health))
         .merge(subscriptions::routes(subscription_store))
         .merge(settings::routes(settings_store))
-        .merge(search::routes(pansou_client))
+        .merge(search::routes(pansou_client, quark_probe))
         .merge(notifications::routes(notification_store))
         .fallback_service(serve_static)  // 关键修复：使用 fallback_service
         .layer(cors)
