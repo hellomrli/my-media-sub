@@ -24,6 +24,19 @@ pub struct ListRequest {
     pub fid: Option<String>,
 }
 
+/// 查找路径请求
+#[derive(Debug, Deserialize)]
+pub struct FindPathRequest {
+    pub path: String,
+}
+
+/// 查找路径响应
+#[derive(Serialize)]
+pub struct FindPathResponse {
+    pub fid: String,
+    pub found: bool,
+}
+
 /// 列出目录响应
 #[derive(Serialize)]
 pub struct ListResponse {
@@ -147,12 +160,46 @@ async fn test_quark(Json(req): Json<TestRequest>) -> Result<impl IntoResponse> {
     }
 }
 
+/// 根据路径查找目录 fid
+async fn find_path(
+    State(state): State<Arc<DriveState>>,
+    Query(req): Query<FindPathRequest>,
+) -> Result<impl IntoResponse> {
+    let settings = state.settings_store.get().await;
+    let cookie = settings.quark_cookie.clone();
+
+    if cookie.is_empty() {
+        return Ok(Json(FindPathResponse {
+            fid: "0".to_string(),
+            found: false,
+        }));
+    }
+
+    let client = QuarkSaveClient::new(cookie);
+
+    // 使用 ensure_dir_path 查找或创建路径
+    match client.ensure_dir_path(&req.path).await {
+        Ok(fid) => Ok(Json(FindPathResponse {
+            fid,
+            found: true,
+        })),
+        Err(e) => {
+            tracing::warn!("查找路径 {} 失败: {}", req.path, e);
+            Ok(Json(FindPathResponse {
+                fid: "0".to_string(),
+                found: false,
+            }))
+        }
+    }
+}
+
 /// 创建网盘路由
 pub fn routes(settings_store: Arc<SettingsStore>) -> Router {
     let state = Arc::new(DriveState { settings_store });
 
     Router::new()
         .route("/api/drive", get(list_drive))
+        .route("/api/drive/find-path", get(find_path))
         .route("/api/quark/test", post(test_quark))
         .with_state(state)
 }
