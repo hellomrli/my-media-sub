@@ -595,11 +595,16 @@
           this.searching = true;
           this.searchResults = [];
           try {
-            const params = new URLSearchParams({query: this.searchQuery});
-            if (this.selectedCloudTypes.length > 0) params.append('cloud_types', this.selectedCloudTypes.join(','));
-            const response = await fetch(`/api/search?${params}`);
+            const response = await fetch('/api/search', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({
+                keyword: this.searchQuery,
+                limit: 50
+              })
+            });
             const data = await response.json();
-            this.searchResults = data.results || [];
+            this.searchResults = data.data || [];
             this.showNotification('success', `找到 ${this.searchResults.length} 个结果`);
           } catch (error) {
             console.error('搜索失败:', error);
