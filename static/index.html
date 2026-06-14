@@ -781,18 +781,52 @@
           }
         },
 
-        selectQuickDir(dirType) {
+        async selectQuickDir(dirType) {
           const dirMap = {
-            'root': {fid: '0', name: '根目录'},
-            'movie': {fid: '0', name: this.settings.quark_save_movie_dir || '电影'},
-            'series': {fid: '0', name: this.settings.quark_save_series_dir || '连续剧'},
-            'anime': {fid: '0', name: this.settings.quark_save_anime_dir || '动画'}
+            'root': {path: '/', name: '根目录'},
+            'movie': {path: this.settings.quark_save_movie_dir || '/NAS/电影', name: '电影'},
+            'series': {path: this.settings.quark_save_series_dir || '/NAS/连续剧', name: '连续剧'},
+            'anime': {path: this.settings.quark_save_anime_dir || '/NAS/动画', name: '动画'}
           };
+
           const selected = dirMap[dirType];
-          if (selected) {
-            this.transferTargetFid = selected.fid;
-            this.transferTargetPath = selected.name;
-            // 注意：这里简化处理，实际应该通过 API 查找目录 fid
+          if (!selected) return;
+
+          // 如果是根目录，直接设置
+          if (dirType === 'root') {
+            this.transferTargetFid = '0';
+            this.transferTargetPath = '根目录';
+            this.transferBrowseFidStack = [{fid: '0', name: '根目录'}];
+            await this.loadTransferBrowse('0');
+            return;
+          }
+
+          try {
+            // 调用 API 查找路径对应的 fid
+            const response = await fetch(`/api/drive/find-path?path=${encodeURIComponent(selected.path)}`);
+            const data = await response.json();
+
+            if (data.found && data.fid) {
+              this.transferTargetFid = data.fid;
+              this.transferTargetPath = selected.path;
+              this.transferBrowseFidStack = [{fid: '0', name: '根目录'}, {fid: data.fid, name: selected.name}];
+              await this.loadTransferBrowse(data.fid);
+              this.showNotification('success', `已切换到 ${selected.name}`);
+            } else {
+              this.showNotification('warning', `目录 ${selected.path} 不存在，已创建`);
+              // 目录已被 ensure_dir_path 创建，重新查找
+              const retryResponse = await fetch(`/api/drive/find-path?path=${encodeURIComponent(selected.path)}`);
+              const retryData = await retryResponse.json();
+              if (retryData.found && retryData.fid) {
+                this.transferTargetFid = retryData.fid;
+                this.transferTargetPath = selected.path;
+                this.transferBrowseFidStack = [{fid: '0', name: '根目录'}, {fid: retryData.fid, name: selected.name}];
+                await this.loadTransferBrowse(retryData.fid);
+              }
+            }
+          } catch (error) {
+            console.error('查找目录失败:', error);
+            this.showNotification('error', '查找目录失败');
           }
         },
 
