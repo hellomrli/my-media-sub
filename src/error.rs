@@ -88,5 +88,11 @@ impl From<reqwest::Error> for AppError {
     }
 }
 
+impl From<tokio_cron_scheduler::JobSchedulerError> for AppError {
+    fn from(err: tokio_cron_scheduler::JobSchedulerError) -> Self {
+        AppError::Internal(format!("Scheduler error: {}", err))
+    }
+}
+
 /// 结果类型别名
 pub type Result<T> = std::result::Result<T, AppError>;
