@@ -272,15 +272,33 @@ docker pull ghcr.io/hellomrli/my-media-sub:v0.7.8
 cargo test
 ```
 
-### 构建 Docker 镜像
+### 构建和发布新版本
+
+⚠️ **注意**: GitHub Actions 缺乏 Rust 1.96+ 支持，所有镜像构建改为本地完成。
 
 ```bash
-# 方式1: 使用本地构建 (推荐)
-cargo build --release
-docker build -f Dockerfile.local -t my-media-sub:latest .
+# 一键构建、打包和推送
+./build-and-push.sh v0.7.9
 
-# 方式2: 多阶段构建 (需要 Rust 1.83+ 镜像)
-docker build -t my-media-sub:latest .
+# 手动步骤：
+# 1. 编译 release 二进制
+cargo build --release
+
+# 2. 构建 Docker 镜像
+docker build -f Dockerfile.local -t ghcr.io/hellomrli/my-media-sub:v0.7.9 .
+docker tag ghcr.io/hellomrli/my-media-sub:v0.7.9 ghcr.io/hellomrli/my-media-sub:latest
+
+# 3. 推送镜像
+docker push ghcr.io/hellomrli/my-media-sub:v0.7.9
+docker push ghcr.io/hellomrli/my-media-sub:latest
+
+# 4. 打包 release 文件
+cd target/release
+tar -czf my-media-sub-v0.7.9-linux-x86_64.tar.gz my-media-sub
+
+# 5. 创建 Git tag 并推送
+git tag v0.7.9
+git push origin v0.7.9
 ```
 
 ### 技术栈

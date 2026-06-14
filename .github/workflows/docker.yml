@@ -1,15 +1,19 @@
 name: Docker Build and Push
 
+# ⚠️ 已禁用自动构建
+# GitHub 缺乏 Rust 1.96+ 支持，改为本地编译上传
+# 手动构建指令见 README.md
+
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - 'v*'
-  pull_request:
-    branches:
-      - main
-  workflow_dispatch:
+  # push:
+  #   branches:
+  #     - main
+  #   tags:
+  #     - 'v*'
+  # pull_request:
+  #   branches:
+  #     - main
+  workflow_dispatch:  # 保留手动触发选项
 
 env:
   REGISTRY: ghcr.io
