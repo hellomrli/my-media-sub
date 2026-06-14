@@ -183,8 +183,7 @@
                     <a :href="result.url" target="_blank" class="text-xs text-blue-400 hover:text-blue-300 break-all" x-text="result.url"></a>
                   </div>
                   <div class="flex gap-2">
-                    <button @click="transferToQuark(result)" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors flex-shrink-0">转存</button>
-                    <button @click="createSubscriptionFromSearch(result)" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-colors flex-shrink-0">订阅</button>
+                    <button @click="showSubscriptionDialog(result)" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm transition-colors flex-shrink-0">📌 订阅</button>
                   </div>
                 </div>
               </div>
@@ -554,6 +553,74 @@
     </div>
   </div>
 
+  <!-- 订阅配置对话框 -->
+  <div x-show="showSubscriptionDialog" @click.self="showSubscriptionDialog = false" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="bg-dark-card rounded-xl p-6 max-w-2xl w-full border border-dark-border" @click.stop>
+      <h3 class="text-xl font-bold text-white mb-6">创建订阅</h3>
+
+      <!-- 订阅模式选择 -->
+      <div class="mb-6">
+        <label class="block text-sm font-medium text-gray-300 mb-3">订阅类型</label>
+        <div class="grid grid-cols-2 gap-3">
+          <button @click="subscriptionMode = 'once'" :class="subscriptionMode === 'once' ? 'bg-blue-600 border-blue-500' : 'bg-dark-hover border-dark-border hover:border-gray-500'" class="p-4 rounded-lg border-2 transition-all text-left">
+            <div class="text-white font-semibold mb-1">⚡ 仅转存一次</div>
+            <div class="text-sm text-gray-400">立即转存到网盘，不创建订阅记录</div>
+          </button>
+          <button @click="subscriptionMode = 'continuous'" :class="subscriptionMode === 'continuous' ? 'bg-purple-600 border-purple-500' : 'bg-dark-hover border-dark-border hover:border-gray-500'" class="p-4 rounded-lg border-2 transition-all text-left">
+            <div class="text-white font-semibold mb-1">📌 持续追更</div>
+            <div class="text-sm text-gray-400">创建订阅，定期检查并自动转存</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- 订阅配置 -->
+      <div class="space-y-4 mb-6">
+        <div>
+          <label class="block text-sm font-medium text-gray-300 mb-2">订阅名称</label>
+          <input type="text" x-model="newSubscription.title" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="例如：风起洛阳 第二季" />
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-300 mb-2">媒体类型</label>
+          <div class="grid grid-cols-3 gap-2">
+            <button @click="newSubscription.media_type = 'movie'" :class="newSubscription.media_type === 'movie' ? 'bg-blue-600' : 'bg-dark-hover hover:bg-gray-700'" class="px-4 py-2 rounded-lg text-white transition-colors">🎬 电影</button>
+            <button @click="newSubscription.media_type = 'series'" :class="newSubscription.media_type === 'series' ? 'bg-blue-600' : 'bg-dark-hover hover:bg-gray-700'" class="px-4 py-2 rounded-lg text-white transition-colors">📺 连续剧</button>
+            <button @click="newSubscription.media_type = 'anime'" :class="newSubscription.media_type === 'anime' ? 'bg-blue-600' : 'bg-dark-hover hover:bg-gray-700'" class="px-4 py-2 rounded-lg text-white transition-colors">🎨 动画</button>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-300 mb-2">目标目录</label>
+          <div class="flex gap-2 mb-2">
+            <button @click="selectQuickDirForSub('movie')" class="px-3 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg text-sm transition-colors">🎬 电影</button>
+            <button @click="selectQuickDirForSub('series')" class="px-3 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg text-sm transition-colors">📺 连续剧</button>
+            <button @click="selectQuickDirForSub('anime')" class="px-3 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg text-sm transition-colors">🎨 动画</button>
+            <button @click="browseTargetDir()" class="px-3 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg text-sm transition-colors">📁 浏览...</button>
+          </div>
+          <div class="p-3 bg-dark-bg rounded-lg border border-dark-border text-sm text-gray-300">
+            <span x-text="newSubscription.target_path || '根目录'"></span>
+          </div>
+        </div>
+
+        <!-- 持续追更模式的额外选项 -->
+        <div x-show="subscriptionMode === 'continuous'" class="space-y-3">
+          <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+            <input type="checkbox" x-model="newSubscription.notify_only" class="rounded" />
+            <span>仅通知不自动转存（需要手动确认）</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- 操作按钮 -->
+      <div class="flex gap-3">
+        <button @click="showSubscriptionDialog = false" class="flex-1 px-4 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg transition-colors">取消</button>
+        <button @click="confirmSubscription()" class="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors">
+          <span x-text="subscriptionMode === 'once' ? '立即转存' : '创建订阅'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Alpine.js 应用逻辑 -->
   <script>
     function app() {
@@ -588,7 +655,18 @@
         // 订阅
         subscriptions: [],
         showAddSubscription: false,
-        newSubscription: {name: '', media_type: 'series', keywords: ''},
+        showSubscriptionDialog: false,
+        subscriptionMode: 'once',  // 'once' 或 'continuous'
+        currentSearchResult: null,  // 当前操作的搜索结果
+        newSubscription: {
+          title: '',
+          url: '',
+          password: '',
+          media_type: 'series',
+          target_path: '',
+          target_fid: '0',
+          notify_only: false
+        },
 
         // 通知
         notifications: [],
@@ -696,6 +774,141 @@
         createSubscriptionFromSearch(result) {
           this.newSubscription = {name: result.note, media_type: 'series', keywords: result.note};
           this.showAddSubscription = true;
+        },
+
+        // 显示订阅对话框
+        showSubscriptionDialog(result) {
+          if (!this.settings.quark_cookie) {
+            this.showNotification('error', '请先在设置中配置夸克 Cookie');
+            return;
+          }
+
+          this.currentSearchResult = result;
+          this.subscriptionMode = 'once';
+          this.newSubscription = {
+            title: result.note || result.url,
+            url: result.url,
+            password: result.pwd || '',
+            media_type: 'series',
+            target_path: '',
+            target_fid: '0',
+            notify_only: false
+          };
+          this.showSubscriptionDialog = true;
+        },
+
+        // 为订阅选择快速目录
+        async selectQuickDirForSub(dirType) {
+          const dirMap = {
+            'movie': {path: this.settings.quark_save_movie_dir || '/NAS/电影', name: '电影'},
+            'series': {path: this.settings.quark_save_series_dir || '/NAS/连续剧', name: '连续剧'},
+            'anime': {path: this.settings.quark_save_anime_dir || '/NAS/动画', name: '动画'}
+          };
+
+          const selected = dirMap[dirType];
+          if (!selected) return;
+
+          try {
+            const response = await fetch(`/api/drive/find-path?path=${encodeURIComponent(selected.path)}`);
+            const data = await response.json();
+
+            if (data.found && data.fid) {
+              this.newSubscription.target_fid = data.fid;
+              this.newSubscription.target_path = selected.path;
+              this.showNotification('success', `已选择 ${selected.name}`);
+            }
+          } catch (error) {
+            console.error('查找目录失败:', error);
+            this.showNotification('error', '查找目录失败');
+          }
+        },
+
+        // 浏览目标目录（复用转存目录浏览）
+        async browseTargetDir() {
+          this.transferTargetFid = this.newSubscription.target_fid || '0';
+          this.transferTargetPath = this.newSubscription.target_path || '根目录';
+          this.transferBrowseFidStack = [{fid: '0', name: '根目录'}];
+          this.showTransferModal = true;
+          this.transferingForSubscription = true;
+          await this.loadTransferBrowse(this.transferTargetFid);
+        },
+
+        // 确认订阅
+        async confirmSubscription() {
+          if (!this.newSubscription.title.trim()) {
+            this.showNotification('error', '请输入订阅名称');
+            return;
+          }
+
+          if (!this.newSubscription.url) {
+            this.showNotification('error', '缺少分享链接');
+            return;
+          }
+
+          if (this.subscriptionMode === 'once') {
+            // 仅转存一次
+            await this.doOneTimeTransfer();
+          } else {
+            // 创建持续订阅
+            await this.createContinuousSubscription();
+          }
+        },
+
+        // 一次性转存
+        async doOneTimeTransfer() {
+          try {
+            const response = await fetch('/api/transfer', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({
+                url: this.newSubscription.url,
+                password: this.newSubscription.password,
+                to_fid: this.newSubscription.target_fid || '0'
+              })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+              this.showNotification('success', '转存成功!');
+              this.showSubscriptionDialog = false;
+            } else {
+              this.showNotification('error', data.message || '转存失败');
+            }
+          } catch (error) {
+            console.error('转存失败:', error);
+            this.showNotification('error', '转存失败');
+          }
+        },
+
+        // 创建持续订阅
+        async createContinuousSubscription() {
+          try {
+            const response = await fetch('/api/subscriptions', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({
+                title: this.newSubscription.title,
+                url: this.newSubscription.url,
+                password: this.newSubscription.password,
+                media_type: this.newSubscription.media_type,
+                notify_only: this.newSubscription.notify_only
+              })
+            });
+
+            const result = await response.json();
+
+            if (response.ok && result.data) {
+              this.showNotification('success', '订阅创建成功!');
+              this.showSubscriptionDialog = false;
+              await this.loadSubscriptions();
+            } else {
+              this.showNotification('error', result.message || '创建订阅失败');
+            }
+          } catch (error) {
+            console.error('创建订阅失败:', error);
+            this.showNotification('error', '创建订阅失败');
+          }
         },
 
         async transferToQuark(result) {
