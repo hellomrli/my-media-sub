@@ -20,7 +20,8 @@ pub struct DriveState {
 /// 列出目录请求
 #[derive(Debug, Deserialize)]
 pub struct ListRequest {
-    pub path: String,
+    pub path: Option<String>,
+    pub fid: Option<String>,
 }
 
 /// 列出目录响应
@@ -79,12 +80,17 @@ async fn list_drive(
 
     let client = QuarkSaveClient::new(cookie);
 
-    // 解析路径获取 fid
-    let fid = if req.path == "/" || req.path.is_empty() {
-        "0".to_string()
+    // 优先使用 fid，如果没有则使用 path
+    let fid = if let Some(f) = req.fid {
+        f
     } else {
-        // 简化处理：暂时只支持根目录
-        "0".to_string()
+        let path = req.path.unwrap_or_else(|| "/".to_string());
+        if path == "/" || path.is_empty() {
+            "0".to_string()
+        } else {
+            // 暂时只支持根目录
+            "0".to_string()
+        }
     };
 
     match client.list_dir(&fid).await {
