@@ -23,12 +23,26 @@ pub struct SearchRequest {
     pub keyword: String,
     #[serde(default = "default_limit")]
     pub limit: usize,
+    /// 是否检测链接有效性
     #[serde(default)]
     pub check_links: bool,
+    /// 是否嗅探文件列表
+    #[serde(default)]
+    pub probe_files: bool,
+    /// 嗅探时获取的最大文件数
+    #[serde(default = "default_max_files")]
+    pub max_files: usize,
+    /// 是否过滤失效链接（需要 check_links 为 true）
+    #[serde(default)]
+    pub filter_bad: bool,
 }
 
 fn default_limit() -> usize {
     10
+}
+
+fn default_max_files() -> usize {
+    50
 }
 
 /// 通用响应
@@ -54,25 +68,36 @@ async fn search(
         .search_quark(&req.keyword, req.limit)
         .await?;
 
-    // 如果需要检测链接有效性
-    if req.check_links {
-        let mut valid_results = Vec::new();
+    // 如果需要检测链接有效性或嗅探文件列表
+    if req.check_links || req.probe_files {
+        let mut processed_results = Vec::new();
 
-        for result in results {
-            // 探测链接
+        for mut result in results {
+            // 探测链接（max_files 控制获取多少文件）
+            let max_files = if req.probe_files { req.max_files } else { 1 };
             let probe_result = state.quark_probe.probe(
                 &result.url,
                 &result.password,
-                1, // 只检测有效性，不需要文件列表
+                max_files,
             ).await;
 
-            // 只保留有效链接
-            if probe_result.ok {
-                valid_results.push(result);
+            // 如果需要过滤失效链接
+            if req.filter_bad && !probe_result.ok {
+                continue; // 跳过失效链接
             }
+
+            // 添加探测信息到结果中
+            if req.probe_files {
+                result.probe_info = Some(probe_result);
+            } else if req.check_links {
+                // 只检测有效性，不获取文件列表
+                result.is_valid = Some(probe_result.ok);
+            }
+
+            processed_results.push(result);
         }
 
-        results = valid_results;
+        results = processed_results;
     }
 
     Ok(Json(Response::ok(results)))

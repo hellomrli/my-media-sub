@@ -44,6 +44,12 @@ pub struct SearchResult {
     pub datetime: String,
     pub images: Vec<String>,
     pub cloud_type: String,
+    /// 探测到的文件列表信息（可选）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub probe_info: Option<crate::clients::quark::QuarkShareInfo>,
+    /// 链接是否有效（可选）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_valid: Option<bool>,
 }
 
 /// Remote PanSou 客户端
@@ -128,6 +134,8 @@ impl PanSouClient {
                 }),
                 images: item.images.unwrap_or_default(),
                 cloud_type: "quark".to_string(),
+                probe_info: None,
+                is_valid: None,
             });
 
             if results.len() >= limit {
