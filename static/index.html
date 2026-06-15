@@ -127,10 +127,30 @@
           <div class="bg-dark-card rounded-lg p-6 border border-dark-border">
             <h3 class="text-lg font-semibold mb-4 text-white">资源搜索</h3>
             <div class="flex gap-3 mb-4">
-              <input type="text" x-model="searchQuery" @keyup.enter="search()" placeholder="输入影片名称..." class="flex-1 px-4 py-3 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-500" />
+              <input type="text" x-model="searchQuery" @keyup.enter="search()" placeholder="输入影片名称..." class="flex-1 px-4 py-3 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-500" list="searchHistoryList" />
+              <datalist id="searchHistoryList">
+                <template x-for="item in searchHistory" :key="item">
+                  <option :value="item"></option>
+                </template>
+              </datalist>
               <button @click="search()" :disabled="searching || !searchQuery" :class="searching ? 'opacity-50 cursor-not-allowed' : ''" class="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:hover:bg-blue-600 text-white rounded-lg font-medium transition-colors">
                 <span x-show="!searching">搜索</span><span x-show="searching">搜索中...</span>
               </button>
+            </div>
+
+            <!-- 搜索历史快捷按钮 -->
+            <div x-show="searchHistory.length > 0 && !searchQuery" class="mb-4">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-sm text-gray-400">最近搜索</span>
+                <button @click="clearSearchHistory()" class="text-xs text-gray-500 hover:text-red-400">清空</button>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <template x-for="(item, idx) in searchHistory.slice(0, 10)" :key="idx">
+                  <button @click="searchQuery = item; search()" class="px-3 py-1 bg-dark-hover hover:bg-gray-700 text-gray-300 rounded text-sm transition-colors">
+                    <span x-text="item"></span>
+                  </button>
+                </template>
+              </div>
             </div>
 
             <!-- 高级选项 -->
@@ -175,15 +195,44 @@
                     <img :src="result.images[0]" :alt="result.note" class="w-20 h-28 object-cover rounded" onerror="this.style.display='none'" />
                   </div>
                   <div class="flex-1">
-                    <h4 class="text-white font-medium mb-2" x-text="result.note"></h4>
+                    <div class="flex items-start gap-2 mb-2">
+                      <h4 class="text-white font-medium flex-1" x-text="result.note"></h4>
+                      <!-- 有效性标记 -->
+                      <span x-show="result.is_valid === true" class="px-2 py-1 bg-green-600/20 text-green-400 rounded text-xs">✓ 有效</span>
+                      <span x-show="result.is_valid === false" class="px-2 py-1 bg-red-600/20 text-red-400 rounded text-xs">✗ 失效</span>
+                    </div>
                     <div class="flex gap-4 text-sm text-gray-400 mb-2">
                       <span x-text="result.cloud_type" class="px-2 py-1 bg-blue-600/20 text-blue-400 rounded"></span>
                       <span x-show="result.source" x-text="result.source" class="text-gray-500"></span>
+                      <!-- 文件数量标记 -->
+                      <span x-show="result.probe_info" class="text-gray-500">
+                        📁 <span x-text="result.probe_info?.file_count || 0"></span> 个文件
+                      </span>
                     </div>
                     <a :href="result.url" target="_blank" class="text-xs text-blue-400 hover:text-blue-300 break-all" x-text="result.url"></a>
+
+                    <!-- 文件列表（如果有探测信息） -->
+                    <div x-show="result.probe_info && result.probe_info.files && result.probe_info.files.length > 0" class="mt-3 p-3 bg-dark-bg rounded-lg border border-dark-border">
+                      <details>
+                        <summary class="cursor-pointer text-sm text-gray-400 hover:text-white">
+                          📋 文件列表 (<span x-text="result.probe_info.files.length"></span>)
+                        </summary>
+                        <div class="mt-2 space-y-1 max-h-48 overflow-y-auto">
+                          <template x-for="(file, fidx) in result.probe_info.files" :key="fidx">
+                            <div class="text-xs text-gray-400 py-1 px-2 hover:bg-dark-hover rounded flex items-center gap-2">
+                              <span x-show="file.is_dir">📁</span>
+                              <span x-show="!file.is_dir">📄</span>
+                              <span x-text="file.name" class="flex-1"></span>
+                              <span x-show="!file.is_dir && file.size" x-text="formatSize(file.size)" class="text-gray-600"></span>
+                            </div>
+                          </template>
+                        </div>
+                      </details>
+                    </div>
                   </div>
                   <div class="flex gap-2">
-                    <button @click="showSubscriptionDialog(result)" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm transition-colors flex-shrink-0">📌 订阅</button>
+                    <button @click="openSubscriptionDialog(result, 'once')" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors flex-shrink-0">💾 转存</button>
+                    <button @click="openSubscriptionDialog(result, 'continuous')" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm transition-colors flex-shrink-0">📌 订阅</button>
                   </div>
                 </div>
               </div>
@@ -414,15 +463,24 @@
                 <!-- 企业微信 -->
                 <details class="bg-dark-hover rounded-lg p-4">
                   <summary class="cursor-pointer font-medium text-white">💬 企业微信</summary>
-                  <div class="mt-3"><label class="block text-sm font-medium text-gray-300 mb-2">Webhook URL</label><input type="text" x-model="settings.wecom_webhook" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                  <div class="mt-3"><label class="block text-sm font-medium text-gray-300 mb-2">Webhook URL</label><input type="text" x-model="settings.wecom_bot_url" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
                 </details>
 
                 <!-- Telegram -->
                 <details class="bg-dark-hover rounded-lg p-4">
                   <summary class="cursor-pointer font-medium text-white">✈️ Telegram</summary>
                   <div class="mt-3 grid grid-cols-2 gap-4">
-                    <div><label class="block text-sm font-medium text-gray-300 mb-2">Bot Token</label><input type="password" x-model="settings.telegram_token" placeholder="123456:ABC-DEF..." class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                    <div><label class="block text-sm font-medium text-gray-300 mb-2">Bot Token</label><input type="password" x-model="settings.telegram_bot_token" placeholder="123456:ABC-DEF..." class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
                     <div><label class="block text-sm font-medium text-gray-300 mb-2">Chat ID</label><input type="text" x-model="settings.telegram_chat_id" placeholder="你的 Chat ID" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                  </div>
+                </details>
+
+                <!-- WxPusher -->
+                <details class="bg-dark-hover rounded-lg p-4">
+                  <summary class="cursor-pointer font-medium text-white">📱 WxPusher（微信推送）</summary>
+                  <div class="mt-3 space-y-3">
+                    <div><label class="block text-sm font-medium text-gray-300 mb-2">App Token</label><input type="password" x-model="settings.wxpusher_app_token" placeholder="AT_xxx" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                    <div><label class="block text-sm font-medium text-gray-300 mb-2">用户 UIDs（多个用逗号分隔）</label><input type="text" x-model="settings.wxpusher_uids" placeholder="UID_xxx,UID_yyy" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
                   </div>
                 </details>
 
@@ -432,6 +490,9 @@
                   <div class="mt-3 space-y-3">
                     <div><label class="block text-sm font-medium text-gray-300 mb-2">Bark URL</label><input type="text" x-model="settings.bark_url" placeholder="https://api.day.app/your_key" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
                     <div><label class="block text-sm font-medium text-gray-300 mb-2">Server酱 SendKey</label><input type="password" x-model="settings.serverchan_key" placeholder="SCTxxxxxx" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                    <div><label class="block text-sm font-medium text-gray-300 mb-2">Gotify URL</label><input type="text" x-model="settings.gotify_url" placeholder="https://gotify.example.com" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                    <div><label class="block text-sm font-medium text-gray-300 mb-2">Gotify Token</label><input type="password" x-model="settings.gotify_token" placeholder="A..." class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                    <div><label class="block text-sm font-medium text-gray-300 mb-2">PushPlus Token</label><input type="password" x-model="settings.pushplus_token" placeholder="pushplus token" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
                   </div>
                 </details>
               </div>
@@ -446,8 +507,8 @@
             <div x-show="currentSettingsTab === 'automation'" class="p-6 space-y-6">
               <div class="space-y-4">
                 <h3 class="text-sm font-semibold text-gray-400 uppercase">订阅自动化</h3>
-                <div><label class="block text-sm font-medium text-gray-300 mb-2">检查间隔（分钟）</label><input type="number" x-model="settings.subscription_interval" min="5" step="5" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-                <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.auto_check_enabled" class="rounded" />启用自动检查</label>
+                <div><label class="block text-sm font-medium text-gray-300 mb-2">检查间隔（分钟）</label><input type="number" x-model="settings.subscription_check_interval_minutes" min="5" step="5" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.subscription_scheduler_enabled" class="rounded" />启用自动检查</label>
               </div>
 
               <div class="flex justify-end gap-3 pt-4 border-t border-dark-border">
@@ -673,6 +734,7 @@
         searchQuery: '',
         searching: false,
         searchResults: [],
+        searchHistory: [],
         cloudTypes: ['夸克', '阿里云盘', '百度网盘', '迅雷'],
         selectedCloudTypes: [],
         searchOptions: {checkLinks: false, probeFiles: true, filterBad: true},
@@ -726,8 +788,9 @@
           quark_save_movie_dir: '', quark_save_series_dir: '', quark_save_anime_dir: '',
           aria2_rpc_url: '', aria2_token: '', aria2_download_dir: '', aria2_enabled: false,
           cloud_types: [], push_on_update: false, push_on_failed: false, push_on_completed: false, push_on_save: false,
-          wecom_webhook: '', telegram_token: '', telegram_chat_id: '', bark_url: '', serverchan_key: '',
-          subscription_interval: 60, auto_check_enabled: false, pansou_api_url: '', check_links: true,
+          wecom_bot_url: '', telegram_bot_token: '', telegram_chat_id: '', bark_url: '', serverchan_key: '',
+          wxpusher_app_token: '', wxpusher_uids: '', gotify_url: '', gotify_token: '', pushplus_token: '',
+          subscription_check_interval_minutes: 60, subscription_scheduler_enabled: false, pansou_api_url: '', check_links: true,
           probe_quark_files: true, filter_bad_links: true
         },
 
@@ -753,6 +816,7 @@
           await this.loadNotifications();
           await this.loadSettings();
           this.selectedCloudTypes = this.cloudTypes.slice();
+          this.loadSearchHistory();
         },
 
         async refresh() {
@@ -768,10 +832,17 @@
           this.searching = true;
           this.searchResults = [];
           try {
+            // 保存搜索历史
+            this.addSearchHistory(this.searchQuery.trim());
+
             // 根据用户选择显示不同提示
-            if (this.searchOptions.checkLinks) {
-              this.showNotification('info', '搜索中，正在检测链接有效性...');
+            let statusMsg = '搜索中';
+            if (this.searchOptions.probeFiles) {
+              statusMsg = '搜索中，正在嗅探文件列表...';
+            } else if (this.searchOptions.checkLinks || this.searchOptions.filterBad) {
+              statusMsg = '搜索中，正在检测链接有效性...';
             }
+            this.showNotification('info', statusMsg);
 
             const response = await fetch('/api/search', {
               method: 'POST',
@@ -779,17 +850,25 @@
               body: JSON.stringify({
                 keyword: this.searchQuery,
                 limit: 50,
-                check_links: this.searchOptions.checkLinks  // 使用用户选择
+                check_links: this.searchOptions.checkLinks || this.searchOptions.filterBad,
+                probe_files: this.searchOptions.probeFiles,
+                filter_bad: this.searchOptions.filterBad,
+                max_files: 50
               })
             });
             const data = await response.json();
             this.searchResults = data.data || [];
 
             if (this.searchResults.length > 0) {
-              const suffix = this.searchOptions.checkLinks ? '个有效结果' : '个结果';
+              let suffix = '个结果';
+              if (this.searchOptions.filterBad) {
+                suffix = '个有效结果';
+              } else if (this.searchOptions.probeFiles) {
+                suffix = '个结果（已嗅探）';
+              }
               this.showNotification('success', `找到 ${this.searchResults.length} ${suffix}`);
             } else {
-              const msg = this.searchOptions.checkLinks ? '未找到有效资源，请尝试其他关键词' : '未找到结果';
+              const msg = this.searchOptions.filterBad ? '未找到有效资源，请尝试其他关键词' : '未找到结果';
               this.showNotification('warning', msg);
             }
           } catch (error) {
@@ -800,24 +879,63 @@
           }
         },
 
+        // 加载搜索历史
+        loadSearchHistory() {
+          try {
+            const history = localStorage.getItem('searchHistory');
+            if (history) {
+              this.searchHistory = JSON.parse(history);
+            }
+          } catch (error) {
+            console.error('加载搜索历史失败:', error);
+          }
+        },
+
+        // 添加搜索历史
+        addSearchHistory(query) {
+          // 移除重复项
+          this.searchHistory = this.searchHistory.filter(h => h !== query);
+          // 添加到开头
+          this.searchHistory.unshift(query);
+          // 只保留最近 20 条
+          this.searchHistory = this.searchHistory.slice(0, 20);
+          // 保存到 localStorage
+          try {
+            localStorage.setItem('searchHistory', JSON.stringify(this.searchHistory));
+          } catch (error) {
+            console.error('保存搜索历史失败:', error);
+          }
+        },
+
+        // 清空搜索历史
+        clearSearchHistory() {
+          this.searchHistory = [];
+          try {
+            localStorage.removeItem('searchHistory');
+            this.showNotification('success', '搜索历史已清空');
+          } catch (error) {
+            console.error('清空搜索历史失败:', error);
+          }
+        },
+
         createSubscriptionFromSearch(result) {
           this.newSubscription = {name: result.note, media_type: 'series', keywords: result.note};
           this.showAddSubscription = true;
         },
 
-        // 显示订阅对话框
-        showSubscriptionDialog(result) {
+        // 打开订阅对话框（支持立即转存或连续订阅）
+        openSubscriptionDialog(result, mode = 'once') {
           if (!this.settings.quark_cookie) {
             this.showNotification('error', '请先在设置中配置夸克 Cookie');
             return;
           }
 
           this.currentSearchResult = result;
-          this.subscriptionMode = 'once';
+          this.subscriptionMode = mode;
           this.newSubscription = {
             title: result.note || result.url,
             url: result.url,
-            password: result.pwd || '',
+            password: result.password || '',
             media_type: 'series',
             target_path: '',
             target_fid: '0',
@@ -828,6 +946,19 @@
             notify_only: false
           };
           this.showSubscriptionDialog = true;
+        },
+
+        // 显示订阅对话框（兼容旧版）
+        showSubscriptionDialog(result) {
+          this.openSubscriptionDialog(result, 'continuous');
+        },
+
+        // 格式化文件大小
+        formatSize(bytes) {
+          if (!bytes || bytes === 0) return '';
+          const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+          const i = Math.floor(Math.log(bytes) / Math.log(1024));
+          return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
         },
 
         // 更新订阅默认值
@@ -1472,19 +1603,24 @@
             const response = await fetch('/api/push/test', {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({
-                title: '测试推送',
-                message: '这是一条来自媒体订阅系统的测试消息',
-                settings: this.settings
-              })
+              body: JSON.stringify({})
             });
             const data = await response.json();
             if (response.ok) {
-              const sent = data.sent || [];
-              if (sent.length > 0) {
-                this.showNotification('success', `推送成功：${sent.join(', ')}`);
+              const successCount = data.success_count || 0;
+              const failedCount = data.failed_count || 0;
+              const enabledChannels = data.enabled_channels || [];
+
+              if (successCount > 0) {
+                const channelList = Object.entries(data.results || {})
+                  .filter(([_, success]) => success)
+                  .map(([channel, _]) => channel)
+                  .join(', ');
+                this.showNotification('success', `推送成功 ${successCount}/${successCount + failedCount} 个渠道：${channelList}`);
+              } else if (enabledChannels.length === 0) {
+                this.showNotification('warning', '未配置任何推送渠道');
               } else {
-                this.showNotification('warning', '未配置推送渠道或推送失败');
+                this.showNotification('error', `推送失败，${failedCount} 个渠道失败`);
               }
             } else {
               this.showNotification('error', data.error || '推送失败');

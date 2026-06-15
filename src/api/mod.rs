@@ -4,6 +4,7 @@ pub mod search;
 pub mod notifications;
 pub mod drive;
 pub mod transfer;
+pub mod push;
 
 use axum::{
     http::StatusCode,
@@ -64,7 +65,8 @@ pub fn create_app(
         .merge(search::routes(pansou_client, quark_probe.clone()))
         .merge(notifications::routes(notification_store))
         .merge(drive::routes(settings_store.clone()))
-        .merge(transfer::routes(settings_store, quark_probe))
+        .merge(transfer::routes(settings_store.clone(), quark_probe))
+        .merge(push::routes(settings_store))
         .fallback_service(serve_static)
         .layer(cors)
 }
