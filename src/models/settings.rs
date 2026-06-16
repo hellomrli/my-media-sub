@@ -29,6 +29,19 @@ pub struct Settings {
     #[serde(default = "default_true")]
     pub filter_bad_links: bool,
 
+    // ===== 媒体元数据配置 =====
+    /// 元数据提供方：tmdb / douban / none
+    #[serde(default = "default_metadata_provider")]
+    pub metadata_provider: String,
+
+    /// TMDB API Key
+    #[serde(default)]
+    pub tmdb_api_key: String,
+
+    /// TMDB 返回语言
+    #[serde(default = "default_tmdb_language")]
+    pub tmdb_language: String,
+
     // ===== 夸克网盘配置 =====
     /// 夸克 Cookie
     #[serde(default)]
@@ -202,6 +215,14 @@ fn default_check_interval() -> i32 {
     60
 }
 
+fn default_metadata_provider() -> String {
+    "tmdb".to_string()
+}
+
+fn default_tmdb_language() -> String {
+    "zh-CN".to_string()
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -211,6 +232,9 @@ impl Default for Settings {
             check_links: true,
             probe_quark_files: true,
             filter_bad_links: true,
+            metadata_provider: default_metadata_provider(),
+            tmdb_api_key: String::new(),
+            tmdb_language: default_tmdb_language(),
             quark_cookie: String::new(),
             quark_save_enabled: false,
             quark_save_root: String::new(),
@@ -256,6 +280,8 @@ mod tests {
         assert_eq!(settings.app_username, "admin");
         assert_eq!(settings.cloud_types, vec!["quark"]);
         assert_eq!(settings.check_links, true);
+        assert_eq!(settings.metadata_provider, "tmdb");
+        assert_eq!(settings.tmdb_language, "zh-CN");
     }
 
     #[test]

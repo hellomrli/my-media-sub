@@ -8,6 +8,7 @@ pub const SECRET_KEYS: &[&str] = &[
     "app_password",
     "aria2_secret",
     "quark_cookie",
+    "tmdb_api_key",
     "wxpusher_app_token",
     "telegram_bot_token",
     "gotify_token",
