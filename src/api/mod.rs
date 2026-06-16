@@ -1,4 +1,5 @@
 pub mod drive;
+pub mod jobs;
 pub mod notifications;
 pub mod push;
 pub mod search;
@@ -109,12 +110,10 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
             context.pansou_client.clone(),
             settings_store.clone(),
         ))
+        .merge(jobs::routes(context.job_store.clone()))
         .merge(notifications::routes(context.notification_store.clone()))
         .merge(drive::routes(settings_store.clone()))
-        .merge(transfer::routes(
-            settings_store.clone(),
-            context.notification_store.clone(),
-        ))
+        .merge(transfer::routes(context.job_queue.clone()))
         .merge(push::routes(settings_store))
         .fallback_service(serve_static)
         .layer(middleware::from_fn_with_state(auth_state, basic_auth))

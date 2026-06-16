@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::clients::PanSouClient;
 use crate::config::Config;
 use crate::error::Result;
+use crate::jobs::{JobQueue, JobStore};
 use crate::services::{
     SubscriptionCheckService, SubscriptionScheduler, SubscriptionTransferService,
 };
@@ -16,6 +17,8 @@ pub struct AppContext {
     pub subscription_store: Arc<SubscriptionStore>,
     pub settings_store: Arc<SettingsStore>,
     pub notification_store: Arc<NotificationStore>,
+    pub job_store: Arc<JobStore>,
+    pub job_queue: Arc<JobQueue>,
     pub pansou_client: Arc<PanSouClient>,
     pub transfer_service: Arc<SubscriptionTransferService>,
     pub check_service: Arc<SubscriptionCheckService>,
@@ -44,6 +47,10 @@ impl AppContext {
         notification_store.load().await?;
         tracing::info!("✅ Loaded notifications");
 
+        let job_store = Arc::new(JobStore::new(config.data_dir.join("jobs.json")));
+        job_store.load().await?;
+        tracing::info!("✅ Loaded jobs");
+
         let pansou_client = Arc::new(PanSouClient::default());
         tracing::info!("✅ Clients initialized");
 
@@ -65,11 +72,18 @@ impl AppContext {
         let scheduler = Arc::new(
             SubscriptionScheduler::new(check_service.clone(), settings_store.clone()).await?,
         );
+        let job_queue = Arc::new(JobQueue::new(
+            job_store.clone(),
+            settings_store.clone(),
+            notification_store.clone(),
+        ));
 
         Ok(Arc::new(Self {
             subscription_store,
             settings_store,
             notification_store,
+            job_store,
+            job_queue,
             pansou_client,
             transfer_service,
             check_service,
