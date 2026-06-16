@@ -73,10 +73,8 @@ impl SubscriptionScheduler {
                 match check_service.check_all_subscriptions(&cookie).await {
                     Ok(results) => {
                         let total = results.len();
-                        let updated: Vec<_> = results
-                            .iter()
-                            .filter(|r| !r.new_files.is_empty())
-                            .collect();
+                        let updated: Vec<_> =
+                            results.iter().filter(|r| !r.new_files.is_empty()).collect();
 
                         if updated.is_empty() {
                             info!("✅ 检查完成，共 {} 个订阅，无更新", total);
@@ -122,6 +120,7 @@ impl SubscriptionScheduler {
     }
 
     /// 重新加载配置并重启
+    #[allow(dead_code)]
     pub async fn reload(&self) -> Result<()> {
         info!("重新加载订阅调度器配置");
         self.stop().await?;
@@ -130,6 +129,7 @@ impl SubscriptionScheduler {
     }
 
     /// 手动触发一次检查
+    #[allow(dead_code)]
     pub async fn trigger_manual_check(&self) -> Result<()> {
         info!("手动触发订阅检查");
 
@@ -145,10 +145,7 @@ impl SubscriptionScheduler {
         let results = self.check_service.check_all_subscriptions(&cookie).await?;
 
         let total = results.len();
-        let updated: Vec<_> = results
-            .iter()
-            .filter(|r| !r.new_files.is_empty())
-            .collect();
+        let updated: Vec<_> = results.iter().filter(|r| !r.new_files.is_empty()).collect();
 
         info!(
             "手动检查完成，共 {} 个订阅，{} 个有更新",

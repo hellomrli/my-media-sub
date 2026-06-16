@@ -4,8 +4,8 @@ use tracing::{info, warn};
 use crate::clients::quark::QuarkShareProbe;
 use crate::error::{AppError, Result};
 use crate::models::subscription::{CheckHistoryItem, ProbeFile, ProbeResult, Subscription};
-use crate::store::{NotificationStore, SubscriptionStore};
 use crate::services::SubscriptionTransferService;
+use crate::store::{NotificationStore, SubscriptionStore};
 
 /// 订阅检查服务
 pub struct SubscriptionCheckService {
@@ -27,13 +27,20 @@ impl SubscriptionCheckService {
     }
 
     /// 设置转存服务（可选，用于自动转存）
-    pub fn with_transfer_service(mut self, transfer_service: Arc<SubscriptionTransferService>) -> Self {
+    pub fn with_transfer_service(
+        mut self,
+        transfer_service: Arc<SubscriptionTransferService>,
+    ) -> Self {
         self.transfer_service = Some(transfer_service);
         self
     }
 
     /// 检查单个订阅
-    pub async fn check_subscription(&self, subscription_id: &str, cookie: &str) -> Result<CheckResult> {
+    pub async fn check_subscription(
+        &self,
+        subscription_id: &str,
+        cookie: &str,
+    ) -> Result<CheckResult> {
         let sub = self
             .subscription_store
             .get(subscription_id)
@@ -54,7 +61,8 @@ impl SubscriptionCheckService {
 
         if !probe_result.ok {
             // 探测失败，标记为失效
-            self.mark_subscription_invalid(&sub, &probe_result.message).await?;
+            self.mark_subscription_invalid(&sub, &probe_result.message)
+                .await?;
             return Ok(CheckResult {
                 subscription_id: sub.id.clone(),
                 new_files: vec![],
@@ -78,8 +86,14 @@ impl SubscriptionCheckService {
             format!("发现 {} 个新文件", new_file_names.len())
         };
 
-        self.update_subscription_after_check(&sub, &probe_result, &new_file_names, &new_episodes, &summary)
-            .await?;
+        self.update_subscription_after_check(
+            &sub,
+            &probe_result,
+            &new_file_names,
+            &new_episodes,
+            &summary,
+        )
+        .await?;
 
         // 5. 发送通知
         if !new_file_names.is_empty() {
@@ -90,7 +104,10 @@ impl SubscriptionCheckService {
         // 6. 自动转存（如果配置了转存服务）
         if !new_file_names.is_empty() {
             if let Some(transfer_service) = &self.transfer_service {
-                match transfer_service.auto_transfer_new_files(&sub.id, &new_file_names).await {
+                match transfer_service
+                    .auto_transfer_new_files(&sub.id, &new_file_names)
+                    .await
+                {
                     Ok(result) => {
                         if !result.skipped {
                             info!("自动转存成功: {}", result.reason);
@@ -351,10 +368,10 @@ fn extract_episode_number(filename: &str) -> Option<i32> {
 
     // 常见集数匹配模式
     let patterns = [
-        r"[Ee]([0-9]{1,3})",           // E01, e01
-        r"[Ee][Pp]\.?\s*([0-9]{1,3})", // EP01, ep 01
-        r"第\s*([0-9]{1,3})\s*[集话話]",  // 第01集
-        r"\[([0-9]{1,3})\]",           // [01]
+        r"[Ee]([0-9]{1,3})",               // E01, e01
+        r"[Ee][Pp]\.?\s*([0-9]{1,3})",     // EP01, ep 01
+        r"第\s*([0-9]{1,3})\s*[集话話]",   // 第01集
+        r"\[([0-9]{1,3})\]",               // [01]
         r"[Ss][0-9]{1,2}[Ee]([0-9]{1,3})", // S01E01
     ];
 
@@ -380,7 +397,10 @@ mod tests {
     #[test]
     fn test_extract_episode_number() {
         assert_eq!(extract_episode_number("动画名称 E01 1080p.mkv"), Some(1));
-        assert_eq!(extract_episode_number("[字幕组] 动画名称 第12集.mp4"), Some(12));
+        assert_eq!(
+            extract_episode_number("[字幕组] 动画名称 第12集.mp4"),
+            Some(12)
+        );
         assert_eq!(extract_episode_number("Show.S01E05.720p.mkv"), Some(5));
         assert_eq!(extract_episode_number("[01][1080p].mkv"), Some(1));
         assert_eq!(extract_episode_number("EP 03.mkv"), Some(3));

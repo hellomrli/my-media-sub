@@ -1,5 +1,7 @@
-use regex::Regex;
+#![allow(dead_code)]
+
 use once_cell::sync::Lazy;
+use regex::Regex;
 
 /// 视频扩展名
 pub const VIDEO_EXTS: &[&str] = &[
@@ -13,7 +15,8 @@ static EPISODE_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
         Regex::new(r"(?i)EP?\s*(?P<episode>\d{1,4})").unwrap(),
         Regex::new(r"第\s*(?P<episode>\d{1,4})\s*[集话期]").unwrap(),
         Regex::new(r"(?i)[\[\[【第_\-\s\.](?P<episode>\d{1,4})[\]\]】_\-\s\.]").unwrap(),
-        Regex::new(r"(?i)(?P<episode>\d{1,4})\.(mkv|mp4|avi|ts|mov|wmv|flv|m4v|rmvb|webm)$").unwrap(),
+        Regex::new(r"(?i)(?P<episode>\d{1,4})\.(mkv|mp4|avi|ts|mov|wmv|flv|m4v|rmvb|webm)$")
+            .unwrap(),
     ]
 });
 
@@ -182,18 +185,8 @@ mod tests {
 
     #[test]
     fn test_match_file_exclude() {
-        assert!(!match_file(
-            "预告片.mkv",
-            &[],
-            &["预告".to_string()],
-            ""
-        ));
-        assert!(match_file(
-            "正片.mkv",
-            &[],
-            &["预告".to_string()],
-            ""
-        ));
+        assert!(!match_file("预告片.mkv", &[], &["预告".to_string()], ""));
+        assert!(match_file("正片.mkv", &[], &["预告".to_string()], ""));
     }
 
     #[test]

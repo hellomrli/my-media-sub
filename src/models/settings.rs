@@ -279,7 +279,7 @@ mod tests {
         let settings: Settings = serde_json::from_str(json).unwrap();
         assert_eq!(settings.app_username, "test");
         assert_eq!(settings.quark_cookie, "test_cookie");
-        assert_eq!(settings.app_password, "change-me");  // 默认值
-        assert_eq!(settings.check_links, true);  // 默认值
+        assert_eq!(settings.app_password, "change-me"); // 默认值
+        assert_eq!(settings.check_links, true); // 默认值
     }
 }

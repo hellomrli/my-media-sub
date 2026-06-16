@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -113,16 +115,14 @@ mod tests {
         let session = SearchSession {
             chat_id: "web-session-123".to_string(),
             keyword: "测试关键词".to_string(),
-            results: vec![
-                SearchResult {
-                    title: "资源1".to_string(),
-                    url: "https://pan.quark.cn/s/1".to_string(),
-                    password: "".to_string(),
-                    source: "来源1".to_string(),
-                    cloud_type: "quark".to_string(),
-                    probe: None,
-                },
-            ],
+            results: vec![SearchResult {
+                title: "资源1".to_string(),
+                url: "https://pan.quark.cn/s/1".to_string(),
+                password: "".to_string(),
+                source: "来源1".to_string(),
+                cloud_type: "quark".to_string(),
+                probe: None,
+            }],
             created_at: 1718323200,
         };
 

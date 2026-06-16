@@ -9,7 +9,6 @@ const QUARK_API_BASE: &str = "https://drive.quark.cn/1/clouddrive";
 
 /// 夸克转存客户端
 pub struct QuarkSaveClient {
-    cookie: String,
     client: Client,
 }
 
@@ -25,8 +24,9 @@ struct ApiResponse {
 #[derive(Debug, Clone, Serialize)]
 pub struct NormalizedItem {
     pub fid: String,
-    pub file_name: String,  // 改为 file_name 以匹配前端
-    pub file: bool,         // 添加 file 字段
+    pub parent_fid: String,
+    pub file_name: String, // 改为 file_name 以匹配前端
+    pub file: bool,        // 添加 file 字段
     pub is_dir: bool,
     pub size: i64,
     pub updated_at: String,
@@ -42,7 +42,10 @@ impl QuarkSaveClient {
                 .parse()
                 .unwrap(),
         );
-        headers.insert("Accept", "application/json, text/plain, */*".parse().unwrap());
+        headers.insert(
+            "Accept",
+            "application/json, text/plain, */*".parse().unwrap(),
+        );
         headers.insert("Referer", "https://pan.quark.cn/".parse().unwrap());
         headers.insert("Origin", "https://pan.quark.cn".parse().unwrap());
 
@@ -56,7 +59,7 @@ impl QuarkSaveClient {
             .build()
             .unwrap();
 
-        Self { cookie, client }
+        Self { client }
     }
 
     fn api_error(data: &ApiResponse) -> Option<String> {
@@ -165,10 +168,13 @@ impl QuarkSaveClient {
             .iter()
             .filter_map(|v| v.as_object())
             .map(|item| {
-                let map: HashMap<String, Value> = item.iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
-                Self::normalize_item(&map)
+                let map: HashMap<String, Value> =
+                    item.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                let mut normalized = Self::normalize_item(&map);
+                if normalized.parent_fid.is_empty() {
+                    normalized.parent_fid = parent_fid.to_string();
+                }
+                normalized
             })
             .collect();
 
@@ -180,6 +186,12 @@ impl QuarkSaveClient {
         let fid = item
             .get("fid")
             .or_else(|| item.get("file_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let parent_fid = item
+            .get("pdir_fid")
+            .or_else(|| item.get("parent_fid"))
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
@@ -204,6 +216,7 @@ impl QuarkSaveClient {
 
         NormalizedItem {
             fid,
+            parent_fid,
             file_name,
             file,
             is_dir,
@@ -259,6 +272,7 @@ impl QuarkSaveClient {
     // ── 文件操作 ──────────────────────────────────────────
 
     /// 删除文件
+    #[allow(dead_code)]
     pub async fn delete_items(&self, fids: &[String]) -> Result<()> {
         let payload = serde_json::json!({
             "action_type": 1,
@@ -276,11 +290,14 @@ impl QuarkSaveClient {
     }
 
     /// 重命名文件
-    pub async fn rename_item(&self, fid: &str, name: &str) -> Result<()> {
-        let payload = serde_json::json!({
+    pub async fn rename_item(&self, fid: &str, name: &str, parent_fid: Option<&str>) -> Result<()> {
+        let mut payload = serde_json::json!({
             "fid": fid,
             "file_name": name,
         });
+        if let Some(parent_fid) = parent_fid.filter(|fid| !fid.trim().is_empty()) {
+            payload["pdir_fid"] = serde_json::json!(parent_fid);
+        }
 
         let data = self.post("/file/rename", &payload).await?;
 
@@ -292,6 +309,7 @@ impl QuarkSaveClient {
     }
 
     /// 移动文件
+    #[allow(dead_code)]
     pub async fn move_items(&self, fids: &[String], target_fid: &str) -> Result<()> {
         let payload = serde_json::json!({
             "action_type": 1,
@@ -310,6 +328,7 @@ impl QuarkSaveClient {
     }
 
     /// 复制文件
+    #[allow(dead_code)]
     pub async fn copy_items(&self, fids: &[String], target_fid: &str) -> Result<()> {
         let payload = serde_json::json!({
             "action_type": 1,
@@ -356,6 +375,7 @@ impl QuarkSaveClient {
     }
 
     /// 转存整个分享链接的所有顶层文件
+    #[allow(dead_code)]
     pub async fn save_entire_share(
         &self,
         pwd_id: &str,
@@ -393,22 +413,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_client_creation() {
-        let client = QuarkSaveClient::new("test_cookie");
-        assert!(!client.cookie.is_empty());
-    }
-
-    #[test]
     fn test_normalize_item() {
         let mut item = HashMap::new();
         item.insert("fid".to_string(), Value::String("123".to_string()));
-        item.insert("file_name".to_string(), Value::String("test.mkv".to_string()));
+        item.insert(
+            "file_name".to_string(),
+            Value::String("test.mkv".to_string()),
+        );
         item.insert("size".to_string(), Value::Number(1024.into()));
         item.insert("dir".to_string(), Value::Bool(false));
 
         let normalized = QuarkSaveClient::normalize_item(&item);
         assert_eq!(normalized.fid, "123");
-        assert_eq!(normalized.name, "test.mkv");
+        assert_eq!(normalized.file_name, "test.mkv");
         assert_eq!(normalized.size, 1024);
         assert!(!normalized.is_dir);
     }

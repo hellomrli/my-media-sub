@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 /// 推送级别
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum PushLevel {
     Info,
@@ -60,7 +61,9 @@ impl PushService {
         if !self.settings.wxpusher_app_token.is_empty() {
             channels.push("wxpusher".to_string());
         }
-        if !self.settings.telegram_bot_token.is_empty() && !self.settings.telegram_chat_id.is_empty() {
+        if !self.settings.telegram_bot_token.is_empty()
+            && !self.settings.telegram_chat_id.is_empty()
+        {
             channels.push("telegram".to_string());
         }
         if !self.settings.bark_url.is_empty() {
@@ -80,16 +83,33 @@ impl PushService {
     }
 
     /// 发送推送到所有启用的渠道
+    #[allow(dead_code)]
     pub async fn send(
         &self,
         title: &str,
         message: &str,
         level: PushLevel,
     ) -> HashMap<String, bool> {
-        let mut results = HashMap::new();
         let channels = self.enabled_channels();
+        self.send_to_channels(&channels, title, message, level)
+            .await
+    }
 
+    /// 发送推送到指定渠道
+    pub async fn send_to_channels(
+        &self,
+        channels: &[String],
+        title: &str,
+        message: &str,
+        level: PushLevel,
+    ) -> HashMap<String, bool> {
+        let enabled_channels = self.enabled_channels();
+        let mut results = HashMap::new();
         for channel in channels {
+            if !enabled_channels.contains(channel) {
+                continue;
+            }
+
             let result = match channel.as_str() {
                 "wecom" => self.send_wecom(title, message, level).await,
                 "wxpusher" => self.send_wxpusher(title, message).await,
@@ -101,7 +121,7 @@ impl PushService {
                 _ => Ok(false),
             };
 
-            results.insert(channel, result.unwrap_or(false));
+            results.insert(channel.clone(), result.unwrap_or(false));
         }
 
         results
@@ -115,13 +135,7 @@ impl PushService {
         }
 
         let now = chrono::Local::now().format("%m-%d %H:%M").to_string();
-        let content = format!(
-            "### {} {}\n{}\n> {}",
-            level.emoji(),
-            title,
-            message,
-            now
-        );
+        let content = format!("### {} {}\n{}\n> {}", level.emoji(), title, message, now);
 
         let payload = json!({
             "msgtype": "markdown",
@@ -138,7 +152,10 @@ impl PushService {
             .await
             .map_err(|e| AppError::Http(format!("企业微信推送失败: {}", e)))?;
 
-        let data: serde_json::Value = resp.json().await.map_err(|e| AppError::Http(e.to_string()))?;
+        let data: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| AppError::Http(e.to_string()))?;
         Ok(data.get("errcode").and_then(|v| v.as_i64()) == Some(0))
     }
 
@@ -176,7 +193,10 @@ impl PushService {
             .await
             .map_err(|e| AppError::Http(format!("WxPusher 推送失败: {}", e)))?;
 
-        let data: serde_json::Value = resp.json().await.map_err(|e| AppError::Http(e.to_string()))?;
+        let data: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| AppError::Http(e.to_string()))?;
         Ok(data.get("code").and_then(|v| v.as_i64()) == Some(1000))
     }
 
@@ -212,7 +232,10 @@ impl PushService {
             .await
             .map_err(|e| AppError::Http(format!("Telegram 推送失败: {}", e)))?;
 
-        let data: serde_json::Value = resp.json().await.map_err(|e| AppError::Http(e.to_string()))?;
+        let data: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| AppError::Http(e.to_string()))?;
         Ok(data.get("ok").and_then(|v| v.as_bool()).unwrap_or(false))
     }
 
@@ -238,7 +261,10 @@ impl PushService {
             .await
             .map_err(|e| AppError::Http(format!("Bark 推送失败: {}", e)))?;
 
-        let data: serde_json::Value = resp.json().await.map_err(|e| AppError::Http(e.to_string()))?;
+        let data: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| AppError::Http(e.to_string()))?;
         Ok(data.get("code").and_then(|v| v.as_i64()) == Some(200))
     }
 
@@ -296,7 +322,10 @@ impl PushService {
             .await
             .map_err(|e| AppError::Http(format!("PushPlus 推送失败: {}", e)))?;
 
-        let data: serde_json::Value = resp.json().await.map_err(|e| AppError::Http(e.to_string()))?;
+        let data: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| AppError::Http(e.to_string()))?;
         Ok(data.get("code").and_then(|v| v.as_i64()) == Some(200))
     }
 
@@ -321,7 +350,10 @@ impl PushService {
             .await
             .map_err(|e| AppError::Http(format!("Server酱推送失败: {}", e)))?;
 
-        let data: serde_json::Value = resp.json().await.map_err(|e| AppError::Http(e.to_string()))?;
+        let data: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| AppError::Http(e.to_string()))?;
         Ok(data.get("code").and_then(|v| v.as_i64()) == Some(0))
     }
 }

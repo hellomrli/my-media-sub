@@ -1,20 +1,15 @@
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    routing::{get, post},
-    Json, Router,
-};
+use axum::{extract::State, response::IntoResponse, routing::post, Json, Router};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::clients::{PanSouClient, QuarkShareProbe};
 use crate::error::Result;
+use crate::store::SettingsStore;
 
 /// 搜索路由状态
 pub struct SearchState {
     pub client: Arc<PanSouClient>,
-    pub quark_probe: Arc<QuarkShareProbe>,
+    pub settings_store: Arc<SettingsStore>,
 }
 
 /// 搜索请求
@@ -63,23 +58,20 @@ async fn search(
     State(state): State<Arc<SearchState>>,
     Json(req): Json<SearchRequest>,
 ) -> Result<impl IntoResponse> {
-    let mut results = state
-        .client
-        .search_quark(&req.keyword, req.limit)
-        .await?;
+    let mut results = state.client.search_quark(&req.keyword, req.limit).await?;
 
     // 如果需要检测链接有效性或嗅探文件列表
     if req.check_links || req.probe_files {
+        let settings = state.settings_store.get().await;
+        let quark_probe = QuarkShareProbe::new(settings.quark_cookie);
         let mut processed_results = Vec::new();
 
         for mut result in results {
             // 探测链接（max_files 控制获取多少文件）
             let max_files = if req.probe_files { req.max_files } else { 1 };
-            let probe_result = state.quark_probe.probe(
-                &result.url,
-                &result.password,
-                max_files,
-            ).await;
+            let probe_result = quark_probe
+                .probe(&result.url, &result.password, max_files)
+                .await;
 
             // 如果需要过滤失效链接
             if req.filter_bad && !probe_result.ok {
@@ -104,8 +96,11 @@ async fn search(
 }
 
 /// 创建搜索路由
-pub fn routes(client: Arc<PanSouClient>, quark_probe: Arc<QuarkShareProbe>) -> Router {
-    let state = Arc::new(SearchState { client, quark_probe });
+pub fn routes(client: Arc<PanSouClient>, settings_store: Arc<SettingsStore>) -> Router {
+    let state = Arc::new(SearchState {
+        client,
+        settings_store,
+    });
 
     Router::new()
         .route("/api/search", post(search))

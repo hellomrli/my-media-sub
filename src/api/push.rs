@@ -1,10 +1,4 @@
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    routing::post,
-    Json, Router,
-};
+use axum::{extract::State, routing::post, Json, Router};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -77,15 +71,15 @@ async fn test_push(
     };
 
     // 准备测试消息
-    let title = req
-        .title
-        .unwrap_or_else(|| "推送测试".to_string());
-    let message = req
-        .message
-        .unwrap_or_else(|| "这是一条来自 my-media-sub 的测试消息。如果你收到此消息，说明推送配置正常工作！".to_string());
+    let title = req.title.unwrap_or_else(|| "推送测试".to_string());
+    let message = req.message.unwrap_or_else(|| {
+        "这是一条来自 my-media-sub 的测试消息。如果你收到此消息，说明推送配置正常工作！".to_string()
+    });
 
     // 发送测试推送
-    let results = push_service.send(&title, &message, PushLevel::Info).await;
+    let results = push_service
+        .send_to_channels(&test_channels, &title, &message, PushLevel::Info)
+        .await;
 
     // 统计结果
     let success_count = results.values().filter(|&&v| v).count();
@@ -111,58 +105,79 @@ async fn push_status(State(state): State<Arc<PushState>>) -> Result<Json<PushSta
 
     // Telegram
     if !settings.telegram_bot_token.is_empty() && !settings.telegram_chat_id.is_empty() {
-        channel_configs.insert("telegram".to_string(), ChannelConfig {
-            enabled: true,
-            configured: true,
-        });
+        channel_configs.insert(
+            "telegram".to_string(),
+            ChannelConfig {
+                enabled: true,
+                configured: true,
+            },
+        );
     }
 
     // Bark
     if !settings.bark_url.is_empty() {
-        channel_configs.insert("bark".to_string(), ChannelConfig {
-            enabled: true,
-            configured: true,
-        });
+        channel_configs.insert(
+            "bark".to_string(),
+            ChannelConfig {
+                enabled: true,
+                configured: true,
+            },
+        );
     }
 
     // Server酱
     if !settings.serverchan_key.is_empty() {
-        channel_configs.insert("serverchan".to_string(), ChannelConfig {
-            enabled: true,
-            configured: true,
-        });
+        channel_configs.insert(
+            "serverchan".to_string(),
+            ChannelConfig {
+                enabled: true,
+                configured: true,
+            },
+        );
     }
 
     // 企业微信
     if !settings.wecom_bot_url.is_empty() {
-        channel_configs.insert("wecom".to_string(), ChannelConfig {
-            enabled: true,
-            configured: true,
-        });
+        channel_configs.insert(
+            "wecom".to_string(),
+            ChannelConfig {
+                enabled: true,
+                configured: true,
+            },
+        );
     }
 
     // WxPusher
     if !settings.wxpusher_app_token.is_empty() {
-        channel_configs.insert("wxpusher".to_string(), ChannelConfig {
-            enabled: true,
-            configured: true,
-        });
+        channel_configs.insert(
+            "wxpusher".to_string(),
+            ChannelConfig {
+                enabled: true,
+                configured: true,
+            },
+        );
     }
 
     // Gotify
     if !settings.gotify_url.is_empty() && !settings.gotify_token.is_empty() {
-        channel_configs.insert("gotify".to_string(), ChannelConfig {
-            enabled: true,
-            configured: true,
-        });
+        channel_configs.insert(
+            "gotify".to_string(),
+            ChannelConfig {
+                enabled: true,
+                configured: true,
+            },
+        );
     }
 
     // PushPlus
     if !settings.pushplus_token.is_empty() {
-        channel_configs.insert("pushplus".to_string(), ChannelConfig {
-            enabled: true,
-            configured: true,
-        });
+        channel_configs.insert(
+            "pushplus".to_string(),
+            ChannelConfig {
+                enabled: true,
+                configured: true,
+            },
+        );
     }
 
     Ok(Json(PushStatusResponse {

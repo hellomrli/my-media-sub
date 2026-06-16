@@ -88,11 +88,7 @@ impl PanSouClient {
         let resp = self
             .client
             .get(&api_url)
-            .query(&[
-                ("kw", keyword),
-                ("res", "merge"),
-                ("src", "all"),
-            ])
+            .query(&[("kw", keyword), ("res", "merge"), ("src", "all")])
             .send()
             .await
             .map_err(|e| AppError::Http(format!("PanSou 请求失败: {}", e)))?;
@@ -129,9 +125,9 @@ impl PanSouClient {
                 url: url.clone(),
                 password: item.password.unwrap_or_default(),
                 source: item.source.unwrap_or_else(|| "pansou".to_string()),
-                datetime: item.datetime.unwrap_or_else(|| {
-                    chrono::Utc::now().to_rfc3339()
-                }),
+                datetime: item
+                    .datetime
+                    .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
                 images: item.images.unwrap_or_default(),
                 cloud_type: "quark".to_string(),
                 probe_info: None,

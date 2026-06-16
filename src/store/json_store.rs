@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::error::{AppError, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -97,7 +99,11 @@ where
         F: Fn(&T) -> bool,
     {
         let cache = self.cache.read().await;
-        cache.iter().filter(|item| predicate(item)).cloned().collect()
+        cache
+            .iter()
+            .filter(|item| predicate(item))
+            .cloned()
+            .collect()
     }
 
     /// 更新数据

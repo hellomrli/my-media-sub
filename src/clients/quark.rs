@@ -33,7 +33,6 @@ pub struct QuarkFile {
 
 /// 夸克分享探测客户端
 pub struct QuarkShareProbe {
-    cookie: String,
     client: Client,
 }
 
@@ -73,7 +72,10 @@ impl QuarkShareProbe {
                 .parse()
                 .unwrap(),
         );
-        headers.insert("Accept", "application/json, text/plain, */*".parse().unwrap());
+        headers.insert(
+            "Accept",
+            "application/json, text/plain, */*".parse().unwrap(),
+        );
         headers.insert("Referer", "https://pan.quark.cn/".parse().unwrap());
         headers.insert("Origin", "https://pan.quark.cn".parse().unwrap());
 
@@ -87,7 +89,7 @@ impl QuarkShareProbe {
             .build()
             .unwrap();
 
-        Self { cookie, client }
+        Self { client }
     }
 
     /// 从分享链接提取 pwd_id
@@ -125,7 +127,10 @@ impl QuarkShareProbe {
             .map_err(|e| AppError::Http(format!("解析夸克 token 响应失败: {}", e)))?;
 
         if data.code != 0 {
-            let msg = data.message.or(data.msg).unwrap_or_else(|| "未知错误".to_string());
+            let msg = data
+                .message
+                .or(data.msg)
+                .unwrap_or_else(|| "未知错误".to_string());
             return Ok((None, Some(msg)));
         }
 
@@ -178,7 +183,10 @@ impl QuarkShareProbe {
             .map_err(|e| AppError::Http(format!("解析夸克文件列表失败: {}", e)))?;
 
         if data.code != 0 {
-            let msg = data.message.or(data.msg).unwrap_or_else(|| "未知错误".to_string());
+            let msg = data
+                .message
+                .or(data.msg)
+                .unwrap_or_else(|| "未知错误".to_string());
             return Ok((vec![], Some(msg)));
         }
 
@@ -187,12 +195,7 @@ impl QuarkShareProbe {
     }
 
     /// 探测分享链接
-    pub async fn probe(
-        &self,
-        url: &str,
-        passcode: &str,
-        max_files: usize,
-    ) -> QuarkShareInfo {
+    pub async fn probe(&self, url: &str, passcode: &str, max_files: usize) -> QuarkShareInfo {
         let pwd_id = match Self::extract_pwd_id(url) {
             Some(id) => id,
             None => {
@@ -223,7 +226,10 @@ impl QuarkShareProbe {
         };
 
         if let Some(err_msg) = err {
-            let state = if err_msg.contains("提取码") || err_msg.contains("密码") || err_msg.to_lowercase().contains("pass") {
+            let state = if err_msg.contains("提取码")
+                || err_msg.contains("密码")
+                || err_msg.to_lowercase().contains("pass")
+            {
                 "locked"
             } else {
                 "bad"
@@ -314,8 +320,15 @@ impl QuarkShareProbe {
                     .to_string(),
                 is_dir,
                 size: item.get("size").and_then(|v| v.as_i64()).unwrap_or(0),
-                category: item.get("category").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                format_type: item.get("format_type").or_else(|| item.get("file_type")).and_then(|v| v.as_i64()).map(|n| n as i32),
+                category: item
+                    .get("category")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                format_type: item
+                    .get("format_type")
+                    .or_else(|| item.get("file_type"))
+                    .and_then(|v| v.as_i64())
+                    .map(|n| n as i32),
             });
 
             // 如果是目录且未达上限，递归获取
@@ -359,9 +372,11 @@ fn count_episodes(files: &[QuarkFile]) -> usize {
         .iter()
         .filter(|f| {
             let lower = f.name.to_lowercase();
-            let is_video = [".mkv", ".mp4", ".avi", ".ts", ".mov", ".wmv", ".flv", ".m4v"]
-                .iter()
-                .any(|ext| lower.ends_with(ext));
+            let is_video = [
+                ".mkv", ".mp4", ".avi", ".ts", ".mov", ".wmv", ".flv", ".m4v",
+            ]
+            .iter()
+            .any(|ext| lower.ends_with(ext));
             is_video && patterns.iter().any(|p| p.is_match(&f.name))
         })
         .count()
@@ -374,10 +389,16 @@ mod tests {
     #[test]
     fn test_extract_pwd_id() {
         let url = "https://pan.quark.cn/s/abc123def456";
-        assert_eq!(QuarkShareProbe::extract_pwd_id(url), Some("abc123def456".to_string()));
+        assert_eq!(
+            QuarkShareProbe::extract_pwd_id(url),
+            Some("abc123def456".to_string())
+        );
 
         let url2 = "https://pan.quark.cn/s/test_ID-789";
-        assert_eq!(QuarkShareProbe::extract_pwd_id(url2), Some("test_ID-789".to_string()));
+        assert_eq!(
+            QuarkShareProbe::extract_pwd_id(url2),
+            Some("test_ID-789".to_string())
+        );
 
         assert_eq!(QuarkShareProbe::extract_pwd_id("invalid"), None);
     }
