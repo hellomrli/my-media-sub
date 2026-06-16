@@ -1,5 +1,6 @@
 use crate::error::{AppError, Result};
-use crate::models::Settings;
+use crate::models::{Notification, Settings};
+use crate::store::NotificationStore;
 use reqwest::Client;
 use serde_json::json;
 use std::collections::HashMap;
@@ -16,7 +17,7 @@ pub enum PushLevel {
 }
 
 impl PushLevel {
-    fn as_str(&self) -> &str {
+    pub fn as_str(&self) -> &str {
         match self {
             Self::Info => "info",
             Self::Success => "success",
@@ -42,6 +43,17 @@ pub enum PushEvent {
     SubscriptionFailed,
     SubscriptionCompleted,
     TransferSaved,
+}
+
+impl PushEvent {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::SubscriptionUpdated => "subscription_updated",
+            Self::SubscriptionFailed => "subscription_failed",
+            Self::SubscriptionCompleted => "subscription_completed",
+            Self::TransferSaved => "transfer_saved",
+        }
+    }
 }
 
 /// 推送服务
@@ -391,9 +403,58 @@ impl PushService {
     }
 }
 
+pub async fn record_push_message(
+    notification_store: &NotificationStore,
+    source_event: &str,
+    title: &str,
+    message: &str,
+    level: PushLevel,
+    results: &HashMap<String, bool>,
+) {
+    if results.is_empty() {
+        return;
+    }
+
+    let success_count = results.values().filter(|&&ok| ok).count();
+    let failed_count = results.len().saturating_sub(success_count);
+    let record_level = if failed_count > 0 {
+        "warning"
+    } else {
+        level.as_str()
+    };
+
+    let notification = Notification {
+        id: uuid::Uuid::new_v4().to_string(),
+        level: record_level.to_string(),
+        event: "push_sent".to_string(),
+        title: format!("推送记录: {}", title),
+        message: message.to_string(),
+        meta: HashMap::from([
+            ("source_event".to_string(), json!(source_event)),
+            ("push_title".to_string(), json!(title)),
+            ("push_message".to_string(), json!(message)),
+            ("push_level".to_string(), json!(level.as_str())),
+            ("results".to_string(), json!(results)),
+            ("success_count".to_string(), json!(success_count)),
+            ("failed_count".to_string(), json!(failed_count)),
+            (
+                "channels".to_string(),
+                json!(results.keys().cloned().collect::<Vec<_>>()),
+            ),
+        ]),
+        read: false,
+        created_at: chrono::Local::now().timestamp(),
+    };
+
+    if let Err(e) = notification_store.add(notification).await {
+        tracing::warn!("保存推送记录失败: {}", e);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::NotificationStore;
 
     #[test]
     fn test_push_level() {
@@ -435,5 +496,33 @@ mod tests {
             .await;
 
         assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_record_push_message_saves_results() {
+        let tmp =
+            std::env::temp_dir().join(format!("my-media-sub-push-{}.json", uuid::Uuid::new_v4()));
+        let store = NotificationStore::new(&tmp);
+        store.load().await.unwrap();
+
+        let results = HashMap::from([("telegram".to_string(), true), ("bark".to_string(), false)]);
+        record_push_message(
+            &store,
+            PushEvent::SubscriptionUpdated.as_str(),
+            "title",
+            "message",
+            PushLevel::Info,
+            &results,
+        )
+        .await;
+
+        let notifications = store.list(true).await;
+        assert_eq!(notifications.len(), 1);
+        assert_eq!(notifications[0].event, "push_sent");
+        assert_eq!(notifications[0].level, "warning");
+        assert_eq!(notifications[0].meta["success_count"], json!(1));
+        assert_eq!(notifications[0].meta["failed_count"], json!(1));
+
+        let _ = std::fs::remove_file(tmp);
     }
 }

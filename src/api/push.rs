@@ -4,12 +4,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::error::Result;
-use crate::services::push::{PushLevel, PushService};
-use crate::store::SettingsStore;
+use crate::services::push::{record_push_message, PushLevel, PushService};
+use crate::store::{NotificationStore, SettingsStore};
 
 /// 推送路由状态
 pub struct PushState {
     pub settings_store: Arc<SettingsStore>,
+    pub notification_store: Arc<NotificationStore>,
 }
 
 /// 推送测试请求
@@ -80,6 +81,15 @@ async fn test_push(
     let results = push_service
         .send_to_channels(&test_channels, &title, &message, PushLevel::Info)
         .await;
+    record_push_message(
+        &state.notification_store,
+        "push_test",
+        &title,
+        &message,
+        PushLevel::Info,
+        &results,
+    )
+    .await;
 
     // 统计结果
     let success_count = results.values().filter(|&&v| v).count();
@@ -216,8 +226,14 @@ struct PushStatusResponse {
 }
 
 /// 创建推送路由
-pub fn routes(settings_store: Arc<SettingsStore>) -> Router {
-    let state = Arc::new(PushState { settings_store });
+pub fn routes(
+    settings_store: Arc<SettingsStore>,
+    notification_store: Arc<NotificationStore>,
+) -> Router {
+    let state = Arc::new(PushState {
+        settings_store,
+        notification_store,
+    });
 
     Router::new()
         .route("/api/push/test", post(test_push))
