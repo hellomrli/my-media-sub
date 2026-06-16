@@ -60,23 +60,25 @@ impl AppContext {
             notification_store.clone(),
         ));
 
+        let job_queue = Arc::new(JobQueue::new(
+            job_store.clone(),
+            settings_store.clone(),
+            notification_store.clone(),
+            transfer_service.clone(),
+        ));
+
         let check_service = Arc::new(
             SubscriptionCheckService::new(
                 subscription_store.clone(),
                 settings_store.clone(),
                 notification_store.clone(),
             )
-            .with_transfer_service(transfer_service.clone()),
+            .with_job_queue(job_queue.clone()),
         );
 
         let scheduler = Arc::new(
             SubscriptionScheduler::new(check_service.clone(), settings_store.clone()).await?,
         );
-        let job_queue = Arc::new(JobQueue::new(
-            job_store.clone(),
-            settings_store.clone(),
-            notification_store.clone(),
-        ));
 
         Ok(Arc::new(Self {
             subscription_store,

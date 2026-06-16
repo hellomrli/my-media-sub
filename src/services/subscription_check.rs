@@ -3,6 +3,7 @@ use tracing::{info, warn};
 
 use crate::clients::quark::QuarkShareProbe;
 use crate::error::{AppError, Result};
+use crate::jobs::{JobQueue, SubscriptionTransferPayload};
 use crate::models::subscription::{CheckHistoryItem, ProbeFile, ProbeResult, Subscription};
 use crate::services::push::{PushEvent, PushLevel, PushService};
 use crate::services::SubscriptionTransferService;
@@ -13,6 +14,7 @@ pub struct SubscriptionCheckService {
     subscription_store: Arc<SubscriptionStore>,
     settings_store: Arc<SettingsStore>,
     notification_store: Arc<NotificationStore>,
+    job_queue: Option<Arc<JobQueue>>,
     transfer_service: Option<Arc<SubscriptionTransferService>>,
 }
 
@@ -26,11 +28,19 @@ impl SubscriptionCheckService {
             subscription_store,
             settings_store,
             notification_store,
+            job_queue: None,
             transfer_service: None,
         }
     }
 
-    /// 设置转存服务（可选，用于自动转存）
+    /// 设置后台任务队列，用于异步自动转存。
+    pub fn with_job_queue(mut self, job_queue: Arc<JobQueue>) -> Self {
+        self.job_queue = Some(job_queue);
+        self
+    }
+
+    /// 设置转存服务（保留为同步回退路径）。
+    #[allow(dead_code)]
     pub fn with_transfer_service(
         mut self,
         transfer_service: Arc<SubscriptionTransferService>,
@@ -111,9 +121,20 @@ impl SubscriptionCheckService {
             self.send_completed_notification(&sub).await;
         }
 
-        // 6. 自动转存（如果配置了转存服务）
+        // 6. 自动转存：优先提交后台任务，保留同步转存作为回退路径。
         if !new_file_names.is_empty() {
-            if let Some(transfer_service) = &self.transfer_service {
+            if let Some(job_queue) = &self.job_queue {
+                match job_queue
+                    .submit_subscription_transfer(SubscriptionTransferPayload {
+                        subscription_id: sub.id.clone(),
+                        file_names: new_file_names.clone(),
+                    })
+                    .await
+                {
+                    Ok(job) => info!("已创建订阅自动转存任务: {}", job.id),
+                    Err(e) => warn!("创建订阅自动转存任务失败: {}", e),
+                }
+            } else if let Some(transfer_service) = &self.transfer_service {
                 match transfer_service
                     .auto_transfer_new_files(&sub.id, &new_file_names)
                     .await

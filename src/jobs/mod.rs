@@ -9,6 +9,7 @@ use tracing::{error, info, warn};
 
 use crate::clients::{QuarkSaveClient, QuarkShareProbe};
 use crate::error::{AppError, Result};
+use crate::services::SubscriptionTransferService;
 use crate::store::{NotificationStore, SettingsStore};
 
 const MAX_JOBS: usize = 500;
@@ -26,6 +27,7 @@ pub enum JobStatus {
 #[serde(rename_all = "snake_case")]
 pub enum JobKind {
     ManualTransfer,
+    SubscriptionTransfer,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,6 +58,12 @@ pub struct ManualTransferPayload {
     pub passcode: String,
     #[serde(default)]
     pub target_fid: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubscriptionTransferPayload {
+    pub subscription_id: String,
+    pub file_names: Vec<String>,
 }
 
 pub struct JobStore {
@@ -155,12 +163,14 @@ impl JobQueue {
         store: Arc<JobStore>,
         settings_store: Arc<SettingsStore>,
         notification_store: Arc<NotificationStore>,
+        transfer_service: Arc<SubscriptionTransferService>,
     ) -> Self {
         let (sender, receiver) = mpsc::channel(100);
         let worker = JobWorker {
             store: store.clone(),
             settings_store,
             notification_store,
+            transfer_service,
             receiver,
         };
         tokio::spawn(worker.run());
@@ -203,12 +213,52 @@ impl JobQueue {
 
         Ok(job)
     }
+
+    pub async fn submit_subscription_transfer(
+        &self,
+        payload: SubscriptionTransferPayload,
+    ) -> Result<Job> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let created_at = now();
+        let job = Job {
+            id: id.clone(),
+            kind: JobKind::SubscriptionTransfer,
+            status: JobStatus::Queued,
+            progress: 0,
+            title: "订阅自动转存".to_string(),
+            message: "等待后台任务执行".to_string(),
+            payload: serde_json::to_value(payload)?,
+            result: None,
+            error: None,
+            created_at,
+            updated_at: created_at,
+            started_at: None,
+            finished_at: None,
+        };
+
+        let job = self.store.add(job).await?;
+        if self.sender.send(id.clone()).await.is_err() {
+            self.store
+                .update(&id, |job| {
+                    job.status = JobStatus::Failed;
+                    job.progress = 100;
+                    job.message = "任务队列不可用".to_string();
+                    job.error = Some("任务队列不可用".to_string());
+                    job.finished_at = Some(now());
+                })
+                .await?;
+            return Err(AppError::Internal("任务队列不可用".to_string()));
+        }
+
+        Ok(job)
+    }
 }
 
 struct JobWorker {
     store: Arc<JobStore>,
     settings_store: Arc<SettingsStore>,
     notification_store: Arc<NotificationStore>,
+    transfer_service: Arc<SubscriptionTransferService>,
     receiver: mpsc::Receiver<String>,
 }
 
@@ -234,7 +284,93 @@ impl JobWorker {
                 let payload: ManualTransferPayload = serde_json::from_value(job.payload)?;
                 self.run_manual_transfer(job_id, payload).await
             }
+            JobKind::SubscriptionTransfer => {
+                let payload: SubscriptionTransferPayload = serde_json::from_value(job.payload)?;
+                self.run_subscription_transfer(job_id, payload).await
+            }
         }
+    }
+
+    async fn run_subscription_transfer(
+        &self,
+        job_id: &str,
+        payload: SubscriptionTransferPayload,
+    ) -> Result<()> {
+        self.update_running(job_id, 10, "正在准备订阅转存").await?;
+
+        if payload.file_names.is_empty() {
+            self.store
+                .update(job_id, |job| {
+                    job.status = JobStatus::Succeeded;
+                    job.progress = 100;
+                    job.message = "没有新文件需要转存".to_string();
+                    job.result = Some(json!({
+                        "subscription_id": payload.subscription_id,
+                        "transferred_count": 0,
+                        "skipped": true,
+                    }));
+                    job.finished_at = Some(now());
+                })
+                .await?;
+            return Ok(());
+        }
+
+        self.update_running(job_id, 35, "正在执行订阅转存").await?;
+        match self
+            .transfer_service
+            .auto_transfer_new_files(&payload.subscription_id, &payload.file_names)
+            .await
+        {
+            Ok(result) => {
+                let progress = if result.skipped { 100 } else { 95 };
+                self.update_running(job_id, progress, &result.reason)
+                    .await?;
+                self.store
+                    .update(job_id, |job| {
+                        job.status = JobStatus::Succeeded;
+                        job.progress = 100;
+                        job.message = result.reason.clone();
+                        job.result = Some(json!({
+                            "subscription_id": result.subscription_id,
+                            "transferred_count": result.transferred_count,
+                            "skipped": result.skipped,
+                        }));
+                        job.finished_at = Some(now());
+                    })
+                    .await?;
+            }
+            Err(e) => {
+                let message = format!("订阅自动转存失败: {}", e);
+                self.store
+                    .update(job_id, |job| {
+                        job.status = JobStatus::Failed;
+                        job.progress = 100;
+                        job.message = message.clone();
+                        job.error = Some(message.clone());
+                        job.finished_at = Some(now());
+                    })
+                    .await?;
+                self.add_transfer_notification(
+                    "error",
+                    "subscription_transfer_failed",
+                    "订阅自动转存失败",
+                    &message,
+                    HashMap::from([
+                        ("mode".to_string(), json!("auto")),
+                        ("job_id".to_string(), json!(job_id)),
+                        (
+                            "subscription_id".to_string(),
+                            json!(payload.subscription_id),
+                        ),
+                        ("file_count".to_string(), json!(payload.file_names.len())),
+                    ]),
+                )
+                .await;
+                warn!("{}", message);
+            }
+        }
+
+        Ok(())
     }
 
     async fn run_manual_transfer(&self, job_id: &str, req: ManualTransferPayload) -> Result<()> {
