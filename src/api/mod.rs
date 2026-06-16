@@ -21,9 +21,8 @@ use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 
-use crate::clients::PanSouClient;
-use crate::services::SubscriptionScheduler;
-use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
+use crate::app::AppContext;
+use crate::store::SettingsStore;
 
 /// 健康检查响应
 #[derive(Serialize)]
@@ -80,13 +79,8 @@ async fn basic_auth(
 }
 
 /// 创建主应用路由
-pub fn create_app(
-    subscription_store: Arc<SubscriptionStore>,
-    settings_store: Arc<SettingsStore>,
-    notification_store: Arc<NotificationStore>,
-    pansou_client: Arc<PanSouClient>,
-    scheduler: Arc<SubscriptionScheduler>,
-) -> Router {
+pub fn create_app(context: Arc<AppContext>) -> Router {
+    let settings_store = context.settings_store.clone();
     let auth_state = settings_store.clone();
 
     // CORS 配置
@@ -102,15 +96,25 @@ pub fn create_app(
     Router::new()
         .route("/health", get(health))
         .merge(subscriptions::routes(
-            subscription_store,
+            context.subscription_store.clone(),
             settings_store.clone(),
-            notification_store.clone(),
+            context.check_service.clone(),
+            context.transfer_service.clone(),
         ))
-        .merge(settings::routes(settings_store.clone(), scheduler))
-        .merge(search::routes(pansou_client, settings_store.clone()))
-        .merge(notifications::routes(notification_store.clone()))
+        .merge(settings::routes(
+            settings_store.clone(),
+            context.scheduler.clone(),
+        ))
+        .merge(search::routes(
+            context.pansou_client.clone(),
+            settings_store.clone(),
+        ))
+        .merge(notifications::routes(context.notification_store.clone()))
         .merge(drive::routes(settings_store.clone()))
-        .merge(transfer::routes(settings_store.clone(), notification_store))
+        .merge(transfer::routes(
+            settings_store.clone(),
+            context.notification_store.clone(),
+        ))
         .merge(push::routes(settings_store))
         .fallback_service(serve_static)
         .layer(middleware::from_fn_with_state(auth_state, basic_auth))
