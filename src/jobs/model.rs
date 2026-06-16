@@ -15,6 +15,7 @@ pub enum JobStatus {
 pub enum JobKind {
     ManualTransfer,
     SubscriptionTransfer,
+    MetadataScrape,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,6 +52,14 @@ pub struct ManualTransferPayload {
 pub struct SubscriptionTransferPayload {
     pub subscription_id: String,
     pub file_names: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetadataScrapePayload {
+    #[serde(default)]
+    pub subscription_id: Option<String>,
+    #[serde(default)]
+    pub overwrite: bool,
 }
 
 pub(crate) fn now() -> i64 {

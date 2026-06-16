@@ -7,6 +7,7 @@ use crate::error::Result;
 use crate::models::Notification;
 use crate::services::push::{record_push_message, PushEvent, PushLevel, PushService};
 use crate::store::{NotificationStore, SettingsStore};
+use std::sync::Arc;
 
 pub async fn add_notification(
     notification_store: &NotificationStore,
@@ -30,7 +31,31 @@ pub async fn add_notification(
     notification_store.add(notification).await
 }
 
-pub async fn send_push_event(
+pub fn dispatch_push_event(
+    settings_store: Arc<SettingsStore>,
+    notification_store: Arc<NotificationStore>,
+    event: PushEvent,
+    title: impl Into<String>,
+    message: impl Into<String>,
+    level: PushLevel,
+) {
+    let title = title.into();
+    let message = message.into();
+
+    tokio::spawn(async move {
+        send_push_event(
+            &settings_store,
+            &notification_store,
+            event,
+            &title,
+            &message,
+            level,
+        )
+        .await;
+    });
+}
+
+async fn send_push_event(
     settings_store: &SettingsStore,
     notification_store: &NotificationStore,
     event: PushEvent,

@@ -526,10 +526,16 @@
               <h3 class="section-title">订阅列表</h3>
               <p class="text-sm text-gray-500 mt-1">按状态、进度和最近检查时间快速扫描。</p>
             </div>
-            <button @click="showAddSubscription = true" class="btn-primary px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2">
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-              添加订阅
-            </button>
+            <div class="flex flex-col sm:flex-row gap-2">
+              <button @click="scrapeAllSubscriptionMetadata()" class="btn-secondary px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5h16M7 12h10M10 19h4" /></svg>
+                批量刮削
+              </button>
+              <button @click="showAddSubscription = true" class="btn-primary px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                添加订阅
+              </button>
+            </div>
           </div>
           <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <template x-for="sub in subscriptions" :key="sub.id">
@@ -538,14 +544,23 @@
                   <h4 class="text-white font-semibold text-base break-all pr-4" x-text="sub.title"></h4>
                   <span :class="{'bg-green-600/20 text-green-400': sub.status === 'active', 'bg-gray-600/20 text-gray-400': sub.status === 'completed', 'bg-red-600/20 text-red-400': sub.status === 'invalid'}" class="px-2 py-1 rounded text-xs font-medium" x-text="sub.status"></span>
                 </div>
+                <div x-show="sub.metadata" class="mb-4 app-panel-soft p-3 flex gap-3">
+                  <img x-show="sub.metadata && sub.metadata.poster_url" :src="sub.metadata && sub.metadata.poster_url" alt="" class="w-12 h-16 rounded object-cover border border-dark-border" />
+                  <div class="min-w-0">
+                    <div class="text-sm text-white font-medium truncate" x-text="sub.metadata && sub.metadata.title"></div>
+                    <div class="text-xs text-gray-500 mt-1" x-text="sub.metadata ? metadataSubtitle(sub.metadata) : ''"></div>
+                    <p class="text-xs text-gray-400 mt-2 line-clamp-2" x-text="sub.metadata && sub.metadata.overview"></p>
+                  </div>
+                </div>
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm text-gray-400 mb-4">
                   <div class="app-panel-soft p-3"><span class="block text-xs text-gray-500 mb-1">媒体类型</span><span x-text="sub.media_type" class="text-blue-300"></span></div>
                   <div class="app-panel-soft p-3"><span class="block text-xs text-gray-500 mb-1">当前进度</span><span x-show="sub.current_episode_number > 0" x-text="'第 ' + sub.current_episode_number + ' 集'" class="text-green-300"></span><span x-show="!sub.current_episode_number || sub.current_episode_number <= 0">-</span></div>
                   <div class="app-panel-soft p-3"><span class="block text-xs text-gray-500 mb-1">最后检查</span><span x-text="new Date(sub.last_checked_at * 1000).toLocaleString()" class="text-gray-300 text-xs"></span></div>
                 </div>
-                <div class="flex gap-2">
+                <div class="flex flex-wrap gap-2">
                   <button @click="checkSubscription(sub.id)" class="btn-primary flex-1 px-3 py-2 rounded transition-colors text-sm">立即检查</button>
                   <button @click="renameExistingFiles(sub.id)" class="btn-secondary px-3 py-2 rounded transition-colors text-sm">修复命名</button>
+                  <button @click="scrapeSubscriptionMetadata(sub.id)" class="btn-secondary px-3 py-2 rounded transition-colors text-sm">刮削元数据</button>
                   <button @click="deleteSubscription(sub.id)" class="btn-danger px-3 py-2 rounded transition-colors text-sm">删除</button>
                 </div>
               </div>
@@ -594,7 +609,7 @@
                     <div class="min-w-0">
                       <div class="flex flex-wrap items-center gap-2 mb-2">
                         <span class="px-2 py-1 rounded text-xs" :class="jobStatusClass(job.status)" x-text="jobStatusLabel(job.status)"></span>
-                        <span class="px-2 py-1 rounded text-xs bg-blue-600/20 text-blue-300" x-text="job.kind === 'subscription_transfer' ? '自动订阅' : '手动转存'"></span>
+                        <span class="px-2 py-1 rounded text-xs bg-blue-600/20 text-blue-300" x-text="jobKindLabel(job.kind)"></span>
                         <span class="text-xs text-gray-500" x-text="formatTime(job.created_at)"></span>
                       </div>
                       <h4 class="text-white font-medium" x-text="job.title"></h4>
@@ -1238,7 +1253,7 @@
         },
 
         get transferJobs() {
-          return this.jobs.filter(job => ['manual_transfer', 'subscription_transfer'].includes(job.kind));
+          return this.jobs.filter(job => ['manual_transfer', 'subscription_transfer', 'metadata_scrape'].includes(job.kind));
         },
 
         get runningTransferJobs() {
@@ -1860,6 +1875,50 @@
           }
         },
 
+        async scrapeSubscriptionMetadata(id) {
+          try {
+            this.showNotification('info', '已提交元数据刮削任务');
+            const response = await fetch(`/api/subscriptions/${id}/metadata/scrape`, {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({overwrite: true})
+            });
+            const result = await response.json();
+
+            if (response.ok && result.data) {
+              this.upsertJob(result.data);
+              await this.loadJobs();
+            } else {
+              this.showNotification('error', result.message || '提交刮削任务失败');
+            }
+          } catch (error) {
+            console.error('提交刮削任务失败:', error);
+            this.showNotification('error', '提交刮削任务失败');
+          }
+        },
+
+        async scrapeAllSubscriptionMetadata() {
+          try {
+            this.showNotification('info', '已提交批量元数据刮削任务');
+            const response = await fetch('/api/subscriptions/metadata/scrape', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({overwrite: false})
+            });
+            const result = await response.json();
+
+            if (response.ok && result.data) {
+              this.upsertJob(result.data);
+              await this.loadJobs();
+            } else {
+              this.showNotification('error', result.message || '提交批量刮削任务失败');
+            }
+          } catch (error) {
+            console.error('提交批量刮削任务失败:', error);
+            this.showNotification('error', '提交批量刮削任务失败');
+          }
+        },
+
         async addSubscription() {
           if (!this.newSubscription.name.trim()) {
             this.showNotification('error', '请输入订阅名称');
@@ -1950,7 +2009,8 @@
             subscription_transferred: '自动转存',
             subscription_transfer_failed: '转存失败',
             manual_transfer_succeeded: '手动转存',
-            manual_transfer_failed: '转存失败'
+            manual_transfer_failed: '转存失败',
+            metadata_scrape_completed: '元数据刮削'
           };
           return labels[event] || '系统通知';
         },
@@ -1981,6 +2041,15 @@
             canceled: '已取消'
           };
           return labels[status] || status;
+        },
+
+        jobKindLabel(kind) {
+          const labels = {
+            manual_transfer: '手动转存',
+            subscription_transfer: '自动订阅',
+            metadata_scrape: '元数据刮削'
+          };
+          return labels[kind] || kind || '后台任务';
         },
 
         jobStatusClass(status) {
@@ -2061,6 +2130,9 @@
               this.upsertJob(job);
               if (['succeeded', 'failed', 'canceled'].includes(job.status)) {
                 await this.loadNotifications();
+              }
+              if (job.kind === 'metadata_scrape' && job.status === 'succeeded') {
+                await this.loadSubscriptions();
               }
             } catch (error) {
               console.error('解析任务事件失败:', error);

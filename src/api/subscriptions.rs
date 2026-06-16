@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::error::{AppError, Result};
+use crate::jobs::{JobQueue, MetadataScrapePayload};
 use crate::models::{MediaMetadata, Subscription};
 use crate::services::{SubscriptionCheckService, SubscriptionTransferService};
 use crate::store::{SettingsStore, SubscriptionStore};
@@ -19,6 +20,7 @@ pub struct SubscriptionState {
     pub settings_store: Arc<SettingsStore>,
     pub check_service: Arc<SubscriptionCheckService>,
     pub transfer_service: Arc<SubscriptionTransferService>,
+    pub job_queue: Arc<JobQueue>,
 }
 
 /// 创建订阅请求
@@ -53,6 +55,12 @@ pub struct UpdateSubscriptionRequest {
     pub enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notify_only: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ScrapeMetadataRequest {
+    #[serde(default)]
+    pub overwrite: bool,
 }
 
 /// 通用响应
@@ -257,6 +265,27 @@ async fn rename_existing_files(
     })))
 }
 
+/// 后台刮削单个订阅元数据
+async fn scrape_subscription_metadata(
+    State(state): State<Arc<SubscriptionState>>,
+    Path(id): Path<String>,
+    Json(req): Json<ScrapeMetadataRequest>,
+) -> Result<impl IntoResponse> {
+    if state.store.get(&id).await.is_none() {
+        return Err(AppError::NotFound("订阅不存在".to_string()));
+    }
+
+    let job = state
+        .job_queue
+        .submit_metadata_scrape(MetadataScrapePayload {
+            subscription_id: Some(id),
+            overwrite: req.overwrite,
+        })
+        .await?;
+
+    Ok((StatusCode::ACCEPTED, Json(Response::ok(job))))
+}
+
 /// 检查所有订阅
 async fn check_all_subscriptions(
     State(state): State<Arc<SubscriptionState>>,
@@ -285,24 +314,46 @@ async fn check_all_subscriptions(
     Ok(Json(Response::ok(responses)))
 }
 
+/// 后台批量刮削订阅元数据
+async fn scrape_all_subscription_metadata(
+    State(state): State<Arc<SubscriptionState>>,
+    Json(req): Json<ScrapeMetadataRequest>,
+) -> Result<impl IntoResponse> {
+    let job = state
+        .job_queue
+        .submit_metadata_scrape(MetadataScrapePayload {
+            subscription_id: None,
+            overwrite: req.overwrite,
+        })
+        .await?;
+
+    Ok((StatusCode::ACCEPTED, Json(Response::ok(job))))
+}
+
 /// 创建订阅路由
 pub fn routes(
     store: Arc<SubscriptionStore>,
     settings_store: Arc<SettingsStore>,
     check_service: Arc<SubscriptionCheckService>,
     transfer_service: Arc<SubscriptionTransferService>,
+    job_queue: Arc<JobQueue>,
 ) -> Router {
     let state = Arc::new(SubscriptionState {
         store,
         settings_store,
         check_service,
         transfer_service,
+        job_queue,
     });
 
     Router::new()
         .route("/api/subscriptions", get(list_subscriptions))
         .route("/api/subscriptions", post(create_subscription))
         .route("/api/subscriptions/check", post(check_all_subscriptions))
+        .route(
+            "/api/subscriptions/metadata/scrape",
+            post(scrape_all_subscription_metadata),
+        )
         .route("/api/subscriptions/{id}", get(get_subscription))
         .route("/api/subscriptions/{id}", put(update_subscription))
         .route("/api/subscriptions/{id}", delete(delete_subscription))
@@ -310,6 +361,10 @@ pub fn routes(
         .route(
             "/api/subscriptions/{id}/rename-existing",
             post(rename_existing_files),
+        )
+        .route(
+            "/api/subscriptions/{id}/metadata/scrape",
+            post(scrape_subscription_metadata),
         )
         .with_state(state)
 }

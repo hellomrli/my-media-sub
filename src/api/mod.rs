@@ -102,6 +102,7 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
             settings_store.clone(),
             context.check_service.clone(),
             context.transfer_service.clone(),
+            context.job_queue.clone(),
         ))
         .merge(settings::routes(
             settings_store.clone(),

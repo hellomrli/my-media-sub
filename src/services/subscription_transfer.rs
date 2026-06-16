@@ -7,7 +7,7 @@ use crate::clients::quark::{QuarkFile, QuarkShareProbe};
 use crate::clients::quark_save::{NormalizedItem, QuarkSaveClient};
 use crate::error::{AppError, Result};
 use crate::models::subscription::Subscription;
-use crate::services::notification::{add_notification, send_push_event};
+use crate::services::notification::{add_notification, dispatch_push_event};
 use crate::services::push::{PushEvent, PushLevel};
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
@@ -537,15 +537,14 @@ impl SubscriptionTransferService {
             meta,
         )
         .await;
-        send_push_event(
-            &self.settings_store,
-            &self.notification_store,
+        dispatch_push_event(
+            self.settings_store.clone(),
+            self.notification_store.clone(),
             PushEvent::TransferSaved,
-            &title,
-            &message,
+            title,
+            message,
             PushLevel::Success,
-        )
-        .await;
+        );
     }
 }
 

@@ -65,7 +65,9 @@ impl AppContext {
         let job_queue = Arc::new(JobQueue::new(
             job_store.clone(),
             settings_store.clone(),
+            subscription_store.clone(),
             notification_store.clone(),
+            metadata_service.clone(),
             transfer_service.clone(),
         ));
 

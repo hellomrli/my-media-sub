@@ -52,6 +52,24 @@ impl MetadataService {
         }
     }
 
+    pub fn choose_best_match(
+        query: &str,
+        media_type: &str,
+        candidates: &[MediaMetadata],
+    ) -> Option<MediaMetadata> {
+        candidates
+            .iter()
+            .filter(|item| media_type_compatible(media_type, &item.media_type))
+            .max_by_key(|item| metadata_score(query, item))
+            .cloned()
+            .or_else(|| {
+                candidates
+                    .iter()
+                    .max_by_key(|item| metadata_score(query, item))
+                    .cloned()
+            })
+    }
+
     async fn search_tmdb(
         &self,
         api_key: &str,
@@ -173,6 +191,50 @@ fn tmdb_image_url(path: Option<String>) -> Option<String> {
         .map(|value| format!("https://image.tmdb.org/t/p/w500{}", value))
 }
 
+fn normalize_title(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+fn media_type_compatible(expected: &str, actual: &str) -> bool {
+    match expected {
+        "anime" => actual == "anime" || actual == "series",
+        "" => true,
+        value => value == actual,
+    }
+}
+
+fn metadata_score(query: &str, item: &MediaMetadata) -> i32 {
+    let query = normalize_title(query);
+    let title = normalize_title(&item.title);
+    let original_title = normalize_title(&item.original_title);
+
+    let mut score = 0;
+    if !query.is_empty() && query == title {
+        score += 100;
+    }
+    if !query.is_empty() && query == original_title {
+        score += 90;
+    }
+    if !query.is_empty() && title.contains(&query) {
+        score += 40;
+    }
+    if !query.is_empty() && original_title.contains(&query) {
+        score += 30;
+    }
+    if item.poster_url.is_some() {
+        score += 5;
+    }
+    if item.overview.trim().is_empty() {
+        score -= 5;
+    }
+    score += item.vote_average.unwrap_or_default().round() as i32;
+    score
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,5 +263,40 @@ mod tests {
             metadata.poster_url.as_deref(),
             Some("https://image.tmdb.org/t/p/w500/poster.jpg")
         );
+    }
+
+    #[test]
+    fn test_choose_best_match_prefers_compatible_exact_title() {
+        let candidates = vec![
+            MediaMetadata {
+                provider: MetadataProvider::Tmdb,
+                provider_id: "1".to_string(),
+                title: "Other Show".to_string(),
+                original_title: "Other Show".to_string(),
+                media_type: "movie".to_string(),
+                overview: "overview".to_string(),
+                poster_url: None,
+                backdrop_url: None,
+                release_date: None,
+                vote_average: Some(9.0),
+            },
+            MediaMetadata {
+                provider: MetadataProvider::Tmdb,
+                provider_id: "2".to_string(),
+                title: "Joy of Life".to_string(),
+                original_title: "庆余年".to_string(),
+                media_type: "series".to_string(),
+                overview: "overview".to_string(),
+                poster_url: Some("poster".to_string()),
+                backdrop_url: None,
+                release_date: None,
+                vote_average: Some(7.0),
+            },
+        ];
+
+        let selected =
+            MetadataService::choose_best_match("Joy of Life", "series", &candidates).unwrap();
+
+        assert_eq!(selected.provider_id, "2");
     }
 }
