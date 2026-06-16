@@ -7,6 +7,7 @@ use tracing::{error, info, warn};
 
 use crate::clients::{QuarkSaveClient, QuarkShareProbe};
 use crate::error::{AppError, Result};
+use crate::services::notification::add_notification;
 use crate::services::SubscriptionTransferService;
 use crate::store::{NotificationStore, SettingsStore};
 
@@ -345,18 +346,9 @@ impl JobWorker {
         message: &str,
         meta: HashMap<String, serde_json::Value>,
     ) {
-        let notification = crate::models::Notification {
-            id: uuid::Uuid::new_v4().to_string(),
-            level: level.to_string(),
-            event: event.to_string(),
-            title: title.to_string(),
-            message: message.to_string(),
-            meta,
-            read: false,
-            created_at: now(),
-        };
-
-        if let Err(e) = self.notification_store.add(notification).await {
+        if let Err(e) =
+            add_notification(&self.notification_store, level, event, title, message, meta).await
+        {
             warn!("写入转存历史失败: {}", e);
         }
     }

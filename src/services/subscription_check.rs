@@ -5,7 +5,8 @@ use crate::clients::quark::QuarkShareProbe;
 use crate::error::{AppError, Result};
 use crate::jobs::{JobQueue, SubscriptionTransferPayload};
 use crate::models::subscription::{CheckHistoryItem, ProbeFile, ProbeResult, Subscription};
-use crate::services::push::{record_push_message, PushEvent, PushLevel, PushService};
+use crate::services::notification::{add_notification, send_push_event};
+use crate::services::push::{PushEvent, PushLevel};
 use crate::services::SubscriptionTransferService;
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
@@ -343,19 +344,18 @@ impl SubscriptionCheckService {
         let message = error.to_string();
 
         if sub.rules.notify_on_invalid {
-            let notification = crate::models::Notification {
-                id: uuid::Uuid::new_v4().to_string(),
-                level: "warning".to_string(),
-                event: "subscription_invalid".to_string(),
-                title: title.clone(),
-                message: message.clone(),
-                meta: std::collections::HashMap::new(),
-                read: false,
-                created_at: now,
-            };
-
-            self.notification_store.add(notification).await?;
-            self.send_push_event(
+            add_notification(
+                &self.notification_store,
+                "warning",
+                "subscription_invalid",
+                title.clone(),
+                message.clone(),
+                std::collections::HashMap::new(),
+            )
+            .await?;
+            send_push_event(
+                &self.settings_store,
+                &self.notification_store,
                 PushEvent::SubscriptionFailed,
                 &title,
                 &message,
@@ -374,11 +374,6 @@ impl SubscriptionCheckService {
         new_files: &[String],
         new_episodes: &[i32],
     ) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
-
         let message = if new_episodes.is_empty() {
             format!("发现新文件: {}", new_files.join("、"))
         } else {
@@ -393,19 +388,18 @@ impl SubscriptionCheckService {
         };
 
         let title = format!("订阅有更新: {}", sub.title);
-        let notification = crate::models::Notification {
-            id: uuid::Uuid::new_v4().to_string(),
-            level: "info".to_string(),
-            event: "subscription_updated".to_string(),
-            title: title.clone(),
-            message: message.clone(),
-            meta: std::collections::HashMap::new(),
-            read: false,
-            created_at: now,
-        };
-
-        let _ = self.notification_store.add(notification).await;
-        self.send_push_event(
+        let _ = add_notification(
+            &self.notification_store,
+            "info",
+            "subscription_updated",
+            title.clone(),
+            message.clone(),
+            std::collections::HashMap::new(),
+        )
+        .await;
+        send_push_event(
+            &self.settings_store,
+            &self.notification_store,
             PushEvent::SubscriptionUpdated,
             &title,
             &message,
@@ -416,10 +410,6 @@ impl SubscriptionCheckService {
 
     /// 发送完结通知
     async fn send_completed_notification(&self, sub: &Subscription) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
         let total = sub
             .rules
             .finish_after_episode
@@ -432,50 +422,24 @@ impl SubscriptionCheckService {
             "订阅已标记为完结".to_string()
         };
 
-        let notification = crate::models::Notification {
-            id: uuid::Uuid::new_v4().to_string(),
-            level: "success".to_string(),
-            event: "subscription_completed".to_string(),
-            title: title.clone(),
-            message: message.clone(),
-            meta: std::collections::HashMap::new(),
-            read: false,
-            created_at: now,
-        };
-
-        let _ = self.notification_store.add(notification).await;
-        self.send_push_event(
+        let _ = add_notification(
+            &self.notification_store,
+            "success",
+            "subscription_completed",
+            title.clone(),
+            message.clone(),
+            std::collections::HashMap::new(),
+        )
+        .await;
+        send_push_event(
+            &self.settings_store,
+            &self.notification_store,
             PushEvent::SubscriptionCompleted,
             &title,
             &message,
             PushLevel::Success,
         )
         .await;
-    }
-
-    async fn send_push_event(
-        &self,
-        event: PushEvent,
-        title: &str,
-        message: &str,
-        level: PushLevel,
-    ) {
-        let settings = self.settings_store.get().await;
-        let push_service = PushService::new(settings);
-        let results = push_service.send_event(event, title, message, level).await;
-        record_push_message(
-            &self.notification_store,
-            event.as_str(),
-            title,
-            message,
-            level,
-            &results,
-        )
-        .await;
-        let failed = results.values().filter(|&&ok| !ok).count();
-        if failed > 0 {
-            warn!("业务推送部分失败: {}/{} 个渠道失败", failed, results.len());
-        }
     }
 }
 
