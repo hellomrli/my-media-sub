@@ -708,6 +708,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-cron-scheduler",
+ "tokio-stream",
  "tokio-test",
  "tower",
  "tower-http",
@@ -1355,6 +1356,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

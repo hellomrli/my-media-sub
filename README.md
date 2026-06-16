@@ -126,6 +126,7 @@ cargo run
 
 - `GET /api/jobs`
 - `GET /api/jobs/{id}`
+- `GET /api/jobs/events`：SSE 任务进度事件流
 
 ### 订阅
 
