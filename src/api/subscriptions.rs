@@ -206,6 +206,7 @@ struct CheckResponse {
     new_files: Vec<String>,
     new_episodes: Vec<i32>,
     became_invalid: bool,
+    became_completed: bool,
     summary: String,
 }
 
@@ -235,6 +236,7 @@ async fn check_subscription(
         new_files: result.new_files,
         new_episodes: result.new_episodes,
         became_invalid: result.became_invalid,
+        became_completed: result.became_completed,
         summary: result.summary,
     })))
 }
@@ -272,6 +274,7 @@ async fn check_all_subscriptions(
             new_files: r.new_files,
             new_episodes: r.new_episodes,
             became_invalid: r.became_invalid,
+            became_completed: r.became_completed,
             summary: r.summary,
         })
         .collect();
@@ -292,8 +295,12 @@ pub fn routes(
     ));
 
     let check_service = Arc::new(
-        SubscriptionCheckService::new(store.clone(), notification_store.clone())
-            .with_transfer_service(transfer_service.clone()),
+        SubscriptionCheckService::new(
+            store.clone(),
+            settings_store.clone(),
+            notification_store.clone(),
+        )
+        .with_transfer_service(transfer_service.clone()),
     );
 
     let state = Arc::new(SubscriptionState {

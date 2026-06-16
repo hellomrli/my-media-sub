@@ -6,6 +6,7 @@ use crate::clients::quark::{QuarkFile, QuarkShareProbe};
 use crate::clients::quark_save::{NormalizedItem, QuarkSaveClient};
 use crate::error::{AppError, Result};
 use crate::models::subscription::Subscription;
+use crate::services::push::{PushEvent, PushLevel, PushService};
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
 /// 递归收集目录下所有视频文件（独立函数，使用 Box 解决递归问题）
@@ -451,13 +452,33 @@ impl SubscriptionTransferService {
             level: "success".to_string(),
             event: "subscription_transferred".to_string(),
             title: format!("订阅自动转存: {}", sub.title),
-            message,
+            message: message.clone(),
             meta: std::collections::HashMap::new(),
             read: false,
             created_at: now,
         };
 
         let _ = self.notification_store.add(notification).await;
+
+        let settings = self.settings_store.get().await;
+        let push_service = PushService::new(settings);
+        let title = format!("订阅自动转存: {}", sub.title);
+        let results = push_service
+            .send_event(
+                PushEvent::TransferSaved,
+                &title,
+                &message,
+                PushLevel::Success,
+            )
+            .await;
+        let failed = results.values().filter(|&&ok| !ok).count();
+        if failed > 0 {
+            warn!(
+                "转存完成推送部分失败: {}/{} 个渠道失败",
+                failed,
+                results.len()
+            );
+        }
     }
 }
 

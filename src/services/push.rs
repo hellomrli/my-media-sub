@@ -35,6 +35,15 @@ impl PushLevel {
     }
 }
 
+/// 业务推送事件
+#[derive(Debug, Clone, Copy)]
+pub enum PushEvent {
+    SubscriptionUpdated,
+    SubscriptionFailed,
+    SubscriptionCompleted,
+    TransferSaved,
+}
+
 /// 推送服务
 pub struct PushService {
     settings: Settings,
@@ -83,7 +92,6 @@ impl PushService {
     }
 
     /// 发送推送到所有启用的渠道
-    #[allow(dead_code)]
     pub async fn send(
         &self,
         title: &str,
@@ -113,7 +121,10 @@ impl PushService {
             let result = match channel.as_str() {
                 "wecom" => self.send_wecom(title, message, level).await,
                 "wxpusher" => self.send_wxpusher(title, message).await,
-                "telegram" => self.send_telegram(title, message, level, false).await,
+                "telegram" => {
+                    self.send_telegram(title, message, level, self.settings.push_silent)
+                        .await
+                }
                 "bark" => self.send_bark(title, message, level).await,
                 "gotify" => self.send_gotify(title, message, level).await,
                 "pushplus" => self.send_pushplus(title, message).await,
@@ -125,6 +136,28 @@ impl PushService {
         }
 
         results
+    }
+
+    /// 按全局场景开关发送业务事件推送。
+    pub async fn send_event(
+        &self,
+        event: PushEvent,
+        title: &str,
+        message: &str,
+        level: PushLevel,
+    ) -> HashMap<String, bool> {
+        let enabled = match event {
+            PushEvent::SubscriptionUpdated => self.settings.push_on_update,
+            PushEvent::SubscriptionFailed => self.settings.push_on_failed,
+            PushEvent::SubscriptionCompleted => self.settings.push_on_completed,
+            PushEvent::TransferSaved => self.settings.push_on_save,
+        };
+
+        if !enabled {
+            return HashMap::new();
+        }
+
+        self.send(title, message, level).await
     }
 
     /// 企业微信机器人
@@ -383,5 +416,24 @@ mod tests {
         assert_eq!(channels.len(), 2);
         assert!(channels.contains(&"wecom".to_string()));
         assert!(channels.contains(&"telegram".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_send_event_respects_global_switch() {
+        let mut settings = Settings::default();
+        settings.push_on_update = false;
+        settings.wecom_bot_url = "https://test".to_string();
+
+        let service = PushService::new(settings);
+        let results = service
+            .send_event(
+                PushEvent::SubscriptionUpdated,
+                "title",
+                "message",
+                PushLevel::Info,
+            )
+            .await;
+
+        assert!(results.is_empty());
     }
 }
