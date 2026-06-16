@@ -110,7 +110,10 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
             context.pansou_client.clone(),
             settings_store.clone(),
         ))
-        .merge(jobs::routes(context.job_store.clone()))
+        .merge(jobs::routes(
+            context.job_store.clone(),
+            context.job_queue.clone(),
+        ))
         .merge(notifications::routes(context.notification_store.clone()))
         .merge(drive::routes(settings_store.clone()))
         .merge(transfer::routes(context.job_queue.clone()))
