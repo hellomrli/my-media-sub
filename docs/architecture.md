@@ -41,7 +41,7 @@ main.rs
 
 ## Async Direction
 
-The project is already async at the HTTP and service level. Manual transfer now submits a `manual_transfer` job and returns a job id immediately. The next architectural step is to move subscription auto-transfer into the same job pipeline and expose progress updates to the WebUI.
+The project is already async at the HTTP and service level. Manual transfer and subscription auto-transfer now submit persisted jobs and run in the background. The next architectural step is to expose live job progress updates to the WebUI.
 
 Target direction:
 
@@ -58,8 +58,8 @@ API / Scheduler
 Recommended job types:
 
 - `manual_transfer`: implemented. Save a Quark share in the background and persist status.
-- `subscription.check`: probe shares, detect new files, enqueue transfers.
-- `transfer.save`: next. Save subscription files, wait for eventual consistency, rename files.
+- `subscription.check`: implemented at scheduler/API level. Probe shares, detect new files, enqueue transfers.
+- `subscription_transfer`: implemented. Save subscription files, wait for eventual consistency, rename files.
 - `metadata.scrape`: later TMDB/Douban metadata matching.
 - `push.dispatch`: optional retryable notification delivery.
 
@@ -68,7 +68,7 @@ Recommended job types:
 1. Keep `AppContext` as the only place that creates long-lived dependencies.
 2. Introduce a `jobs/` module with job models, `JobStore`, and an async worker loop. Done.
 3. Move manual transfer into jobs with persisted progress. Done.
-4. Move subscription auto-transfer into jobs with persisted progress.
+4. Move subscription auto-transfer into jobs with persisted progress. Done.
 5. Add SSE endpoint for job progress and connect the WebUI transfer progress panel.
 6. Split `static/index.html` only when the no-build WebUI becomes hard to maintain.
 7. Add metadata scraping as a low-priority async job after core transfer UX is stable.

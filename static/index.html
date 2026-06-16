@@ -1130,7 +1130,7 @@
         },
 
         get transferHistory() {
-          const events = ['subscription_transferred', 'manual_transfer_succeeded', 'manual_transfer_failed'];
+          const events = ['subscription_transferred', 'subscription_transfer_failed', 'manual_transfer_succeeded', 'manual_transfer_failed'];
           return this.notifications.filter(n => events.includes(n.event));
         },
 
@@ -1143,7 +1143,7 @@
         },
 
         get transferJobs() {
-          return this.jobs.filter(job => job.kind === 'manual_transfer');
+          return this.jobs.filter(job => ['manual_transfer', 'subscription_transfer'].includes(job.kind));
         },
 
         get runningTransferJobs() {
