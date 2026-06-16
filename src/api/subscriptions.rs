@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::error::{AppError, Result};
-use crate::models::Subscription;
+use crate::models::{MediaMetadata, Subscription};
 use crate::services::{SubscriptionCheckService, SubscriptionTransferService};
 use crate::store::{SettingsStore, SubscriptionStore};
 
@@ -40,6 +40,8 @@ pub struct CreateSubscriptionRequest {
     pub rename_template: String,
     #[serde(default)]
     pub notify_only: bool,
+    #[serde(default)]
+    pub metadata: Option<MediaMetadata>,
 }
 
 /// 更新订阅请求
@@ -116,6 +118,7 @@ async fn create_subscription(
         current_episode_number: 0,
         total_episode_number: None,
         source_group: String::new(),
+        metadata: req.metadata,
         cloud_type: if req.cloud_type.is_empty() {
             "quark".to_string()
         } else {
