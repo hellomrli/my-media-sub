@@ -414,6 +414,7 @@ mod tests {
             current_episode_number: 0,
             total_episode_number: None,
             source_group: String::new(),
+            metadata: None,
             cloud_type: "quark".to_string(),
             url: "https://test".to_string(),
             password: String::new(),

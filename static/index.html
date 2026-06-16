@@ -1009,6 +1009,31 @@
           <input type="text" x-model="newSubscription.title" @input="updateSubscriptionDefaults()" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="例如：风起洛阳 第二季" />
         </div>
 
+        <div x-show="metadataSearchAvailable()" class="app-panel-soft p-3 space-y-3">
+          <div class="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
+            <div>
+              <div class="text-sm font-medium text-gray-300">媒体元数据</div>
+              <div class="text-xs text-gray-500" x-text="selectedMetadataLabel()"></div>
+            </div>
+            <button @click="searchMetadataForSubscription()" :disabled="metadataSearching" class="btn-secondary px-3 py-2 rounded text-xs transition-colors disabled:opacity-50">匹配</button>
+          </div>
+          <div x-show="metadataSearching" class="text-xs text-gray-500">正在匹配 TMDB...</div>
+          <div x-show="metadataResults.length > 0" class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <template x-for="item in metadataResults" :key="item.provider + '-' + item.provider_id">
+              <button @click="applyMetadata(item)" :class="isSelectedMetadata(item) ? 'border-blue-500 bg-blue-600/10' : 'border-dark-border bg-dark-bg hover:border-gray-500'" class="border rounded-lg p-2 text-left transition-colors min-h-20">
+                <div class="flex gap-3">
+                  <img x-show="item.poster_url" :src="item.poster_url" class="w-10 h-14 object-cover rounded border border-dark-border" alt="" />
+                  <div class="min-w-0">
+                    <div class="text-sm text-white font-medium truncate" x-text="item.title"></div>
+                    <div class="text-xs text-gray-500 mt-1" x-text="metadataSubtitle(item)"></div>
+                    <div class="text-xs text-gray-400 mt-1 line-clamp-2" x-text="item.overview || '暂无简介'"></div>
+                  </div>
+                </div>
+              </button>
+            </template>
+          </div>
+        </div>
+
         <div>
           <label class="block text-sm font-medium text-gray-300 mb-2">媒体类型</label>
           <div class="grid grid-cols-3 gap-2">
@@ -1114,6 +1139,8 @@
         showSubscriptionDialog: false,
         subscriptionMode: 'once',  // 'once' 或 'continuous'
         currentSearchResult: null,  // 当前操作的搜索结果
+        metadataSearching: false,
+        metadataResults: [],
         newSubscription: {
           title: '',
           url: '',
@@ -1125,7 +1152,8 @@
           rename_template: '',
           custom_dir: false,
           custom_rename: false,
-          notify_only: false
+          notify_only: false,
+          metadata: null
         },
 
         // 通知
@@ -1372,9 +1400,12 @@
             rename_template: '',
             custom_dir: false,
             custom_rename: false,
-            notify_only: false
+            notify_only: false,
+            metadata: null
           };
           this.showSubscriptionDialog = true;
+          this.metadataResults = [];
+          this.searchMetadataForSubscription(true);
         },
 
         // 显示订阅对话框（兼容旧版）
@@ -1403,6 +1434,67 @@
           if (!this.newSubscription.custom_rename) {
             this.newSubscription.rename_template = '';
           }
+        },
+
+        metadataSearchAvailable() {
+          return this.settings.metadata_provider === 'tmdb' && (this.settings.tmdb_api_key || this.settings.tmdb_api_key_configured);
+        },
+
+        async searchMetadataForSubscription(silent = false) {
+          if (!this.metadataSearchAvailable() || !this.newSubscription.title.trim()) return;
+          this.metadataSearching = true;
+          try {
+            const params = new URLSearchParams({
+              query: this.newSubscription.title.trim(),
+              media_type: this.newSubscription.media_type || 'series'
+            });
+            const response = await fetch(`/api/metadata/search?${params.toString()}`);
+            const data = await response.json();
+            if (response.ok) {
+              this.metadataResults = data.data || [];
+              if (this.metadataResults.length > 0 && !this.newSubscription.metadata) {
+                this.applyMetadata(this.metadataResults[0], true);
+              } else if (!silent && this.metadataResults.length === 0) {
+                this.showNotification('warning', '未匹配到媒体元数据');
+              }
+            } else if (!silent) {
+              this.showNotification('error', data.message || '元数据匹配失败');
+            }
+          } catch (error) {
+            if (!silent) this.showNotification('error', '元数据匹配失败');
+          } finally {
+            this.metadataSearching = false;
+          }
+        },
+
+        applyMetadata(item, silent = false) {
+          if (!item) return;
+          this.newSubscription.metadata = item;
+          this.newSubscription.title = item.title || this.newSubscription.title;
+          if (['movie', 'series', 'anime'].includes(item.media_type)) {
+            this.newSubscription.media_type = item.media_type;
+          }
+          this.updateSubscriptionDefaults();
+          if (!silent) this.showNotification('success', '已应用媒体元数据');
+        },
+
+        isSelectedMetadata(item) {
+          const selected = this.newSubscription.metadata;
+          return selected && item && selected.provider === item.provider && selected.provider_id === item.provider_id;
+        },
+
+        selectedMetadataLabel() {
+          const item = this.newSubscription.metadata;
+          if (!item) return '可从 TMDB 匹配标题、类型、年份和海报';
+          return `${item.provider.toUpperCase()} #${item.provider_id}`;
+        },
+
+        metadataSubtitle(item) {
+          const parts = [];
+          if (item.media_type) parts.push(item.media_type === 'movie' ? '电影' : '连续剧');
+          if (item.release_date) parts.push(item.release_date.slice(0, 4));
+          if (item.vote_average) parts.push(`评分 ${Number(item.vote_average).toFixed(1)}`);
+          return parts.join(' · ') || item.provider.toUpperCase();
         },
 
         // 获取默认目标目录
@@ -1551,7 +1643,8 @@
                 target_dir: finalTargetDir,
                 target_fid: '0',
                 rename_template: finalRenameTemplate,
-                notify_only: this.newSubscription.notify_only
+                notify_only: this.newSubscription.notify_only,
+                metadata: this.newSubscription.metadata
               })
             });
 

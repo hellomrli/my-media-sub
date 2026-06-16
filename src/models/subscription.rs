@@ -1,4 +1,5 @@
 use super::rules::TransferRules;
+use super::MediaMetadata;
 use serde::{Deserialize, Serialize};
 
 /// 订阅状态
@@ -115,6 +116,10 @@ pub struct Subscription {
     /// 来源组
     #[serde(default)]
     pub source_group: String,
+
+    /// 刮削到的媒体元数据
+    #[serde(default)]
+    pub metadata: Option<MediaMetadata>,
 
     /// 云盘类型
     #[serde(default = "default_cloud_type")]
@@ -245,6 +250,7 @@ mod tests {
             current_episode_number: 12,
             total_episode_number: Some(24),
             source_group: "某字幕组".to_string(),
+            metadata: None,
             cloud_type: "quark".to_string(),
             url: "https://pan.quark.cn/s/test".to_string(),
             password: "".to_string(),
@@ -297,5 +303,6 @@ mod tests {
         assert_eq!(sub.cloud_type, "quark"); // 默认值
         assert_eq!(sub.enabled, true); // 默认值
         assert_eq!(sub.status, "active"); // 默认值
+        assert!(sub.metadata.is_none());
     }
 }
