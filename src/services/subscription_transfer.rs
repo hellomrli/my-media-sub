@@ -6,7 +6,7 @@ use crate::clients::quark::{QuarkFile, QuarkShareProbe};
 use crate::clients::quark_save::{NormalizedItem, QuarkSaveClient};
 use crate::error::{AppError, Result};
 use crate::models::subscription::Subscription;
-use crate::services::push::{PushEvent, PushLevel, PushService};
+use crate::services::push::{record_push_message, PushEvent, PushLevel, PushService};
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
 /// 递归收集目录下所有视频文件（独立函数，使用 Box 解决递归问题）
@@ -508,6 +508,15 @@ impl SubscriptionTransferService {
                 PushLevel::Success,
             )
             .await;
+        record_push_message(
+            &self.notification_store,
+            PushEvent::TransferSaved.as_str(),
+            &title,
+            &message,
+            PushLevel::Success,
+            &results,
+        )
+        .await;
         let failed = results.values().filter(|&&ok| !ok).count();
         if failed > 0 {
             warn!(

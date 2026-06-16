@@ -5,7 +5,7 @@ use crate::clients::quark::QuarkShareProbe;
 use crate::error::{AppError, Result};
 use crate::jobs::{JobQueue, SubscriptionTransferPayload};
 use crate::models::subscription::{CheckHistoryItem, ProbeFile, ProbeResult, Subscription};
-use crate::services::push::{PushEvent, PushLevel, PushService};
+use crate::services::push::{record_push_message, PushEvent, PushLevel, PushService};
 use crate::services::SubscriptionTransferService;
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
@@ -463,6 +463,15 @@ impl SubscriptionCheckService {
         let settings = self.settings_store.get().await;
         let push_service = PushService::new(settings);
         let results = push_service.send_event(event, title, message, level).await;
+        record_push_message(
+            &self.notification_store,
+            event.as_str(),
+            title,
+            message,
+            level,
+            &results,
+        )
+        .await;
         let failed = results.values().filter(|&&ok| !ok).count();
         if failed > 0 {
             warn!("业务推送部分失败: {}/{} 个渠道失败", failed, results.len());

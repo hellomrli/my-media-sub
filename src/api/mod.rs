@@ -117,7 +117,10 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
         .merge(notifications::routes(context.notification_store.clone()))
         .merge(drive::routes(settings_store.clone()))
         .merge(transfer::routes(context.job_queue.clone()))
-        .merge(push::routes(settings_store))
+        .merge(push::routes(
+            settings_store,
+            context.notification_store.clone(),
+        ))
         .fallback_service(serve_static)
         .layer(middleware::from_fn_with_state(auth_state, basic_auth))
         .layer(cors)
