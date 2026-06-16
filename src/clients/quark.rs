@@ -306,7 +306,7 @@ impl QuarkShareProbe {
             let is_dir = item.get("dir").and_then(|v| v.as_bool()).unwrap_or(false)
                 || (item.get("file").and_then(|v| v.as_bool()) == Some(false))
                 || (item.get("file_type").and_then(|v| v.as_i64()) == Some(0)
-                    && item.get("format_type").is_none()
+                    && !item.contains_key("format_type")
                     && item.get("size").and_then(|v| v.as_i64()).unwrap_or(0) == 0);
 
             files.push(QuarkFile {
@@ -361,7 +361,7 @@ impl Default for QuarkShareProbe {
 /// 统计集数（简化版）
 fn count_episodes(files: &[QuarkFile]) -> usize {
     use regex::Regex;
-    let patterns = vec![
+    let patterns = [
         Regex::new(r"(?i)(?:^|[^A-Za-z])S\d{1,2}E\d{1,3}(?:[^A-Za-z]|$)").unwrap(),
         Regex::new(r"(?:第\s*\d{1,3}\s*[集话])").unwrap(),
         Regex::new(r"(?i)(?:^|[^\d])E\d{1,3}(?:[^\d]|$)").unwrap(),

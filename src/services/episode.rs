@@ -81,13 +81,12 @@ pub fn match_file(
     let lower = name.to_lowercase();
 
     // 包含关键词
-    if !include_keywords.is_empty() {
-        if !include_keywords
+    if !include_keywords.is_empty()
+        && !include_keywords
             .iter()
             .any(|kw| lower.contains(&kw.to_lowercase()))
-        {
-            return false;
-        }
+    {
+        return false;
     }
 
     // 排除关键词
