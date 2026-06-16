@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn};
@@ -36,6 +37,27 @@ fn collect_video_files_recursive<'a>(
 
         Ok(video_files)
     })
+}
+
+fn expected_video_names(file_names: &[String]) -> HashSet<String> {
+    file_names
+        .iter()
+        .filter(|name| crate::services::is_video_name(name))
+        .cloned()
+        .collect()
+}
+
+fn filter_rename_candidates(
+    video_files: Vec<NormalizedItem>,
+    expected_names: Option<&HashSet<String>>,
+) -> Vec<NormalizedItem> {
+    match expected_names {
+        Some(names) if !names.is_empty() => video_files
+            .into_iter()
+            .filter(|file| names.contains(&file.file_name))
+            .collect(),
+        _ => video_files,
+    }
 }
 
 /// 订阅自动转存服务
@@ -229,7 +251,7 @@ impl SubscriptionTransferService {
         // 9. 如果设置了重命名模板，执行重命名
         if !sub.rules.rename_template.is_empty() {
             info!("开始重命名文件，模板: {}", sub.rules.rename_template);
-            self.rename_transferred_files(&save_client, &target_fid, &sub)
+            self.rename_transferred_files(&save_client, &target_fid, &sub, Some(new_file_names))
                 .await?;
         }
 
@@ -257,27 +279,52 @@ impl SubscriptionTransferService {
         save_client: &QuarkSaveClient,
         target_fid: &str,
         sub: &Subscription,
+        expected_file_names: Option<&[String]>,
     ) -> Result<usize> {
         use crate::services::detect_episode;
 
         info!("开始重命名文件，目标目录 fid: {}", target_fid);
 
-        // 夸克转存接口可能先返回成功，再异步落盘；等待目标目录出现视频文件。
-        let mut video_files = Vec::new();
-        for attempt in 1..=10 {
-            video_files = collect_video_files_recursive(save_client, target_fid).await?;
-            if !video_files.is_empty() {
+        let expected_names = expected_file_names.map(expected_video_names);
+        let expected_count = expected_names
+            .as_ref()
+            .map(HashSet::len)
+            .unwrap_or_default();
+        let max_attempts = if expected_count > 0 { 30 } else { 10 };
+
+        // 夸克转存接口可能先返回成功，再异步落盘；自动转存时等待本次新增视频出现。
+        let mut rename_candidates = Vec::new();
+        for attempt in 1..=max_attempts {
+            let video_files = collect_video_files_recursive(save_client, target_fid).await?;
+            rename_candidates = filter_rename_candidates(video_files, expected_names.as_ref());
+
+            if expected_count > 0 {
+                if rename_candidates.len() >= expected_count {
+                    break;
+                }
+                info!(
+                    "本次转存视频暂未全部出现，已看到 {}/{}，等待后重试 ({}/{})",
+                    rename_candidates.len(),
+                    expected_count,
+                    attempt,
+                    max_attempts
+                );
+            } else if !rename_candidates.is_empty() {
                 break;
+            } else {
+                info!(
+                    "目标目录暂未看到视频文件，等待后重试 ({}/{})",
+                    attempt, max_attempts
+                );
             }
-            info!("目标目录暂未看到视频文件，等待后重试 ({}/10)", attempt);
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
-        info!("找到 {} 个视频文件", video_files.len());
+        info!("找到 {} 个待重命名视频文件", rename_candidates.len());
 
         let mut renamed_count = 0;
 
         // 按订阅模板重命名目标目录下能识别集数的视频文件。
-        for video_file in &video_files {
+        for video_file in &rename_candidates {
             // 提取集数
             let episode_info = detect_episode(&video_file.file_name);
             if episode_info.episode.is_none() {
@@ -359,7 +406,7 @@ impl SubscriptionTransferService {
             "开始修复订阅 {} 目标目录 {} 的文件命名",
             sub.title, target_dir
         );
-        self.rename_transferred_files(&save_client, &target_fid, &sub)
+        self.rename_transferred_files(&save_client, &target_fid, &sub, None)
             .await
     }
 
@@ -510,4 +557,65 @@ pub struct TransferResult {
     pub transferred_count: usize,
     pub skipped: bool,
     pub reason: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn video_item(name: &str) -> NormalizedItem {
+        NormalizedItem {
+            fid: format!("fid-{name}"),
+            parent_fid: "parent".to_string(),
+            file_name: name.to_string(),
+            file: true,
+            is_dir: false,
+            size: 0,
+            updated_at: String::new(),
+        }
+    }
+
+    #[test]
+    fn expected_video_names_only_keeps_videos() {
+        let names = vec![
+            "Joy.of.Life.2019.S01.EP05.WEB-DL.4K.HEVC.AAC-LeagueWEB.mp4".to_string(),
+            "poster.jpg".to_string(),
+            "Episode.06.mkv".to_string(),
+        ];
+
+        let expected = expected_video_names(&names);
+
+        assert_eq!(expected.len(), 2);
+        assert!(expected.contains("Joy.of.Life.2019.S01.EP05.WEB-DL.4K.HEVC.AAC-LeagueWEB.mp4"));
+        assert!(expected.contains("Episode.06.mkv"));
+        assert!(!expected.contains("poster.jpg"));
+    }
+
+    #[test]
+    fn filter_rename_candidates_limits_auto_rename_to_expected_names() {
+        let expected = expected_video_names(&[
+            "Joy.of.Life.2019.S01.EP05.WEB-DL.4K.HEVC.AAC-LeagueWEB.mp4".to_string(),
+        ]);
+        let candidates = vec![
+            video_item("Joy.of.Life.2019.S01.EP04.WEB-DL.4K.HEVC.AAC-LeagueWEB.mp4"),
+            video_item("Joy.of.Life.2019.S01.EP05.WEB-DL.4K.HEVC.AAC-LeagueWEB.mp4"),
+        ];
+
+        let filtered = filter_rename_candidates(candidates, Some(&expected));
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(
+            filtered[0].file_name,
+            "Joy.of.Life.2019.S01.EP05.WEB-DL.4K.HEVC.AAC-LeagueWEB.mp4"
+        );
+    }
+
+    #[test]
+    fn filter_rename_candidates_keeps_all_for_manual_repair() {
+        let candidates = vec![video_item("Episode.01.mp4"), video_item("Episode.02.mp4")];
+
+        let filtered = filter_rename_candidates(candidates, None);
+
+        assert_eq!(filtered.len(), 2);
+    }
 }
