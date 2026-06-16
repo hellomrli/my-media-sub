@@ -5,7 +5,7 @@ use crate::clients::quark::QuarkShareProbe;
 use crate::error::{AppError, Result};
 use crate::jobs::{JobQueue, SubscriptionTransferPayload};
 use crate::models::subscription::{CheckHistoryItem, ProbeFile, ProbeResult, Subscription};
-use crate::services::notification::{add_notification, send_push_event};
+use crate::services::notification::{add_notification, dispatch_push_event};
 use crate::services::push::{PushEvent, PushLevel};
 use crate::services::SubscriptionTransferService;
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
@@ -353,15 +353,14 @@ impl SubscriptionCheckService {
                 std::collections::HashMap::new(),
             )
             .await?;
-            send_push_event(
-                &self.settings_store,
-                &self.notification_store,
+            dispatch_push_event(
+                self.settings_store.clone(),
+                self.notification_store.clone(),
                 PushEvent::SubscriptionFailed,
-                &title,
-                &message,
+                title,
+                message,
                 PushLevel::Warning,
-            )
-            .await;
+            );
         }
 
         Ok(())
@@ -397,15 +396,14 @@ impl SubscriptionCheckService {
             std::collections::HashMap::new(),
         )
         .await;
-        send_push_event(
-            &self.settings_store,
-            &self.notification_store,
+        dispatch_push_event(
+            self.settings_store.clone(),
+            self.notification_store.clone(),
             PushEvent::SubscriptionUpdated,
-            &title,
-            &message,
+            title,
+            message,
             PushLevel::Info,
-        )
-        .await;
+        );
     }
 
     /// 发送完结通知
@@ -431,15 +429,14 @@ impl SubscriptionCheckService {
             std::collections::HashMap::new(),
         )
         .await;
-        send_push_event(
-            &self.settings_store,
-            &self.notification_store,
+        dispatch_push_event(
+            self.settings_store.clone(),
+            self.notification_store.clone(),
             PushEvent::SubscriptionCompleted,
-            &title,
-            &message,
+            title,
+            message,
             PushLevel::Success,
-        )
-        .await;
+        );
     }
 }
 

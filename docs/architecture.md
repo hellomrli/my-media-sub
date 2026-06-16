@@ -61,8 +61,8 @@ Recommended job types:
 - `subscription.check`: implemented at scheduler/API level. Probe shares, detect new files, enqueue transfers.
 - `subscription_transfer`: implemented. Save subscription files, wait for eventual consistency, rename files.
 - `job.events`: implemented. Broadcast job snapshots and updates over SSE.
-- `metadata.scrape`: later TMDB/Douban metadata matching.
-- `push.dispatch`: optional retryable notification delivery.
+- `metadata_scrape`: implemented for TMDB-backed subscription metadata matching, runs as a persisted background job.
+- `push.dispatch`: partially implemented as best-effort background dispatch; persisted retryable dispatch remains optional.
 
 ## Near-Term Refactor Order
 
@@ -72,11 +72,11 @@ Recommended job types:
 4. Move subscription auto-transfer into jobs with persisted progress. Done.
 5. Add SSE endpoint for job progress and connect the WebUI transfer progress panel. Done.
 6. Split `static/index.html` only when the no-build WebUI becomes hard to maintain.
-7. Add metadata scraping as a low-priority async job after core transfer UX is stable.
+7. Add metadata scraping as a low-priority async job after core transfer UX is stable. Done for TMDB; Douban remains a future adapter.
 
 ## Current Constraints
 
 - Local JSON persistence is simple and portable, but it is not a high-concurrency database.
 - Quark save APIs can be eventually consistent, so transfer jobs must tolerate delayed file visibility.
-- Push channels are best-effort. They should not fail subscription checks or transfers.
-- Metadata scraping should never block subscription creation or normal checks.
+- Push channels are best-effort and are dispatched in background tasks. They should not block or fail subscription checks or transfers.
+- Metadata scraping runs through the job queue and should never block subscription creation or normal checks.

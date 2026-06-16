@@ -4,11 +4,12 @@ use tokio::sync::mpsc;
 use tracing::{info, warn};
 
 use crate::error::{AppError, Result};
-use crate::services::SubscriptionTransferService;
-use crate::store::{NotificationStore, SettingsStore};
+use crate::services::{MetadataService, SubscriptionTransferService};
+use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
 use super::model::{
-    now, Job, JobKind, JobStatus, ManualTransferPayload, SubscriptionTransferPayload,
+    now, Job, JobKind, JobStatus, ManualTransferPayload, MetadataScrapePayload,
+    SubscriptionTransferPayload,
 };
 use super::store::JobStore;
 use super::worker::JobWorker;
@@ -22,14 +23,18 @@ impl JobQueue {
     pub fn new(
         store: Arc<JobStore>,
         settings_store: Arc<SettingsStore>,
+        subscription_store: Arc<SubscriptionStore>,
         notification_store: Arc<NotificationStore>,
+        metadata_service: Arc<MetadataService>,
         transfer_service: Arc<SubscriptionTransferService>,
     ) -> Self {
         let (sender, receiver) = mpsc::channel(100);
         let worker = JobWorker {
             store: store.clone(),
             settings_store,
+            subscription_store,
             notification_store,
+            metadata_service,
             transfer_service,
             receiver,
         };
@@ -56,6 +61,20 @@ impl JobQueue {
         self.submit_job(
             JobKind::SubscriptionTransfer,
             "订阅自动转存",
+            serde_json::to_value(payload)?,
+        )
+        .await
+    }
+
+    pub async fn submit_metadata_scrape(&self, payload: MetadataScrapePayload) -> Result<Job> {
+        let title = if payload.subscription_id.is_some() {
+            "订阅元数据刮削"
+        } else {
+            "批量订阅元数据刮削"
+        };
+        self.submit_job(
+            JobKind::MetadataScrape,
+            title,
             serde_json::to_value(payload)?,
         )
         .await
@@ -97,6 +116,7 @@ impl JobQueue {
                 let title = match &job.kind {
                     JobKind::ManualTransfer => "手动转存",
                     JobKind::SubscriptionTransfer => "订阅自动转存",
+                    JobKind::MetadataScrape => "订阅元数据刮削",
                 };
                 self.submit_job(job.kind.clone(), title, job.payload).await
             }

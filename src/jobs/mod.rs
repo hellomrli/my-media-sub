@@ -3,7 +3,7 @@ mod queue;
 mod store;
 mod worker;
 
-pub use model::{Job, ManualTransferPayload, SubscriptionTransferPayload};
+pub use model::{Job, ManualTransferPayload, MetadataScrapePayload, SubscriptionTransferPayload};
 pub use queue::JobQueue;
 pub use store::JobStore;
 

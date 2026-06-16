@@ -19,9 +19,10 @@
 - 自动转存：发现新文件后自动保存到电影、连续剧、动画或自定义目录。
 - 智能重命名：按订阅模板识别 `S01E05`、`EP05`、`第05集` 等集数格式并重命名。
 - 命名修复：订阅列表提供“修复命名”，可对已转存的现有视频重新按模板命名。
+- 元数据匹配：支持订阅创建时匹配 TMDB，并可后台批量刮削已有订阅元数据。
 - 网盘管理：浏览夸克目录，支持新建文件夹、重命名、删除和批量删除。
 - 通知中心：保存系统通知，支持已读和清空。
-- 推送渠道：企业微信、Telegram、WxPusher、Bark、Gotify、PushPlus、Server 酱。
+- 推送渠道：企业微信、Telegram、WxPusher、Bark、Gotify、PushPlus、Server 酱，业务推送后台派发并记录结果。
 - 设置管理：支持运行时保存夸克 Cookie、推送配置、调度配置、NAS 同步、Aria2 等设置。
 
 ## 快速开始
@@ -127,6 +128,11 @@ cargo run
 - `GET /api/jobs`
 - `GET /api/jobs/{id}`
 - `GET /api/jobs/events`：SSE 任务进度事件流
+- 任务类型：`manual_transfer`、`subscription_transfer`、`metadata_scrape`
+
+### 元数据
+
+- `GET /api/metadata/search?query={title}&media_type={type}`
 
 ### 订阅
 
@@ -137,7 +143,9 @@ cargo run
 - `DELETE /api/subscriptions/{id}`
 - `POST /api/subscriptions/{id}/check`
 - `POST /api/subscriptions/{id}/rename-existing`
+- `POST /api/subscriptions/{id}/metadata/scrape`
 - `POST /api/subscriptions/check`
+- `POST /api/subscriptions/metadata/scrape`
 
 ### 通知
 
@@ -187,7 +195,7 @@ tests/
 ## 文档
 
 - [Docker 部署指南](DOCKER.md)
-- [下一步计划](NEXT_STEPS.md)
+- [架构与后续计划](docs/architecture.md)
 - [架构文档](docs/architecture.md)
 - [迁移记录](RUST_MIGRATION_V2.md)
 
