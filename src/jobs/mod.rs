@@ -202,6 +202,8 @@ impl JobQueue {
         };
         tokio::spawn(worker.run());
 
+        tokio::spawn(recover_jobs(store.clone(), sender.clone()));
+
         Self { store, sender }
     }
 
@@ -300,20 +302,70 @@ impl JobQueue {
 
         let job = self.store.add(job).await?;
         if self.sender.send(id.clone()).await.is_err() {
-            self.store
-                .update(&id, |job| {
-                    job.status = JobStatus::Failed;
-                    job.progress = 100;
-                    job.message = "任务队列不可用".to_string();
-                    job.error = Some("任务队列不可用".to_string());
-                    job.finished_at = Some(now());
-                })
-                .await?;
+            mark_queue_unavailable(&self.store, &id).await?;
             return Err(AppError::Internal("任务队列不可用".to_string()));
         }
 
         Ok(job)
     }
+}
+
+async fn recover_jobs(store: Arc<JobStore>, sender: mpsc::Sender<String>) {
+    let jobs = store.list().await;
+    let mut queued = Vec::new();
+    let mut interrupted = 0usize;
+
+    for job in jobs {
+        match job.status {
+            JobStatus::Queued => queued.push(job),
+            JobStatus::Running => {
+                interrupted += 1;
+                if let Err(e) = store
+                    .update(&job.id, |job| {
+                        job.status = JobStatus::Failed;
+                        job.progress = 100;
+                        job.message = "服务重启，任务已中断，可重试".to_string();
+                        job.error = Some("服务重启，任务已中断".to_string());
+                        job.finished_at = Some(now());
+                    })
+                    .await
+                {
+                    warn!("恢复运行中任务 {} 失败: {}", job.id, e);
+                }
+            }
+            JobStatus::Succeeded | JobStatus::Failed | JobStatus::Canceled => {}
+        }
+    }
+
+    queued.sort_by_key(|job| job.created_at);
+    let queued_count = queued.len();
+    for job in queued {
+        if sender.send(job.id.clone()).await.is_err() {
+            if let Err(e) = mark_queue_unavailable(&store, &job.id).await {
+                warn!("标记恢复任务 {} 失败: {}", job.id, e);
+            }
+        }
+    }
+
+    if queued_count > 0 || interrupted > 0 {
+        info!(
+            "任务队列恢复完成: 重新入队 {} 个，标记中断 {} 个",
+            queued_count, interrupted
+        );
+    }
+}
+
+async fn mark_queue_unavailable(store: &JobStore, id: &str) -> Result<()> {
+    store
+        .update(id, |job| {
+            job.status = JobStatus::Failed;
+            job.progress = 100;
+            job.message = "任务队列不可用".to_string();
+            job.error = Some("任务队列不可用".to_string());
+            job.finished_at = Some(now());
+        })
+        .await?;
+    Ok(())
 }
 
 struct JobWorker {
@@ -763,6 +815,61 @@ mod tests {
         let loaded = store.get("job1").await.unwrap();
         assert_eq!(loaded.status, JobStatus::Succeeded);
         assert_eq!(store.list().await.len(), 1);
+
+        let _ = std::fs::remove_file(tmp);
+    }
+
+    #[tokio::test]
+    async fn test_recover_jobs_requeues_queued_and_marks_running_failed() {
+        let tmp =
+            std::env::temp_dir().join(format!("my-media-sub-jobs-{}.json", uuid::Uuid::new_v4()));
+        let store = Arc::new(JobStore::new(&tmp));
+        store.load().await.unwrap();
+
+        store
+            .add(Job {
+                id: "running".to_string(),
+                kind: JobKind::ManualTransfer,
+                status: JobStatus::Running,
+                progress: 50,
+                title: "运行中".to_string(),
+                message: "running".to_string(),
+                payload: json!({"url": "https://pan.quark.cn/s/running"}),
+                result: None,
+                error: None,
+                created_at: 1,
+                updated_at: 1,
+                started_at: Some(1),
+                finished_at: None,
+            })
+            .await
+            .unwrap();
+        store
+            .add(Job {
+                id: "queued".to_string(),
+                kind: JobKind::ManualTransfer,
+                status: JobStatus::Queued,
+                progress: 0,
+                title: "排队中".to_string(),
+                message: "queued".to_string(),
+                payload: json!({"url": "https://pan.quark.cn/s/queued"}),
+                result: None,
+                error: None,
+                created_at: 2,
+                updated_at: 2,
+                started_at: None,
+                finished_at: None,
+            })
+            .await
+            .unwrap();
+
+        let (sender, mut receiver) = mpsc::channel(10);
+        recover_jobs(store.clone(), sender).await;
+
+        assert_eq!(receiver.recv().await.as_deref(), Some("queued"));
+        let running = store.get("running").await.unwrap();
+        assert_eq!(running.status, JobStatus::Failed);
+        assert!(running.message.contains("可重试"));
 
         let _ = std::fs::remove_file(tmp);
     }
