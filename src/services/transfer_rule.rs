@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::models::{Subscription, TransferRules};
 use crate::services::episode::{detect_episode, split_words};
 use regex::Regex;
@@ -112,7 +114,9 @@ fn apply_rename(
     if !rules.rename_regex.is_empty() {
         match Regex::new(&rules.rename_regex) {
             Ok(re) => {
-                target = re.replace_all(&target, &rules.rename_replacement).to_string();
+                target = re
+                    .replace_all(&target, &rules.rename_replacement)
+                    .to_string();
             }
             Err(e) => return (name.to_string(), Some(format!("rename_regex 无效：{}", e))),
         }
@@ -137,7 +141,10 @@ fn apply_rename(
                 .replace("{title}", title)
                 .replace("{season}", &season.to_string())
                 .replace("{episode}", &episode_str)
-                .replace("{episode_number}", &episode.map(|e| e.to_string()).unwrap_or_default())
+                .replace(
+                    "{episode_number}",
+                    &episode.map(|e| e.to_string()).unwrap_or_default(),
+                )
                 .replace("{original}", &original)
                 .replace("{name}", &name_part)
                 .replace("{ext}", ext);
@@ -146,8 +153,8 @@ fn apply_rename(
 
     // 补充扩展名
     let known_media_suffixes = [
-        ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".ts", ".m2ts", ".webm", ".srt",
-        ".ass", ".ssa",
+        ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".ts", ".m2ts", ".webm", ".srt", ".ass",
+        ".ssa",
     ];
     if !suffix.is_empty()
         && !known_media_suffixes
@@ -157,7 +164,14 @@ fn apply_rename(
         target = format!("{}{}", target, suffix);
     }
 
-    (if target.is_empty() { name.to_string() } else { target }, None)
+    (
+        if target.is_empty() {
+            name.to_string()
+        } else {
+            target
+        },
+        None,
+    )
 }
 
 /// 构建转存计划
@@ -169,9 +183,7 @@ pub fn build_transfer_plan(
     target_dir_exists: Option<bool>,
 ) -> TransferPlan {
     let rules = normalize_rules(Some(&subscription.rules));
-    let files: Vec<ProbeFile> = probe_files
-        .map(|f| f.to_vec())
-        .unwrap_or_else(|| vec![]);
+    let files: Vec<ProbeFile> = probe_files.map(|f| f.to_vec()).unwrap_or_else(|| vec![]);
     let transferred = transferred_keys
         .cloned()
         .unwrap_or_else(|| subscription.transferred_file_keys.iter().cloned().collect());
@@ -245,9 +257,11 @@ pub fn build_transfer_plan(
             if rules.skip_existing_transferred && transferred.contains(&key) {
                 item.skip_reason = "已转存记录中存在".to_string();
             } else {
-                let (target_name, rename_error) = apply_rename(name, &rules, Some(subscription), episode);
+                let (target_name, rename_error) =
+                    apply_rename(name, &rules, Some(subscription), episode);
                 item.target_name = target_name.clone();
-                let target_compare = display_name(&target_name, rules.ignore_extensions).to_lowercase();
+                let target_compare =
+                    display_name(&target_name, rules.ignore_extensions).to_lowercase();
 
                 if let Some(err) = rename_error {
                     item.skip_reason = err;
@@ -268,10 +282,7 @@ pub fn build_transfer_plan(
     // only_latest 逻辑
     if rules.only_latest {
         let transfer_items: Vec<_> = items.iter().filter(|i| i.action == "transfer").collect();
-        let episodes: Vec<i32> = transfer_items
-            .iter()
-            .filter_map(|i| i.episode)
-            .collect();
+        let episodes: Vec<i32> = transfer_items.iter().filter_map(|i| i.episode).collect();
         if let Some(&latest) = episodes.iter().max() {
             matched_for_summary.clear();
             for item in &mut items {
@@ -280,14 +291,26 @@ pub fn build_transfer_plan(
                     item.skip_reason = "only_latest 仅处理最新一集".to_string();
                 }
                 if item.action == "transfer" {
-                    matched_for_summary.push((item.source_name.clone(), item.episode, item.file_key.clone()));
+                    matched_for_summary.push((
+                        item.source_name.clone(),
+                        item.episode,
+                        item.file_key.clone(),
+                    ));
                 }
             }
         }
     }
 
-    let transfers: Vec<_> = items.iter().filter(|i| i.action == "transfer").cloned().collect();
-    let skipped: Vec<_> = items.iter().filter(|i| i.action == "skip").cloned().collect();
+    let transfers: Vec<_> = items
+        .iter()
+        .filter(|i| i.action == "transfer")
+        .cloned()
+        .collect();
+    let skipped: Vec<_> = items
+        .iter()
+        .filter(|i| i.action == "skip")
+        .cloned()
+        .collect();
 
     // 汇总集数
     let normalized_matched: Vec<_> = items
@@ -305,7 +328,11 @@ pub fn build_transfer_plan(
         .iter()
         .filter_map(|i| i.episode)
         .collect();
-    let mut unique_episodes: Vec<i32> = episodes.into_iter().collect::<HashSet<_>>().into_iter().collect();
+    let mut unique_episodes: Vec<i32> = episodes
+        .into_iter()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
     unique_episodes.sort_unstable();
     let current_episode_number = unique_episodes.iter().max().copied().unwrap_or(0);
 
@@ -354,7 +381,10 @@ pub fn summarize_rules(rules: Option<&TransferRules>) -> String {
         parts.push(format!("模板 {}", rules.rename_template));
     }
     if !rules.rename_regex.is_empty() {
-        parts.push(format!("替换 {}→{}", rules.rename_regex, rules.rename_replacement));
+        parts.push(format!(
+            "替换 {}→{}",
+            rules.rename_regex, rules.rename_replacement
+        ));
     }
     if rules.only_latest {
         parts.push("仅最新".to_string());

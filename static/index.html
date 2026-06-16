@@ -20,10 +20,149 @@
   </script>
   <style>
     [x-cloak] { display: none !important; }
+    :root {
+      color-scheme: dark;
+      --app-bg: #090c10;
+      --app-surface: #111820;
+      --app-surface-2: #16202a;
+      --app-border: #253241;
+      --app-muted: #8a96a8;
+      --app-text: #edf2f7;
+      --app-primary: #2f81f7;
+      --app-primary-hover: #1f6feb;
+      --app-success: #2ea043;
+      --app-warning: #d29922;
+      --app-danger: #f85149;
+    }
+    * { letter-spacing: 0; }
+    body {
+      background:
+        linear-gradient(180deg, rgba(47,129,247,0.08), transparent 260px),
+        linear-gradient(90deg, rgba(46,160,67,0.05), transparent 360px),
+        var(--app-bg);
+    }
     ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-track { background: #0f1419; }
-    ::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
-    ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+    ::-webkit-scrollbar-track { background: #0b1016; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 6px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+    .bg-dark-bg { background-color: var(--app-bg) !important; }
+    .bg-dark-card { background-color: rgba(17, 24, 32, 0.92) !important; }
+    .bg-dark-hover { background-color: var(--app-surface-2) !important; }
+    .border-dark-border { border-color: var(--app-border) !important; }
+    .rounded-lg, .rounded-xl { border-radius: 8px !important; }
+
+    input, select, textarea {
+      min-height: 40px;
+      background-color: #0c1219 !important;
+      border-color: #2a3746 !important;
+      color: var(--app-text) !important;
+    }
+    input::placeholder, textarea::placeholder { color: #667386 !important; }
+    input:focus, select:focus, textarea:focus {
+      outline: none !important;
+      border-color: var(--app-primary) !important;
+      box-shadow: 0 0 0 3px rgba(47,129,247,0.18) !important;
+    }
+    input[type="checkbox"] {
+      min-height: 16px;
+      width: 16px;
+      height: 16px;
+      accent-color: var(--app-primary);
+    }
+
+    .app-shell { min-height: 100vh; }
+    .app-sidebar {
+      background: rgba(10, 15, 21, 0.86);
+      backdrop-filter: blur(18px);
+      border-color: rgba(148, 163, 184, 0.16);
+    }
+    .app-header {
+      background: rgba(9, 12, 16, 0.78);
+      backdrop-filter: blur(18px);
+      border-color: rgba(148, 163, 184, 0.16);
+    }
+    .app-panel {
+      background: linear-gradient(180deg, rgba(17, 24, 32, 0.96), rgba(13, 19, 27, 0.96));
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 8px;
+      box-shadow: 0 16px 42px rgba(0,0,0,0.22);
+    }
+    .app-panel-soft {
+      background: rgba(17, 24, 32, 0.72);
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      border-radius: 8px;
+    }
+    .stat-tile {
+      min-height: 76px;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      background: rgba(17, 24, 32, 0.74);
+      border-radius: 8px;
+    }
+    .nav-button {
+      min-height: 44px;
+      border: 1px solid transparent;
+    }
+    .nav-button.is-active {
+      background: rgba(47,129,247,0.16) !important;
+      color: white !important;
+      border-color: rgba(47,129,247,0.36);
+    }
+    .nav-button:not(.is-active):hover {
+      background: rgba(148, 163, 184, 0.10) !important;
+    }
+    .btn-primary {
+      background: var(--app-primary) !important;
+      color: white !important;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .btn-primary:hover { background: var(--app-primary-hover) !important; }
+    .btn-secondary {
+      background: #17212c !important;
+      color: #dbe4ef !important;
+      border: 1px solid #2a3746;
+    }
+    .btn-secondary:hover { background: #1f2c3a !important; }
+    .btn-danger {
+      background: rgba(248,81,73,0.12) !important;
+      color: #ff938a !important;
+      border: 1px solid rgba(248,81,73,0.22);
+    }
+    .btn-danger:hover { background: rgba(248,81,73,0.24) !important; color: white !important; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 28px;
+      padding: 0 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      background: rgba(148, 163, 184, 0.08);
+      color: #cbd5e1;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .section-title {
+      color: #f8fafc;
+      font-size: 15px;
+      font-weight: 650;
+    }
+    .field-label {
+      display: block;
+      margin-bottom: 8px;
+      color: #c8d2df;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .empty-state {
+      min-height: 180px;
+      display: grid;
+      place-items: center;
+      color: var(--app-muted);
+      text-align: center;
+    }
+    details > summary { list-style: none; }
+    details > summary::-webkit-details-marker { display: none; }
 
     /* Toast notification styles */
     .toast-container {
@@ -41,7 +180,7 @@
       pointer-events: auto;
       padding: 16px 20px;
       border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      box-shadow: 0 16px 36px rgba(0,0,0,0.36);
       display: flex;
       align-items: center;
       gap: 12px;
@@ -62,10 +201,10 @@
       }
     }
 
-    .toast-success { background: #065f46; border-color: #10b981; }
-    .toast-error { background: #7f1d1d; border-color: #ef4444; }
-    .toast-info { background: #1e3a8a; border-color: #3b82f6; }
-    .toast-warning { background: #78350f; border-color: #f59e0b; }
+    .toast-success { background: #0f3d2e; border-color: #2ea043; }
+    .toast-error { background: #4a1717; border-color: #f85149; }
+    .toast-info { background: #102f57; border-color: #2f81f7; }
+    .toast-warning { background: #493313; border-color: #d29922; }
   </style>
 </head>
 <body class="bg-dark-bg text-gray-200 min-h-screen" x-data="app()" x-init="init()" x-cloak>
@@ -73,67 +212,111 @@
   <!-- Toast Container -->
   <div class="toast-container" id="toastContainer"></div>
 
-  <div class="flex h-screen overflow-hidden">
+  <div class="app-shell lg:flex">
 
     <!-- 侧边栏 -->
-    <aside class="w-64 bg-dark-card border-r border-dark-border flex flex-col">
-      <div class="p-6 border-b border-dark-border">
-        <h1 class="text-xl font-bold text-white flex items-center gap-2">
-          <svg class="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <aside class="app-sidebar hidden lg:flex lg:sticky lg:top-0 h-screen w-72 border-r border-dark-border flex-col">
+      <div class="p-5 border-b border-dark-border">
+        <h1 class="text-lg font-semibold text-white flex items-center gap-3">
+          <span class="grid h-9 w-9 place-items-center rounded-lg bg-blue-500/15 border border-blue-400/20">
+            <svg class="w-5 h-5 text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
-          </svg>
-          媒体订阅
+            </svg>
+          </span>
+          <span>
+            <span class="block leading-5">媒体订阅</span>
+            <span class="block text-xs font-normal text-gray-500 mt-1">Rust Edition</span>
+          </span>
         </h1>
-        <p class="text-xs text-gray-500 mt-1">v0.6.0 Rust Edition</p>
       </div>
 
-      <nav class="flex-1 p-4 space-y-1">
+      <nav class="flex-1 p-4 space-y-1.5">
         <template x-for="tab in tabs" :key="tab.id">
-          <button @click="currentTab = tab.id" :class="currentTab === tab.id ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-dark-hover hover:text-white'" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors duration-150">
-            <span x-html="tab.icon" class="w-5 h-5"></span>
-            <span x-text="tab.name"></span>
+          <button @click="currentTab = tab.id" :class="currentTab === tab.id ? 'is-active' : 'text-gray-400'" class="nav-button w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors duration-150 text-left">
+            <span x-html="tab.icon" class="w-5 h-5 flex-shrink-0"></span>
+            <span class="min-w-0">
+              <span x-text="tab.name" class="block text-sm font-medium"></span>
+              <span x-text="tab.description" class="block truncate text-xs text-gray-500 mt-0.5"></span>
+            </span>
           </button>
         </template>
       </nav>
 
-      <div class="p-4 border-t border-dark-border">
+      <div class="p-4 border-t border-dark-border space-y-3">
         <div class="flex items-center justify-between text-xs text-gray-500">
           <span>订阅数</span>
-          <span class="font-semibold text-blue-500" x-text="subscriptions.length"></span>
+          <span class="font-semibold text-blue-300" x-text="subscriptions.length"></span>
         </div>
         <div class="flex items-center justify-between text-xs text-gray-500 mt-2">
           <span>未读通知</span>
-          <span class="font-semibold text-orange-500" x-text="unreadNotifications"></span>
+          <span class="font-semibold text-amber-300" x-text="unreadNotifications"></span>
+        </div>
+        <div class="flex items-center justify-between text-xs text-gray-500">
+          <span>自动检查</span>
+          <span :class="settings.subscription_scheduler_enabled ? 'text-green-300' : 'text-gray-500'" x-text="settings.subscription_scheduler_enabled ? '已启用' : '未启用'"></span>
         </div>
       </div>
     </aside>
 
     <!-- 主内容区 -->
-    <main class="flex-1 flex flex-col overflow-hidden">
-      <header class="bg-dark-card border-b border-dark-border px-6 py-4 flex items-center justify-between">
-        <div>
-          <h2 class="text-2xl font-bold text-white" x-text="tabs.find(t => t.id === currentTab)?.name"></h2>
-          <p class="text-sm text-gray-500 mt-1" x-text="tabs.find(t => t.id === currentTab)?.description"></p>
+    <main class="min-w-0 flex-1 flex flex-col lg:h-screen">
+      <header class="app-header sticky top-0 z-30 border-b border-dark-border px-4 sm:px-6 py-4">
+        <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div class="min-w-0">
+            <h2 class="text-xl sm:text-2xl font-semibold text-white" x-text="tabs.find(t => t.id === currentTab)?.name"></h2>
+            <p class="text-sm text-gray-500 mt-1" x-text="tabs.find(t => t.id === currentTab)?.description"></p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="chip">订阅 <strong class="text-blue-200" x-text="subscriptions.length"></strong></span>
+            <span class="chip">未读 <strong class="text-amber-200" x-text="unreadNotifications"></strong></span>
+            <span class="chip">调度 <strong :class="settings.subscription_scheduler_enabled ? 'text-green-200' : 'text-gray-400'" x-text="settings.subscription_scheduler_enabled ? '开启' : '关闭'"></strong></span>
+            <button @click="refresh()" class="btn-secondary h-10 w-10 grid place-items-center rounded-lg transition-colors" title="刷新当前页面">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+            </button>
+          </div>
         </div>
-        <button @click="refresh()" class="px-4 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg transition-colors">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-        </button>
+        <nav class="mt-4 lg:hidden flex gap-2 overflow-x-auto pb-1">
+          <template x-for="tab in tabs" :key="tab.id">
+            <button @click="currentTab = tab.id" :class="currentTab === tab.id ? 'is-active' : 'text-gray-400'" class="nav-button flex items-center gap-2 px-3 py-2 rounded-lg transition-colors whitespace-nowrap">
+              <span x-html="tab.icon" class="w-4 h-4"></span>
+              <span x-text="tab.name" class="text-sm"></span>
+            </button>
+          </template>
+        </nav>
       </header>
 
-      <div class="flex-1 overflow-y-auto p-6">
+      <div class="flex-1 overflow-y-auto px-4 sm:px-6 py-5 sm:py-6">
 
         <!-- 搜索页面 -->
-        <div x-show="currentTab === 'search'" class="space-y-4">
-          <div class="bg-dark-card rounded-lg p-6 border border-dark-border">
-            <h3 class="text-lg font-semibold mb-4 text-white">资源搜索</h3>
-            <div class="flex gap-3 mb-4">
-              <input type="text" x-model="searchQuery" @keyup.enter="search()" placeholder="输入影片名称..." class="flex-1 px-4 py-3 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-500" list="searchHistoryList" />
+        <div x-show="currentTab === 'search'" class="space-y-5">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div class="stat-tile p-4">
+              <div class="text-xs text-gray-500">搜索结果</div>
+              <div class="mt-2 text-2xl font-semibold text-white" x-text="searchResults.length"></div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-gray-500">历史关键词</div>
+              <div class="mt-2 text-2xl font-semibold text-white" x-text="searchHistory.length"></div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-gray-500">默认过滤</div>
+              <div class="mt-2 text-sm font-medium" :class="searchOptions.filterBad ? 'text-green-300' : 'text-gray-400'" x-text="searchOptions.filterBad ? '过滤失效链接' : '保留全部结果'"></div>
+            </div>
+          </div>
+
+          <div class="app-panel p-4 sm:p-6">
+            <div class="flex flex-col gap-2 mb-4 sm:flex-row sm:items-center sm:justify-between">
+              <h3 class="section-title">资源搜索</h3>
+              <span class="chip" x-show="searching">正在处理</span>
+            </div>
+            <div class="flex flex-col sm:flex-row gap-3 mb-4">
+              <input type="text" x-model="searchQuery" @keyup.enter="search()" placeholder="输入影片名称、年份或版本..." class="flex-1 px-4 py-3 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-500" list="searchHistoryList" />
               <datalist id="searchHistoryList">
                 <template x-for="item in searchHistory" :key="item">
                   <option :value="item"></option>
                 </template>
               </datalist>
-              <button @click="search()" :disabled="searching || !searchQuery" :class="searching ? 'opacity-50 cursor-not-allowed' : ''" class="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:hover:bg-blue-600 text-white rounded-lg font-medium transition-colors">
+              <button @click="search()" :disabled="searching || !searchQuery" :class="searching ? 'opacity-50 cursor-not-allowed' : ''" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors sm:min-w-28">
                 <span x-show="!searching">搜索</span><span x-show="searching">搜索中...</span>
               </button>
             </div>
@@ -146,7 +329,7 @@
               </div>
               <div class="flex flex-wrap gap-2">
                 <template x-for="(item, idx) in searchHistory.slice(0, 10)" :key="idx">
-                  <button @click="searchQuery = item; search()" class="px-3 py-1 bg-dark-hover hover:bg-gray-700 text-gray-300 rounded text-sm transition-colors">
+                  <button @click="searchQuery = item; search()" class="chip hover:text-white transition-colors">
                     <span x-text="item"></span>
                   </button>
                 </template>
@@ -155,8 +338,11 @@
 
             <!-- 高级选项 -->
             <details class="mt-4">
-              <summary class="cursor-pointer text-sm text-gray-400 hover:text-white">高级筛选</summary>
-              <div class="mt-3 space-y-3">
+              <summary class="cursor-pointer text-sm text-gray-400 hover:text-white flex items-center justify-between">
+                <span>高级筛选</span>
+                <span class="text-xs text-gray-600">链接检测、文件嗅探、云盘类型</span>
+              </summary>
+              <div class="mt-3 app-panel-soft p-4 space-y-4">
                 <div>
                   <label class="block text-sm text-gray-400 mb-2">云盘类型</label>
                   <div class="flex flex-wrap gap-2">
@@ -168,7 +354,7 @@
                     </template>
                   </div>
                 </div>
-                <div class="flex gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <label class="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
                     <input type="checkbox" x-model="searchOptions.checkLinks" class="rounded" />
                     检测链接有效性
@@ -189,10 +375,10 @@
           <!-- 搜索结果 -->
           <div x-show="searchResults.length > 0" class="space-y-3">
             <template x-for="(result, idx) in searchResults" :key="idx">
-              <div class="bg-dark-card rounded-lg p-4 border border-dark-border hover:border-blue-500 transition-colors">
-                <div class="flex justify-between items-start gap-4">
+              <div class="app-panel p-4 hover:border-blue-500 transition-colors">
+                <div class="flex flex-col md:flex-row justify-between items-start gap-4">
                   <div x-show="result.images && result.images.length > 0" class="flex-shrink-0">
-                    <img :src="result.images[0]" :alt="result.note" class="w-20 h-28 object-cover rounded" onerror="this.style.display='none'" />
+                    <img :src="result.images[0]" :alt="result.note" class="w-24 h-32 object-cover rounded" onerror="this.style.display='none'" />
                   </div>
                   <div class="flex-1">
                     <div class="flex items-start gap-2 mb-2">
@@ -201,12 +387,12 @@
                       <span x-show="result.is_valid === true" class="px-2 py-1 bg-green-600/20 text-green-400 rounded text-xs">✓ 有效</span>
                       <span x-show="result.is_valid === false" class="px-2 py-1 bg-red-600/20 text-red-400 rounded text-xs">✗ 失效</span>
                     </div>
-                    <div class="flex gap-4 text-sm text-gray-400 mb-2">
-                      <span x-text="result.cloud_type" class="px-2 py-1 bg-blue-600/20 text-blue-400 rounded"></span>
+                    <div class="flex flex-wrap gap-2 text-sm text-gray-400 mb-2">
+                      <span x-text="result.cloud_type" class="chip text-blue-300"></span>
                       <span x-show="result.source" x-text="result.source" class="text-gray-500"></span>
                       <!-- 文件数量标记 -->
-                      <span x-show="result.probe_info" class="text-gray-500">
-                        📁 <span x-text="result.probe_info?.file_count || 0"></span> 个文件
+                      <span x-show="result.probe_info" class="chip">
+                        <span x-text="result.probe_info?.file_count || 0"></span> 个文件
                       </span>
                     </div>
                     <a :href="result.url" target="_blank" class="text-xs text-blue-400 hover:text-blue-300 break-all" x-text="result.url"></a>
@@ -215,13 +401,13 @@
                     <div x-show="result.probe_info && result.probe_info.files && result.probe_info.files.length > 0" class="mt-3 p-3 bg-dark-bg rounded-lg border border-dark-border">
                       <details>
                         <summary class="cursor-pointer text-sm text-gray-400 hover:text-white">
-                          📋 文件列表 (<span x-text="result.probe_info.files.length"></span>)
+                          文件列表 (<span x-text="result.probe_info.files.length"></span>)
                         </summary>
                         <div class="mt-2 space-y-1 max-h-48 overflow-y-auto">
                           <template x-for="(file, fidx) in result.probe_info.files" :key="fidx">
                             <div class="text-xs text-gray-400 py-1 px-2 hover:bg-dark-hover rounded flex items-center gap-2">
-                              <span x-show="file.is_dir">📁</span>
-                              <span x-show="!file.is_dir">📄</span>
+                              <svg x-show="file.is_dir" class="w-4 h-4 text-amber-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                              <svg x-show="!file.is_dir" class="w-4 h-4 text-blue-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
                               <span x-text="file.name" class="flex-1"></span>
                               <span x-show="!file.is_dir && file.size" x-text="formatSize(file.size)" class="text-gray-600"></span>
                             </div>
@@ -230,9 +416,9 @@
                       </details>
                     </div>
                   </div>
-                  <div class="flex gap-2">
-                    <button @click="openSubscriptionDialog(result, 'once')" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors flex-shrink-0">💾 转存</button>
-                    <button @click="openSubscriptionDialog(result, 'continuous')" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm transition-colors flex-shrink-0">📌 订阅</button>
+                  <div class="flex md:flex-col gap-2 w-full md:w-auto">
+                    <button @click="openSubscriptionDialog(result, 'once')" class="btn-primary px-4 py-2 rounded-lg text-sm transition-colors flex-1 md:flex-none">转存</button>
+                    <button @click="openSubscriptionDialog(result, 'continuous')" class="btn-secondary px-4 py-2 rounded-lg text-sm transition-colors flex-1 md:flex-none">订阅</button>
                   </div>
                 </div>
               </div>
@@ -242,34 +428,49 @@
 
         <!-- 网盘管理页面 -->
         <div x-show="currentTab === 'drive'" class="space-y-4">
-          <div class="bg-dark-card rounded-lg border border-dark-border">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div class="stat-tile p-4">
+              <div class="text-xs text-gray-500">当前目录</div>
+              <div class="mt-2 text-sm font-medium text-white truncate" x-text="driveCurrentPath || '/'"></div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-gray-500">项目数量</div>
+              <div class="mt-2 text-2xl font-semibold text-white" x-text="filteredDriveItems.length"></div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-gray-500">已选择</div>
+              <div class="mt-2 text-2xl font-semibold text-white" x-text="driveSelectedItems.length"></div>
+            </div>
+          </div>
+
+          <div class="app-panel overflow-hidden">
             <!-- 工具栏 -->
-            <div class="p-4 border-b border-dark-border flex items-center justify-between">
-              <div class="flex gap-2">
-                <button @click="driveGoBack()" :disabled="driveCurrentPath === '/'" class="px-3 py-2 bg-dark-hover hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm transition-colors">
+            <div class="p-4 border-b border-dark-border flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+              <div class="flex flex-wrap gap-2">
+                <button @click="driveGoBack()" :disabled="driveCurrentPath === '/'" class="btn-secondary px-3 py-2 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm transition-colors">
                   ← 返回上级
                 </button>
-                <button @click="loadDrive()" class="px-3 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg text-sm transition-colors">
+                <button @click="loadDrive()" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors">
                   刷新
                 </button>
               </div>
-              <div class="flex gap-2">
-                <button @click="showNewFolderModal = true" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors">
+              <div class="flex flex-wrap gap-2">
+                <button @click="showNewFolderModal = true" class="btn-primary px-4 py-2 rounded-lg text-sm transition-colors">
                   新建文件夹
                 </button>
-                <button @click="toggleSelectMode()" class="px-3 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg text-sm transition-colors">
+                <button @click="toggleSelectMode()" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors">
                   <span x-text="driveSelectMode ? '取消选择' : '选择'"></span>
                 </button>
               </div>
             </div>
 
             <!-- 路径导航 -->
-            <div class="px-4 py-3 border-b border-dark-border flex items-center justify-between">
-              <div class="flex items-center gap-2 text-sm">
+            <div class="px-4 py-3 border-b border-dark-border flex flex-col md:flex-row gap-3 md:items-center md:justify-between bg-black/10">
+              <div class="min-w-0 flex items-center gap-2 text-sm">
                 <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
-                <span class="text-gray-300" x-text="driveCurrentPath || '根目录'"></span>
+                <span class="text-gray-300 truncate" x-text="driveCurrentPath || '根目录'"></span>
               </div>
-              <div class="flex gap-3">
+              <div class="flex flex-wrap gap-3">
                 <select x-model="driveSortBy" @change="sortDriveItems()" class="px-2 py-1 bg-dark-hover border border-dark-border rounded text-sm text-gray-300">
                   <option value="name">按名称</option>
                   <option value="size">按大小</option>
@@ -293,17 +494,17 @@
                     <svg x-show="item.file" class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
                     <svg x-show="!item.file" class="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
                     <div class="flex-1">
-                      <p class="text-white font-medium" x-text="item.file_name"></p>
+                      <p class="text-white font-medium break-all" x-text="item.file_name"></p>
                       <p class="text-xs text-gray-500" x-text="formatSize(item.size)"></p>
                     </div>
                   </div>
-                  <div class="flex gap-2">
-                    <button @click="renameDriveItem(item)" class="px-2 py-1 text-xs bg-dark-hover hover:bg-gray-700 text-gray-300 rounded">重命名</button>
-                    <button @click="deleteDriveItem(item)" class="px-2 py-1 text-xs bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded">删除</button>
+                  <div class="flex gap-2 flex-shrink-0">
+                    <button @click="renameDriveItem(item)" class="btn-secondary px-2 py-1 text-xs rounded">重命名</button>
+                    <button @click="deleteDriveItem(item)" class="btn-danger px-2 py-1 text-xs rounded">删除</button>
                   </div>
                 </div>
               </template>
-              <div x-show="driveItems.length === 0" class="p-8 text-center text-gray-500">
+              <div x-show="driveItems.length === 0" class="empty-state">
                 <p>文件夹为空或未配置夸克 Cookie</p>
               </div>
             </div>
@@ -312,7 +513,7 @@
             <div x-show="driveSelectMode && driveSelectedItems.length > 0" class="p-4 border-t border-dark-border flex items-center justify-between bg-dark-hover">
               <span class="text-sm text-gray-300">已选择 <span x-text="driveSelectedItems.length"></span> 项</span>
               <div class="flex gap-2">
-                <button @click="batchDeleteDrive()" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm">批量删除</button>
+                <button @click="batchDeleteDrive()" class="btn-danger px-4 py-2 rounded-lg text-sm">批量删除</button>
               </div>
             </div>
           </div>
@@ -320,92 +521,105 @@
 
         <!-- 订阅管理页面 -->
         <div x-show="currentTab === 'subscriptions'" class="space-y-4">
-          <div class="flex justify-end">
-            <button @click="showAddSubscription = true" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-2">
+          <div class="app-panel p-4 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+            <div>
+              <h3 class="section-title">订阅列表</h3>
+              <p class="text-sm text-gray-500 mt-1">按状态、进度和最近检查时间快速扫描。</p>
+            </div>
+            <button @click="showAddSubscription = true" class="btn-primary px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
               添加订阅
             </button>
           </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <template x-for="sub in subscriptions" :key="sub.id">
-              <div class="bg-dark-card rounded-lg p-5 border border-dark-border hover:border-blue-500 transition-colors">
+              <div class="app-panel p-5 hover:border-blue-500 transition-colors">
                 <div class="flex justify-between items-start mb-3">
-                  <h4 class="text-white font-semibold text-lg" x-text="sub.title"></h4>
+                  <h4 class="text-white font-semibold text-base break-all pr-4" x-text="sub.title"></h4>
                   <span :class="{'bg-green-600/20 text-green-400': sub.status === 'active', 'bg-gray-600/20 text-gray-400': sub.status === 'completed', 'bg-red-600/20 text-red-400': sub.status === 'invalid'}" class="px-2 py-1 rounded text-xs font-medium" x-text="sub.status"></span>
                 </div>
-                <div class="space-y-2 text-sm text-gray-400 mb-4">
-                  <div class="flex items-center gap-2"><span class="w-20">媒体类型:</span><span x-text="sub.media_type" class="text-blue-400"></span></div>
-                  <div x-show="sub.current_episode_number > 0" class="flex items-center gap-2"><span class="w-20">当前进度:</span><span x-text="'第 ' + sub.current_episode_number + ' 集'" class="text-green-400"></span></div>
-                  <div class="flex items-center gap-2"><span class="w-20">最后检查:</span><span x-text="new Date(sub.last_checked_at * 1000).toLocaleString()" class="text-gray-400 text-xs"></span></div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm text-gray-400 mb-4">
+                  <div class="app-panel-soft p-3"><span class="block text-xs text-gray-500 mb-1">媒体类型</span><span x-text="sub.media_type" class="text-blue-300"></span></div>
+                  <div class="app-panel-soft p-3"><span class="block text-xs text-gray-500 mb-1">当前进度</span><span x-show="sub.current_episode_number > 0" x-text="'第 ' + sub.current_episode_number + ' 集'" class="text-green-300"></span><span x-show="!sub.current_episode_number || sub.current_episode_number <= 0">-</span></div>
+                  <div class="app-panel-soft p-3"><span class="block text-xs text-gray-500 mb-1">最后检查</span><span x-text="new Date(sub.last_checked_at * 1000).toLocaleString()" class="text-gray-300 text-xs"></span></div>
                 </div>
                 <div class="flex gap-2">
-                  <button @click="checkSubscription(sub.id)" class="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-sm">立即检查</button>
-                  <button @click="deleteSubscription(sub.id)" class="px-3 py-2 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded transition-colors text-sm">删除</button>
+                  <button @click="checkSubscription(sub.id)" class="btn-primary flex-1 px-3 py-2 rounded transition-colors text-sm">立即检查</button>
+                  <button @click="renameExistingFiles(sub.id)" class="btn-secondary px-3 py-2 rounded transition-colors text-sm">修复命名</button>
+                  <button @click="deleteSubscription(sub.id)" class="btn-danger px-3 py-2 rounded transition-colors text-sm">删除</button>
                 </div>
               </div>
             </template>
           </div>
-          <div x-show="subscriptions.length === 0" class="text-center py-12 text-gray-500">暂无订阅</div>
+          <div x-show="subscriptions.length === 0" class="app-panel empty-state">暂无订阅</div>
         </div>
 
         <!-- 通知页面 -->
         <div x-show="currentTab === 'notifications'" class="space-y-4">
-          <div class="flex justify-end gap-2">
-            <button @click="markAllRead()" class="px-4 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg transition-colors text-sm">全部已读</button>
-            <button @click="clearNotifications()" class="px-4 py-2 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded-lg transition-colors text-sm">清空通知</button>
+          <div class="app-panel p-4 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+            <div>
+              <h3 class="section-title">通知中心</h3>
+              <p class="text-sm text-gray-500 mt-1">未读消息会在列表中高亮。</p>
+            </div>
+            <div class="flex gap-2">
+              <button @click="markAllRead()" class="btn-secondary px-4 py-2 rounded-lg transition-colors text-sm">全部已读</button>
+              <button @click="clearNotifications()" class="btn-danger px-4 py-2 rounded-lg transition-colors text-sm">清空通知</button>
+            </div>
           </div>
           <div class="space-y-3">
             <template x-for="notif in notifications" :key="notif.id">
-              <div :class="!notif.read ? 'border-blue-500 bg-blue-600/5' : 'border-dark-border'" class="bg-dark-card rounded-lg p-4 border hover:border-blue-500 transition-colors">
-                <div class="flex justify-between items-start">
+              <div :class="!notif.read ? 'border-blue-500 bg-blue-600/5' : 'border-dark-border'" class="app-panel p-4 border hover:border-blue-500 transition-colors">
+                <div class="flex flex-col sm:flex-row gap-3 sm:justify-between sm:items-start">
                   <div class="flex-1">
-                    <h4 class="text-white font-medium mb-1" x-text="notif.title"></h4>
+                    <div class="flex items-center gap-2 mb-1">
+                      <span x-show="!notif.read" class="h-2 w-2 rounded-full bg-blue-400"></span>
+                      <h4 class="text-white font-medium" x-text="notif.title"></h4>
+                    </div>
                     <p class="text-gray-400 text-sm mb-2" x-text="notif.message"></p>
                     <span class="text-xs text-gray-500" x-text="new Date(notif.time * 1000).toLocaleString()"></span>
                   </div>
-                  <button x-show="!notif.read" @click="markRead(notif.id)" class="ml-4 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs transition-colors">标记已读</button>
+                  <button x-show="!notif.read" @click="markRead(notif.id)" class="btn-primary px-3 py-2 rounded text-xs transition-colors">标记已读</button>
                 </div>
               </div>
             </template>
           </div>
-          <div x-show="notifications.length === 0" class="text-center py-12 text-gray-500">暂无通知</div>
+          <div x-show="notifications.length === 0" class="app-panel empty-state">暂无通知</div>
         </div>
 
         <!-- 设置页面 -->
         <div x-show="currentTab === 'settings'" class="space-y-4">
 
           <!-- 标签页导航 -->
-          <div class="bg-dark-card rounded-lg border border-dark-border">
+          <div class="app-panel overflow-hidden">
             <div class="border-b border-dark-border flex gap-2 p-2 overflow-x-auto">
               <template x-for="tab in settingsTabs" :key="tab.id">
-                <button @click="currentSettingsTab = tab.id" :class="currentSettingsTab === tab.id ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white hover:bg-dark-hover'" class="px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors">
-                  <span x-text="tab.icon"></span> <span x-text="tab.name"></span>
+                <button @click="currentSettingsTab = tab.id" :class="currentSettingsTab === tab.id ? 'is-active' : 'text-gray-400'" class="nav-button px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors">
+                  <span x-text="tab.name"></span>
                 </button>
               </template>
             </div>
 
             <!-- 基础设置 -->
-            <div x-show="currentSettingsTab === 'basic'" class="p-6 space-y-6">
-              <div class="space-y-4">
-                <h3 class="text-sm font-semibold text-gray-400 uppercase">账号设置</h3>
-                <div class="grid grid-cols-2 gap-4">
-                  <div><label class="block text-sm font-medium text-gray-300 mb-2">用户名</label><input type="text" x-model="settings.app_username" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-                  <div><label class="block text-sm font-medium text-gray-300 mb-2">密码</label><input type="password" x-model="settings.app_password" placeholder="留空不修改" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+            <div x-show="currentSettingsTab === 'basic'" class="p-4 sm:p-6 space-y-6">
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">账号设置</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div><label class="field-label">用户名</label><input type="text" x-model="settings.app_username" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                  <div><label class="field-label">密码</label><input type="password" x-model="settings.app_password" placeholder="留空不修改" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
                 </div>
               </div>
 
-              <div class="space-y-4">
-                <h3 class="text-sm font-semibold text-gray-400 uppercase">Aria2 配置</h3>
-                <div class="grid grid-cols-2 gap-4">
-                  <div><label class="block text-sm font-medium text-gray-300 mb-2">RPC URL</label><input type="text" x-model="settings.aria2_rpc_url" placeholder="http://localhost:6800/jsonrpc" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-                  <div><label class="block text-sm font-medium text-gray-300 mb-2">Token</label><input type="password" x-model="settings.aria2_token" placeholder="可选" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">Aria2 配置</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div><label class="field-label">RPC URL</label><input type="text" x-model="settings.aria2_rpc_url" placeholder="http://localhost:6800/jsonrpc" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                  <div><label class="field-label">Secret</label><input type="password" x-model="settings.aria2_secret" placeholder="留空不修改" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
                 </div>
-                <div><label class="block text-sm font-medium text-gray-300 mb-2">下载目录</label><input type="text" x-model="settings.aria2_download_dir" placeholder="/downloads" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-                <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.aria2_enabled" class="rounded" />启用 Aria2 下载</label>
+                <div><label class="field-label">下载目录</label><input type="text" x-model="settings.aria2_dir" placeholder="/downloads" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
               </div>
 
-              <div class="space-y-4">
-                <h3 class="text-sm font-semibold text-gray-400 uppercase">搜索配置</h3>
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">搜索配置</h3>
                 <div><label class="block text-sm font-medium text-gray-300 mb-2">云盘类型</label>
                   <div class="flex flex-wrap gap-2">
                     <template x-for="type in cloudTypes" :key="type">
@@ -416,118 +630,131 @@
               </div>
 
               <div class="flex justify-end gap-3 pt-4 border-t border-dark-border">
-                <button @click="saveSettings()" class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">保存设置</button>
+                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
 
             <!-- 夸克网盘 -->
-            <div x-show="currentSettingsTab === 'quark'" class="p-6 space-y-6">
-              <div class="space-y-4">
-                <h3 class="text-sm font-semibold text-gray-400 uppercase">夸克配置</h3>
-                <div><label class="block text-sm font-medium text-gray-300 mb-2">夸克 Cookie</label><input type="password" x-model="settings.quark_cookie" placeholder="粘贴夸克 Cookie" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+            <div x-show="currentSettingsTab === 'quark'" class="p-4 sm:p-6 space-y-6">
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">夸克配置</h3>
+                <div><label class="field-label">夸克 Cookie</label><input type="password" x-model="settings.quark_cookie" placeholder="粘贴夸克 Cookie，留空不修改" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
                 <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.quark_save_enabled" class="rounded" />启用自动转存</label>
               </div>
 
-              <div class="space-y-4">
-                <h3 class="text-sm font-semibold text-gray-400 uppercase">目录配置</h3>
-                <div><label class="block text-sm font-medium text-gray-300 mb-2">根目录</label><input type="text" x-model="settings.quark_save_root" placeholder="/媒体" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-                <div class="grid grid-cols-3 gap-4">
-                  <div><label class="block text-sm font-medium text-gray-300 mb-2">电影目录</label><input type="text" x-model="settings.quark_save_movie_dir" placeholder="/电影" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-                  <div><label class="block text-sm font-medium text-gray-300 mb-2">连续剧目录</label><input type="text" x-model="settings.quark_save_series_dir" placeholder="/连续剧" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-                  <div><label class="block text-sm font-medium text-gray-300 mb-2">动画目录</label><input type="text" x-model="settings.quark_save_anime_dir" placeholder="/动画" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">目录配置</h3>
+                <div><label class="field-label">根目录</label><input type="text" x-model="settings.quark_save_root" placeholder="/媒体" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div><label class="field-label">电影目录</label><input type="text" x-model="settings.quark_save_movie_dir" placeholder="/电影" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                  <div><label class="field-label">连续剧目录</label><input type="text" x-model="settings.quark_save_series_dir" placeholder="/连续剧" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                  <div><label class="field-label">动画目录</label><input type="text" x-model="settings.quark_save_anime_dir" placeholder="/动画" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
                 </div>
               </div>
 
               <div class="flex justify-end gap-3 pt-4 border-t border-dark-border">
-                <button @click="testQuark()" class="px-4 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg">测试连接</button>
-                <button @click="saveSettings()" class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">保存设置</button>
+                <button @click="testQuark()" class="btn-secondary px-4 py-2 rounded-lg">测试连接</button>
+                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
 
             <!-- 消息推送 -->
-            <div x-show="currentSettingsTab === 'push'" class="p-6 space-y-6">
-              <div class="space-y-4">
-                <h3 class="text-sm font-semibold text-gray-400 uppercase">推送事件</h3>
-                <div class="bg-dark-hover rounded-lg p-4 grid grid-cols-2 gap-3">
+            <div x-show="currentSettingsTab === 'push'" class="p-4 sm:p-6 space-y-6">
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">推送事件</h3>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.push_on_update" class="rounded" />订阅更新</label>
                   <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.push_on_failed" class="rounded" />订阅失效</label>
                   <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.push_on_completed" class="rounded" />订阅完结</label>
                   <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.push_on_save" class="rounded" />转存完成</label>
+                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.push_silent" class="rounded" />静默推送</label>
                 </div>
               </div>
 
               <!-- 推送渠道 -->
-              <div class="space-y-4">
-                <h3 class="text-sm font-semibold text-gray-400 uppercase">推送渠道</h3>
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">推送渠道</h3>
 
                 <!-- 企业微信 -->
                 <details class="bg-dark-hover rounded-lg p-4">
-                  <summary class="cursor-pointer font-medium text-white">💬 企业微信</summary>
-                  <div class="mt-3"><label class="block text-sm font-medium text-gray-300 mb-2">Webhook URL</label><input type="text" x-model="settings.wecom_bot_url" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                  <summary class="cursor-pointer font-medium text-white">企业微信</summary>
+                  <div class="mt-3"><label class="field-label">Webhook URL</label><input type="text" x-model="settings.wecom_bot_url" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
                 </details>
 
                 <!-- Telegram -->
                 <details class="bg-dark-hover rounded-lg p-4">
-                  <summary class="cursor-pointer font-medium text-white">✈️ Telegram</summary>
-                  <div class="mt-3 grid grid-cols-2 gap-4">
-                    <div><label class="block text-sm font-medium text-gray-300 mb-2">Bot Token</label><input type="password" x-model="settings.telegram_bot_token" placeholder="123456:ABC-DEF..." class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-                    <div><label class="block text-sm font-medium text-gray-300 mb-2">Chat ID</label><input type="text" x-model="settings.telegram_chat_id" placeholder="你的 Chat ID" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                  <summary class="cursor-pointer font-medium text-white">Telegram</summary>
+                  <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div><label class="field-label">Bot Token</label><input type="password" x-model="settings.telegram_bot_token" placeholder="123456:ABC-DEF..." class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                    <div><label class="field-label">Chat ID</label><input type="text" x-model="settings.telegram_chat_id" placeholder="你的 Chat ID" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
                   </div>
                 </details>
 
                 <!-- WxPusher -->
                 <details class="bg-dark-hover rounded-lg p-4">
-                  <summary class="cursor-pointer font-medium text-white">📱 WxPusher（微信推送）</summary>
+                  <summary class="cursor-pointer font-medium text-white">WxPusher</summary>
                   <div class="mt-3 space-y-3">
-                    <div><label class="block text-sm font-medium text-gray-300 mb-2">App Token</label><input type="password" x-model="settings.wxpusher_app_token" placeholder="AT_xxx" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-                    <div><label class="block text-sm font-medium text-gray-300 mb-2">用户 UIDs（多个用逗号分隔）</label><input type="text" x-model="settings.wxpusher_uids" placeholder="UID_xxx,UID_yyy" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                    <div><label class="field-label">App Token</label><input type="password" x-model="settings.wxpusher_app_token" placeholder="AT_xxx" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                    <div><label class="field-label">用户 UIDs（多个用逗号分隔）</label><input type="text" x-model="settings.wxpusher_uids" placeholder="UID_xxx,UID_yyy" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
                   </div>
                 </details>
 
                 <!-- 其他渠道 -->
                 <details class="bg-dark-hover rounded-lg p-4">
-                  <summary class="cursor-pointer font-medium text-white">🔔 其他渠道</summary>
+                  <summary class="cursor-pointer font-medium text-white">其他渠道</summary>
                   <div class="mt-3 space-y-3">
-                    <div><label class="block text-sm font-medium text-gray-300 mb-2">Bark URL</label><input type="text" x-model="settings.bark_url" placeholder="https://api.day.app/your_key" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-                    <div><label class="block text-sm font-medium text-gray-300 mb-2">Server酱 SendKey</label><input type="password" x-model="settings.serverchan_key" placeholder="SCTxxxxxx" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-                    <div><label class="block text-sm font-medium text-gray-300 mb-2">Gotify URL</label><input type="text" x-model="settings.gotify_url" placeholder="https://gotify.example.com" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-                    <div><label class="block text-sm font-medium text-gray-300 mb-2">Gotify Token</label><input type="password" x-model="settings.gotify_token" placeholder="A..." class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-                    <div><label class="block text-sm font-medium text-gray-300 mb-2">PushPlus Token</label><input type="password" x-model="settings.pushplus_token" placeholder="pushplus token" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                    <div><label class="field-label">Bark URL</label><input type="text" x-model="settings.bark_url" placeholder="https://api.day.app/your_key" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                    <div><label class="field-label">Server酱 SendKey</label><input type="password" x-model="settings.serverchan_key" placeholder="SCTxxxxxx" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                    <div><label class="field-label">Gotify URL</label><input type="text" x-model="settings.gotify_url" placeholder="https://gotify.example.com" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                    <div><label class="field-label">Gotify Token</label><input type="password" x-model="settings.gotify_token" placeholder="A..." class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                    <div><label class="field-label">PushPlus Token</label><input type="password" x-model="settings.pushplus_token" placeholder="pushplus token" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
                   </div>
                 </details>
               </div>
 
               <div class="flex justify-end gap-3 pt-4 border-t border-dark-border">
-                <button @click="testPush()" class="px-4 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg">测试推送</button>
-                <button @click="saveSettings()" class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">保存设置</button>
+                <button @click="testPush()" class="btn-secondary px-4 py-2 rounded-lg">测试推送</button>
+                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
 
             <!-- 自动化 -->
-            <div x-show="currentSettingsTab === 'automation'" class="p-6 space-y-6">
-              <div class="space-y-4">
-                <h3 class="text-sm font-semibold text-gray-400 uppercase">订阅自动化</h3>
-                <div><label class="block text-sm font-medium text-gray-300 mb-2">检查间隔（分钟）</label><input type="number" x-model="settings.subscription_check_interval_minutes" min="5" step="5" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+            <div x-show="currentSettingsTab === 'automation'" class="p-4 sm:p-6 space-y-6">
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">订阅自动化</h3>
+                <div><label class="field-label">检查间隔（分钟）</label><input type="number" x-model="settings.subscription_check_interval_minutes" min="5" step="5" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
                 <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.subscription_scheduler_enabled" class="rounded" />启用自动检查</label>
+                <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.auto_download_new_subscription_items" class="rounded" />自动下载新订阅项</label>
+              </div>
+
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">NAS 同步</h3>
+                <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.nas_sync_enabled" class="rounded" />启用 NAS 同步</label>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div><label class="field-label">源目录</label><input type="text" x-model="settings.nas_sync_source" placeholder="/downloads" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                  <div><label class="field-label">目标目录</label><input type="text" x-model="settings.nas_sync_target" placeholder="/volume1/media" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                </div>
               </div>
 
               <div class="flex justify-end gap-3 pt-4 border-t border-dark-border">
-                <button @click="saveSettings()" class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">保存设置</button>
+                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
 
             <!-- 高级设置 -->
-            <div x-show="currentSettingsTab === 'advanced'" class="p-6 space-y-6">
-              <div class="space-y-4">
-                <h3 class="text-sm font-semibold text-gray-400 uppercase">高级选项</h3>
-                <div><label class="block text-sm font-medium text-gray-300 mb-2">PanSou API URL</label><input type="text" x-model="settings.pansou_api_url" placeholder="https://pansou.lxf87.com.cn" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-                <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.check_links" class="rounded" />默认检测链接有效性</label>
-                <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.probe_quark_files" class="rounded" />默认嗅探文件列表</label>
-                <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.filter_bad_links" class="rounded" />默认过滤失效链接</label>
+            <div x-show="currentSettingsTab === 'advanced'" class="p-4 sm:p-6 space-y-6">
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">高级选项</h3>
+                <div><label class="field-label">PanSou API URL</label><input type="text" x-model="settings.pansou_api_url" placeholder="https://pansou.lxf87.com.cn" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.check_links" class="rounded" />默认检测链接有效性</label>
+                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.probe_quark_files" class="rounded" />默认嗅探文件列表</label>
+                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.filter_bad_links" class="rounded" />默认过滤失效链接</label>
+                </div>
               </div>
 
               <div class="flex justify-end gap-3 pt-4 border-t border-dark-border">
-                <button @click="saveSettings()" class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">保存设置</button>
+                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
           </div>
@@ -538,46 +765,46 @@
   </div>
 
   <!-- 模态框：添加订阅 -->
-  <div x-show="showAddSubscription" @click.self="showAddSubscription = false" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="bg-dark-card rounded-xl p-6 max-w-md w-full border border-dark-border" @click.stop>
+  <div x-show="showAddSubscription" @click.self="showAddSubscription = false" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel p-6 max-w-md w-full" @click.stop>
       <h3 class="text-xl font-bold text-white mb-4">添加订阅</h3>
       <div class="space-y-4">
-        <div><label class="block text-sm font-medium text-gray-300 mb-2">名称</label><input type="text" x-model="newSubscription.name" placeholder="影片名称" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-500" /></div>
-        <div><label class="block text-sm font-medium text-gray-300 mb-2">类型</label><select x-model="newSubscription.media_type" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white"><option value="series">连续剧</option><option value="movie">电影</option><option value="anime">动漫</option></select></div>
-        <div><label class="block text-sm font-medium text-gray-300 mb-2">关键词（空格分隔）</label><input type="text" x-model="newSubscription.keywords" placeholder="龙珠 4K" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-500" /></div>
+        <div><label class="field-label">名称</label><input type="text" x-model="newSubscription.name" placeholder="影片名称" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-500" /></div>
+        <div><label class="field-label">类型</label><select x-model="newSubscription.media_type" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white"><option value="series">连续剧</option><option value="movie">电影</option><option value="anime">动漫</option></select></div>
+        <div><label class="field-label">关键词（空格分隔）</label><input type="text" x-model="newSubscription.keywords" placeholder="龙珠 4K" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-500" /></div>
       </div>
       <div class="flex gap-3 mt-6">
-        <button @click="showAddSubscription = false" class="flex-1 px-4 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg transition-colors">取消</button>
-        <button @click="addSubscription()" class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">添加</button>
+        <button @click="showAddSubscription = false" class="btn-secondary flex-1 px-4 py-2 rounded-lg transition-colors">取消</button>
+        <button @click="addSubscription()" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors">添加</button>
       </div>
     </div>
   </div>
 
   <!-- 模态框：新建文件夹 -->
-  <div x-show="showNewFolderModal" @click.self="showNewFolderModal = false" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="bg-dark-card rounded-xl p-6 max-w-md w-full border border-dark-border" @click.stop>
+  <div x-show="showNewFolderModal" @click.self="showNewFolderModal = false" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel p-6 max-w-md w-full" @click.stop>
       <h3 class="text-xl font-bold text-white mb-4">新建文件夹</h3>
-      <div><label class="block text-sm font-medium text-gray-300 mb-2">文件夹名称</label><input type="text" x-model="newFolderName" placeholder="输入名称" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-500" /></div>
+      <div><label class="field-label">文件夹名称</label><input type="text" x-model="newFolderName" placeholder="输入名称" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-500" /></div>
       <div class="flex gap-3 mt-6">
-        <button @click="showNewFolderModal = false" class="flex-1 px-4 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg transition-colors">取消</button>
-        <button @click="createFolder()" class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">创建</button>
+        <button @click="showNewFolderModal = false" class="btn-secondary flex-1 px-4 py-2 rounded-lg transition-colors">取消</button>
+        <button @click="createFolder()" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors">创建</button>
       </div>
     </div>
   </div>
 
   <!-- 模态框：选择转存目录 -->
-  <div x-show="showTransferModal" @click.self="showTransferModal = false" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="bg-dark-card rounded-xl p-6 max-w-2xl w-full border border-dark-border" @click.stop>
+  <div x-show="showTransferModal" @click.self="showTransferModal = false" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel p-6 max-w-2xl w-full" @click.stop>
       <h3 class="text-xl font-bold text-white mb-4">选择转存目录</h3>
 
       <!-- 快速选择 -->
       <div class="mb-4">
-        <label class="block text-sm font-medium text-gray-300 mb-2">快速选择</label>
-        <div class="flex gap-2">
-          <button @click="transferTargetFid = '0'; transferTargetPath = '根目录'" class="px-3 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg text-sm transition-colors">📁 根目录</button>
-          <button @click="selectQuickDir('movie')" class="px-3 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg text-sm transition-colors">🎬 电影</button>
-          <button @click="selectQuickDir('series')" class="px-3 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg text-sm transition-colors">📺 连续剧</button>
-          <button @click="selectQuickDir('anime')" class="px-3 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg text-sm transition-colors">🎨 动画</button>
+        <label class="field-label">快速选择</label>
+        <div class="flex flex-wrap gap-2">
+          <button @click="selectQuickDir('root')" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors">根目录</button>
+          <button @click="selectQuickDir('movie')" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors">电影</button>
+          <button @click="selectQuickDir('series')" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors">连续剧</button>
+          <button @click="selectQuickDir('anime')" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors">动画</button>
         </div>
       </div>
 
@@ -588,7 +815,7 @@
             <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
             <span x-text="transferTargetPath"></span>
           </div>
-          <button @click="transferBrowseBack()" :disabled="transferBrowseFidStack.length <= 1" class="px-3 py-1 bg-dark-hover hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-sm transition-colors">← 返回上级</button>
+          <button @click="transferBrowseBack()" :disabled="transferBrowseFidStack.length <= 1" class="btn-secondary px-3 py-1 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm transition-colors">← 返回上级</button>
         </div>
       </div>
 
@@ -608,27 +835,27 @@
 
       <!-- 操作按钮 -->
       <div class="flex gap-3">
-        <button @click="showTransferModal = false" class="flex-1 px-4 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg transition-colors">取消</button>
-        <button @click="confirmTransfer()" class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">确认转存到此目录</button>
+        <button @click="showTransferModal = false" class="btn-secondary flex-1 px-4 py-2 rounded-lg transition-colors">取消</button>
+        <button @click="confirmTransfer()" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors">确认转存到此目录</button>
       </div>
     </div>
   </div>
 
   <!-- 订阅配置对话框 -->
-  <div x-show="showSubscriptionDialog" @click.self="showSubscriptionDialog = false" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="bg-dark-card rounded-xl p-6 max-w-2xl w-full border border-dark-border" @click.stop>
+  <div x-show="showSubscriptionDialog" @click.self="showSubscriptionDialog = false" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel p-6 max-w-2xl w-full max-h-[92vh] overflow-y-auto" @click.stop>
       <h3 class="text-xl font-bold text-white mb-6">创建订阅</h3>
 
       <!-- 订阅模式选择 -->
       <div class="mb-6">
         <label class="block text-sm font-medium text-gray-300 mb-3">订阅类型</label>
         <div class="grid grid-cols-2 gap-3">
-          <button @click="subscriptionMode = 'once'" :class="subscriptionMode === 'once' ? 'bg-blue-600 border-blue-500' : 'bg-dark-hover border-dark-border hover:border-gray-500'" class="p-4 rounded-lg border-2 transition-all text-left">
-            <div class="text-white font-semibold mb-1">⚡ 仅转存一次</div>
+          <button @click="subscriptionMode = 'once'" :class="subscriptionMode === 'once' ? 'bg-blue-600/20 border-blue-500' : 'bg-dark-hover border-dark-border hover:border-gray-500'" class="p-4 rounded-lg border transition-all text-left">
+            <div class="text-white font-semibold mb-1">仅转存一次</div>
             <div class="text-sm text-gray-400">立即转存到网盘，不创建订阅记录</div>
           </button>
-          <button @click="subscriptionMode = 'continuous'" :class="subscriptionMode === 'continuous' ? 'bg-purple-600 border-purple-500' : 'bg-dark-hover border-dark-border hover:border-gray-500'" class="p-4 rounded-lg border-2 transition-all text-left">
-            <div class="text-white font-semibold mb-1">📌 持续追更</div>
+          <button @click="subscriptionMode = 'continuous'" :class="subscriptionMode === 'continuous' ? 'bg-blue-600/20 border-blue-500' : 'bg-dark-hover border-dark-border hover:border-gray-500'" class="p-4 rounded-lg border transition-all text-left">
+            <div class="text-white font-semibold mb-1">持续追更</div>
             <div class="text-sm text-gray-400">创建订阅，定期检查并自动转存</div>
           </button>
         </div>
@@ -644,9 +871,9 @@
         <div>
           <label class="block text-sm font-medium text-gray-300 mb-2">媒体类型</label>
           <div class="grid grid-cols-3 gap-2">
-            <button @click="newSubscription.media_type = 'movie'; updateSubscriptionDefaults()" :class="newSubscription.media_type === 'movie' ? 'bg-blue-600' : 'bg-dark-hover hover:bg-gray-700'" class="px-4 py-2 rounded-lg text-white transition-colors">🎬 电影</button>
-            <button @click="newSubscription.media_type = 'series'; updateSubscriptionDefaults()" :class="newSubscription.media_type === 'series' ? 'bg-blue-600' : 'bg-dark-hover hover:bg-gray-700'" class="px-4 py-2 rounded-lg text-white transition-colors">📺 连续剧</button>
-            <button @click="newSubscription.media_type = 'anime'; updateSubscriptionDefaults()" :class="newSubscription.media_type === 'anime' ? 'bg-blue-600' : 'bg-dark-hover hover:bg-gray-700'" class="px-4 py-2 rounded-lg text-white transition-colors">🎨 动画</button>
+            <button @click="newSubscription.media_type = 'movie'; updateSubscriptionDefaults()" :class="newSubscription.media_type === 'movie' ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors">电影</button>
+            <button @click="newSubscription.media_type = 'series'; updateSubscriptionDefaults()" :class="newSubscription.media_type === 'series' ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors">连续剧</button>
+            <button @click="newSubscription.media_type = 'anime'; updateSubscriptionDefaults()" :class="newSubscription.media_type === 'anime' ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors">动画</button>
           </div>
         </div>
 
@@ -699,8 +926,8 @@
 
       <!-- 操作按钮 -->
       <div class="flex gap-3">
-        <button @click="showSubscriptionDialog = false" class="flex-1 px-4 py-2 bg-dark-hover hover:bg-gray-700 text-white rounded-lg transition-colors">取消</button>
-        <button @click="confirmSubscription()" class="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors">
+        <button @click="showSubscriptionDialog = false" class="btn-secondary flex-1 px-4 py-2 rounded-lg transition-colors">取消</button>
+        <button @click="confirmSubscription()" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors">
           <span x-text="subscriptionMode === 'once' ? '立即转存' : '创建订阅'"></span>
         </button>
       </div>
@@ -723,11 +950,11 @@
         ],
 
         settingsTabs: [
-          {id: 'basic', name: '基础设置', icon: '⚙️'},
-          {id: 'quark', name: '夸克网盘', icon: '☁️'},
-          {id: 'push', name: '消息推送', icon: '📢'},
-          {id: 'automation', name: '自动化', icon: '🤖'},
-          {id: 'advanced', name: '高级', icon: '🔧'}
+          {id: 'basic', name: '基础设置'},
+          {id: 'quark', name: '夸克网盘'},
+          {id: 'push', name: '消息推送'},
+          {id: 'automation', name: '自动化'},
+          {id: 'advanced', name: '高级'}
         ],
 
         // 搜索
@@ -786,12 +1013,13 @@
         settings: {
           app_username: '', app_password: '', quark_cookie: '', quark_save_enabled: false, quark_save_root: '',
           quark_save_movie_dir: '', quark_save_series_dir: '', quark_save_anime_dir: '',
-          aria2_rpc_url: '', aria2_token: '', aria2_download_dir: '', aria2_enabled: false,
+          aria2_rpc_url: '', aria2_secret: '', aria2_dir: '',
           cloud_types: [], push_on_update: false, push_on_failed: false, push_on_completed: false, push_on_save: false,
           wecom_bot_url: '', telegram_bot_token: '', telegram_chat_id: '', bark_url: '', serverchan_key: '',
           wxpusher_app_token: '', wxpusher_uids: '', gotify_url: '', gotify_token: '', pushplus_token: '',
           subscription_check_interval_minutes: 60, subscription_scheduler_enabled: false, pansou_api_url: '', check_links: true,
-          probe_quark_files: true, filter_bad_links: true
+          probe_quark_files: true, filter_bad_links: true, push_silent: false,
+          auto_download_new_subscription_items: false, nas_sync_enabled: false, nas_sync_source: '', nas_sync_target: ''
         },
 
         get unreadNotifications() {
@@ -811,7 +1039,7 @@
         },
 
         async init() {
-          console.log('🚀 应用初始化...');
+          console.log('应用初始化...');
           await this.loadSubscriptions();
           await this.loadNotifications();
           await this.loadSettings();
@@ -925,7 +1153,7 @@
 
         // 打开订阅对话框（支持立即转存或连续订阅）
         openSubscriptionDialog(result, mode = 'once') {
-          if (!this.settings.quark_cookie) {
+          if (!this.settings.quark_cookie && !this.settings.quark_cookie_configured) {
             this.showNotification('error', '请先在设置中配置夸克 Cookie');
             return;
           }
@@ -949,7 +1177,7 @@
         },
 
         // 显示订阅对话框（兼容旧版）
-        showSubscriptionDialog(result) {
+        showSubscriptionDialogLegacy(result) {
           this.openSubscriptionDialog(result, 'continuous');
         },
 
@@ -1054,8 +1282,8 @@
               headers: {'Content-Type': 'application/json'},
               body: JSON.stringify({
                 url: this.newSubscription.url,
-                password: this.newSubscription.password,
-                to_fid: this.newSubscription.target_fid || '0'
+                passcode: this.newSubscription.password || '',
+                target_fid: this.newSubscription.target_fid || '0'
               })
             });
 
@@ -1139,7 +1367,7 @@
         },
 
         async transferToQuark(result) {
-          if (!this.settings.quark_cookie) {
+          if (!this.settings.quark_cookie && !this.settings.quark_cookie_configured) {
             this.showNotification('error', '请先在设置中配置夸克 Cookie');
             return;
           }
@@ -1307,6 +1535,26 @@
           }
         },
 
+        async renameExistingFiles(id) {
+          try {
+            this.showNotification('info', '正在按订阅模板修复命名...');
+            const response = await fetch(`/api/subscriptions/${id}/rename-existing`, {
+              method: 'POST'
+            });
+            const result = await response.json();
+
+            if (response.ok && result.data) {
+              const count = result.data.renamed_count || 0;
+              this.showNotification('success', `已重命名 ${count} 个文件`);
+            } else {
+              this.showNotification('error', result.message || '修复命名失败');
+            }
+          } catch (error) {
+            console.error('修复命名失败:', error);
+            this.showNotification('error', '修复命名失败');
+          }
+        },
+
         async addSubscription() {
           if (!this.newSubscription.name.trim()) {
             this.showNotification('error', '请输入订阅名称');
@@ -1359,7 +1607,7 @@
           try {
             const response = await fetch('/api/notifications');
             const data = await response.json();
-            this.notifications = data.notifications || [];
+            this.notifications = data.data || [];
           } catch (error) {
             console.error('加载通知失败:', error);
           }
@@ -1387,7 +1635,7 @@
         async clearNotifications() {
           if (!confirm('确定清空所有通知？')) return;
           try {
-            await fetch('/api/notifications', {method: 'DELETE'});
+            await fetch('/api/notifications/clear', {method: 'POST'});
             this.showNotification('success', '已清空');
             await this.loadNotifications();
           } catch (error) {
@@ -1438,7 +1686,7 @@
             const response = await fetch('/api/drive/mkdir', {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({path: this.driveCurrentPath, name: this.newFolderName})
+              body: JSON.stringify({parent_fid: this.driveCurrentFid, name: this.newFolderName})
             });
             if (response.ok) {
               this.showNotification('success', '创建成功');
@@ -1457,7 +1705,7 @@
             const response = await fetch('/api/drive/delete', {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({fid: item.fid})
+              body: JSON.stringify({fids: [item.fid]})
             });
             if (response.ok) {
               this.showNotification('success', '已删除');
@@ -1475,14 +1723,24 @@
             const response = await fetch('/api/drive/rename', {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({fid: item.fid, name: newName})
+              body: JSON.stringify({
+                fid: item.fid,
+                name: newName,
+                parent_fid: this.driveCurrentFid
+              })
             });
             if (response.ok) {
-              this.showNotification('success', '重命名成功');
+              const data = await response.json();
+              this.showNotification('success', data.message || '重命名成功');
+              await new Promise(resolve => setTimeout(resolve, 800));
               await this.loadDrive();
+            } else {
+              const data = await response.json().catch(() => ({}));
+              this.showNotification('error', data.message || data.error || '重命名失败');
             }
           } catch (error) {
             console.error('重命名失败:', error);
+            this.showNotification('error', '重命名失败: ' + error.message);
           }
         },
 
@@ -1518,7 +1776,7 @@
               fetch('/api/drive/delete', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({fid})
+                body: JSON.stringify({fids: [fid]})
               })
             );
             await Promise.all(promises);
@@ -1555,7 +1813,7 @@
             } else {
               this.settings = {...this.settings, ...data};
             }
-            console.log('✅ 设置已加载:', this.settings);
+            console.log('设置已加载:', this.settings);
           } catch (error) {
             console.error('加载设置失败:', error);
           }
@@ -1569,6 +1827,10 @@
               body: JSON.stringify(this.settings)
             });
             if (response.ok) {
+              const data = await response.json();
+              if (data.data) {
+                this.settings = {...this.settings, ...data.data};
+              }
               this.showNotification('success', '设置已保存');
             }
           } catch (error) {

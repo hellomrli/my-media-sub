@@ -17,8 +17,8 @@ pub const SECRET_KEYS: &[&str] = &[
 
 /// 支持的云盘类型
 pub const SUPPORTED_CLOUD_TYPES: &[&str] = &[
-    "quark", "baidu", "aliyun", "uc", "tianyi", "mobile", "115", "pikpak",
-    "xunlei", "123", "magnet", "ed2k", "others",
+    "quark", "baidu", "aliyun", "uc", "tianyi", "mobile", "115", "pikpak", "xunlei", "123",
+    "magnet", "ed2k", "others",
 ];
 
 /// 设置存储（单个 JSON 对象，原子写入）

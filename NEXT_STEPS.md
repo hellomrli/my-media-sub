@@ -10,8 +10,12 @@
 - **推送功能**: 7 个推送渠道（Telegram、Bark、Server酱、企业微信、WxPusher、Gotify、PushPlus）**已实现**
 - **搜索优化**: 嗅探文件列表、过滤失效链接、搜索历史记录 **已实现**
 - **部署**: Docker 镜像已推送到 GHCR
-- **文档**: README、工作进度、构建说明 全部更新
-- **代码**: 已清理遗留文件，项目整洁
+- **安全与配置**: 已补基础 Basic Auth；设置接口已脱敏密钥并支持完整保存
+- **运行时配置**: 设置保存后调度器会自动 reload；搜索嗅探/转存会读取最新 Cookie
+- **网盘管理**: 目录浏览、创建、删除、重命名接口已对齐前端
+- **测试基线**: `cargo check` / `cargo test` / `cargo build` 已通过且无 warning
+- **文档**: README、工作进度、构建说明 已更新
+- **代码**: 已清理未使用导入/变量；保留型兼容代码已显式标注
 
 ### 🚀 快速启动
 
@@ -52,6 +56,7 @@ docker-compose down
 - [ ] 多关键词搜索支持（OR/AND 逻辑）
 
 ### 📊 功能增强（待实现）
+- [ ] 自动推送接入订阅更新/失效/转存完成业务事件
 - [ ] 转存进度实时显示（WebSocket/SSE）
 - [ ] 转存历史记录面板
 - [ ] 订阅统计和分析图表
@@ -110,7 +115,7 @@ docker-compose down
 - **构建脚本**: `build-and-push.sh`
 - **部署配置**: `docker-compose.yml`
 - **后端代码**: `src/`
-- **前端代码**: `static/index.html`, `static/app.js`
+- **前端代码**: `static/index.html`
 - **Docker镜像**: `Dockerfile.local` (本地构建)
 
 ## 🔗 相关链接
@@ -130,7 +135,7 @@ docker-compose down
 
 ## 🐛 已知问题
 
-- 无重大 bug
+- 推送测试 API 可用，但业务事件自动推送仍需统一接入
 - 部分高级筛选选项未实现（低优先级）
 
 ## 📞 需要帮助？

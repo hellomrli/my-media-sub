@@ -1,8 +1,8 @@
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use super::rules::TransferRules;
+use serde::{Deserialize, Serialize};
 
 /// 订阅状态
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum SubscriptionStatus {
@@ -12,6 +12,7 @@ pub enum SubscriptionStatus {
 }
 
 /// 媒体类型
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum MediaType {
@@ -19,7 +20,7 @@ pub enum MediaType {
     Series,
     Anime,
     #[serde(untagged)]
-    Custom(String),  // custom_* 格式
+    Custom(String), // custom_* 格式
 }
 
 /// 检查历史记录
@@ -292,9 +293,9 @@ mod tests {
 
         let sub: Subscription = serde_json::from_str(json).unwrap();
         assert_eq!(sub.id, "abc123");
-        assert_eq!(sub.season, 1);  // 默认值
-        assert_eq!(sub.cloud_type, "quark");  // 默认值
-        assert_eq!(sub.enabled, true);  // 默认值
-        assert_eq!(sub.status, "active");  // 默认值
+        assert_eq!(sub.season, 1); // 默认值
+        assert_eq!(sub.cloud_type, "quark"); // 默认值
+        assert_eq!(sub.enabled, true); // 默认值
+        assert_eq!(sub.status, "active"); // 默认值
     }
 }

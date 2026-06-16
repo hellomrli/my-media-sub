@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -80,19 +82,17 @@ mod tests {
             transfer_count: 2,
             current_episode_number: 3,
             episodes: vec![1, 2, 3],
-            items: vec![
-                TransferItem {
-                    source_name: "第01集.mkv".to_string(),
-                    file_key: "key1".to_string(),
-                    size: 123456789,
-                    matched: true,
-                    episode: Some(1),
-                    target_dir: "/动画/测试".to_string(),
-                    target_name: "测试.S01E01.mkv".to_string(),
-                    should_transfer: false,
-                    extra: HashMap::new(),
-                },
-            ],
+            items: vec![TransferItem {
+                source_name: "第01集.mkv".to_string(),
+                file_key: "key1".to_string(),
+                size: 123456789,
+                matched: true,
+                episode: Some(1),
+                target_dir: "/动画/测试".to_string(),
+                target_name: "测试.S01E01.mkv".to_string(),
+                should_transfer: false,
+                extra: HashMap::new(),
+            }],
             transfers: vec![],
             summary: "匹配 3 个文件，规划新增 2 个".to_string(),
         };

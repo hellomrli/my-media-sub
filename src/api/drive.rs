@@ -6,10 +6,9 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
-use crate::clients::{QuarkSaveClient, NormalizedItem};
-use crate::error::Result;
+use crate::clients::{NormalizedItem, QuarkSaveClient};
+use crate::error::{AppError, Result};
 use crate::store::SettingsStore;
 
 /// 网盘状态
@@ -46,6 +45,9 @@ pub struct ListResponse {
 /// 创建文件夹请求
 #[derive(Debug, Deserialize)]
 pub struct MkdirRequest {
+    #[serde(default)]
+    pub parent_fid: String,
+    #[serde(default)]
     pub path: String,
     pub name: String,
 }
@@ -53,7 +55,10 @@ pub struct MkdirRequest {
 /// 删除文件请求
 #[derive(Debug, Deserialize)]
 pub struct DeleteRequest {
+    #[serde(default)]
     pub fid: String,
+    #[serde(default)]
+    pub fids: Vec<String>,
 }
 
 /// 重命名文件请求
@@ -61,11 +66,24 @@ pub struct DeleteRequest {
 pub struct RenameRequest {
     pub fid: String,
     pub name: String,
+    #[serde(default)]
+    pub parent_fid: String,
+}
+
+/// 通用操作响应
+#[derive(Serialize)]
+pub struct ActionResponse {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fid: Option<String>,
 }
 
 /// 测试夸克连接
 #[derive(Debug, Deserialize)]
 pub struct TestRequest {
+    #[serde(default)]
     pub cookie: String,
 }
 
@@ -119,8 +137,25 @@ async fn list_drive(
 }
 
 /// 测试夸克连接
-async fn test_quark(Json(req): Json<TestRequest>) -> Result<impl IntoResponse> {
-    let client = QuarkSaveClient::new(req.cookie);
+async fn test_quark(
+    State(state): State<Arc<DriveState>>,
+    Json(req): Json<TestRequest>,
+) -> Result<impl IntoResponse> {
+    let cookie = if req.cookie.trim().is_empty() {
+        state.settings_store.get().await.quark_cookie
+    } else {
+        req.cookie
+    };
+
+    if cookie.trim().is_empty() {
+        return Ok(Json(TestResponse {
+            success: false,
+            nickname: None,
+            error: Some("未配置夸克 Cookie".to_string()),
+        }));
+    }
+
+    let client = QuarkSaveClient::new(cookie);
 
     match client.list_dir("0").await {
         Ok(_) => Ok(Json(TestResponse {
@@ -134,6 +169,100 @@ async fn test_quark(Json(req): Json<TestRequest>) -> Result<impl IntoResponse> {
             error: Some(format!("连接失败: {}", e)),
         })),
     }
+}
+
+async fn drive_client(state: &DriveState) -> Result<QuarkSaveClient> {
+    let cookie = state.settings_store.get().await.quark_cookie;
+    if cookie.trim().is_empty() {
+        return Err(AppError::Validation("未配置夸克 Cookie".to_string()));
+    }
+    Ok(QuarkSaveClient::new(cookie))
+}
+
+/// 创建文件夹
+async fn mkdir(
+    State(state): State<Arc<DriveState>>,
+    Json(req): Json<MkdirRequest>,
+) -> Result<Json<ActionResponse>> {
+    let name = req.name.trim();
+    if name.is_empty() {
+        return Err(AppError::Validation("文件夹名称不能为空".to_string()));
+    }
+
+    let client = drive_client(&state).await?;
+    let parent_fid = if !req.parent_fid.trim().is_empty() {
+        req.parent_fid
+    } else if req.path.trim().is_empty() || req.path.trim() == "/" {
+        "0".to_string()
+    } else {
+        client.ensure_dir_path(&req.path).await?
+    };
+
+    let fid = client.create_dir(&parent_fid, name).await?;
+    Ok(Json(ActionResponse {
+        success: true,
+        message: Some("创建成功".to_string()),
+        fid: Some(fid),
+    }))
+}
+
+/// 删除文件/文件夹
+async fn delete_items(
+    State(state): State<Arc<DriveState>>,
+    Json(req): Json<DeleteRequest>,
+) -> Result<Json<ActionResponse>> {
+    let mut fids = req.fids;
+    if !req.fid.trim().is_empty() {
+        fids.push(req.fid);
+    }
+    fids.retain(|fid| !fid.trim().is_empty());
+    fids.sort();
+    fids.dedup();
+
+    if fids.is_empty() {
+        return Err(AppError::Validation("未选择要删除的项目".to_string()));
+    }
+
+    let client = drive_client(&state).await?;
+    client.delete_items(&fids).await?;
+    Ok(Json(ActionResponse {
+        success: true,
+        message: Some(format!("已删除 {} 项", fids.len())),
+        fid: None,
+    }))
+}
+
+/// 重命名文件/文件夹
+async fn rename_item(
+    State(state): State<Arc<DriveState>>,
+    Json(req): Json<RenameRequest>,
+) -> Result<Json<ActionResponse>> {
+    if req.fid.trim().is_empty() {
+        return Err(AppError::Validation("缺少文件 ID".to_string()));
+    }
+    let name = req.name.trim();
+    if name.is_empty() {
+        return Err(AppError::Validation("名称不能为空".to_string()));
+    }
+
+    let client = drive_client(&state).await?;
+    let parent_fid = req.parent_fid.trim();
+    client
+        .rename_item(
+            &req.fid,
+            name,
+            if parent_fid.is_empty() {
+                None
+            } else {
+                Some(parent_fid)
+            },
+        )
+        .await?;
+    Ok(Json(ActionResponse {
+        success: true,
+        message: Some("重命名成功".to_string()),
+        fid: Some(req.fid),
+    }))
 }
 
 /// 根据路径查找目录 fid
@@ -155,10 +284,7 @@ async fn find_path(
 
     // 使用 ensure_dir_path 查找或创建路径
     match client.ensure_dir_path(&req.path).await {
-        Ok(fid) => Ok(Json(FindPathResponse {
-            fid,
-            found: true,
-        })),
+        Ok(fid) => Ok(Json(FindPathResponse { fid, found: true })),
         Err(e) => {
             tracing::warn!("查找路径 {} 失败: {}", req.path, e);
             Ok(Json(FindPathResponse {
@@ -176,6 +302,9 @@ pub fn routes(settings_store: Arc<SettingsStore>) -> Router {
     Router::new()
         .route("/api/drive", get(list_drive))
         .route("/api/drive/find-path", get(find_path))
+        .route("/api/drive/mkdir", post(mkdir))
+        .route("/api/drive/delete", post(delete_items))
+        .route("/api/drive/rename", post(rename_item))
         .route("/api/quark/test", post(test_quark))
         .with_state(state)
 }

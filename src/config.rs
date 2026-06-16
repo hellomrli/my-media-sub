@@ -1,6 +1,6 @@
+use crate::error::{AppError, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use crate::error::{AppError, Result};
 
 /// 应用配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,7 +29,7 @@ impl Default for Config {
         Self {
             server: ServerConfig {
                 host: "0.0.0.0".to_string(),
-                port: 56001,  // 修改为 56000 以后的端口
+                port: 56001, // 修改为 56000 以后的端口
                 username: "admin".to_string(),
                 password: "change-me".to_string(),
             },
@@ -48,13 +48,18 @@ impl Config {
             config.server.host = host;
         }
         if let Ok(port) = std::env::var("SERVER_PORT") {
-            config.server.port = port.parse()
+            config.server.port = port
+                .parse()
                 .map_err(|e| AppError::Config(format!("Invalid SERVER_PORT: {}", e)))?;
         }
-        if let Ok(username) = std::env::var("APP_USERNAME") {
+        if let Ok(username) =
+            std::env::var("APP_USERNAME").or_else(|_| std::env::var("SERVER_USERNAME"))
+        {
             config.server.username = username;
         }
-        if let Ok(password) = std::env::var("APP_PASSWORD") {
+        if let Ok(password) =
+            std::env::var("APP_PASSWORD").or_else(|_| std::env::var("SERVER_PASSWORD"))
+        {
             config.server.password = password;
         }
         if let Ok(data_dir) = std::env::var("DATA_DIR") {

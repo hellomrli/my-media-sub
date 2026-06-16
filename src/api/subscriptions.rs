@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, get, post, put},
@@ -10,15 +10,15 @@ use std::sync::Arc;
 
 use crate::error::{AppError, Result};
 use crate::models::Subscription;
-use crate::services::{CheckResult, SubscriptionCheckService, SubscriptionTransferService};
+use crate::services::{SubscriptionCheckService, SubscriptionTransferService};
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
 /// 订阅路由状态
 pub struct SubscriptionState {
     pub store: Arc<SubscriptionStore>,
     pub settings_store: Arc<SettingsStore>,
-    pub notification_store: Arc<NotificationStore>,
     pub check_service: Arc<SubscriptionCheckService>,
+    pub transfer_service: Arc<SubscriptionTransferService>,
 }
 
 /// 创建订阅请求
@@ -36,8 +36,6 @@ pub struct CreateSubscriptionRequest {
     pub cloud_type: String,
     #[serde(default)]
     pub target_dir: String,
-    #[serde(default)]
-    pub target_fid: String,
     #[serde(default)]
     pub rename_template: String,
     #[serde(default)]
@@ -69,13 +67,6 @@ impl<T> Response<T> {
         Self {
             data: Some(data),
             message: None,
-        }
-    }
-
-    fn error(message: String) -> Response<()> {
-        Response {
-            data: None,
-            message: Some(message),
         }
     }
 }
@@ -218,6 +209,13 @@ struct CheckResponse {
     summary: String,
 }
 
+/// 重命名修复响应
+#[derive(Serialize)]
+struct RenameExistingResponse {
+    subscription_id: String,
+    renamed_count: usize,
+}
+
 /// 检查单个订阅
 async fn check_subscription(
     State(state): State<Arc<SubscriptionState>>,
@@ -238,6 +236,19 @@ async fn check_subscription(
         new_episodes: result.new_episodes,
         became_invalid: result.became_invalid,
         summary: result.summary,
+    })))
+}
+
+/// 按订阅规则重命名目标目录中的已有文件
+async fn rename_existing_files(
+    State(state): State<Arc<SubscriptionState>>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse> {
+    let renamed_count = state.transfer_service.rename_existing_files(&id).await?;
+
+    Ok(Json(Response::ok(RenameExistingResponse {
+        subscription_id: id,
+        renamed_count,
     })))
 }
 
@@ -282,14 +293,14 @@ pub fn routes(
 
     let check_service = Arc::new(
         SubscriptionCheckService::new(store.clone(), notification_store.clone())
-            .with_transfer_service(transfer_service),
+            .with_transfer_service(transfer_service.clone()),
     );
 
     let state = Arc::new(SubscriptionState {
         store,
         settings_store,
-        notification_store,
         check_service,
+        transfer_service,
     });
 
     Router::new()
@@ -300,5 +311,9 @@ pub fn routes(
         .route("/api/subscriptions/{id}", put(update_subscription))
         .route("/api/subscriptions/{id}", delete(delete_subscription))
         .route("/api/subscriptions/{id}/check", post(check_subscription))
+        .route(
+            "/api/subscriptions/{id}/rename-existing",
+            post(rename_existing_files),
+        )
         .with_state(state)
 }

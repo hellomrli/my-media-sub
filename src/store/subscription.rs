@@ -54,12 +54,7 @@ impl SubscriptionStore {
 
     /// 按 ID 获取
     pub async fn get(&self, id: &str) -> Option<Subscription> {
-        self.items
-            .read()
-            .await
-            .iter()
-            .find(|s| s.id == id)
-            .cloned()
+        self.items.read().await.iter().find(|s| s.id == id).cloned()
     }
 
     /// 创建订阅

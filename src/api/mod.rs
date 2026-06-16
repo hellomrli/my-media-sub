@@ -1,23 +1,28 @@
-pub mod subscriptions;
-pub mod settings;
-pub mod search;
-pub mod notifications;
 pub mod drive;
-pub mod transfer;
+pub mod notifications;
 pub mod push;
+pub mod search;
+pub mod settings;
+pub mod subscriptions;
+pub mod transfer;
 
 use axum::{
-    http::StatusCode,
-    response::{IntoResponse, Json},
+    body::Body,
+    extract::State,
+    http::{header, Request, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Json, Response},
     routing::get,
     Router,
 };
+use base64::{engine::general_purpose, Engine as _};
 use serde::Serialize;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 
-use crate::clients::{PanSouClient, QuarkShareProbe};
+use crate::clients::PanSouClient;
+use crate::services::SubscriptionScheduler;
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
 /// 健康检查响应
@@ -35,14 +40,55 @@ async fn health() -> impl IntoResponse {
     })
 }
 
+async fn basic_auth(
+    State(settings_store): State<Arc<SettingsStore>>,
+    req: Request<Body>,
+    next: Next,
+) -> Response {
+    if req.uri().path() == "/health" {
+        return next.run(req).await;
+    }
+
+    let settings = settings_store.get().await;
+    if settings.app_password.is_empty() {
+        return next.run(req).await;
+    }
+
+    let authorized = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Basic "))
+        .and_then(|encoded| general_purpose::STANDARD.decode(encoded).ok())
+        .and_then(|decoded| String::from_utf8(decoded).ok())
+        .and_then(|credentials| {
+            let (username, password) = credentials.split_once(':')?;
+            Some(username == settings.app_username && password == settings.app_password)
+        })
+        .unwrap_or(false);
+
+    if authorized {
+        next.run(req).await
+    } else {
+        (
+            StatusCode::UNAUTHORIZED,
+            [(header::WWW_AUTHENTICATE, r#"Basic realm="my-media-sub""#)],
+            "Unauthorized",
+        )
+            .into_response()
+    }
+}
+
 /// 创建主应用路由
 pub fn create_app(
     subscription_store: Arc<SubscriptionStore>,
     settings_store: Arc<SettingsStore>,
     notification_store: Arc<NotificationStore>,
     pansou_client: Arc<PanSouClient>,
-    quark_probe: Arc<QuarkShareProbe>,
+    scheduler: Arc<SubscriptionScheduler>,
 ) -> Router {
+    let auth_state = settings_store.clone();
+
     // CORS 配置
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -50,8 +96,7 @@ pub fn create_app(
         .allow_headers(Any);
 
     // 静态文件服务
-    let serve_static = ServeDir::new("static")
-        .append_index_html_on_directories(true);
+    let serve_static = ServeDir::new("static").append_index_html_on_directories(true);
 
     // 构建路由：API 优先，静态文件作为 fallback
     Router::new()
@@ -61,12 +106,13 @@ pub fn create_app(
             settings_store.clone(),
             notification_store.clone(),
         ))
-        .merge(settings::routes(settings_store.clone()))
-        .merge(search::routes(pansou_client, quark_probe.clone()))
+        .merge(settings::routes(settings_store.clone(), scheduler))
+        .merge(search::routes(pansou_client, settings_store.clone()))
         .merge(notifications::routes(notification_store))
         .merge(drive::routes(settings_store.clone()))
-        .merge(transfer::routes(settings_store.clone(), quark_probe))
+        .merge(transfer::routes(settings_store.clone()))
         .merge(push::routes(settings_store))
         .fallback_service(serve_static)
+        .layer(middleware::from_fn_with_state(auth_state, basic_auth))
         .layer(cors)
 }

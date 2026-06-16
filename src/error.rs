@@ -19,8 +19,6 @@ pub enum AppError {
     Validation(String),
     /// 未找到
     NotFound(String),
-    /// 未授权
-    Unauthorized(String),
     /// 内部错误
     Internal(String),
 }
@@ -33,7 +31,6 @@ impl fmt::Display for AppError {
             AppError::Config(msg) => write!(f, "Config error: {}", msg),
             AppError::Validation(msg) => write!(f, "Validation error: {}", msg),
             AppError::NotFound(msg) => write!(f, "Not found: {}", msg),
-            AppError::Unauthorized(msg) => write!(f, "Unauthorized: {}", msg),
             AppError::Internal(msg) => write!(f, "Internal error: {}", msg),
         }
     }
@@ -56,7 +53,6 @@ impl IntoResponse for AppError {
             AppError::Config(_) => (StatusCode::INTERNAL_SERVER_ERROR, "config_error"),
             AppError::Validation(_) => (StatusCode::BAD_REQUEST, "validation_error"),
             AppError::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
-            AppError::Unauthorized(_) => (StatusCode::UNAUTHORIZED, "unauthorized"),
             AppError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),
         };
 

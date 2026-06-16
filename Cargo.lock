@@ -693,10 +693,11 @@ dependencies = [
 
 [[package]]
 name = "my-media-sub"
-version = "0.6.0"
+version = "0.7.9"
 dependencies = [
  "anyhow",
  "axum",
+ "base64",
  "chrono",
  "md5",
  "once_cell",

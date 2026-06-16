@@ -1,9 +1,4 @@
-use axum::{
-    extract::State,
-    response::IntoResponse,
-    routing::post,
-    Json, Router,
-};
+use axum::{extract::State, response::IntoResponse, routing::post, Json, Router};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -14,7 +9,6 @@ use crate::store::SettingsStore;
 /// 转存状态
 pub struct TransferState {
     pub settings_store: Arc<SettingsStore>,
-    pub quark_probe: Arc<QuarkShareProbe>,
 }
 
 /// 转存请求
@@ -62,7 +56,8 @@ async fn transfer_share(
 
     // 1. 探测分享链接
     tracing::info!("探测分享链接: {}", req.url);
-    let share_info = state.quark_probe.probe(&req.url, &req.passcode, 200).await;
+    let quark_probe = QuarkShareProbe::new(cookie.clone());
+    let share_info = quark_probe.probe(&req.url, &req.passcode, 200).await;
 
     if !share_info.ok {
         return Ok(Json(TransferResponse {
@@ -114,7 +109,16 @@ async fn transfer_share(
     // 4. 调用转存接口
     // 注意：这里需要重新获取 stoken，因为探测时的 token 可能已过期
     // 我们需要一个辅助方法来获取 stoken
-    match save_with_probe(&save_client, &state.quark_probe, &pwd_id, &req.passcode, &share_info.files, &target_fid).await {
+    match save_with_probe(
+        &save_client,
+        &quark_probe,
+        &pwd_id,
+        &req.passcode,
+        &share_info.files,
+        &target_fid,
+    )
+    .await
+    {
         Ok(count) => {
             tracing::info!("成功转存 {} 个文件", count);
             Ok(Json(TransferResponse {
@@ -142,28 +146,38 @@ async fn save_with_probe(
     probe: &QuarkShareProbe,
     pwd_id: &str,
     passcode: &str,
-    files: &[crate::clients::quark::QuarkFile],
+    _files: &[crate::clients::quark::QuarkFile],
     target_fid: &str,
 ) -> Result<usize> {
     // 1. 获取 stoken
     let (stoken, err) = probe.get_share_token(pwd_id, passcode).await?;
 
     if let Some(err_msg) = err {
-        return Err(crate::error::AppError::Http(format!("获取分享 token 失败: {}", err_msg)));
+        return Err(crate::error::AppError::Http(format!(
+            "获取分享 token 失败: {}",
+            err_msg
+        )));
     }
 
-    let stoken = stoken.ok_or_else(|| {
-        crate::error::AppError::Http("未能获取分享 token".to_string())
-    })?;
+    let stoken =
+        stoken.ok_or_else(|| crate::error::AppError::Http("未能获取分享 token".to_string()))?;
 
-    tracing::info!("转存: pwd_id={}, stoken={}, target_fid={}", pwd_id, stoken, target_fid);
+    tracing::info!(
+        "转存: pwd_id={}, stoken={}, target_fid={}",
+        pwd_id,
+        stoken,
+        target_fid
+    );
 
     // 2. 重新列出分享文件以获取最新的 share_fid_token
     // 这是关键：不能使用探测时的 token，需要重新获取
     let (fresh_files, err) = probe.list_share_files(pwd_id, &stoken, "0").await?;
 
     if let Some(err_msg) = err {
-        return Err(crate::error::AppError::Http(format!("重新获取文件列表失败: {}", err_msg)));
+        return Err(crate::error::AppError::Http(format!(
+            "重新获取文件列表失败: {}",
+            err_msg
+        )));
     }
 
     // 3. 收集顶层文件的 fid 和 share_fid_token
@@ -206,14 +220,8 @@ async fn save_with_probe(
 }
 
 /// 创建转存路由
-pub fn routes(
-    settings_store: Arc<SettingsStore>,
-    quark_probe: Arc<QuarkShareProbe>,
-) -> Router {
-    let state = Arc::new(TransferState {
-        settings_store,
-        quark_probe,
-    });
+pub fn routes(settings_store: Arc<SettingsStore>) -> Router {
+    let state = Arc::new(TransferState { settings_store });
 
     Router::new()
         .route("/api/transfer", post(transfer_share))
