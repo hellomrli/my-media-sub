@@ -5,7 +5,7 @@
 ## 🎯 当前状态
 
 ### ✅ 已完成
-- **版本**: v0.7.9
+- **版本**: v0.7.10
 - **核心功能**: 订阅管理、自动转存、智能重命名、定时调度 **全部完成**
 - **推送功能**: 7 个推送渠道（Telegram、Bark、Server酱、企业微信、WxPusher、Gotify、PushPlus）**已实现**
 - **搜索优化**: 嗅探文件列表、过滤失效链接、搜索历史记录 **已实现**
@@ -121,7 +121,7 @@ docker-compose down
 ## 🔗 相关链接
 
 - **GitHub 仓库**: https://github.com/hellomrli/my-media-sub
-- **最新 Release**: https://github.com/hellomrli/my-media-sub/releases/tag/v0.7.9
+- **最新 Release**: https://github.com/hellomrli/my-media-sub/releases/tag/v0.7.10
 - **Docker 镜像**: ghcr.io/hellomrli/my-media-sub:latest
 - **本地访问**: http://localhost:56001
 

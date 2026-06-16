@@ -4,7 +4,7 @@
 
 ## 当前版本
 
-- 版本：`0.7.9`
+- 版本：`0.7.10`
 - 后端：Rust + Axum + Tokio
 - 前端：单文件 WebUI，入口为 `static/index.html`
 - 数据目录：默认 `./data`，可通过 `DATA_DIR` 修改
