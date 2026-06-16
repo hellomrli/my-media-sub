@@ -1,7 +1,7 @@
 # 多阶段构建 Dockerfile for Rust 版本
 # Stage 1: 构建阶段
-# 使用 latest 确保获得最新稳定版 Rust (支持 edition2024)
-FROM rust:latest as builder
+# 使用 latest 确保获得最新稳定版 Rust
+FROM rust:latest AS builder
 
 WORKDIR /app
 
@@ -19,7 +19,7 @@ COPY src ./src
 COPY tests ./tests
 
 # 构建 release 版本
-RUN cargo build --release
+RUN cargo build --release --locked
 
 # Stage 2: 运行阶段
 FROM debian:bookworm-slim
