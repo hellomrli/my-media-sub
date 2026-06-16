@@ -118,6 +118,21 @@ async fn update_settings(
                             settings.filter_bad_links = b;
                         }
                     }
+                    "metadata_provider" => {
+                        if let Some(s) = string_value(&value) {
+                            settings.metadata_provider = s;
+                        }
+                    }
+                    "tmdb_api_key" => {
+                        if let Some(s) = non_empty_string(&value) {
+                            settings.tmdb_api_key = s;
+                        }
+                    }
+                    "tmdb_language" => {
+                        if let Some(s) = string_value(&value) {
+                            settings.tmdb_language = s;
+                        }
+                    }
                     "subscription_check_interval_minutes" => {
                         if let Some(n) = value.as_i64() {
                             settings.subscription_check_interval_minutes = n as i32;

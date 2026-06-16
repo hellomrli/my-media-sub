@@ -5,7 +5,7 @@ use crate::config::Config;
 use crate::error::Result;
 use crate::jobs::{JobQueue, JobStore};
 use crate::services::{
-    SubscriptionCheckService, SubscriptionScheduler, SubscriptionTransferService,
+    MetadataService, SubscriptionCheckService, SubscriptionScheduler, SubscriptionTransferService,
 };
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
@@ -20,6 +20,7 @@ pub struct AppContext {
     pub job_store: Arc<JobStore>,
     pub job_queue: Arc<JobQueue>,
     pub pansou_client: Arc<PanSouClient>,
+    pub metadata_service: Arc<MetadataService>,
     pub transfer_service: Arc<SubscriptionTransferService>,
     pub check_service: Arc<SubscriptionCheckService>,
     pub scheduler: Arc<SubscriptionScheduler>,
@@ -52,6 +53,7 @@ impl AppContext {
         tracing::info!("✅ Loaded jobs");
 
         let pansou_client = Arc::new(PanSouClient::default());
+        let metadata_service = Arc::new(MetadataService::new());
         tracing::info!("✅ Clients initialized");
 
         let transfer_service = Arc::new(SubscriptionTransferService::new(
@@ -87,6 +89,7 @@ impl AppContext {
             job_store,
             job_queue,
             pansou_client,
+            metadata_service,
             transfer_service,
             check_service,
             scheduler,
@@ -124,6 +127,8 @@ async fn apply_env_overrides(settings_store: &SettingsStore) -> Result<()> {
         "GOTIFY_TOKEN",
         "PUSHPLUS_TOKEN",
         "SERVERCHAN_KEY",
+        "TMDB_API_KEY",
+        "TMDB_LANGUAGE",
     ]
     .iter()
     .any(|key| env_non_empty(key).is_some())
@@ -175,6 +180,12 @@ async fn apply_env_overrides(settings_store: &SettingsStore) -> Result<()> {
             }
             if let Some(value) = env_non_empty("SERVERCHAN_KEY") {
                 settings.serverchan_key = value;
+            }
+            if let Some(value) = env_non_empty("TMDB_API_KEY") {
+                settings.tmdb_api_key = value;
+            }
+            if let Some(value) = env_non_empty("TMDB_LANGUAGE") {
+                settings.tmdb_language = value;
             }
         })
         .await?;

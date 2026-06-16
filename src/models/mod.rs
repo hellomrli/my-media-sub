@@ -1,3 +1,4 @@
+pub mod metadata;
 pub mod notification;
 pub mod rules;
 pub mod search;
@@ -15,3 +16,5 @@ pub use settings::{CustomCategory, Settings};
 pub use search::SearchResult;
 
 pub use notification::Notification;
+
+pub use metadata::{MediaMetadata, MetadataProvider};

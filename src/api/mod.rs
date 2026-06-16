@@ -1,5 +1,6 @@
 pub mod drive;
 pub mod jobs;
+pub mod metadata;
 pub mod notifications;
 pub mod push;
 pub mod search;
@@ -109,6 +110,10 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
         .merge(search::routes(
             context.pansou_client.clone(),
             settings_store.clone(),
+        ))
+        .merge(metadata::routes(
+            settings_store.clone(),
+            context.metadata_service.clone(),
         ))
         .merge(jobs::routes(
             context.job_store.clone(),
