@@ -183,7 +183,7 @@ pub fn build_transfer_plan(
     target_dir_exists: Option<bool>,
 ) -> TransferPlan {
     let rules = normalize_rules(Some(&subscription.rules));
-    let files: Vec<ProbeFile> = probe_files.map(|f| f.to_vec()).unwrap_or_else(|| vec![]);
+    let files: Vec<ProbeFile> = probe_files.map(|f| f.to_vec()).unwrap_or_default();
     let transferred = transferred_keys
         .cloned()
         .unwrap_or_else(|| subscription.transferred_file_keys.iter().cloned().collect());

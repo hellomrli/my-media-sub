@@ -144,8 +144,7 @@ impl PanSouClient {
 
     /// 搜索夸克资源
     pub async fn search_quark(&self, keyword: &str, limit: usize) -> Result<Vec<SearchResult>> {
-        self.search(keyword, &vec!["quark".to_string()], limit)
-            .await
+        self.search(keyword, &["quark".to_string()], limit).await
     }
 }
 

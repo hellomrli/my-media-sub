@@ -396,8 +396,6 @@ impl SubscriptionTransferService {
 
         if category_dir.is_empty() {
             base
-        } else if base.is_empty() {
-            category_dir.clone()
         } else {
             category_dir.clone()
         }

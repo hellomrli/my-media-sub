@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use tracing_subscriber;
 
 mod api;
 mod clients;

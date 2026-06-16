@@ -255,7 +255,7 @@ impl PushService {
 
         let resp = self
             .client
-            .post(&format!("{}/push", url))
+            .post(format!("{}/push", url))
             .json(&payload)
             .send()
             .await
@@ -291,7 +291,7 @@ impl PushService {
 
         let resp = self
             .client
-            .post(&format!("{}/message?token={}", url, token))
+            .post(format!("{}/message?token={}", url, token))
             .json(&payload)
             .send()
             .await
