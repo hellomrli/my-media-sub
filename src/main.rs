@@ -3,6 +3,7 @@ mod app;
 mod clients;
 mod config;
 mod error;
+mod jobs;
 mod models;
 mod services;
 mod store;

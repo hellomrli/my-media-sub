@@ -120,7 +120,12 @@ cargo run
 ### 搜索与转存
 
 - `POST /api/search`
-- `POST /api/transfer`
+- `POST /api/transfer`：创建后台转存任务并返回 `job_id`
+
+### 任务
+
+- `GET /api/jobs`
+- `GET /api/jobs/{id}`
 
 ### 订阅
 
