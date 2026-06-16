@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{broadcast, mpsc, RwLock};
 use tracing::{error, info, warn};
 
 use crate::clients::{QuarkSaveClient, QuarkShareProbe};
@@ -69,6 +69,7 @@ pub struct SubscriptionTransferPayload {
 pub struct JobStore {
     path: PathBuf,
     jobs: RwLock<Vec<Job>>,
+    events: broadcast::Sender<Job>,
 }
 
 impl JobStore {
@@ -76,6 +77,7 @@ impl JobStore {
         Self {
             path: path.into(),
             jobs: RwLock::new(Vec::new()),
+            events: broadcast::channel(200).0,
         }
     }
 
@@ -97,6 +99,7 @@ impl JobStore {
         let mut jobs = self.jobs.write().await;
         jobs.push(job.clone());
         self.save_locked(&jobs).await?;
+        self.emit(job.clone());
         Ok(job)
     }
 
@@ -127,7 +130,19 @@ impl JobStore {
             self.save_locked(&jobs).await?;
         }
 
+        if let Some(job) = &updated {
+            self.emit(job.clone());
+        }
+
         Ok(updated)
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<Job> {
+        self.events.subscribe()
+    }
+
+    fn emit(&self, job: Job) {
+        let _ = self.events.send(job);
     }
 
     async fn save_locked(&self, jobs: &[Job]) -> Result<()> {

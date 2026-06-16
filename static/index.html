@@ -1091,6 +1091,7 @@
         // 通知
         notifications: [],
         jobs: [],
+        jobEvents: null,
 
         // 网盘
         driveItems: [],
@@ -1168,6 +1169,7 @@
           await this.loadNotifications();
           await this.loadJobs();
           await this.loadSettings();
+          this.setupJobEvents();
           this.selectedCloudTypes = this.cloudTypes.slice();
           this.loadSearchHistory();
         },
@@ -1761,6 +1763,39 @@
           } catch (error) {
             console.error('加载任务失败:', error);
           }
+        },
+
+        setupJobEvents() {
+          if (this.jobEvents || typeof EventSource === 'undefined') return;
+
+          const source = new EventSource('/api/jobs/events');
+          source.addEventListener('snapshot', (event) => {
+            try {
+              this.jobs = JSON.parse(event.data || '[]');
+            } catch (error) {
+              console.error('解析任务快照失败:', error);
+            }
+          });
+          source.addEventListener('job', async (event) => {
+            try {
+              const job = JSON.parse(event.data);
+              const index = this.jobs.findIndex(item => item.id === job.id);
+              if (index >= 0) {
+                this.jobs.splice(index, 1, job);
+              } else {
+                this.jobs.unshift(job);
+              }
+              if (['succeeded', 'failed'].includes(job.status)) {
+                await this.loadNotifications();
+              }
+            } catch (error) {
+              console.error('解析任务事件失败:', error);
+            }
+          });
+          source.onerror = () => {
+            console.warn('任务事件连接异常，浏览器会自动重连');
+          };
+          this.jobEvents = source;
         },
 
         async markRead(id) {
