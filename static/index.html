@@ -579,31 +579,38 @@
             </div>
           </div>
 
-          <div x-show="runningTransferJobs.length > 0" class="app-panel overflow-hidden">
+          <div x-show="recentTransferJobs.length > 0" class="app-panel overflow-hidden">
             <div class="p-4 border-b border-dark-border flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
               <div>
-                <h3 class="section-title">进行中的任务</h3>
-                <p class="text-sm text-gray-500 mt-1">后台任务会持续更新状态，刷新后可查看最新进度。</p>
+                <h3 class="section-title">后台任务</h3>
+                <p class="text-sm text-gray-500 mt-1">转存任务会持续更新状态，排队任务可取消，失败任务可重试。</p>
               </div>
               <button @click="loadJobs()" class="btn-secondary px-4 py-2 rounded-lg transition-colors text-sm">刷新任务</button>
             </div>
             <div class="divide-y divide-dark-border">
-              <template x-for="job in runningTransferJobs" :key="job.id">
+              <template x-for="job in recentTransferJobs" :key="job.id">
                 <div class="p-4 hover:bg-dark-hover transition-colors">
                   <div class="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
                     <div class="min-w-0">
                       <div class="flex flex-wrap items-center gap-2 mb-2">
-                        <span class="px-2 py-1 rounded text-xs bg-yellow-600/20 text-yellow-300" x-text="job.status === 'queued' ? '排队中' : '执行中'"></span>
+                        <span class="px-2 py-1 rounded text-xs" :class="jobStatusClass(job.status)" x-text="jobStatusLabel(job.status)"></span>
+                        <span class="px-2 py-1 rounded text-xs bg-blue-600/20 text-blue-300" x-text="job.kind === 'subscription_transfer' ? '自动订阅' : '手动转存'"></span>
                         <span class="text-xs text-gray-500" x-text="formatTime(job.created_at)"></span>
                       </div>
                       <h4 class="text-white font-medium" x-text="job.title"></h4>
                       <p class="text-sm text-gray-400 mt-1" x-text="job.message"></p>
                     </div>
-                    <div class="w-full md:w-64">
+                    <div class="w-full md:w-72">
                       <div class="h-2 rounded bg-dark-bg overflow-hidden border border-dark-border">
                         <div class="h-full bg-blue-500 transition-all" :style="'width: ' + (job.progress || 0) + '%'"></div>
                       </div>
-                      <div class="mt-2 text-xs text-gray-500 text-right" x-text="(job.progress || 0) + '%'"></div>
+                      <div class="mt-2 flex items-center justify-between gap-2">
+                        <div class="text-xs text-gray-500" x-text="(job.progress || 0) + '%'"></div>
+                        <div class="flex items-center gap-2">
+                          <button x-show="canCancelJob(job)" @click="cancelJob(job)" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">取消</button>
+                          <button x-show="canRetryJob(job)" @click="retryJob(job)" class="btn-primary px-3 py-1 rounded text-xs transition-colors">重试</button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1149,6 +1156,10 @@
 
         get runningTransferJobs() {
           return this.transferJobs.filter(job => ['queued', 'running'].includes(job.status));
+        },
+
+        get recentTransferJobs() {
+          return this.transferJobs.slice(0, 20);
         },
 
         get filteredDriveItems() {
@@ -1765,6 +1776,78 @@
           }
         },
 
+        jobStatusLabel(status) {
+          const labels = {
+            queued: '排队中',
+            running: '执行中',
+            succeeded: '成功',
+            failed: '失败',
+            canceled: '已取消'
+          };
+          return labels[status] || status;
+        },
+
+        jobStatusClass(status) {
+          const classes = {
+            queued: 'bg-yellow-600/20 text-yellow-300',
+            running: 'bg-blue-600/20 text-blue-300',
+            succeeded: 'bg-green-600/20 text-green-300',
+            failed: 'bg-red-600/20 text-red-300',
+            canceled: 'bg-gray-600/30 text-gray-300'
+          };
+          return classes[status] || 'bg-gray-600/30 text-gray-300';
+        },
+
+        canCancelJob(job) {
+          return job && job.status === 'queued';
+        },
+
+        canRetryJob(job) {
+          return job && ['failed', 'canceled'].includes(job.status);
+        },
+
+        async cancelJob(job) {
+          if (!job || !this.canCancelJob(job)) return;
+          try {
+            const response = await fetch(`/api/jobs/${job.id}/cancel`, {method: 'POST'});
+            const data = await response.json();
+            if (response.ok) {
+              this.upsertJob(data.data);
+              this.showNotification('success', '任务已取消');
+            } else {
+              this.showNotification('error', data.message || '取消任务失败');
+            }
+          } catch (error) {
+            this.showNotification('error', '取消任务失败');
+          }
+        },
+
+        async retryJob(job) {
+          if (!job || !this.canRetryJob(job)) return;
+          try {
+            const response = await fetch(`/api/jobs/${job.id}/retry`, {method: 'POST'});
+            const data = await response.json();
+            if (response.ok) {
+              this.upsertJob(data.data);
+              this.showNotification('success', '重试任务已创建');
+            } else {
+              this.showNotification('error', data.message || '重试任务失败');
+            }
+          } catch (error) {
+            this.showNotification('error', '重试任务失败');
+          }
+        },
+
+        upsertJob(job) {
+          if (!job) return;
+          const index = this.jobs.findIndex(item => item.id === job.id);
+          if (index >= 0) {
+            this.jobs.splice(index, 1, job);
+          } else {
+            this.jobs.unshift(job);
+          }
+        },
+
         setupJobEvents() {
           if (this.jobEvents || typeof EventSource === 'undefined') return;
 
@@ -1779,13 +1862,8 @@
           source.addEventListener('job', async (event) => {
             try {
               const job = JSON.parse(event.data);
-              const index = this.jobs.findIndex(item => item.id === job.id);
-              if (index >= 0) {
-                this.jobs.splice(index, 1, job);
-              } else {
-                this.jobs.unshift(job);
-              }
-              if (['succeeded', 'failed'].includes(job.status)) {
+              this.upsertJob(job);
+              if (['succeeded', 'failed', 'canceled'].includes(job.status)) {
                 await this.loadNotifications();
               }
             } catch (error) {

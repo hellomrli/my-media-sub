@@ -4,7 +4,7 @@ use axum::{
         sse::{Event, KeepAlive, Sse},
         IntoResponse,
     },
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use serde::Serialize;
@@ -13,10 +13,11 @@ use std::sync::Arc;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 
 use crate::error::{AppError, Result};
-use crate::jobs::{Job, JobStore};
+use crate::jobs::{Job, JobQueue, JobStore};
 
 pub struct JobState {
     pub store: Arc<JobStore>,
+    pub queue: Arc<JobQueue>,
 }
 
 #[derive(Serialize)]
@@ -45,6 +46,20 @@ async fn get_job(
     }
 }
 
+async fn cancel_job(
+    State(state): State<Arc<JobState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Response<Job>>> {
+    Ok(Json(Response::ok(state.queue.cancel(&id).await?)))
+}
+
+async fn retry_job(
+    State(state): State<Arc<JobState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Response<Job>>> {
+    Ok(Json(Response::ok(state.queue.retry(&id).await?)))
+}
+
 async fn job_events(
     State(state): State<Arc<JobState>>,
 ) -> Result<Sse<impl tokio_stream::Stream<Item = std::result::Result<Event, Infallible>>>> {
@@ -64,12 +79,14 @@ async fn job_events(
     Ok(Sse::new(snapshot_stream.chain(updates)).keep_alive(KeepAlive::default()))
 }
 
-pub fn routes(store: Arc<JobStore>) -> Router {
-    let state = Arc::new(JobState { store });
+pub fn routes(store: Arc<JobStore>, queue: Arc<JobQueue>) -> Router {
+    let state = Arc::new(JobState { store, queue });
 
     Router::new()
         .route("/api/jobs", get(list_jobs))
         .route("/api/jobs/events", get(job_events))
         .route("/api/jobs/{id}", get(get_job))
+        .route("/api/jobs/{id}/cancel", post(cancel_job))
+        .route("/api/jobs/{id}/retry", post(retry_job))
         .with_state(state)
 }

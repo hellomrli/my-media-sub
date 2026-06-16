@@ -21,6 +21,7 @@ pub enum JobStatus {
     Running,
     Succeeded,
     Failed,
+    Canceled,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -117,9 +118,20 @@ impl JobStore {
     where
         F: FnOnce(&mut Job),
     {
+        self.try_update(id, |job| {
+            updater(job);
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn try_update<F>(&self, id: &str, updater: F) -> Result<Option<Job>>
+    where
+        F: FnOnce(&mut Job) -> Result<()>,
+    {
         let mut jobs = self.jobs.write().await;
         let updated = if let Some(job) = jobs.iter_mut().find(|job| job.id == id) {
-            updater(job);
+            updater(job)?;
             job.updated_at = now();
             Some(job.clone())
         } else {
@@ -194,55 +206,90 @@ impl JobQueue {
     }
 
     pub async fn submit_manual_transfer(&self, payload: ManualTransferPayload) -> Result<Job> {
-        let id = uuid::Uuid::new_v4().to_string();
-        let created_at = now();
-        let job = Job {
-            id: id.clone(),
-            kind: JobKind::ManualTransfer,
-            status: JobStatus::Queued,
-            progress: 0,
-            title: "手动转存".to_string(),
-            message: "等待后台任务执行".to_string(),
-            payload: serde_json::to_value(payload)?,
-            result: None,
-            error: None,
-            created_at,
-            updated_at: created_at,
-            started_at: None,
-            finished_at: None,
-        };
-
-        let job = self.store.add(job).await?;
-        if self.sender.send(id.clone()).await.is_err() {
-            self.store
-                .update(&id, |job| {
-                    job.status = JobStatus::Failed;
-                    job.progress = 100;
-                    job.message = "任务队列不可用".to_string();
-                    job.error = Some("任务队列不可用".to_string());
-                    job.finished_at = Some(now());
-                })
-                .await?;
-            return Err(AppError::Internal("任务队列不可用".to_string()));
-        }
-
-        Ok(job)
+        self.submit_job(
+            JobKind::ManualTransfer,
+            "手动转存",
+            serde_json::to_value(payload)?,
+        )
+        .await
     }
 
     pub async fn submit_subscription_transfer(
         &self,
         payload: SubscriptionTransferPayload,
     ) -> Result<Job> {
+        self.submit_job(
+            JobKind::SubscriptionTransfer,
+            "订阅自动转存",
+            serde_json::to_value(payload)?,
+        )
+        .await
+    }
+
+    pub async fn cancel(&self, id: &str) -> Result<Job> {
+        self.store
+            .try_update(id, |job| {
+                if job.status != JobStatus::Queued {
+                    return Err(AppError::Validation(match job.status {
+                        JobStatus::Running => "运行中的任务暂不支持取消".to_string(),
+                        JobStatus::Succeeded => "已成功的任务不能取消".to_string(),
+                        JobStatus::Failed => "已失败的任务不能取消，可选择重试".to_string(),
+                        JobStatus::Canceled => "任务已经取消".to_string(),
+                        JobStatus::Queued => unreachable!(),
+                    }));
+                }
+
+                job.status = JobStatus::Canceled;
+                job.progress = 100;
+                job.message = "任务已取消".to_string();
+                job.error = None;
+                job.finished_at = Some(now());
+                Ok(())
+            })
+            .await?
+            .ok_or_else(|| AppError::NotFound("任务不存在".to_string()))
+    }
+
+    pub async fn retry(&self, id: &str) -> Result<Job> {
+        let job = self
+            .store
+            .get(id)
+            .await
+            .ok_or_else(|| AppError::NotFound("任务不存在".to_string()))?;
+
+        match job.status {
+            JobStatus::Failed | JobStatus::Canceled => {
+                let title = match &job.kind {
+                    JobKind::ManualTransfer => "手动转存",
+                    JobKind::SubscriptionTransfer => "订阅自动转存",
+                };
+                self.submit_job(job.kind.clone(), title, job.payload).await
+            }
+            JobStatus::Queued | JobStatus::Running => Err(AppError::Validation(
+                "任务仍在队列或执行中，不能重复提交".to_string(),
+            )),
+            JobStatus::Succeeded => Err(AppError::Validation(
+                "已成功的任务不能直接重试，避免重复转存".to_string(),
+            )),
+        }
+    }
+
+    async fn submit_job(
+        &self,
+        kind: JobKind,
+        title: impl Into<String>,
+        payload: serde_json::Value,
+    ) -> Result<Job> {
         let id = uuid::Uuid::new_v4().to_string();
         let created_at = now();
         let job = Job {
             id: id.clone(),
-            kind: JobKind::SubscriptionTransfer,
+            kind,
             status: JobStatus::Queued,
             progress: 0,
-            title: "订阅自动转存".to_string(),
+            title: title.into(),
             message: "等待后台任务执行".to_string(),
-            payload: serde_json::to_value(payload)?,
+            payload,
             result: None,
             error: None,
             created_at,
@@ -293,6 +340,11 @@ impl JobWorker {
             warn!("任务不存在: {}", job_id);
             return Ok(());
         };
+
+        if job.status != JobStatus::Queued {
+            info!("跳过非排队任务 {}: {:?}", job_id, job.status);
+            return Ok(());
+        }
 
         match job.kind {
             JobKind::ManualTransfer => {
@@ -487,13 +539,17 @@ impl JobWorker {
 
     async fn update_running(&self, job_id: &str, progress: u8, message: &str) -> Result<()> {
         self.store
-            .update(job_id, |job| {
+            .try_update(job_id, |job| {
+                if job.status == JobStatus::Canceled {
+                    return Err(AppError::Validation("任务已取消".to_string()));
+                }
                 job.status = JobStatus::Running;
                 job.progress = progress;
                 job.message = message.to_string();
                 if job.started_at.is_none() {
                     job.started_at = Some(now());
                 }
+                Ok(())
             })
             .await?;
         Ok(())
