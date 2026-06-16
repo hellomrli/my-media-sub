@@ -446,6 +446,43 @@ impl SubscriptionTransferService {
                 target_dir
             }
         );
+        let target_dir_label = if target_dir.is_empty() {
+            "根目录"
+        } else {
+            target_dir
+        };
+        let meta = std::collections::HashMap::from([
+            (
+                "mode".to_string(),
+                serde_json::Value::String("auto".to_string()),
+            ),
+            (
+                "subscription_id".to_string(),
+                serde_json::Value::String(sub.id.clone()),
+            ),
+            (
+                "subscription_title".to_string(),
+                serde_json::Value::String(sub.title.clone()),
+            ),
+            (
+                "target_dir".to_string(),
+                serde_json::Value::String(target_dir_label.to_string()),
+            ),
+            (
+                "saved_count".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(file_names.len())),
+            ),
+            (
+                "file_names".to_string(),
+                serde_json::Value::Array(
+                    file_names
+                        .iter()
+                        .cloned()
+                        .map(serde_json::Value::String)
+                        .collect(),
+                ),
+            ),
+        ]);
 
         let notification = crate::models::Notification {
             id: uuid::Uuid::new_v4().to_string(),
@@ -453,7 +490,7 @@ impl SubscriptionTransferService {
             event: "subscription_transferred".to_string(),
             title: format!("订阅自动转存: {}", sub.title),
             message: message.clone(),
-            meta: std::collections::HashMap::new(),
+            meta,
             read: false,
             created_at: now,
         };
