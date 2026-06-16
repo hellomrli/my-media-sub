@@ -4,12 +4,14 @@ use tracing::{info, warn};
 use crate::clients::quark::QuarkShareProbe;
 use crate::error::{AppError, Result};
 use crate::models::subscription::{CheckHistoryItem, ProbeFile, ProbeResult, Subscription};
+use crate::services::push::{PushEvent, PushLevel, PushService};
 use crate::services::SubscriptionTransferService;
-use crate::store::{NotificationStore, SubscriptionStore};
+use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
 /// 订阅检查服务
 pub struct SubscriptionCheckService {
     subscription_store: Arc<SubscriptionStore>,
+    settings_store: Arc<SettingsStore>,
     notification_store: Arc<NotificationStore>,
     transfer_service: Option<Arc<SubscriptionTransferService>>,
 }
@@ -17,10 +19,12 @@ pub struct SubscriptionCheckService {
 impl SubscriptionCheckService {
     pub fn new(
         subscription_store: Arc<SubscriptionStore>,
+        settings_store: Arc<SettingsStore>,
         notification_store: Arc<NotificationStore>,
     ) -> Self {
         Self {
             subscription_store,
+            settings_store,
             notification_store,
             transfer_service: None,
         }
@@ -68,6 +72,7 @@ impl SubscriptionCheckService {
                 new_files: vec![],
                 new_episodes: vec![],
                 became_invalid: true,
+                became_completed: false,
                 summary: format!("链接失效: {}", probe_result.message),
             });
         }
@@ -78,6 +83,7 @@ impl SubscriptionCheckService {
 
         // 3. 解析集数
         let new_episodes = self.parse_episodes(&new_file_names);
+        let became_completed = should_mark_completed(&sub, &new_episodes);
 
         // 4. 更新订阅状态
         let summary = if new_file_names.is_empty() {
@@ -92,13 +98,17 @@ impl SubscriptionCheckService {
             &new_file_names,
             &new_episodes,
             &summary,
+            became_completed,
         )
         .await?;
 
         // 5. 发送通知
-        if !new_file_names.is_empty() {
+        if !new_file_names.is_empty() && sub.rules.notify_on_update {
             self.send_update_notification(&sub, &new_file_names, &new_episodes)
                 .await;
+        }
+        if became_completed {
+            self.send_completed_notification(&sub).await;
         }
 
         // 6. 自动转存（如果配置了转存服务）
@@ -125,6 +135,7 @@ impl SubscriptionCheckService {
             new_files: new_file_names,
             new_episodes,
             became_invalid: false,
+            became_completed,
             summary,
         })
     }
@@ -206,6 +217,7 @@ impl SubscriptionCheckService {
         new_files: &[String],
         new_episodes: &[i32],
         summary: &str,
+        completed: bool,
     ) -> Result<()> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -245,9 +257,20 @@ impl SubscriptionCheckService {
 
                 // 清除错误状态
                 if probe.ok {
-                    s.status = "active".to_string();
                     s.last_error = String::new();
                     s.invalid_since = None;
+                    s.status = if completed {
+                        "completed".to_string()
+                    } else {
+                        "active".to_string()
+                    };
+                }
+
+                if completed {
+                    s.completed = true;
+                    if s.total_episode_number.is_none() {
+                        s.total_episode_number = s.rules.finish_after_episode;
+                    }
                 }
 
                 // 添加检查历史
@@ -295,18 +318,30 @@ impl SubscriptionCheckService {
             .await?;
 
         // 发送失效通知
-        let notification = crate::models::Notification {
-            id: uuid::Uuid::new_v4().to_string(),
-            level: "warning".to_string(),
-            event: "subscription_invalid".to_string(),
-            title: format!("订阅链接疑似失效: {}", sub.title),
-            message: error.to_string(),
-            meta: std::collections::HashMap::new(),
-            read: false,
-            created_at: now,
-        };
+        let title = format!("订阅链接疑似失效: {}", sub.title);
+        let message = error.to_string();
 
-        self.notification_store.add(notification).await?;
+        if sub.rules.notify_on_invalid {
+            let notification = crate::models::Notification {
+                id: uuid::Uuid::new_v4().to_string(),
+                level: "warning".to_string(),
+                event: "subscription_invalid".to_string(),
+                title: title.clone(),
+                message: message.clone(),
+                meta: std::collections::HashMap::new(),
+                read: false,
+                created_at: now,
+            };
+
+            self.notification_store.add(notification).await?;
+            self.send_push_event(
+                PushEvent::SubscriptionFailed,
+                &title,
+                &message,
+                PushLevel::Warning,
+            )
+            .await;
+        }
 
         Ok(())
     }
@@ -336,18 +371,81 @@ impl SubscriptionCheckService {
             )
         };
 
+        let title = format!("订阅有更新: {}", sub.title);
         let notification = crate::models::Notification {
             id: uuid::Uuid::new_v4().to_string(),
             level: "info".to_string(),
             event: "subscription_updated".to_string(),
-            title: format!("订阅有更新: {}", sub.title),
-            message,
+            title: title.clone(),
+            message: message.clone(),
             meta: std::collections::HashMap::new(),
             read: false,
             created_at: now,
         };
 
         let _ = self.notification_store.add(notification).await;
+        self.send_push_event(
+            PushEvent::SubscriptionUpdated,
+            &title,
+            &message,
+            PushLevel::Info,
+        )
+        .await;
+    }
+
+    /// 发送完结通知
+    async fn send_completed_notification(&self, sub: &Subscription) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let total = sub
+            .rules
+            .finish_after_episode
+            .or(sub.total_episode_number)
+            .unwrap_or(sub.current_episode_number);
+        let title = format!("订阅已完结: {}", sub.title);
+        let message = if total > 0 {
+            format!("已达到完结集数：第 {} 集", total)
+        } else {
+            "订阅已标记为完结".to_string()
+        };
+
+        let notification = crate::models::Notification {
+            id: uuid::Uuid::new_v4().to_string(),
+            level: "success".to_string(),
+            event: "subscription_completed".to_string(),
+            title: title.clone(),
+            message: message.clone(),
+            meta: std::collections::HashMap::new(),
+            read: false,
+            created_at: now,
+        };
+
+        let _ = self.notification_store.add(notification).await;
+        self.send_push_event(
+            PushEvent::SubscriptionCompleted,
+            &title,
+            &message,
+            PushLevel::Success,
+        )
+        .await;
+    }
+
+    async fn send_push_event(
+        &self,
+        event: PushEvent,
+        title: &str,
+        message: &str,
+        level: PushLevel,
+    ) {
+        let settings = self.settings_store.get().await;
+        let push_service = PushService::new(settings);
+        let results = push_service.send_event(event, title, message, level).await;
+        let failed = results.values().filter(|&&ok| !ok).count();
+        if failed > 0 {
+            warn!("业务推送部分失败: {}/{} 个渠道失败", failed, results.len());
+        }
     }
 }
 
@@ -358,7 +456,26 @@ pub struct CheckResult {
     pub new_files: Vec<String>,
     pub new_episodes: Vec<i32>,
     pub became_invalid: bool,
+    pub became_completed: bool,
     pub summary: String,
+}
+
+fn should_mark_completed(sub: &Subscription, new_episodes: &[i32]) -> bool {
+    if sub.completed {
+        return false;
+    }
+
+    let Some(target_episode) = sub.rules.finish_after_episode else {
+        return false;
+    };
+
+    sub.known_episodes
+        .iter()
+        .chain(new_episodes.iter())
+        .copied()
+        .max()
+        .map(|episode| episode >= target_episode)
+        .unwrap_or(false)
 }
 
 /// 从文件名提取集数
@@ -405,5 +522,53 @@ mod tests {
         assert_eq!(extract_episode_number("[01][1080p].mkv"), Some(1));
         assert_eq!(extract_episode_number("EP 03.mkv"), Some(3));
         assert_eq!(extract_episode_number("Movie.2024.mkv"), None);
+    }
+
+    #[test]
+    fn test_should_mark_completed() {
+        let mut sub = Subscription {
+            id: "sub1".to_string(),
+            title: "Show".to_string(),
+            source_title: String::new(),
+            media_type: "series".to_string(),
+            season: 1,
+            current_episode_number: 11,
+            total_episode_number: None,
+            source_group: String::new(),
+            cloud_type: "quark".to_string(),
+            url: "https://pan.quark.cn/s/test".to_string(),
+            password: String::new(),
+            known_files: vec![],
+            known_file_keys: vec![],
+            transferred_files: vec![],
+            transferred_file_keys: vec![],
+            last_probe: None,
+            last_plan_summary: String::new(),
+            notify_only: false,
+            enabled: true,
+            completed: false,
+            rules: crate::models::rules::TransferRules {
+                finish_after_episode: Some(12),
+                ..Default::default()
+            },
+            created_at: 0,
+            updated_at: 0,
+            last_checked_at: 0,
+            last_new_files: vec![],
+            last_new_episodes: vec![],
+            last_check_summary: String::new(),
+            check_history: vec![],
+            status: "active".to_string(),
+            invalid_since: None,
+            last_error: String::new(),
+            rule_summary: String::new(),
+            known_episodes: vec![1, 2, 11],
+        };
+
+        assert!(should_mark_completed(&sub, &[12]));
+        assert!(!should_mark_completed(&sub, &[10]));
+
+        sub.completed = true;
+        assert!(!should_mark_completed(&sub, &[12]));
     }
 }

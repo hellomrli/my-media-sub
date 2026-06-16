@@ -134,8 +134,12 @@ async fn main() -> Result<()> {
     ));
 
     let check_service = Arc::new(
-        SubscriptionCheckService::new(subscription_store.clone(), notification_store.clone())
-            .with_transfer_service(transfer_service),
+        SubscriptionCheckService::new(
+            subscription_store.clone(),
+            settings_store.clone(),
+            notification_store.clone(),
+        )
+        .with_transfer_service(transfer_service),
     );
 
     // 初始化调度器
