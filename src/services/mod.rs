@@ -1,4 +1,5 @@
 pub mod episode;
+pub mod notification;
 pub mod push;
 pub mod subscription_check;
 pub mod subscription_scheduler;
