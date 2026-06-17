@@ -9,17 +9,21 @@ use crate::clients::{QuarkSaveClient, QuarkShareProbe};
 use crate::error::{AppError, Result};
 use crate::models::{MediaMetadata, Subscription};
 use crate::services::notification::add_notification;
+use crate::services::push::{
+    record_push_message_report, PushEvent, PushLevel, PushRetryPolicy, PushService,
+};
 use crate::services::{MetadataService, SubscriptionTransferService};
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
 use super::model::{
     now, Job, JobKind, JobStatus, ManualTransferPayload, MetadataScrapePayload,
-    SubscriptionTransferPayload,
+    PushDispatchPayload, SubscriptionTransferPayload,
 };
 use super::store::JobStore;
 
 pub(crate) struct JobWorker {
     pub(crate) store: Arc<JobStore>,
+    pub(crate) sender: mpsc::Sender<String>,
     pub(crate) settings_store: Arc<SettingsStore>,
     pub(crate) subscription_store: Arc<SubscriptionStore>,
     pub(crate) notification_store: Arc<NotificationStore>,
@@ -67,7 +71,176 @@ impl JobWorker {
                 let payload: MetadataScrapePayload = serde_json::from_value(job.payload)?;
                 self.run_metadata_scrape(job_id, payload).await
             }
+            JobKind::PushDispatch => {
+                let payload: PushDispatchPayload = serde_json::from_value(job.payload)?;
+                self.run_push_dispatch(job_id, payload).await
+            }
         }
+    }
+
+    async fn run_push_dispatch(&self, job_id: &str, payload: PushDispatchPayload) -> Result<()> {
+        self.update_running(job_id, 10, "正在准备推送").await?;
+
+        let Some(event) = PushEvent::from_str(&payload.event) else {
+            let message = format!("未知推送事件: {}", payload.event);
+            self.fail_push_dispatch(job_id, message, None).await?;
+            return Ok(());
+        };
+        let Some(level) = PushLevel::from_str(&payload.level) else {
+            let message = format!("未知推送级别: {}", payload.level);
+            self.fail_push_dispatch(job_id, message, None).await?;
+            return Ok(());
+        };
+
+        let settings = self.settings_store.get().await;
+        let push_service = PushService::new(settings);
+
+        if !push_service.event_enabled(event) {
+            self.skip_push_dispatch(job_id, &payload, "推送事件开关未启用，已跳过")
+                .await?;
+            return Ok(());
+        }
+
+        if push_service.enabled_channels().is_empty() {
+            self.skip_push_dispatch(job_id, &payload, "未配置推送渠道，已跳过")
+                .await?;
+            return Ok(());
+        }
+
+        self.update_running(job_id, 35, "正在发送推送").await?;
+        let report = push_service
+            .send_event_with_retry_detailed(
+                event,
+                &payload.title,
+                &payload.message,
+                level,
+                PushRetryPolicy::background_default(),
+            )
+            .await;
+
+        record_push_message_report(
+            &self.notification_store,
+            event.as_str(),
+            &payload.title,
+            &payload.message,
+            level,
+            &report,
+        )
+        .await;
+
+        let success_count = report.results.values().filter(|&&ok| ok).count();
+        let failed_count = report.results.len().saturating_sub(success_count);
+        let result = json!({
+            "source_event": event.as_str(),
+            "push_title": payload.title,
+            "push_level": level.as_str(),
+            "results": &report.results,
+            "errors": &report.errors,
+            "attempts": &report.attempts,
+            "success_count": success_count,
+            "failed_count": failed_count,
+        });
+
+        let message = if failed_count > 0 {
+            format!(
+                "推送派发失败：成功 {} 个，失败 {} 个",
+                success_count, failed_count
+            )
+        } else {
+            format!("推送派发完成：成功 {} 个渠道", success_count)
+        };
+
+        if failed_count > 0 {
+            self.fail_push_dispatch(job_id, message, Some(result))
+                .await?;
+        } else {
+            self.complete_if_active(job_id, |job| {
+                job.status = JobStatus::Succeeded;
+                job.progress = 100;
+                job.message = message;
+                job.result = Some(result);
+                job.finished_at = Some(now());
+            })
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn enqueue_push_dispatch(&self, payload: PushDispatchPayload) -> Result<Job> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let created_at = now();
+        let job = Job {
+            id: id.clone(),
+            kind: JobKind::PushDispatch,
+            status: JobStatus::Queued,
+            progress: 0,
+            title: "推送派发".to_string(),
+            message: "等待后台任务执行".to_string(),
+            payload: serde_json::to_value(payload)?,
+            result: None,
+            error: None,
+            created_at,
+            updated_at: created_at,
+            started_at: None,
+            finished_at: None,
+        };
+
+        let job = self.store.add(job).await?;
+        if let Err(e) = self.sender.try_send(id.clone()) {
+            self.store
+                .update(&id, |job| {
+                    job.status = JobStatus::Failed;
+                    job.progress = 100;
+                    job.message = "任务队列不可用".to_string();
+                    job.error = Some(format!("推送任务入队失败: {}", e));
+                    job.finished_at = Some(now());
+                })
+                .await?;
+            return Err(AppError::Internal(format!("推送任务入队失败: {}", e)));
+        }
+
+        Ok(job)
+    }
+
+    async fn skip_push_dispatch(
+        &self,
+        job_id: &str,
+        payload: &PushDispatchPayload,
+        message: &str,
+    ) -> Result<()> {
+        self.complete_if_active(job_id, |job| {
+            job.status = JobStatus::Succeeded;
+            job.progress = 100;
+            job.message = message.to_string();
+            job.result = Some(json!({
+                "source_event": payload.event,
+                "push_title": payload.title,
+                "push_level": payload.level,
+                "skipped": true,
+            }));
+            job.finished_at = Some(now());
+        })
+        .await?;
+        Ok(())
+    }
+
+    async fn fail_push_dispatch(
+        &self,
+        job_id: &str,
+        message: String,
+        result: Option<serde_json::Value>,
+    ) -> Result<()> {
+        self.complete_if_active(job_id, |job| {
+            job.status = JobStatus::Failed;
+            job.progress = 100;
+            job.message = message.clone();
+            job.error = Some(message);
+            job.result = result;
+            job.finished_at = Some(now());
+        })
+        .await?;
+        Ok(())
     }
 
     async fn run_metadata_scrape(
@@ -286,18 +459,40 @@ impl JobWorker {
                 let progress = if result.skipped { 100 } else { 95 };
                 self.update_running(job_id, progress, &result.reason)
                     .await?;
-                self.complete_if_active(job_id, |job| {
-                    job.status = JobStatus::Succeeded;
-                    job.progress = 100;
-                    job.message = result.reason.clone();
-                    job.result = Some(json!({
-                        "subscription_id": result.subscription_id,
-                        "transferred_count": result.transferred_count,
-                        "skipped": result.skipped,
-                    }));
-                    job.finished_at = Some(now());
-                })
-                .await?;
+                let subscription_id = result.subscription_id.clone();
+                let transferred_count = result.transferred_count;
+                let skipped = result.skipped;
+                let reason = result.reason.clone();
+                let push_title = result.push_title.clone();
+                let push_message = result.push_message.clone();
+                let completed = self
+                    .complete_if_active(job_id, |job| {
+                        job.status = JobStatus::Succeeded;
+                        job.progress = 100;
+                        job.message = reason;
+                        job.result = Some(json!({
+                            "subscription_id": subscription_id,
+                            "transferred_count": transferred_count,
+                            "skipped": skipped,
+                        }));
+                        job.finished_at = Some(now());
+                    })
+                    .await?;
+                if completed && !skipped {
+                    if let (Some(title), Some(message)) = (push_title, push_message) {
+                        if let Err(e) = self
+                            .enqueue_push_dispatch(PushDispatchPayload {
+                                event: PushEvent::TransferSaved.as_str().to_string(),
+                                title,
+                                message,
+                                level: PushLevel::Success.as_str().to_string(),
+                            })
+                            .await
+                        {
+                            warn!("创建转存完成推送任务失败: {}", e);
+                        }
+                    }
+                }
             }
             Err(e) => {
                 let message = format!("订阅自动转存失败: {}", e);

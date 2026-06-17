@@ -143,6 +143,20 @@ impl SubscriptionCheckService {
                     Ok(result) => {
                         if !result.skipped {
                             info!("自动转存成功: {}", result.reason);
+                            if let (Some(title), Some(message)) =
+                                (result.push_title, result.push_message)
+                            {
+                                dispatch_push_event(
+                                    self.settings_store.clone(),
+                                    self.notification_store.clone(),
+                                    None,
+                                    PushEvent::TransferSaved,
+                                    title,
+                                    message,
+                                    PushLevel::Success,
+                                )
+                                .await;
+                            }
                         }
                     }
                     Err(e) => {
@@ -356,11 +370,13 @@ impl SubscriptionCheckService {
             dispatch_push_event(
                 self.settings_store.clone(),
                 self.notification_store.clone(),
+                self.job_queue.clone(),
                 PushEvent::SubscriptionFailed,
                 title,
                 message,
                 PushLevel::Warning,
-            );
+            )
+            .await;
         }
 
         Ok(())
@@ -399,11 +415,13 @@ impl SubscriptionCheckService {
         dispatch_push_event(
             self.settings_store.clone(),
             self.notification_store.clone(),
+            self.job_queue.clone(),
             PushEvent::SubscriptionUpdated,
             title,
             message,
             PushLevel::Info,
-        );
+        )
+        .await;
     }
 
     /// 发送完结通知
@@ -432,11 +450,13 @@ impl SubscriptionCheckService {
         dispatch_push_event(
             self.settings_store.clone(),
             self.notification_store.clone(),
+            self.job_queue.clone(),
             PushEvent::SubscriptionCompleted,
             title,
             message,
             PushLevel::Success,
-        );
+        )
+        .await;
     }
 }
 

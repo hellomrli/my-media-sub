@@ -79,7 +79,7 @@ fn test_deserialize_jobs_fixture_with_all_current_kinds() {
 
     let jobs: Vec<job_model::Job> = serde_json::from_str(&content).expect("应该能反序列化任务样例");
 
-    assert_eq!(jobs.len(), 3);
+    assert_eq!(jobs.len(), 4);
     assert!(jobs
         .iter()
         .any(|job| job.kind == job_model::JobKind::ManualTransfer));
@@ -89,6 +89,9 @@ fn test_deserialize_jobs_fixture_with_all_current_kinds() {
     assert!(jobs
         .iter()
         .any(|job| job.kind == job_model::JobKind::MetadataScrape));
+    assert!(jobs
+        .iter()
+        .any(|job| job.kind == job_model::JobKind::PushDispatch));
 
     let json = serde_json::to_string_pretty(&jobs).unwrap();
     let _reparsed: Vec<job_model::Job> =

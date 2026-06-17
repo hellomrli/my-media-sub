@@ -711,7 +711,15 @@
                     <p class="text-gray-400 text-sm mb-2 break-all" x-text="notif.message"></p>
                     <div x-show="notif.event === 'push_sent'" class="mb-2 app-panel-soft p-3 text-xs text-gray-300">
                       <div class="flex flex-wrap gap-2">
-                        <span>渠道: <span class="text-white" x-text="notificationPushChannels(notif)"></span></span>
+                        <template x-for="item in notificationPushChannelStatuses(notif)" :key="item.channel">
+                          <span class="inline-flex items-center gap-1.5 rounded border px-2 py-1" :class="item.success ? 'border-green-500/30 bg-green-600/10 text-green-200' : 'border-red-500/30 bg-red-600/10 text-red-200'">
+                            <span class="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold" :class="item.success ? 'bg-green-500/20 text-green-200' : 'bg-red-500/20 text-red-200'" x-text="item.success ? '✓' : '!'"></span>
+                            <span x-text="item.name"></span>
+                            <span x-show="item.attempts > 1" class="text-gray-400" x-text="'x' + item.attempts"></span>
+                          </span>
+                        </template>
+                      </div>
+                      <div class="mt-2 flex flex-wrap gap-2 text-gray-400">
                         <span>成功: <span class="text-green-300" x-text="(notif.meta || {}).success_count || 0"></span></span>
                         <span>失败: <span class="text-red-300" x-text="(notif.meta || {}).failed_count || 0"></span></span>
                       </div>
@@ -1279,7 +1287,7 @@
         },
 
         get transferJobs() {
-          return this.jobs.filter(job => ['manual_transfer', 'subscription_transfer', 'metadata_scrape'].includes(job.kind));
+          return this.jobs.filter(job => ['manual_transfer', 'subscription_transfer', 'metadata_scrape', 'push_dispatch'].includes(job.kind));
         },
 
         get runningTransferJobs() {
@@ -2042,10 +2050,22 @@
         },
 
         notificationPushChannels(notif) {
+          const statuses = this.notificationPushChannelStatuses(notif);
+          if (statuses.length === 0) return '-';
+          return statuses.map(item => item.name).join('、');
+        },
+
+        notificationPushChannelStatuses(notif) {
           const meta = notif && notif.meta ? notif.meta : {};
-          const channels = Array.isArray(meta.channels) ? meta.channels : Object.keys(meta.results || {});
-          if (channels.length === 0) return '-';
-          return channels.join('、');
+          const results = meta.results || {};
+          const attempts = meta.attempts || {};
+          const channels = Array.isArray(meta.channels) ? meta.channels : Object.keys(results);
+          return channels.map(channel => ({
+            channel,
+            name: this.pushChannelName(channel),
+            success: results[channel] === true,
+            attempts: Number(attempts[channel] || 0)
+          }));
         },
 
         notificationPushErrors(notif) {
@@ -2080,7 +2100,8 @@
           const labels = {
             manual_transfer: '手动转存',
             subscription_transfer: '自动订阅',
-            metadata_scrape: '元数据刮削'
+            metadata_scrape: '元数据刮削',
+            push_dispatch: '推送派发'
           };
           return labels[kind] || kind || '后台任务';
         },

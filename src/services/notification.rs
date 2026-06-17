@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
 use serde_json::Value;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::error::Result;
+use crate::jobs::{JobQueue, PushDispatchPayload};
 use crate::models::Notification;
 use crate::services::push::{
     record_push_message_report, PushEvent, PushLevel, PushRetryPolicy, PushService,
@@ -33,9 +34,10 @@ pub async fn add_notification(
     notification_store.add(notification).await
 }
 
-pub fn dispatch_push_event(
+pub async fn dispatch_push_event(
     settings_store: Arc<SettingsStore>,
     notification_store: Arc<NotificationStore>,
+    job_queue: Option<Arc<JobQueue>>,
     event: PushEvent,
     title: impl Into<String>,
     message: impl Into<String>,
@@ -43,6 +45,32 @@ pub fn dispatch_push_event(
 ) {
     let title = title.into();
     let message = message.into();
+
+    if let Some(job_queue) = job_queue {
+        let settings = settings_store.get().await;
+        let push_service = PushService::new(settings);
+        if !push_service.event_enabled(event) || push_service.enabled_channels().is_empty() {
+            return;
+        }
+
+        match job_queue
+            .submit_push_dispatch(PushDispatchPayload {
+                event: event.as_str().to_string(),
+                title: title.clone(),
+                message: message.clone(),
+                level: level.as_str().to_string(),
+            })
+            .await
+        {
+            Ok(job) => {
+                info!("已创建推送派发任务: {}", job.id);
+                return;
+            }
+            Err(e) => {
+                warn!("创建推送派发任务失败，回退为后台派发: {}", e);
+            }
+        }
+    }
 
     tokio::spawn(async move {
         send_push_event(

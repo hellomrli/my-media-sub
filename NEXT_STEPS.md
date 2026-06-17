@@ -76,7 +76,7 @@ docker compose down
 - [x] 每个渠道独立测试按钮
 - [x] 推送失败原因脱敏记录
 - [x] 推送失败重试和退避策略
-- [ ] 可选升级为持久化 `push.dispatch` job
+- [x] 可选升级为持久化 `push.dispatch` job
 
 ### 搜索优化
 

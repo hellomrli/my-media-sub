@@ -8,8 +8,7 @@ use crate::clients::quark::{QuarkFile, QuarkShareProbe};
 use crate::clients::quark_save::{NormalizedItem, QuarkSaveClient};
 use crate::error::{AppError, Result};
 use crate::models::subscription::Subscription;
-use crate::services::notification::{add_notification, dispatch_push_event};
-use crate::services::push::{PushEvent, PushLevel};
+use crate::services::notification::add_notification;
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
 /// 递归收集目录下所有视频文件（独立函数，使用 Box 解决递归问题）
@@ -149,6 +148,8 @@ impl SubscriptionTransferService {
                 transferred_count: 0,
                 skipped: true,
                 reason: "订阅设置为仅通知模式".to_string(),
+                push_title: None,
+                push_message: None,
             });
         }
 
@@ -160,6 +161,8 @@ impl SubscriptionTransferService {
                 transferred_count: 0,
                 skipped: true,
                 reason: "全局自动转存未启用".to_string(),
+                push_title: None,
+                push_message: None,
             });
         }
 
@@ -170,6 +173,8 @@ impl SubscriptionTransferService {
                 transferred_count: 0,
                 skipped: true,
                 reason: "未配置夸克 Cookie".to_string(),
+                push_title: None,
+                push_message: None,
             });
         }
 
@@ -179,6 +184,8 @@ impl SubscriptionTransferService {
                 transferred_count: 0,
                 skipped: true,
                 reason: "无新文件需要转存".to_string(),
+                push_title: None,
+                push_message: None,
             });
         }
 
@@ -213,6 +220,8 @@ impl SubscriptionTransferService {
                 transferred_count: 0,
                 skipped: true,
                 reason: "未找到匹配的文件".to_string(),
+                push_title: None,
+                push_message: None,
             });
         }
 
@@ -309,7 +318,8 @@ impl SubscriptionTransferService {
             .await?;
 
         // 11. 发送转存成功通知
-        self.send_transfer_notification(&sub, new_file_names, &target_dir)
+        let (push_title, push_message) = self
+            .send_transfer_notification(&sub, new_file_names, &target_dir)
             .await;
 
         info!("成功转存 {} 个文件", fid_list.len());
@@ -319,6 +329,8 @@ impl SubscriptionTransferService {
             transferred_count: fid_list.len(),
             skipped: false,
             reason: format!("已转存到 {}", target_dir),
+            push_title: Some(push_title),
+            push_message: Some(push_message),
         })
     }
 
@@ -509,7 +521,7 @@ impl SubscriptionTransferService {
         sub: &Subscription,
         file_names: &[String],
         target_dir: &str,
-    ) {
+    ) -> (String, String) {
         let message = format!(
             "已转存 {} 个文件到 {}",
             file_names.len(),
@@ -567,14 +579,7 @@ impl SubscriptionTransferService {
             meta,
         )
         .await;
-        dispatch_push_event(
-            self.settings_store.clone(),
-            self.notification_store.clone(),
-            PushEvent::TransferSaved,
-            title,
-            message,
-            PushLevel::Success,
-        );
+        (title, message)
     }
 }
 
@@ -586,6 +591,8 @@ pub struct TransferResult {
     pub transferred_count: usize,
     pub skipped: bool,
     pub reason: String,
+    pub push_title: Option<String>,
+    pub push_message: Option<String>,
 }
 
 #[cfg(test)]
