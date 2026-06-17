@@ -1,6 +1,7 @@
 use crate::error::{AppError, Result};
 use crate::models::{Notification, Settings};
 use crate::store::NotificationStore;
+use regex::Regex;
 use reqwest::Client;
 use serde_json::json;
 use std::collections::HashMap;
@@ -56,6 +57,12 @@ impl PushEvent {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct PushDeliveryReport {
+    pub results: HashMap<String, bool>,
+    pub errors: HashMap<String, String>,
+}
+
 /// 推送服务
 pub struct PushService {
     settings: Settings,
@@ -104,18 +111,29 @@ impl PushService {
     }
 
     /// 发送推送到所有启用的渠道
+    #[allow(dead_code)]
     pub async fn send(
         &self,
         title: &str,
         message: &str,
         level: PushLevel,
     ) -> HashMap<String, bool> {
+        self.send_detailed(title, message, level).await.results
+    }
+
+    pub async fn send_detailed(
+        &self,
+        title: &str,
+        message: &str,
+        level: PushLevel,
+    ) -> PushDeliveryReport {
         let channels = self.enabled_channels();
-        self.send_to_channels(&channels, title, message, level)
+        self.send_to_channels_detailed(&channels, title, message, level)
             .await
     }
 
     /// 发送推送到指定渠道
+    #[allow(dead_code)]
     pub async fn send_to_channels(
         &self,
         channels: &[String],
@@ -123,10 +141,26 @@ impl PushService {
         message: &str,
         level: PushLevel,
     ) -> HashMap<String, bool> {
+        self.send_to_channels_detailed(channels, title, message, level)
+            .await
+            .results
+    }
+
+    pub async fn send_to_channels_detailed(
+        &self,
+        channels: &[String],
+        title: &str,
+        message: &str,
+        level: PushLevel,
+    ) -> PushDeliveryReport {
         let enabled_channels = self.enabled_channels();
-        let mut results = HashMap::new();
+        let mut report = PushDeliveryReport::default();
         for channel in channels {
             if !enabled_channels.contains(channel) {
+                report.results.insert(channel.clone(), false);
+                report
+                    .errors
+                    .insert(channel.clone(), "渠道未配置或未启用".to_string());
                 continue;
             }
 
@@ -144,13 +178,29 @@ impl PushService {
                 _ => Ok(false),
             };
 
-            results.insert(channel.clone(), result.unwrap_or(false));
+            match result {
+                Ok(success) => {
+                    report.results.insert(channel.clone(), success);
+                    if !success {
+                        report
+                            .errors
+                            .insert(channel.clone(), "渠道返回失败状态".to_string());
+                    }
+                }
+                Err(e) => {
+                    report.results.insert(channel.clone(), false);
+                    report
+                        .errors
+                        .insert(channel.clone(), sanitize_push_error(&e.to_string()));
+                }
+            }
         }
 
-        results
+        report
     }
 
     /// 按全局场景开关发送业务事件推送。
+    #[allow(dead_code)]
     pub async fn send_event(
         &self,
         event: PushEvent,
@@ -158,6 +208,18 @@ impl PushService {
         message: &str,
         level: PushLevel,
     ) -> HashMap<String, bool> {
+        self.send_event_detailed(event, title, message, level)
+            .await
+            .results
+    }
+
+    pub async fn send_event_detailed(
+        &self,
+        event: PushEvent,
+        title: &str,
+        message: &str,
+        level: PushLevel,
+    ) -> PushDeliveryReport {
         let enabled = match event {
             PushEvent::SubscriptionUpdated => self.settings.push_on_update,
             PushEvent::SubscriptionFailed => self.settings.push_on_failed,
@@ -166,10 +228,10 @@ impl PushService {
         };
 
         if !enabled {
-            return HashMap::new();
+            return PushDeliveryReport::default();
         }
 
-        self.send(title, message, level).await
+        self.send_detailed(title, message, level).await
     }
 
     /// 企业微信机器人
@@ -403,6 +465,28 @@ impl PushService {
     }
 }
 
+fn sanitize_push_error(value: &str) -> String {
+    let token_re = Regex::new(r"(?i)(token|key|sendkey|access_token)=([^&\s]+)").unwrap();
+    let bot_re = Regex::new(r"(?i)bot[0-9]+:[A-Za-z0-9_-]+").unwrap();
+    let serverchan_re = Regex::new(r"SCT[A-Za-z0-9]+").unwrap();
+
+    let sanitized = token_re.replace_all(value, "$1=***");
+    let sanitized = bot_re.replace_all(&sanitized, "bot***");
+    let sanitized = serverchan_re.replace_all(&sanitized, "SCT***");
+    let sanitized = sanitized.to_string();
+
+    const MAX_ERROR_LEN: usize = 300;
+    if sanitized.chars().count() > MAX_ERROR_LEN {
+        format!(
+            "{}...",
+            sanitized.chars().take(MAX_ERROR_LEN).collect::<String>()
+        )
+    } else {
+        sanitized
+    }
+}
+
+#[allow(dead_code)]
 pub async fn record_push_message(
     notification_store: &NotificationStore,
     source_event: &str,
@@ -410,6 +494,27 @@ pub async fn record_push_message(
     message: &str,
     level: PushLevel,
     results: &HashMap<String, bool>,
+) {
+    record_push_message_with_errors(
+        notification_store,
+        source_event,
+        title,
+        message,
+        level,
+        results,
+        &HashMap::new(),
+    )
+    .await;
+}
+
+pub async fn record_push_message_with_errors(
+    notification_store: &NotificationStore,
+    source_event: &str,
+    title: &str,
+    message: &str,
+    level: PushLevel,
+    results: &HashMap<String, bool>,
+    errors: &HashMap<String, String>,
 ) {
     if results.is_empty() {
         return;
@@ -435,6 +540,7 @@ pub async fn record_push_message(
             ("push_message".to_string(), json!(message)),
             ("push_level".to_string(), json!(level.as_str())),
             ("results".to_string(), json!(results)),
+            ("errors".to_string(), json!(errors)),
             ("success_count".to_string(), json!(success_count)),
             ("failed_count".to_string(), json!(failed_count)),
             (
@@ -477,6 +583,20 @@ mod tests {
         assert_eq!(channels.len(), 2);
         assert!(channels.contains(&"wecom".to_string()));
         assert!(channels.contains(&"telegram".to_string()));
+    }
+
+    #[test]
+    fn test_sanitize_push_error_masks_tokens() {
+        let error = "request failed: https://example.com/message?token=abc123&key=secret bot123456:ABC_def SCTabcdef";
+        let sanitized = sanitize_push_error(error);
+
+        assert!(sanitized.contains("token=***"));
+        assert!(sanitized.contains("key=***"));
+        assert!(sanitized.contains("bot***"));
+        assert!(sanitized.contains("SCT***"));
+        assert!(!sanitized.contains("abc123"));
+        assert!(!sanitized.contains("secret"));
+        assert!(!sanitized.contains("ABC_def"));
     }
 
     #[tokio::test]
@@ -522,6 +642,40 @@ mod tests {
         assert_eq!(notifications[0].level, "warning");
         assert_eq!(notifications[0].meta["success_count"], json!(1));
         assert_eq!(notifications[0].meta["failed_count"], json!(1));
+
+        let _ = std::fs::remove_file(tmp);
+    }
+
+    #[tokio::test]
+    async fn test_record_push_message_saves_sanitized_errors() {
+        let tmp = std::env::temp_dir().join(format!(
+            "my-media-sub-push-errors-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let store = NotificationStore::new(&tmp);
+        store.load().await.unwrap();
+
+        let results = HashMap::from([("gotify".to_string(), false)]);
+        let errors = HashMap::from([(
+            "gotify".to_string(),
+            sanitize_push_error("https://gotify.example/message?token=secret-token failed"),
+        )]);
+        record_push_message_with_errors(
+            &store,
+            "push_test",
+            "title",
+            "message",
+            PushLevel::Info,
+            &results,
+            &errors,
+        )
+        .await;
+
+        let notifications = store.list(true).await;
+        assert_eq!(
+            notifications[0].meta["errors"]["gotify"],
+            json!("https://gotify.example/message?token=*** failed")
+        );
 
         let _ = std::fs::remove_file(tmp);
     }

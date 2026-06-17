@@ -715,6 +715,11 @@
                         <span>成功: <span class="text-green-300" x-text="(notif.meta || {}).success_count || 0"></span></span>
                         <span>失败: <span class="text-red-300" x-text="(notif.meta || {}).failed_count || 0"></span></span>
                       </div>
+                      <div x-show="notificationPushErrors(notif).length > 0" class="mt-2 space-y-1 text-red-200">
+                        <template x-for="item in notificationPushErrors(notif)" :key="item.channel">
+                          <div><span x-text="pushChannelName(item.channel)"></span>: <span x-text="item.error"></span></div>
+                        </template>
+                      </div>
                     </div>
                     <span class="text-xs text-gray-500" x-text="formatTime(notif.created_at)"></span>
                   </div>
@@ -2043,6 +2048,13 @@
           return channels.join('、');
         },
 
+        notificationPushErrors(notif) {
+          const errors = (notif && notif.meta && notif.meta.errors) || {};
+          return Object.entries(errors)
+            .filter(([_, error]) => !!error)
+            .map(([channel, error]) => ({channel, error}));
+        },
+
         async loadJobs() {
           try {
             const response = await fetch('/api/jobs');
@@ -2451,7 +2463,8 @@
               } else if (enabledChannels.length === 0) {
                 this.showNotification('warning', '未配置任何推送渠道');
               } else if (channel) {
-                this.showNotification('error', `${this.pushChannelName(channel)} 推送测试失败`);
+                const error = (data.errors || {})[channel];
+                this.showNotification('error', error ? `${this.pushChannelName(channel)} 推送测试失败：${error}` : `${this.pushChannelName(channel)} 推送测试失败`);
               } else {
                 this.showNotification('error', `推送失败，${failedCount} 个渠道失败`);
               }

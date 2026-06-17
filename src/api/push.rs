@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::error::Result;
-use crate::services::push::{record_push_message, PushLevel, PushService};
+use crate::services::push::{record_push_message_with_errors, PushLevel, PushService};
 use crate::store::{NotificationStore, SettingsStore};
 
 /// 推送路由状态
@@ -38,6 +38,9 @@ struct PushTestResponse {
     /// 测试结果（渠道名 -> 是否成功）
     results: HashMap<String, bool>,
 
+    /// 失败原因（渠道名 -> 已脱敏错误）
+    errors: HashMap<String, String>,
+
     /// 成功数量
     success_count: usize,
 
@@ -63,12 +66,7 @@ async fn test_push(
     let test_channels: Vec<String> = if req.channels.is_empty() {
         enabled_channels.clone()
     } else {
-        // 只测试用户指定的渠道（且已启用）
-        req.channels
-            .iter()
-            .filter(|c| enabled_channels.contains(c))
-            .cloned()
-            .collect()
+        req.channels.clone()
     };
 
     // 准备测试消息
@@ -78,26 +76,28 @@ async fn test_push(
     });
 
     // 发送测试推送
-    let results = push_service
-        .send_to_channels(&test_channels, &title, &message, PushLevel::Info)
+    let report = push_service
+        .send_to_channels_detailed(&test_channels, &title, &message, PushLevel::Info)
         .await;
-    record_push_message(
+    record_push_message_with_errors(
         &state.notification_store,
         "push_test",
         &title,
         &message,
         PushLevel::Info,
-        &results,
+        &report.results,
+        &report.errors,
     )
     .await;
 
     // 统计结果
-    let success_count = results.values().filter(|&&v| v).count();
-    let failed_count = results.len() - success_count;
+    let success_count = report.results.values().filter(|&&v| v).count();
+    let failed_count = report.results.len() - success_count;
 
     Ok(Json(PushTestResponse {
         enabled_channels,
-        results,
+        results: report.results,
+        errors: report.errors,
         success_count,
         failed_count,
     }))
