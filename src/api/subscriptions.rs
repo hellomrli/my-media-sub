@@ -10,7 +10,10 @@ use std::sync::Arc;
 
 use crate::error::{AppError, Result};
 use crate::jobs::{JobQueue, MetadataScrapePayload};
-use crate::models::{MediaMetadata, Subscription};
+use crate::models::{MediaMetadata, Subscription, TransferRules};
+use crate::services::transfer_rule::{
+    build_transfer_plan, summarize_rules, ProbeFile as RuleProbeFile,
+};
 use crate::services::{SubscriptionCheckService, SubscriptionTransferService};
 use crate::store::{SettingsStore, SubscriptionStore};
 
@@ -44,6 +47,8 @@ pub struct CreateSubscriptionRequest {
     pub notify_only: bool,
     #[serde(default)]
     pub metadata: Option<MediaMetadata>,
+    #[serde(default)]
+    pub rules: Option<TransferRules>,
 }
 
 /// 更新订阅请求
@@ -52,15 +57,91 @@ pub struct UpdateSubscriptionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub season: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cloud_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notify_only: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_episode_number: Option<Option<i32>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Option<MediaMetadata>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rules: Option<TransferRules>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_dir: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rename_template: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ScrapeMetadataRequest {
     #[serde(default)]
     pub overwrite: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RenamePreviewRequest {
+    #[serde(default)]
+    pub subscription_id: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub password: Option<String>,
+    #[serde(default)]
+    pub media_type: Option<String>,
+    #[serde(default)]
+    pub season: Option<i32>,
+    #[serde(default)]
+    pub rules: Option<TransferRules>,
+    #[serde(default)]
+    pub target_dir: Option<String>,
+    #[serde(default)]
+    pub rename_template: Option<String>,
+    #[serde(default)]
+    pub sample_files: Vec<RenamePreviewFile>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RenamePreviewFile {
+    pub name: String,
+    #[serde(default)]
+    pub fid: String,
+    #[serde(default)]
+    pub is_dir: bool,
+}
+
+#[derive(Serialize)]
+struct RenamePreviewResponse {
+    summary: String,
+    target_dir: String,
+    transfer_count: usize,
+    skip_count: usize,
+    matched_count: usize,
+    current_episode_number: i32,
+    episodes: Vec<i32>,
+    items: Vec<RenamePreviewItem>,
+}
+
+#[derive(Serialize)]
+struct RenamePreviewItem {
+    source_name: String,
+    target_name: String,
+    action: String,
+    skip_reason: String,
+    episode: Option<i32>,
+    season: Option<i32>,
+    target_dir: String,
 }
 
 /// 通用响应
@@ -79,6 +160,137 @@ impl<T> Response<T> {
             message: None,
         }
     }
+}
+
+fn create_rules(req: &CreateSubscriptionRequest) -> TransferRules {
+    let mut rules = req.rules.clone().unwrap_or_default();
+    if !req.target_dir.trim().is_empty() {
+        rules.target_dir = req.target_dir.clone();
+    }
+    if !req.rename_template.trim().is_empty() {
+        rules.rename_template = req.rename_template.clone();
+    }
+    rules
+}
+
+fn preview_rules(req: &RenamePreviewRequest, base: Option<&Subscription>) -> TransferRules {
+    let mut rules = req
+        .rules
+        .clone()
+        .or_else(|| base.map(|sub| sub.rules.clone()))
+        .unwrap_or_default();
+    if let Some(target_dir) = &req.target_dir {
+        rules.target_dir = target_dir.clone();
+    }
+    if let Some(rename_template) = &req.rename_template {
+        rules.rename_template = rename_template.clone();
+    }
+    rules
+}
+
+fn preview_subscription(req: &RenamePreviewRequest, base: Option<&Subscription>) -> Subscription {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let rules = preview_rules(req, base);
+    let title = req
+        .title
+        .clone()
+        .or_else(|| base.map(|sub| sub.title.clone()))
+        .unwrap_or_else(|| "未命名".to_string());
+
+    Subscription {
+        id: base
+            .map(|sub| sub.id.clone())
+            .unwrap_or_else(|| "preview".to_string()),
+        title,
+        source_title: base.map(|sub| sub.source_title.clone()).unwrap_or_default(),
+        media_type: req
+            .media_type
+            .clone()
+            .or_else(|| base.map(|sub| sub.media_type.clone()))
+            .unwrap_or_else(|| "series".to_string()),
+        season: req
+            .season
+            .or_else(|| base.map(|sub| sub.season))
+            .filter(|season| *season > 0)
+            .unwrap_or(1),
+        current_episode_number: base.map(|sub| sub.current_episode_number).unwrap_or(0),
+        total_episode_number: base.and_then(|sub| sub.total_episode_number),
+        source_group: base.map(|sub| sub.source_group.clone()).unwrap_or_default(),
+        metadata: base.and_then(|sub| sub.metadata.clone()),
+        cloud_type: base
+            .map(|sub| sub.cloud_type.clone())
+            .unwrap_or_else(|| "quark".to_string()),
+        url: req
+            .url
+            .clone()
+            .or_else(|| base.map(|sub| sub.url.clone()))
+            .unwrap_or_default(),
+        password: req
+            .password
+            .clone()
+            .or_else(|| base.map(|sub| sub.password.clone()))
+            .unwrap_or_default(),
+        known_files: vec![],
+        known_file_keys: vec![],
+        known_episodes: vec![],
+        transferred_files: base
+            .map(|sub| sub.transferred_files.clone())
+            .unwrap_or_default(),
+        transferred_file_keys: base
+            .map(|sub| sub.transferred_file_keys.clone())
+            .unwrap_or_default(),
+        last_probe: base.and_then(|sub| sub.last_probe.clone()),
+        last_plan_summary: String::new(),
+        notify_only: base.map(|sub| sub.notify_only).unwrap_or(false),
+        enabled: true,
+        completed: false,
+        rules,
+        created_at: base.map(|sub| sub.created_at).unwrap_or(now),
+        updated_at: now,
+        last_checked_at: base.map(|sub| sub.last_checked_at).unwrap_or(now),
+        last_new_files: vec![],
+        last_new_episodes: vec![],
+        last_check_summary: String::new(),
+        check_history: vec![],
+        status: base
+            .map(|sub| sub.status.clone())
+            .unwrap_or_else(|| "active".to_string()),
+        invalid_since: None,
+        last_error: String::new(),
+        rule_summary: String::new(),
+    }
+}
+
+fn preview_files(req: &RenamePreviewRequest, sub: &Subscription) -> Vec<RuleProbeFile> {
+    if !req.sample_files.is_empty() {
+        return req
+            .sample_files
+            .iter()
+            .map(|file| RuleProbeFile {
+                name: file.name.clone(),
+                fid: file.fid.clone(),
+                is_dir: file.is_dir,
+            })
+            .collect();
+    }
+
+    sub.last_probe
+        .as_ref()
+        .map(|probe| {
+            probe
+                .files
+                .iter()
+                .map(|file| RuleProbeFile {
+                    name: file.name.clone(),
+                    fid: file.file_key.clone(),
+                    is_dir: false,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// 列出所有订阅
@@ -105,6 +317,8 @@ async fn create_subscription(
     State(state): State<Arc<SubscriptionState>>,
     Json(req): Json<CreateSubscriptionRequest>,
 ) -> Result<impl IntoResponse> {
+    let rules = create_rules(&req);
+    let rule_summary = summarize_rules(Some(&rules));
     let id = format!("{:x}", md5::compute(format!("{}:{}", req.url, req.title)));
     let id = &id[..12];
 
@@ -144,11 +358,7 @@ async fn create_subscription(
         notify_only: req.notify_only,
         enabled: true,
         completed: false,
-        rules: crate::models::rules::TransferRules {
-            target_dir: req.target_dir,
-            rename_template: req.rename_template,
-            ..Default::default()
-        },
+        rules,
         created_at: now,
         updated_at: now,
         last_checked_at: now,
@@ -159,7 +369,7 @@ async fn create_subscription(
         status: "active".to_string(),
         invalid_since: None,
         last_error: String::new(),
-        rule_summary: String::new(),
+        rule_summary,
     };
 
     let created = state.store.create(subscription).await?;
@@ -178,12 +388,45 @@ async fn update_subscription(
             if let Some(title) = req.title {
                 sub.title = title;
             }
+            if let Some(url) = req.url {
+                sub.url = url;
+            }
+            if let Some(password) = req.password {
+                sub.password = password;
+            }
+            if let Some(media_type) = req.media_type {
+                sub.media_type = media_type;
+            }
+            if let Some(season) = req.season {
+                if season > 0 {
+                    sub.season = season;
+                }
+            }
+            if let Some(cloud_type) = req.cloud_type {
+                sub.cloud_type = cloud_type;
+            }
             if let Some(enabled) = req.enabled {
                 sub.enabled = enabled;
             }
             if let Some(notify_only) = req.notify_only {
                 sub.notify_only = notify_only;
             }
+            if let Some(total_episode_number) = req.total_episode_number {
+                sub.total_episode_number = total_episode_number;
+            }
+            if let Some(metadata) = req.metadata {
+                sub.metadata = metadata;
+            }
+            if let Some(rules) = req.rules {
+                sub.rules = rules;
+            }
+            if let Some(target_dir) = req.target_dir {
+                sub.rules.target_dir = target_dir;
+            }
+            if let Some(rename_template) = req.rename_template {
+                sub.rules.rename_template = rename_template;
+            }
+            sub.rule_summary = summarize_rules(Some(&sub.rules));
             sub.updated_at = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -286,6 +529,52 @@ async fn scrape_subscription_metadata(
     Ok((StatusCode::ACCEPTED, Json(Response::ok(job))))
 }
 
+/// 预览订阅规则产生的重命名和转存计划
+async fn preview_subscription_rename(
+    State(state): State<Arc<SubscriptionState>>,
+    Json(req): Json<RenamePreviewRequest>,
+) -> Result<impl IntoResponse> {
+    let base = if let Some(id) = req.subscription_id.as_deref() {
+        Some(
+            state
+                .store
+                .get(id)
+                .await
+                .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?,
+        )
+    } else {
+        None
+    };
+    let base_ref = base.as_ref();
+    let sub = preview_subscription(&req, base_ref);
+    let files = preview_files(&req, &sub);
+    let plan = build_transfer_plan(&sub, Some(&files), None, None, None);
+    let items = plan
+        .items
+        .into_iter()
+        .map(|item| RenamePreviewItem {
+            source_name: item.source_name,
+            target_name: item.target_name,
+            action: item.action,
+            skip_reason: item.skip_reason,
+            episode: item.episode,
+            season: item.season,
+            target_dir: item.target_dir,
+        })
+        .collect();
+
+    Ok(Json(Response::ok(RenamePreviewResponse {
+        summary: plan.summary,
+        target_dir: plan.target_dir,
+        transfer_count: plan.transfer_count,
+        skip_count: plan.skip_count,
+        matched_count: plan.matched_count,
+        current_episode_number: plan.current_episode_number,
+        episodes: plan.episodes,
+        items,
+    })))
+}
+
 /// 检查所有订阅
 async fn check_all_subscriptions(
     State(state): State<Arc<SubscriptionState>>,
@@ -350,6 +639,10 @@ pub fn routes(
         .route("/api/subscriptions", get(list_subscriptions))
         .route("/api/subscriptions", post(create_subscription))
         .route("/api/subscriptions/check", post(check_all_subscriptions))
+        .route(
+            "/api/subscriptions/rename-preview",
+            post(preview_subscription_rename),
+        )
         .route(
             "/api/subscriptions/metadata/scrape",
             post(scrape_all_subscription_metadata),

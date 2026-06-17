@@ -7,8 +7,10 @@ use tracing::{info, warn};
 use crate::clients::quark::{QuarkFile, QuarkShareProbe};
 use crate::clients::quark_save::{NormalizedItem, QuarkSaveClient};
 use crate::error::{AppError, Result};
+use crate::models::rules::TransferRules;
 use crate::models::subscription::Subscription;
 use crate::services::notification::add_notification;
+use crate::services::transfer_rule::apply_rename;
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
 /// 递归收集目录下所有视频文件（独立函数，使用 Box 解决递归问题）
@@ -45,6 +47,10 @@ fn expected_video_names(file_names: &[String]) -> HashSet<String> {
         .filter(|name| crate::services::is_video_name(name))
         .cloned()
         .collect()
+}
+
+fn has_rename_rules(rules: &TransferRules) -> bool {
+    !rules.rename_template.trim().is_empty() || !rules.rename_regex.trim().is_empty()
 }
 
 fn filter_rename_candidates(
@@ -306,9 +312,9 @@ impl SubscriptionTransferService {
             .save_share_files(&pwd_id, &stoken, &fid_list, &fid_token_list, &target_fid)
             .await?;
 
-        // 9. 如果设置了重命名模板，执行重命名
-        if !sub.rules.rename_template.is_empty() {
-            info!("开始重命名文件，模板: {}", sub.rules.rename_template);
+        // 9. 如果设置了重命名规则，执行重命名
+        if has_rename_rules(&sub.rules) {
+            info!("开始按订阅规则重命名文件");
             self.rename_transferred_files(&save_client, &target_fid, &sub, Some(new_file_names))
                 .await?;
         }
@@ -365,35 +371,24 @@ impl SubscriptionTransferService {
 
         let mut renamed_count = 0;
 
-        // 按订阅模板重命名目标目录下能识别集数的视频文件。
+        // 按订阅规则重命名目标目录下的视频文件。
         for video_file in &rename_candidates {
-            // 提取集数
             let episode_info = detect_episode(&video_file.file_name);
-            if episode_info.episode.is_none() {
+            if sub.rules.rename_template.contains("{}") && episode_info.episode.is_none() {
                 info!("无法从 {} 提取集数，跳过重命名", video_file.file_name);
                 continue;
             }
 
-            let episode_num = episode_info.episode.unwrap();
-
-            // 生成新文件名
-            let new_name = if sub.rules.rename_template.contains("{}") {
-                // 模板格式: "动画名称.S01E{}"
-                let ext = std::path::Path::new(&video_file.file_name)
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("mkv");
-                format!(
-                    "{}.{}",
-                    sub.rules
-                        .rename_template
-                        .replace("{}", &format!("{:02}", episode_num)),
-                    ext
-                )
-            } else {
-                warn!("重命名模板格式不正确: {}", sub.rules.rename_template);
+            let (new_name, rename_error) = apply_rename(
+                &video_file.file_name,
+                &sub.rules,
+                Some(sub),
+                episode_info.episode,
+            );
+            if let Some(err) = rename_error {
+                warn!("生成重命名结果失败 {}: {}", video_file.file_name, err);
                 continue;
-            };
+            }
 
             // 如果新旧文件名相同，跳过
             if new_name == video_file.file_name {
@@ -431,8 +426,8 @@ impl SubscriptionTransferService {
             .await
             .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?;
 
-        if sub.rules.rename_template.trim().is_empty() {
-            return Err(AppError::Validation("订阅未配置重命名模板".to_string()));
+        if !has_rename_rules(&sub.rules) {
+            return Err(AppError::Validation("订阅未配置重命名规则".to_string()));
         }
 
         let settings = self.settings_store.get().await;

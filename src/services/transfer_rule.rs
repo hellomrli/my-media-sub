@@ -94,7 +94,7 @@ fn format_episode(episode: Option<i32>) -> String {
 }
 
 /// 应用重命名规则
-fn apply_rename(
+pub fn apply_rename(
     name: &str,
     rules: &TransferRules,
     subscription: Option<&Subscription>,

@@ -635,7 +635,7 @@
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5h16M7 12h10M10 19h4" /></svg>
                 批量刮削
               </button>
-              <button @click="showAddSubscription = true" class="btn-primary px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2">
+              <button @click="openBlankSubscriptionDialog()" class="btn-primary px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
                 添加订阅
               </button>
@@ -661,8 +661,15 @@
                   <div class="app-panel-soft p-3"><span class="block text-xs text-gray-500 mb-1">当前进度</span><span x-show="sub.current_episode_number > 0" x-text="'第 ' + sub.current_episode_number + ' 集'" class="text-green-300"></span><span x-show="!sub.current_episode_number || sub.current_episode_number <= 0">-</span></div>
                   <div class="app-panel-soft p-3"><span class="block text-xs text-gray-500 mb-1">最后检查</span><span x-text="new Date(sub.last_checked_at * 1000).toLocaleString()" class="text-gray-300 text-xs"></span></div>
                 </div>
+                <div class="mb-4 app-panel-soft p-3 text-sm">
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div class="min-w-0"><span class="block text-xs text-gray-500 mb-1">目标目录</span><span class="text-gray-300 break-all" x-text="(sub.rules && sub.rules.target_dir) || '-'"></span></div>
+                    <div class="min-w-0"><span class="block text-xs text-gray-500 mb-1">规则摘要</span><span class="text-gray-300 break-all" x-text="sub.rule_summary || ruleSummary(sub.rules)"></span></div>
+                  </div>
+                </div>
                 <div class="flex flex-wrap gap-2">
                   <button @click="checkSubscription(sub.id)" class="btn-primary flex-1 px-3 py-2 rounded transition-colors text-sm">立即检查</button>
+                  <button @click="openEditSubscriptionDialog(sub)" class="btn-secondary px-3 py-2 rounded transition-colors text-sm">编辑</button>
                   <button @click="renameExistingFiles(sub.id)" class="btn-secondary px-3 py-2 rounded transition-colors text-sm">修复命名</button>
                   <button @click="scrapeSubscriptionMetadata(sub.id)" class="btn-secondary px-3 py-2 rounded transition-colors text-sm">刮削元数据</button>
                   <button @click="deleteSubscription(sub.id)" class="btn-danger px-3 py-2 rounded transition-colors text-sm">删除</button>
@@ -1048,22 +1055,6 @@
     </main>
   </div>
 
-  <!-- 模态框：添加订阅 -->
-  <div x-show="showAddSubscription" @click.self="showAddSubscription = false" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel p-6 max-w-md w-full" @click.stop>
-      <h3 class="text-xl font-bold text-white mb-4">添加订阅</h3>
-      <div class="space-y-4">
-        <div><label class="field-label">名称</label><input type="text" x-model="newSubscription.name" placeholder="影片名称" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-500" /></div>
-        <div><label class="field-label">类型</label><select x-model="newSubscription.media_type" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white"><option value="series">连续剧</option><option value="movie">电影</option><option value="anime">动漫</option></select></div>
-        <div><label class="field-label">关键词（空格分隔）</label><input type="text" x-model="newSubscription.keywords" placeholder="龙珠 4K" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-500" /></div>
-      </div>
-      <div class="flex gap-3 mt-6">
-        <button @click="showAddSubscription = false" class="btn-secondary flex-1 px-4 py-2 rounded-lg transition-colors">取消</button>
-        <button @click="addSubscription()" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors">添加</button>
-      </div>
-    </div>
-  </div>
-
   <!-- 模态框：新建文件夹 -->
   <div x-show="showNewFolderModal" @click.self="showNewFolderModal = false" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
     <div class="app-panel p-6 max-w-md w-full" @click.stop>
@@ -1127,11 +1118,11 @@
 
   <!-- 订阅配置对话框 -->
   <div x-show="showSubscriptionDialog" @click.self="showSubscriptionDialog = false" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel p-6 max-w-2xl w-full max-h-[92vh] overflow-y-auto" @click.stop>
-      <h3 class="text-xl font-bold text-white mb-6">创建订阅</h3>
+    <div class="app-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop>
+      <h3 class="text-xl font-bold text-white mb-6" x-text="subscriptionEditingId ? '编辑订阅' : '创建订阅'"></h3>
 
       <!-- 订阅模式选择 -->
-      <div class="mb-6">
+      <div x-show="!subscriptionEditingId" class="mb-6">
         <label class="block text-sm font-medium text-gray-300 mb-3">订阅类型</label>
         <div class="grid grid-cols-2 gap-3">
           <button @click="subscriptionMode = 'once'" :class="subscriptionMode === 'once' ? 'bg-blue-600/20 border-blue-500' : 'bg-dark-hover border-dark-border hover:border-gray-500'" class="p-4 rounded-lg border transition-all text-left">
@@ -1150,6 +1141,16 @@
         <div>
           <label class="block text-sm font-medium text-gray-300 mb-2">订阅名称</label>
           <input type="text" x-model="newSubscription.title" @input="updateSubscriptionDefaults()" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="例如：风起洛阳 第二季" />
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-300 mb-2">分享链接</label>
+          <input type="text" x-model="newSubscription.url" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="粘贴夸克分享链接" />
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-300 mb-2">提取码</label>
+          <input type="text" x-model="newSubscription.password" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="没有可留空" />
         </div>
 
         <div x-show="metadataSearchAvailable()" class="app-panel-soft p-3 space-y-3">
@@ -1186,8 +1187,13 @@
           </div>
         </div>
 
+        <div>
+          <label class="block text-sm font-medium text-gray-300 mb-2">季号</label>
+          <input type="number" min="1" x-model="newSubscription.season" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+        </div>
+
         <!-- 持续追更模式的额外选项 -->
-        <div x-show="subscriptionMode === 'continuous'" class="space-y-4">
+        <div x-show="subscriptionMode === 'continuous' || subscriptionEditingId" class="space-y-4">
           <div>
             <label class="flex items-center justify-between text-sm font-medium text-gray-300 mb-2">
               <span>转存目录</span>
@@ -1222,7 +1228,76 @@
 
             <div x-show="newSubscription.custom_rename" class="space-y-2">
               <input type="text" x-model="newSubscription.rename_template" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="例如：风起洛阳.S01E{}" />
-              <p class="text-xs text-gray-500">{} 会被替换为集数，例如：风起洛阳.S01E{} → 风起洛阳.S01E01.mkv</p>
+              <p class="text-xs text-gray-500">支持 {}、{title}、{season}、{episode}、{episode_number}、{original}、{name}、{ext}。</p>
+            </div>
+          </div>
+
+          <details class="app-panel-soft p-4" open>
+            <summary class="cursor-pointer text-sm font-medium text-gray-300 hover:text-white">匹配过滤与高级重命名</summary>
+            <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="field-label">包含关键词</label>
+                <input type="text" x-model="newSubscription.include_keywords_text" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="多个用逗号或换行分隔" />
+              </div>
+              <div>
+                <label class="field-label">排除关键词</label>
+                <input type="text" x-model="newSubscription.exclude_keywords_text" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="预告, 花絮, trailer" />
+              </div>
+              <div>
+                <label class="field-label">匹配正则</label>
+                <input type="text" x-model="newSubscription.match_regex" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：S01E\\d+|第\\d+集" />
+              </div>
+              <div>
+                <label class="field-label">完成集数</label>
+                <input type="number" min="1" x-model="newSubscription.finish_after_episode" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：12" />
+              </div>
+              <div>
+                <label class="field-label">重命名正则</label>
+                <input type="text" x-model="newSubscription.rename_regex" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：^\\d+\\." />
+              </div>
+              <div>
+                <label class="field-label">替换文本</label>
+                <input type="text" x-model="newSubscription.rename_replacement" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：S01E$0" />
+              </div>
+            </div>
+            <div class="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-3">
+              <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="newSubscription.ignore_extensions" class="rounded" />忽略扩展名匹配</label>
+              <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="newSubscription.only_latest" class="rounded" />仅处理最新一集</label>
+              <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="newSubscription.skip_existing_transferred" class="rounded" />跳过已转存</label>
+              <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="newSubscription.auto_create_target_dir" class="rounded" />自动创建目录</label>
+            </div>
+          </details>
+
+          <div class="app-panel-soft p-4 space-y-3">
+            <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+              <div>
+                <div class="text-sm font-medium text-gray-300">重命名预览</div>
+                <div class="text-xs text-gray-500" x-text="renamePreview ? renamePreview.summary : '使用搜索嗅探文件、最近探测文件或下面的样例文件预览规则。'"></div>
+              </div>
+              <button @click="previewSubscriptionRename()" :disabled="renamePreviewLoading" class="btn-secondary px-3 py-2 rounded text-sm disabled:opacity-50">
+                <span x-show="!renamePreviewLoading">预览</span>
+                <span x-show="renamePreviewLoading">预览中</span>
+              </button>
+            </div>
+            <textarea x-model="newSubscription.preview_samples" rows="4" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="每行一个样例文件名，例如：&#10;第01集.mkv&#10;Show.S01E02.1080p.mkv"></textarea>
+            <div x-show="renamePreviewError" class="text-sm text-red-300" x-text="renamePreviewError"></div>
+            <div x-show="renamePreview && renamePreview.items && renamePreview.items.length > 0" class="border border-dark-border rounded-lg overflow-hidden">
+              <div class="grid grid-cols-12 gap-2 px-3 py-2 bg-dark-bg text-xs text-gray-500">
+                <div class="col-span-4">原文件名</div>
+                <div class="col-span-4">目标文件名</div>
+                <div class="col-span-2">集数</div>
+                <div class="col-span-2">结果</div>
+              </div>
+              <template x-for="item in renamePreview.items" :key="item.source_name + '-' + item.target_name">
+                <div class="grid grid-cols-12 gap-2 px-3 py-2 border-t border-dark-border text-xs">
+                  <div class="col-span-4 text-gray-300 break-all" x-text="item.source_name"></div>
+                  <div class="col-span-4 text-green-300 break-all" x-text="item.target_name"></div>
+                  <div class="col-span-2 text-gray-400" x-text="item.episode ? '第 ' + item.episode + ' 集' : '-'"></div>
+                  <div class="col-span-2">
+                    <span :class="item.action === 'transfer' ? 'text-green-300' : 'text-amber-300'" x-text="item.action === 'transfer' ? '会转存' : (item.skip_reason || '跳过')"></span>
+                  </div>
+                </div>
+              </template>
             </div>
           </div>
 
@@ -1237,7 +1312,7 @@
       <div class="flex gap-3">
         <button @click="showSubscriptionDialog = false" class="btn-secondary flex-1 px-4 py-2 rounded-lg transition-colors">取消</button>
         <button @click="confirmSubscription()" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors">
-          <span x-text="subscriptionMode === 'once' ? '立即转存' : '创建订阅'"></span>
+          <span x-text="subscriptionEditingId ? '保存订阅' : (subscriptionMode === 'once' ? '立即转存' : '创建订阅')"></span>
         </button>
       </div>
     </div>
@@ -1289,17 +1364,21 @@
 
         // 订阅
         subscriptions: [],
-        showAddSubscription: false,
         showSubscriptionDialog: false,
         subscriptionMode: 'once',  // 'once' 或 'continuous'
+        subscriptionEditingId: null,
         currentSearchResult: null,  // 当前操作的搜索结果
         metadataSearching: false,
         metadataResults: [],
+        renamePreviewLoading: false,
+        renamePreview: null,
+        renamePreviewError: '',
         newSubscription: {
           title: '',
           url: '',
           password: '',
           media_type: 'series',
+          season: 1,
           target_path: '',
           target_fid: '0',
           target_dir_name: '',
@@ -1307,7 +1386,18 @@
           custom_dir: false,
           custom_rename: false,
           notify_only: false,
-          metadata: null
+          metadata: null,
+          include_keywords_text: '',
+          exclude_keywords_text: '预告, 花絮, 解说, 彩蛋, trailer, preview',
+          match_regex: '',
+          ignore_extensions: false,
+          rename_regex: '',
+          rename_replacement: '',
+          only_latest: false,
+          skip_existing_transferred: true,
+          auto_create_target_dir: true,
+          finish_after_episode: '',
+          preview_samples: ''
         },
 
         // 通知
@@ -1567,8 +1657,55 @@
         },
 
         createSubscriptionFromSearch(result) {
-          this.newSubscription = {name: result.note, media_type: 'series', keywords: result.note};
-          this.showAddSubscription = true;
+          this.openSubscriptionDialog(result, 'continuous');
+        },
+
+        defaultExcludeKeywords() {
+          return '预告, 花絮, 解说, 彩蛋, trailer, preview';
+        },
+
+        resetSubscriptionForm() {
+          this.subscriptionEditingId = null;
+          this.subscriptionMode = 'continuous';
+          this.currentSearchResult = null;
+          this.renamePreview = null;
+          this.renamePreviewError = '';
+          this.newSubscription = {
+            title: '',
+            url: '',
+            password: '',
+            media_type: 'series',
+            season: 1,
+            target_path: '',
+            target_fid: '0',
+            target_dir_name: '',
+            rename_template: '',
+            custom_dir: false,
+            custom_rename: false,
+            notify_only: false,
+            metadata: null,
+            include_keywords_text: '',
+            exclude_keywords_text: this.defaultExcludeKeywords(),
+            match_regex: '',
+            ignore_extensions: false,
+            rename_regex: '',
+            rename_replacement: '',
+            only_latest: false,
+            skip_existing_transferred: true,
+            auto_create_target_dir: true,
+            finish_after_episode: '',
+            preview_samples: ''
+          };
+        },
+
+        openBlankSubscriptionDialog() {
+          this.resetSubscriptionForm();
+          this.showSubscriptionDialog = true;
+        },
+
+        sampleFilesFromSearchResult(result) {
+          const files = (result && result.probe_info && result.probe_info.files) || [];
+          return files.filter(file => !file.is_dir).map(file => file.name).join('\n');
         },
 
         // 打开订阅对话框（支持立即转存或连续订阅）
@@ -1579,12 +1716,16 @@
           }
 
           this.currentSearchResult = result;
+          this.subscriptionEditingId = null;
           this.subscriptionMode = mode;
+          this.renamePreview = null;
+          this.renamePreviewError = '';
           this.newSubscription = {
             title: result.note || result.url,
             url: result.url,
             password: result.password || '',
             media_type: 'series',
+            season: 1,
             target_path: '',
             target_fid: '0',
             target_dir_name: '',
@@ -1592,11 +1733,61 @@
             custom_dir: false,
             custom_rename: false,
             notify_only: false,
-            metadata: null
+            metadata: null,
+            include_keywords_text: '',
+            exclude_keywords_text: this.defaultExcludeKeywords(),
+            match_regex: '',
+            ignore_extensions: false,
+            rename_regex: '',
+            rename_replacement: '',
+            only_latest: false,
+            skip_existing_transferred: true,
+            auto_create_target_dir: true,
+            finish_after_episode: '',
+            preview_samples: this.sampleFilesFromSearchResult(result)
           };
           this.showSubscriptionDialog = true;
           this.metadataResults = [];
           this.searchMetadataForSubscription(true);
+          if (this.newSubscription.preview_samples) this.previewSubscriptionRename(true);
+        },
+
+        openEditSubscriptionDialog(sub) {
+          const rules = sub.rules || {};
+          this.subscriptionEditingId = sub.id;
+          this.subscriptionMode = 'continuous';
+          this.currentSearchResult = null;
+          this.renamePreview = null;
+          this.renamePreviewError = '';
+          this.newSubscription = {
+            title: sub.title || '',
+            url: sub.url || '',
+            password: sub.password || '',
+            media_type: sub.media_type || 'series',
+            season: sub.season || 1,
+            target_path: '',
+            target_fid: '0',
+            target_dir_name: rules.target_dir || '',
+            rename_template: rules.rename_template || '',
+            custom_dir: !!rules.target_dir,
+            custom_rename: !!rules.rename_template,
+            notify_only: !!sub.notify_only,
+            metadata: sub.metadata || null,
+            include_keywords_text: (rules.include_keywords || []).join(', '),
+            exclude_keywords_text: (rules.exclude_keywords || []).join(', ') || this.defaultExcludeKeywords(),
+            match_regex: rules.match_regex || '',
+            ignore_extensions: !!rules.ignore_extensions,
+            rename_regex: rules.rename_regex || '',
+            rename_replacement: rules.rename_replacement || '',
+            only_latest: !!rules.only_latest,
+            skip_existing_transferred: rules.skip_existing_transferred !== false,
+            auto_create_target_dir: rules.auto_create_target_dir !== false,
+            finish_after_episode: rules.finish_after_episode || '',
+            preview_samples: ((sub.last_probe && sub.last_probe.files) || []).map(file => file.name).join('\n')
+          };
+          this.showSubscriptionDialog = true;
+          this.metadataResults = [];
+          this.previewSubscriptionRename(true);
         },
 
         // 显示订阅对话框（兼容旧版）
@@ -1706,6 +1897,112 @@
           return `${title}.S01E{}`;
         },
 
+        splitRuleWords(value) {
+          return String(value || '')
+            .split(/[,\n]/)
+            .map(item => item.trim())
+            .filter(Boolean);
+        },
+
+        resolveSubscriptionTargetDir() {
+          if (this.newSubscription.custom_dir) {
+            const baseDir = {
+              'movie': this.settings.quark_save_movie_dir || '/NAS/电影',
+              'series': this.settings.quark_save_series_dir || '/NAS/连续剧',
+              'anime': this.settings.quark_save_anime_dir || '/NAS/动画'
+            }[this.newSubscription.media_type] || '/NAS';
+            const dirName = this.newSubscription.target_dir_name.trim() || this.newSubscription.title || '未命名';
+            if (dirName.startsWith('/')) return dirName;
+            return `${baseDir}/${dirName}`;
+          }
+          return this.getDefaultTargetDir();
+        },
+
+        resolveSubscriptionRenameTemplate() {
+          return this.newSubscription.custom_rename
+            ? this.newSubscription.rename_template.trim()
+            : this.getDefaultRenameTemplate();
+        },
+
+        buildSubscriptionRules() {
+          const finish = Number(this.newSubscription.finish_after_episode || 0);
+          return {
+            target_dir: this.resolveSubscriptionTargetDir(),
+            auto_create_target_dir: !!this.newSubscription.auto_create_target_dir,
+            skip_existing_transferred: !!this.newSubscription.skip_existing_transferred,
+            include_keywords: this.splitRuleWords(this.newSubscription.include_keywords_text),
+            exclude_keywords: this.splitRuleWords(this.newSubscription.exclude_keywords_text),
+            match_regex: this.newSubscription.match_regex.trim(),
+            ignore_extensions: !!this.newSubscription.ignore_extensions,
+            rename_regex: this.newSubscription.rename_regex.trim(),
+            rename_replacement: this.newSubscription.rename_replacement,
+            rename_template: this.resolveSubscriptionRenameTemplate(),
+            only_latest: !!this.newSubscription.only_latest,
+            notify_on_update: true,
+            notify_on_invalid: true,
+            check_interval_minutes: Number(this.settings.subscription_check_interval_minutes || 60),
+            check_weekdays: [],
+            finish_after_episode: finish > 0 ? finish : null
+          };
+        },
+
+        ruleSummary(rules) {
+          if (!rules) return '默认规则';
+          const parts = [];
+          if (rules.target_dir) parts.push(`目录 ${rules.target_dir}`);
+          if (rules.match_regex) parts.push(`正则 ${rules.match_regex}`);
+          if (rules.include_keywords && rules.include_keywords.length) parts.push(`包含 ${rules.include_keywords.join('/')}`);
+          if (rules.exclude_keywords && rules.exclude_keywords.length) parts.push(`排除 ${rules.exclude_keywords.slice(0, 4).join('/')}`);
+          if (rules.rename_template) parts.push(`模板 ${rules.rename_template}`);
+          if (rules.rename_regex) parts.push(`替换 ${rules.rename_regex}→${rules.rename_replacement || ''}`);
+          if (rules.only_latest) parts.push('仅最新');
+          if (rules.skip_existing_transferred !== false) parts.push('跳过已转存');
+          return parts.length ? parts.join('；') : '默认规则';
+        },
+
+        previewSampleFiles() {
+          return String(this.newSubscription.preview_samples || '')
+            .split('\n')
+            .map(name => name.trim())
+            .filter(Boolean)
+            .map(name => ({name, is_dir: false}));
+        },
+
+        async previewSubscriptionRename(silent = false) {
+          this.renamePreviewLoading = true;
+          this.renamePreviewError = '';
+          try {
+            const response = await fetch('/api/subscriptions/rename-preview', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({
+                subscription_id: this.subscriptionEditingId,
+                title: this.newSubscription.title,
+                url: this.newSubscription.url,
+                password: this.newSubscription.password,
+                media_type: this.newSubscription.media_type,
+                season: Number(this.newSubscription.season || 1),
+                rules: this.buildSubscriptionRules(),
+                sample_files: this.previewSampleFiles()
+              })
+            });
+            const result = await response.json().catch(() => ({}));
+            if (response.ok && result.data) {
+              this.renamePreview = result.data;
+            } else {
+              this.renamePreview = null;
+              this.renamePreviewError = result.message || '预览失败';
+              if (!silent) this.showNotification('error', this.renamePreviewError);
+            }
+          } catch (error) {
+            this.renamePreview = null;
+            this.renamePreviewError = '预览失败: ' + error.message;
+            if (!silent) this.showNotification('error', this.renamePreviewError);
+          } finally {
+            this.renamePreviewLoading = false;
+          }
+        },
+
         // 为订阅选择快速目录
         async selectQuickDirForSub(dirType) {
           const dirMap = {
@@ -1754,6 +2051,11 @@
             return;
           }
 
+          if (this.subscriptionEditingId) {
+            await this.updateSubscription();
+            return;
+          }
+
           if (this.subscriptionMode === 'once') {
             // 仅转存一次
             await this.doOneTimeTransfer();
@@ -1796,32 +2098,7 @@
         // 创建持续订阅
         async createContinuousSubscription() {
           try {
-            // 计算最终的目标目录和重命名模板
-            let finalTargetDir = '';
-            let finalRenameTemplate = '';
-
-            if (this.newSubscription.custom_dir) {
-              // 使用自定义目录名称
-              const baseDir = {
-                'movie': this.settings.quark_save_movie_dir || '/NAS/电影',
-                'series': this.settings.quark_save_series_dir || '/NAS/连续剧',
-                'anime': this.settings.quark_save_anime_dir || '/NAS/动画'
-              }[this.newSubscription.media_type] || '/NAS';
-
-              const dirName = this.newSubscription.target_dir_name.trim() || this.newSubscription.title;
-              finalTargetDir = `${baseDir}/${dirName}`;
-            } else {
-              // 使用默认目录（基于订阅名称）
-              finalTargetDir = this.getDefaultTargetDir();
-            }
-
-            if (this.newSubscription.custom_rename) {
-              // 使用自定义重命名模板
-              finalRenameTemplate = this.newSubscription.rename_template.trim();
-            } else {
-              // 使用默认重命名模板
-              finalRenameTemplate = this.getDefaultRenameTemplate();
-            }
+            const rules = this.buildSubscriptionRules();
 
             const response = await fetch('/api/subscriptions', {
               method: 'POST',
@@ -1831,11 +2108,13 @@
                 url: this.newSubscription.url,
                 password: this.newSubscription.password,
                 media_type: this.newSubscription.media_type,
-                target_dir: finalTargetDir,
+                season: Number(this.newSubscription.season || 1),
+                target_dir: rules.target_dir,
                 target_fid: '0',
-                rename_template: finalRenameTemplate,
+                rename_template: rules.rename_template,
                 notify_only: this.newSubscription.notify_only,
-                metadata: this.newSubscription.metadata
+                metadata: this.newSubscription.metadata,
+                rules
               })
             });
 
@@ -1856,6 +2135,40 @@
           } catch (error) {
             console.error('创建订阅失败:', error);
             this.showNotification('error', '创建订阅失败');
+          }
+        },
+
+        async updateSubscription() {
+          try {
+            const rules = this.buildSubscriptionRules();
+            const response = await fetch(`/api/subscriptions/${this.subscriptionEditingId}`, {
+              method: 'PUT',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({
+                title: this.newSubscription.title,
+                url: this.newSubscription.url,
+                password: this.newSubscription.password,
+                media_type: this.newSubscription.media_type,
+                season: Number(this.newSubscription.season || 1),
+                notify_only: this.newSubscription.notify_only,
+                metadata: this.newSubscription.metadata,
+                rules,
+                target_dir: rules.target_dir,
+                rename_template: rules.rename_template
+              })
+            });
+            const result = await response.json().catch(() => ({}));
+            if (response.ok && result.data) {
+              this.showNotification('success', '订阅已保存');
+              this.showSubscriptionDialog = false;
+              this.subscriptionEditingId = null;
+              await this.loadSubscriptions();
+            } else {
+              this.showNotification('error', result.message || '保存订阅失败');
+            }
+          } catch (error) {
+            console.error('保存订阅失败:', error);
+            this.showNotification('error', '保存订阅失败');
           }
         },
 
@@ -2095,35 +2408,6 @@
           }
         },
 
-        async addSubscription() {
-          if (!this.newSubscription.name.trim()) {
-            this.showNotification('error', '请输入订阅名称');
-            return;
-          }
-          try {
-            const keywords = this.newSubscription.keywords.trim().split(/\s+/);
-            const response = await fetch('/api/subscriptions', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({
-                name: this.newSubscription.name,
-                media_type: this.newSubscription.media_type,
-                keywords: keywords,
-                status: 'active'
-              })
-            });
-            if (response.ok) {
-              this.showNotification('success', '订阅添加成功');
-              this.showAddSubscription = false;
-              this.newSubscription = {name: '', media_type: 'series', keywords: ''};
-              await this.loadSubscriptions();
-            }
-          } catch (error) {
-            console.error('添加订阅失败:', error);
-            this.showNotification('error', '添加失败');
-          }
-        },
-
         async deleteSubscription(id) {
           if (!confirm('确定删除？')) return;
           try {
@@ -2138,8 +2422,7 @@
         },
 
         editSubscription(sub) {
-          this.newSubscription = {name: sub.name, media_type: sub.media_type, keywords: sub.keywords.join(' ')};
-          this.showAddSubscription = true;
+          this.openEditSubscriptionDialog(sub);
         },
 
         // ===== 通知 =====
