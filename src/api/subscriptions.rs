@@ -214,8 +214,8 @@ fn preview_subscription(req: &RenamePreviewRequest, base: Option<&Subscription>)
         season: req
             .season
             .or_else(|| base.map(|sub| sub.season))
-            .filter(|season| *season > 0)
-            .unwrap_or(1),
+            .filter(|season| *season >= 0)
+            .unwrap_or(0),
         current_episode_number: base.map(|sub| sub.current_episode_number).unwrap_or(0),
         total_episode_number: base.and_then(|sub| sub.total_episode_number),
         source_group: base.map(|sub| sub.source_group.clone()).unwrap_or_default(),
@@ -336,7 +336,7 @@ async fn create_subscription(
         } else {
             req.media_type
         },
-        season: if req.season > 0 { req.season } else { 1 },
+        season: req.season.max(0),
         current_episode_number: 0,
         total_episode_number: None,
         source_group: String::new(),
