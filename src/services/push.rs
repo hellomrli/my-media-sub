@@ -5,7 +5,9 @@ use regex::Regex;
 use reqwest::Client;
 use serde_json::json;
 use std::collections::HashMap;
+use std::future::Future;
 use std::time::Duration;
+use tokio::time::sleep;
 
 /// 推送级别
 #[allow(dead_code)]
@@ -61,6 +63,47 @@ impl PushEvent {
 pub struct PushDeliveryReport {
     pub results: HashMap<String, bool>,
     pub errors: HashMap<String, String>,
+    pub attempts: HashMap<String, usize>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PushRetryPolicy {
+    pub max_attempts: usize,
+    pub initial_delay: Duration,
+    pub max_delay: Duration,
+}
+
+impl PushRetryPolicy {
+    pub fn single_attempt() -> Self {
+        Self {
+            max_attempts: 1,
+            initial_delay: Duration::ZERO,
+            max_delay: Duration::ZERO,
+        }
+    }
+
+    pub fn background_default() -> Self {
+        Self {
+            max_attempts: 3,
+            initial_delay: Duration::from_secs(2),
+            max_delay: Duration::from_secs(10),
+        }
+    }
+
+    fn attempts(&self) -> usize {
+        self.max_attempts.max(1)
+    }
+
+    fn delay_for_retry(&self, retry_index: u32) -> Duration {
+        if self.initial_delay.is_zero() {
+            return Duration::ZERO;
+        }
+
+        let multiplier = 2_u32.saturating_pow(retry_index);
+        self.initial_delay
+            .saturating_mul(multiplier)
+            .min(self.max_delay)
+    }
 }
 
 /// 推送服务
@@ -153,6 +196,24 @@ impl PushService {
         message: &str,
         level: PushLevel,
     ) -> PushDeliveryReport {
+        self.send_to_channels_with_retry_detailed(
+            channels,
+            title,
+            message,
+            level,
+            PushRetryPolicy::single_attempt(),
+        )
+        .await
+    }
+
+    pub async fn send_to_channels_with_retry_detailed(
+        &self,
+        channels: &[String],
+        title: &str,
+        message: &str,
+        level: PushLevel,
+        retry_policy: PushRetryPolicy,
+    ) -> PushDeliveryReport {
         let enabled_channels = self.enabled_channels();
         let mut report = PushDeliveryReport::default();
         for channel in channels {
@@ -161,38 +222,24 @@ impl PushService {
                 report
                     .errors
                     .insert(channel.clone(), "渠道未配置或未启用".to_string());
+                report.attempts.insert(channel.clone(), 0);
                 continue;
             }
 
-            let result = match channel.as_str() {
-                "wecom" => self.send_wecom(title, message, level).await,
-                "wxpusher" => self.send_wxpusher(title, message).await,
-                "telegram" => {
-                    self.send_telegram(title, message, level, self.settings.push_silent)
-                        .await
-                }
-                "bark" => self.send_bark(title, message, level).await,
-                "gotify" => self.send_gotify(title, message, level).await,
-                "pushplus" => self.send_pushplus(title, message).await,
-                "serverchan" => self.send_serverchan(title, message).await,
-                _ => Ok(false),
-            };
+            let (success, attempts, last_error) = send_with_retry(retry_policy, || {
+                self.send_channel(channel, title, message, level)
+            })
+            .await;
 
-            match result {
-                Ok(success) => {
-                    report.results.insert(channel.clone(), success);
-                    if !success {
-                        report
-                            .errors
-                            .insert(channel.clone(), "渠道返回失败状态".to_string());
-                    }
-                }
-                Err(e) => {
-                    report.results.insert(channel.clone(), false);
-                    report
-                        .errors
-                        .insert(channel.clone(), sanitize_push_error(&e.to_string()));
-                }
+            report.results.insert(channel.clone(), success);
+            report.attempts.insert(channel.clone(), attempts);
+            if !success {
+                let error = if attempts > 1 {
+                    format!("尝试 {} 次后失败: {}", attempts, last_error)
+                } else {
+                    last_error
+                };
+                report.errors.insert(channel.clone(), error);
             }
         }
 
@@ -232,6 +279,52 @@ impl PushService {
         }
 
         self.send_detailed(title, message, level).await
+    }
+
+    pub async fn send_event_with_retry_detailed(
+        &self,
+        event: PushEvent,
+        title: &str,
+        message: &str,
+        level: PushLevel,
+        retry_policy: PushRetryPolicy,
+    ) -> PushDeliveryReport {
+        let enabled = match event {
+            PushEvent::SubscriptionUpdated => self.settings.push_on_update,
+            PushEvent::SubscriptionFailed => self.settings.push_on_failed,
+            PushEvent::SubscriptionCompleted => self.settings.push_on_completed,
+            PushEvent::TransferSaved => self.settings.push_on_save,
+        };
+
+        if !enabled {
+            return PushDeliveryReport::default();
+        }
+
+        let channels = self.enabled_channels();
+        self.send_to_channels_with_retry_detailed(&channels, title, message, level, retry_policy)
+            .await
+    }
+
+    async fn send_channel(
+        &self,
+        channel: &str,
+        title: &str,
+        message: &str,
+        level: PushLevel,
+    ) -> Result<bool> {
+        match channel {
+            "wecom" => self.send_wecom(title, message, level).await,
+            "wxpusher" => self.send_wxpusher(title, message).await,
+            "telegram" => {
+                self.send_telegram(title, message, level, self.settings.push_silent)
+                    .await
+            }
+            "bark" => self.send_bark(title, message, level).await,
+            "gotify" => self.send_gotify(title, message, level).await,
+            "pushplus" => self.send_pushplus(title, message).await,
+            "serverchan" => self.send_serverchan(title, message).await,
+            _ => Ok(false),
+        }
     }
 
     /// 企业微信机器人
@@ -465,6 +558,41 @@ impl PushService {
     }
 }
 
+async fn send_with_retry<F, Fut>(
+    retry_policy: PushRetryPolicy,
+    mut send_attempt: F,
+) -> (bool, usize, String)
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<bool>>,
+{
+    let max_attempts = retry_policy.attempts();
+    let mut attempts = 0;
+    let mut last_error = "渠道返回失败状态".to_string();
+
+    for attempt_index in 0..max_attempts {
+        attempts += 1;
+        match send_attempt().await {
+            Ok(true) => return (true, attempts, last_error),
+            Ok(false) => {
+                last_error = "渠道返回失败状态".to_string();
+            }
+            Err(e) => {
+                last_error = sanitize_push_error(&e.to_string());
+            }
+        }
+
+        if attempt_index + 1 < max_attempts {
+            let delay = retry_policy.delay_for_retry(attempt_index as u32);
+            if !delay.is_zero() {
+                sleep(delay).await;
+            }
+        }
+    }
+
+    (false, attempts, last_error)
+}
+
 fn sanitize_push_error(value: &str) -> String {
     let token_re = Regex::new(r"(?i)(token|key|sendkey|access_token)=([^&\s]+)").unwrap();
     let bot_re = Regex::new(r"(?i)bot[0-9]+:[A-Za-z0-9_-]+").unwrap();
@@ -516,6 +644,33 @@ pub async fn record_push_message_with_errors(
     results: &HashMap<String, bool>,
     errors: &HashMap<String, String>,
 ) {
+    let report = PushDeliveryReport {
+        results: results.clone(),
+        errors: errors.clone(),
+        attempts: HashMap::new(),
+    };
+    record_push_message_report(
+        notification_store,
+        source_event,
+        title,
+        message,
+        level,
+        &report,
+    )
+    .await;
+}
+
+pub async fn record_push_message_report(
+    notification_store: &NotificationStore,
+    source_event: &str,
+    title: &str,
+    message: &str,
+    level: PushLevel,
+    report: &PushDeliveryReport,
+) {
+    let results = &report.results;
+    let errors = &report.errors;
+
     if results.is_empty() {
         return;
     }
@@ -541,6 +696,7 @@ pub async fn record_push_message_with_errors(
             ("push_level".to_string(), json!(level.as_str())),
             ("results".to_string(), json!(results)),
             ("errors".to_string(), json!(errors)),
+            ("attempts".to_string(), json!(report.attempts)),
             ("success_count".to_string(), json!(success_count)),
             ("failed_count".to_string(), json!(failed_count)),
             (
@@ -583,6 +739,49 @@ mod tests {
         assert_eq!(channels.len(), 2);
         assert!(channels.contains(&"wecom".to_string()));
         assert!(channels.contains(&"telegram".to_string()));
+    }
+
+    #[test]
+    fn test_retry_policy_uses_exponential_backoff_with_cap() {
+        let policy = PushRetryPolicy {
+            max_attempts: 0,
+            initial_delay: Duration::from_secs(2),
+            max_delay: Duration::from_secs(5),
+        };
+
+        assert_eq!(policy.attempts(), 1);
+        assert_eq!(policy.delay_for_retry(0), Duration::from_secs(2));
+        assert_eq!(policy.delay_for_retry(1), Duration::from_secs(4));
+        assert_eq!(policy.delay_for_retry(2), Duration::from_secs(5));
+    }
+
+    #[tokio::test]
+    async fn test_send_to_channels_retries_until_success() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let attempts_for_send = attempts.clone();
+        let (success, attempt_count, last_error) = send_with_retry(
+            PushRetryPolicy {
+                max_attempts: 3,
+                initial_delay: Duration::ZERO,
+                max_delay: Duration::ZERO,
+            },
+            move || {
+                let attempts_for_send = attempts_for_send.clone();
+                async move {
+                    let attempt = attempts_for_send.fetch_add(1, Ordering::SeqCst) + 1;
+                    Ok::<bool, AppError>(attempt == 3)
+                }
+            },
+        )
+        .await;
+
+        assert!(success);
+        assert_eq!(attempt_count, 3);
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+        assert_eq!(last_error, "渠道返回失败状态");
     }
 
     #[test]
@@ -642,6 +841,41 @@ mod tests {
         assert_eq!(notifications[0].level, "warning");
         assert_eq!(notifications[0].meta["success_count"], json!(1));
         assert_eq!(notifications[0].meta["failed_count"], json!(1));
+
+        let _ = std::fs::remove_file(tmp);
+    }
+
+    #[tokio::test]
+    async fn test_record_push_message_saves_attempts() {
+        let tmp = std::env::temp_dir().join(format!(
+            "my-media-sub-push-attempts-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let store = NotificationStore::new(&tmp);
+        store.load().await.unwrap();
+
+        let report = PushDeliveryReport {
+            results: HashMap::from([("telegram".to_string(), false)]),
+            errors: HashMap::from([("telegram".to_string(), "尝试 3 次后失败".to_string())]),
+            attempts: HashMap::from([("telegram".to_string(), 3)]),
+        };
+
+        record_push_message_report(
+            &store,
+            "subscription_updated",
+            "title",
+            "message",
+            PushLevel::Info,
+            &report,
+        )
+        .await;
+
+        let notifications = store.list(true).await;
+        assert_eq!(notifications[0].meta["attempts"]["telegram"], json!(3));
+        assert_eq!(
+            notifications[0].meta["errors"]["telegram"],
+            json!("尝试 3 次后失败")
+        );
 
         let _ = std::fs::remove_file(tmp);
     }
