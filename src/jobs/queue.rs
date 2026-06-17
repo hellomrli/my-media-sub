@@ -83,13 +83,12 @@ impl JobQueue {
     pub async fn cancel(&self, id: &str) -> Result<Job> {
         self.store
             .try_update(id, |job| {
-                if job.status != JobStatus::Queued {
+                if !matches!(job.status, JobStatus::Queued | JobStatus::Running) {
                     return Err(AppError::Validation(match job.status {
-                        JobStatus::Running => "运行中的任务暂不支持取消".to_string(),
                         JobStatus::Succeeded => "已成功的任务不能取消".to_string(),
                         JobStatus::Failed => "已失败的任务不能取消，可选择重试".to_string(),
                         JobStatus::Canceled => "任务已经取消".to_string(),
-                        JobStatus::Queued => unreachable!(),
+                        JobStatus::Queued | JobStatus::Running => unreachable!(),
                     }));
                 }
 
@@ -219,4 +218,55 @@ async fn mark_queue_unavailable(store: &JobStore, id: &str) -> Result<()> {
         })
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use tokio::sync::mpsc;
+
+    use super::*;
+
+    fn test_job(id: &str, status: JobStatus) -> Job {
+        Job {
+            id: id.to_string(),
+            kind: JobKind::MetadataScrape,
+            status,
+            progress: 30,
+            title: "测试任务".to_string(),
+            message: "running".to_string(),
+            payload: json!({"overwrite": false}),
+            result: None,
+            error: None,
+            created_at: 1,
+            updated_at: 1,
+            started_at: Some(1),
+            finished_at: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn cancel_allows_running_jobs() {
+        let tmp = std::env::temp_dir().join(format!(
+            "my-media-sub-job-cancel-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let store = Arc::new(JobStore::new(&tmp));
+        store.load().await.unwrap();
+        store
+            .add(test_job("running", JobStatus::Running))
+            .await
+            .unwrap();
+        let (sender, _receiver) = mpsc::channel(1);
+        let queue = JobQueue { store, sender };
+
+        let canceled = queue.cancel("running").await.unwrap();
+
+        assert_eq!(canceled.status, JobStatus::Canceled);
+        assert_eq!(canceled.progress, 100);
+        assert!(canceled.finished_at.is_some());
+        let _ = std::fs::remove_file(tmp);
+    }
 }

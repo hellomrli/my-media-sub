@@ -13,7 +13,7 @@ use crate::services::{MetadataService, SubscriptionTransferService};
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
 use super::model::{
-    now, JobKind, JobStatus, ManualTransferPayload, MetadataScrapePayload,
+    now, Job, JobKind, JobStatus, ManualTransferPayload, MetadataScrapePayload,
     SubscriptionTransferPayload,
 };
 use super::store::JobStore;
@@ -33,7 +33,11 @@ impl JobWorker {
         info!("后台任务 worker 已启动");
         while let Some(job_id) = self.receiver.recv().await {
             if let Err(e) = self.run_job(&job_id).await {
-                error!("任务 {} 执行失败: {}", job_id, e);
+                if self.is_canceled(&job_id).await {
+                    info!("任务 {} 已取消", job_id);
+                } else {
+                    error!("任务 {} 执行失败: {}", job_id, e);
+                }
             }
         }
         warn!("后台任务 worker 已停止");
@@ -105,6 +109,10 @@ impl JobWorker {
         let mut failed = 0usize;
 
         for (index, sub) in subscriptions.iter().enumerate() {
+            if self.is_canceled(job_id).await {
+                return Ok(());
+            }
+
             if sub.metadata.is_some() && !payload.overwrite {
                 skipped += 1;
                 self.update_metadata_progress(job_id, index + 1, total, "已有元数据，已跳过")
@@ -112,7 +120,12 @@ impl JobWorker {
                 continue;
             }
 
-            match self.scrape_subscription_metadata(sub).await {
+            let scrape_result = self.scrape_subscription_metadata(sub).await;
+            if self.is_canceled(job_id).await {
+                return Ok(());
+            }
+
+            match scrape_result {
                 Ok(Some(metadata)) => {
                     self.apply_subscription_metadata(&sub.id, metadata).await?;
                     scraped += 1;
@@ -137,31 +150,33 @@ impl JobWorker {
             "元数据刮削完成：写入 {} 个，跳过 {} 个，未匹配/失败 {} 个",
             scraped, skipped, failed
         );
-        self.finish_metadata_scrape(job_id, scraped, skipped, failed, &message)
-            .await?;
-
-        self.add_transfer_notification(
-            if failed > 0 && scraped == 0 {
-                "warning"
-            } else {
-                "success"
-            },
-            "metadata_scrape_completed",
-            "订阅元数据刮削完成",
-            &message,
-            HashMap::from([
-                ("mode".to_string(), json!("metadata")),
-                ("job_id".to_string(), json!(job_id)),
-                (
-                    "subscription_id".to_string(),
-                    json!(payload.subscription_id.unwrap_or_default()),
-                ),
-                ("scraped_count".to_string(), json!(scraped)),
-                ("skipped_count".to_string(), json!(skipped)),
-                ("failed_count".to_string(), json!(failed)),
-            ]),
-        )
-        .await;
+        if self
+            .finish_metadata_scrape(job_id, scraped, skipped, failed, &message)
+            .await?
+        {
+            self.add_transfer_notification(
+                if failed > 0 && scraped == 0 {
+                    "warning"
+                } else {
+                    "success"
+                },
+                "metadata_scrape_completed",
+                "订阅元数据刮削完成",
+                &message,
+                HashMap::from([
+                    ("mode".to_string(), json!("metadata")),
+                    ("job_id".to_string(), json!(job_id)),
+                    (
+                        "subscription_id".to_string(),
+                        json!(payload.subscription_id.unwrap_or_default()),
+                    ),
+                    ("scraped_count".to_string(), json!(scraped)),
+                    ("skipped_count".to_string(), json!(skipped)),
+                    ("failed_count".to_string(), json!(failed)),
+                ]),
+            )
+            .await;
+        }
 
         Ok(())
     }
@@ -223,21 +238,19 @@ impl JobWorker {
         skipped: usize,
         failed: usize,
         message: &str,
-    ) -> Result<()> {
-        self.store
-            .update(job_id, |job| {
-                job.status = JobStatus::Succeeded;
-                job.progress = 100;
-                job.message = message.to_string();
-                job.result = Some(json!({
-                    "scraped_count": scraped,
-                    "skipped_count": skipped,
-                    "failed_count": failed,
-                }));
-                job.finished_at = Some(now());
-            })
-            .await?;
-        Ok(())
+    ) -> Result<bool> {
+        self.complete_if_active(job_id, |job| {
+            job.status = JobStatus::Succeeded;
+            job.progress = 100;
+            job.message = message.to_string();
+            job.result = Some(json!({
+                "scraped_count": scraped,
+                "skipped_count": skipped,
+                "failed_count": failed,
+            }));
+            job.finished_at = Some(now());
+        })
+        .await
     }
 
     async fn run_subscription_transfer(
@@ -248,19 +261,18 @@ impl JobWorker {
         self.update_running(job_id, 10, "正在准备订阅转存").await?;
 
         if payload.file_names.is_empty() {
-            self.store
-                .update(job_id, |job| {
-                    job.status = JobStatus::Succeeded;
-                    job.progress = 100;
-                    job.message = "没有新文件需要转存".to_string();
-                    job.result = Some(json!({
-                        "subscription_id": payload.subscription_id,
-                        "transferred_count": 0,
-                        "skipped": true,
-                    }));
-                    job.finished_at = Some(now());
-                })
-                .await?;
+            self.complete_if_active(job_id, |job| {
+                job.status = JobStatus::Succeeded;
+                job.progress = 100;
+                job.message = "没有新文件需要转存".to_string();
+                job.result = Some(json!({
+                    "subscription_id": payload.subscription_id,
+                    "transferred_count": 0,
+                    "skipped": true,
+                }));
+                job.finished_at = Some(now());
+            })
+            .await?;
             return Ok(());
         }
 
@@ -274,31 +286,33 @@ impl JobWorker {
                 let progress = if result.skipped { 100 } else { 95 };
                 self.update_running(job_id, progress, &result.reason)
                     .await?;
-                self.store
-                    .update(job_id, |job| {
-                        job.status = JobStatus::Succeeded;
-                        job.progress = 100;
-                        job.message = result.reason.clone();
-                        job.result = Some(json!({
-                            "subscription_id": result.subscription_id,
-                            "transferred_count": result.transferred_count,
-                            "skipped": result.skipped,
-                        }));
-                        job.finished_at = Some(now());
-                    })
-                    .await?;
+                self.complete_if_active(job_id, |job| {
+                    job.status = JobStatus::Succeeded;
+                    job.progress = 100;
+                    job.message = result.reason.clone();
+                    job.result = Some(json!({
+                        "subscription_id": result.subscription_id,
+                        "transferred_count": result.transferred_count,
+                        "skipped": result.skipped,
+                    }));
+                    job.finished_at = Some(now());
+                })
+                .await?;
             }
             Err(e) => {
                 let message = format!("订阅自动转存失败: {}", e);
-                self.store
-                    .update(job_id, |job| {
+                if !self
+                    .complete_if_active(job_id, |job| {
                         job.status = JobStatus::Failed;
                         job.progress = 100;
                         job.message = message.clone();
                         job.error = Some(message.clone());
                         job.finished_at = Some(now());
                     })
-                    .await?;
+                    .await?
+                {
+                    return Ok(());
+                }
                 self.add_transfer_notification(
                     "error",
                     "subscription_transfer_failed",
@@ -437,6 +451,32 @@ impl JobWorker {
         Ok(())
     }
 
+    async fn is_canceled(&self, job_id: &str) -> bool {
+        self.store
+            .get(job_id)
+            .await
+            .is_some_and(|job| job.status == JobStatus::Canceled)
+    }
+
+    async fn complete_if_active(
+        &self,
+        job_id: &str,
+        updater: impl FnOnce(&mut Job),
+    ) -> Result<bool> {
+        let mut completed = false;
+        self.store
+            .try_update(job_id, |job| {
+                if job.status == JobStatus::Canceled {
+                    return Ok(());
+                }
+                updater(job);
+                completed = true;
+                Ok(())
+            })
+            .await?;
+        Ok(completed)
+    }
+
     async fn succeed_manual_transfer(
         &self,
         job_id: &str,
@@ -446,8 +486,8 @@ impl JobWorker {
         saved_count: usize,
     ) -> Result<()> {
         let message = format!("成功转存 {} 个文件到网盘", saved_count);
-        self.store
-            .update(job_id, |job| {
+        if !self
+            .complete_if_active(job_id, |job| {
                 job.status = JobStatus::Succeeded;
                 job.progress = 100;
                 job.message = message.clone();
@@ -458,7 +498,10 @@ impl JobWorker {
                 }));
                 job.finished_at = Some(now());
             })
-            .await?;
+            .await?
+        {
+            return Ok(());
+        }
 
         self.add_transfer_notification(
             "success",
@@ -487,15 +530,18 @@ impl JobWorker {
         target_fid: Option<String>,
         message: String,
     ) -> Result<()> {
-        self.store
-            .update(job_id, |job| {
+        if !self
+            .complete_if_active(job_id, |job| {
                 job.status = JobStatus::Failed;
                 job.progress = 100;
                 job.message = message.clone();
                 job.error = Some(message.clone());
                 job.finished_at = Some(now());
             })
-            .await?;
+            .await?
+        {
+            return Ok(());
+        }
 
         let mut meta = HashMap::from([
             ("mode".to_string(), json!("manual")),
