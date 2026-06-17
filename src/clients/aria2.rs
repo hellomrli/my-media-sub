@@ -2,7 +2,6 @@ use crate::error::{AppError, Result};
 use reqwest::Client;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashSet;
 use std::time::Duration;
 
 pub struct Aria2Client {
@@ -42,7 +41,6 @@ pub struct Aria2Task {
     pub connections: u64,
     pub dir: String,
     pub file_name: String,
-    pub primary_uri: String,
     pub error_code: String,
     pub error_message: String,
     pub progress: f64,
@@ -58,13 +56,6 @@ pub struct Aria2TaskFile {
     pub length: u64,
     pub completed_length: u64,
     pub selected: bool,
-    pub uris: Vec<Aria2TaskUri>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct Aria2TaskUri {
-    pub uri: String,
-    pub status: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -113,8 +104,6 @@ struct RawAria2TaskFile {
 struct RawAria2TaskUri {
     #[serde(default)]
     uri: String,
-    #[serde(default)]
-    status: String,
 }
 
 impl Aria2Client {
@@ -290,20 +279,21 @@ impl From<RawAria2Task> for Aria2Task {
         let eta_seconds =
             calculate_eta(completed_length, total_length, download_speed, &raw.status);
 
-        let files: Vec<Aria2TaskFile> = raw.files.into_iter().map(Into::into).collect();
-        let primary_uri = files
+        let fallback_uri = raw
+            .files
             .iter()
             .flat_map(|file| file.uris.iter())
             .map(|uri| uri.uri.as_str())
             .find(|uri| !uri.trim().is_empty())
             .unwrap_or_default()
             .to_string();
+        let files: Vec<Aria2TaskFile> = raw.files.into_iter().map(Into::into).collect();
         let file_name = files
             .iter()
             .map(|file| file.file_name.as_str())
             .find(|name| !name.trim().is_empty())
             .map(ToString::to_string)
-            .unwrap_or_else(|| file_name_from_uri(&primary_uri));
+            .unwrap_or_else(|| file_name_from_uri(&fallback_uri));
 
         Self {
             gid: raw.gid,
@@ -315,7 +305,6 @@ impl From<RawAria2Task> for Aria2Task {
             connections: parse_u64(&raw.connections),
             dir: raw.dir,
             file_name,
-            primary_uri,
             error_code: raw.error_code,
             error_message: raw.error_message,
             progress,
@@ -328,13 +317,6 @@ impl From<RawAria2Task> for Aria2Task {
 impl From<RawAria2TaskFile> for Aria2TaskFile {
     fn from(raw: RawAria2TaskFile) -> Self {
         let file_name = file_name_from_path(&raw.path);
-        let mut seen_uris = HashSet::new();
-        let uris = raw
-            .uris
-            .into_iter()
-            .filter(|uri| !uri.uri.trim().is_empty() && seen_uris.insert(uri.uri.clone()))
-            .map(Into::into)
-            .collect();
 
         Self {
             index: raw.index,
@@ -343,16 +325,6 @@ impl From<RawAria2TaskFile> for Aria2TaskFile {
             length: parse_u64(&raw.length),
             completed_length: parse_u64(&raw.completed_length),
             selected: parse_bool(&raw.selected),
-            uris,
-        }
-    }
-}
-
-impl From<RawAria2TaskUri> for Aria2TaskUri {
-    fn from(raw: RawAria2TaskUri) -> Self {
-        Self {
-            uri: raw.uri,
-            status: raw.status,
         }
     }
 }
@@ -468,22 +440,18 @@ mod tests {
                 uris: vec![
                     RawAria2TaskUri {
                         uri: "https://example.com/movie.mkv?token=1".to_string(),
-                        status: "used".to_string(),
                     },
                     RawAria2TaskUri {
                         uri: "https://example.com/movie.mkv?token=1".to_string(),
-                        status: "waiting".to_string(),
                     },
                 ],
             }],
         });
 
         assert_eq!(task.file_name, "movie.mkv");
-        assert_eq!(task.primary_uri, "https://example.com/movie.mkv?token=1");
         assert_eq!(task.progress, 40.0);
         assert_eq!(task.eta_seconds, Some(6));
         assert_eq!(task.connections, 2);
         assert!(task.files[0].selected);
-        assert_eq!(task.files[0].uris.len(), 1);
     }
 }
