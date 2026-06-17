@@ -598,7 +598,7 @@
             <div class="p-4 border-b border-dark-border flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
               <div>
                 <h3 class="section-title">后台任务</h3>
-                <p class="text-sm text-gray-500 mt-1">转存任务会持续更新状态，排队任务可取消，失败任务可重试。</p>
+                <p class="text-sm text-gray-500 mt-1">后台任务会持续更新状态，排队和运行中的任务可取消，失败任务可重试。</p>
               </div>
               <button @click="loadJobs()" class="btn-secondary px-4 py-2 rounded-lg transition-colors text-sm">刷新任务</button>
             </div>
@@ -2064,7 +2064,7 @@
         },
 
         canCancelJob(job) {
-          return job && job.status === 'queued';
+          return job && ['queued', 'running'].includes(job.status);
         },
 
         canRetryJob(job) {

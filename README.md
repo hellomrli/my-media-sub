@@ -80,6 +80,8 @@ cargo run
 | `WECOM_BOT_URL` | 企业微信机器人地址 | 空 |
 | `TELEGRAM_BOT_TOKEN` | Telegram Bot Token | 空 |
 | `TELEGRAM_CHAT_ID` | Telegram Chat ID | 空 |
+| `TMDB_API_KEY` | TMDB API Key，用于元数据搜索和刮削 | 空 |
+| `TMDB_LANGUAGE` | TMDB 返回语言 | `zh-CN` |
 
 更多部署说明见 [DOCKER.md](DOCKER.md)。
 
@@ -88,7 +90,7 @@ cargo run
 1. 登录 WebUI。
 2. 在“系统设置”中配置夸克 Cookie、保存目录、推送渠道和自动检查间隔。
 3. 在“资源搜索”中搜索资源，可选择“转存”或“订阅”。
-4. 在“订阅管理”中检查订阅、删除订阅或对已有文件执行“修复命名”。
+4. 在“订阅管理”中检查订阅、删除订阅、补全元数据或对已有文件执行“修复命名”。
 5. 在“我的网盘”中浏览、创建文件夹、重命名和删除文件。
 
 ## 重命名模板
@@ -127,6 +129,8 @@ cargo run
 
 - `GET /api/jobs`
 - `GET /api/jobs/{id}`
+- `POST /api/jobs/{id}/cancel`
+- `POST /api/jobs/{id}/retry`
 - `GET /api/jobs/events`：SSE 任务进度事件流
 - 任务类型：`manual_transfer`、`subscription_transfer`、`metadata_scrape`
 
@@ -143,9 +147,9 @@ cargo run
 - `DELETE /api/subscriptions/{id}`
 - `POST /api/subscriptions/{id}/check`
 - `POST /api/subscriptions/{id}/rename-existing`
-- `POST /api/subscriptions/{id}/metadata/scrape`
+- `POST /api/subscriptions/{id}/metadata/scrape`：后台刮削单个订阅元数据
 - `POST /api/subscriptions/check`
-- `POST /api/subscriptions/metadata/scrape`
+- `POST /api/subscriptions/metadata/scrape`：后台批量刮削订阅元数据
 
 ### 通知
 
@@ -195,8 +199,8 @@ tests/
 ## 文档
 
 - [Docker 部署指南](DOCKER.md)
-- [架构与后续计划](docs/architecture.md)
 - [架构文档](docs/architecture.md)
+- [后续开发计划](NEXT_STEPS.md)
 - [迁移记录](RUST_MIGRATION_V2.md)
 
 ## License
