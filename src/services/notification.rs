@@ -5,7 +5,7 @@ use tracing::warn;
 
 use crate::error::Result;
 use crate::models::Notification;
-use crate::services::push::{record_push_message, PushEvent, PushLevel, PushService};
+use crate::services::push::{record_push_message_with_errors, PushEvent, PushLevel, PushService};
 use crate::store::{NotificationStore, SettingsStore};
 use std::sync::Arc;
 
@@ -65,21 +65,28 @@ async fn send_push_event(
 ) {
     let settings = settings_store.get().await;
     let push_service = PushService::new(settings);
-    let results = push_service.send_event(event, title, message, level).await;
+    let report = push_service
+        .send_event_detailed(event, title, message, level)
+        .await;
 
-    record_push_message(
+    record_push_message_with_errors(
         notification_store,
         event.as_str(),
         title,
         message,
         level,
-        &results,
+        &report.results,
+        &report.errors,
     )
     .await;
 
-    let failed = results.values().filter(|&&ok| !ok).count();
+    let failed = report.results.values().filter(|&&ok| !ok).count();
     if failed > 0 {
-        warn!("业务推送部分失败: {}/{} 个渠道失败", failed, results.len());
+        warn!(
+            "业务推送部分失败: {}/{} 个渠道失败",
+            failed,
+            report.results.len()
+        );
     }
 }
 
