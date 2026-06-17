@@ -88,6 +88,12 @@ cargo run
 
 更多部署说明见 [DOCKER.md](DOCKER.md)。
 
+## Aria2 下载说明
+
+“我的网盘”发送文件到 Aria2 时，服务端会通过夸克 PC 下载接口获取临时直链，并把夸克 Cookie 与下载接口返回的临时 Cookie 一起写入 Aria2 任务 Header。
+
+如果下载失败并提示 `download file size limit[...]`、`require login [auth expired]` 或类似鉴权错误，优先在“系统设置”中更新夸克 Cookie 后重试，并确认 Aria2 所在机器可以访问夸克下载地址。
+
 ## 使用流程
 
 1. 登录 WebUI。
