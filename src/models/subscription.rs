@@ -220,7 +220,7 @@ pub struct Subscription {
 
 // 默认值辅助函数
 fn default_season() -> i32 {
-    1
+    0
 }
 
 fn default_cloud_type() -> String {
@@ -299,7 +299,7 @@ mod tests {
 
         let sub: Subscription = serde_json::from_str(json).unwrap();
         assert_eq!(sub.id, "abc123");
-        assert_eq!(sub.season, 1); // 默认值
+        assert_eq!(sub.season, 0); // 默认值：未设置季度
         assert_eq!(sub.cloud_type, "quark"); // 默认值
         assert_eq!(sub.enabled, true); // 默认值
         assert_eq!(sub.status, "active"); // 默认值

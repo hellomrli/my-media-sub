@@ -161,6 +161,12 @@
       color: var(--app-muted);
       text-align: center;
     }
+    .line-clamp-2 {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
     details > summary { list-style: none; }
     details > summary::-webkit-details-marker { display: none; }
 
@@ -641,38 +647,54 @@
               </button>
             </div>
           </div>
-          <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <div class="grid grid-cols-1 gap-4">
             <template x-for="sub in subscriptions" :key="sub.id">
-              <div class="app-panel p-5 hover:border-blue-500 transition-colors">
-                <div class="flex justify-between items-start mb-3">
-                  <h4 class="text-white font-semibold text-base break-all pr-4" x-text="sub.title"></h4>
-                  <span :class="{'bg-green-600/20 text-green-400': sub.status === 'active', 'bg-gray-600/20 text-gray-400': sub.status === 'completed', 'bg-red-600/20 text-red-400': sub.status === 'invalid'}" class="px-2 py-1 rounded text-xs font-medium" x-text="sub.status"></span>
-                </div>
-                <div x-show="sub.metadata" class="mb-4 app-panel-soft p-3 flex gap-3">
-                  <img x-show="sub.metadata && sub.metadata.poster_url" :src="sub.metadata && sub.metadata.poster_url" alt="" class="w-12 h-16 rounded object-cover border border-dark-border" />
-                  <div class="min-w-0">
-                    <div class="text-sm text-white font-medium truncate" x-text="sub.metadata && sub.metadata.title"></div>
-                    <div class="text-xs text-gray-500 mt-1" x-text="sub.metadata ? metadataSubtitle(sub.metadata) : ''"></div>
-                    <p class="text-xs text-gray-400 mt-2 line-clamp-2" x-text="sub.metadata && sub.metadata.overview"></p>
+              <div class="app-panel p-4 sm:p-5 hover:border-blue-500 transition-colors">
+                <div class="flex gap-3 sm:gap-4">
+                  <div class="w-20 sm:w-28 shrink-0">
+                    <div class="w-20 h-28 sm:w-28 sm:h-40 rounded-lg overflow-hidden border border-dark-border bg-dark-bg grid place-items-center">
+                      <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" class="w-full h-full object-cover" />
+                      <div x-show="!subscriptionPoster(sub)" class="text-xs text-gray-500 text-center px-2">暂无海报</div>
+                    </div>
                   </div>
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm text-gray-400 mb-4">
-                  <div class="app-panel-soft p-3"><span class="block text-xs text-gray-500 mb-1">媒体类型</span><span x-text="sub.media_type" class="text-blue-300"></span></div>
-                  <div class="app-panel-soft p-3"><span class="block text-xs text-gray-500 mb-1">当前进度</span><span x-show="sub.current_episode_number > 0" x-text="'第 ' + sub.current_episode_number + ' 集'" class="text-green-300"></span><span x-show="!sub.current_episode_number || sub.current_episode_number <= 0">-</span></div>
-                  <div class="app-panel-soft p-3"><span class="block text-xs text-gray-500 mb-1">最后检查</span><span x-text="new Date(sub.last_checked_at * 1000).toLocaleString()" class="text-gray-300 text-xs"></span></div>
-                </div>
-                <div class="mb-4 app-panel-soft p-3 text-sm">
-                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div class="min-w-0"><span class="block text-xs text-gray-500 mb-1">目标目录</span><span class="text-gray-300 break-all" x-text="(sub.rules && sub.rules.target_dir) || '-'"></span></div>
-                    <div class="min-w-0"><span class="block text-xs text-gray-500 mb-1">规则摘要</span><span class="text-gray-300 break-all" x-text="sub.rule_summary || ruleSummary(sub.rules)"></span></div>
+                  <div class="min-w-0 flex-1 space-y-3">
+                    <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                      <div class="min-w-0">
+                        <h4 class="text-white font-semibold text-lg leading-6 break-words" x-text="subscriptionDisplayTitle(sub)"></h4>
+                        <div class="text-sm text-gray-500 mt-1 break-words" x-show="subscriptionSourceLabel(sub)" x-text="subscriptionSourceLabel(sub)"></div>
+                      </div>
+                      <span :class="subscriptionStatusClass(sub.status)" class="px-2.5 py-1 rounded text-xs font-medium shrink-0 self-start" x-text="subscriptionStatusLabel(sub.status)"></span>
+                    </div>
+
+                    <div class="flex flex-wrap gap-2">
+                      <span class="chip" x-text="mediaTypeLabel(sub.media_type)"></span>
+                      <span class="chip" x-text="subscriptionRatingLabel(sub)"></span>
+                      <span class="chip" x-text="subscriptionSeasonLabel(sub)"></span>
+                      <span class="chip" x-text="subscriptionProgressLabel(sub)"></span>
+                      <span class="chip" x-text="'最后检查 ' + formatTime(sub.last_checked_at)"></span>
+                    </div>
+
+                    <p x-show="sub.metadata && sub.metadata.overview" class="text-sm text-gray-400 leading-6 line-clamp-2" x-text="sub.metadata && sub.metadata.overview"></p>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 text-sm">
+                      <div class="min-w-0">
+                        <span class="block text-xs text-gray-500 mb-1">保存目录</span>
+                        <span class="text-gray-300 break-all" x-text="(sub.rules && sub.rules.target_dir) || '-'"></span>
+                      </div>
+                      <div class="min-w-0">
+                        <span class="block text-xs text-gray-500 mb-1">规则摘要</span>
+                        <span class="text-gray-300 break-all" x-text="sub.rule_summary || ruleSummary(sub.rules)"></span>
+                      </div>
+                    </div>
+
+                    <div class="flex flex-wrap gap-2 pt-1">
+                      <button @click="checkSubscription(sub.id)" class="btn-primary px-3 py-2 rounded transition-colors text-sm">立即检查</button>
+                      <button @click="openEditSubscriptionDialog(sub)" class="btn-secondary px-3 py-2 rounded transition-colors text-sm">编辑</button>
+                      <button @click="renameExistingFiles(sub.id)" class="btn-secondary px-3 py-2 rounded transition-colors text-sm">修复命名</button>
+                      <button @click="scrapeSubscriptionMetadata(sub.id)" class="btn-secondary px-3 py-2 rounded transition-colors text-sm">刮削元数据</button>
+                      <button @click="deleteSubscription(sub.id)" class="btn-danger px-3 py-2 rounded transition-colors text-sm">删除</button>
+                    </div>
                   </div>
-                </div>
-                <div class="flex flex-wrap gap-2">
-                  <button @click="checkSubscription(sub.id)" class="btn-primary flex-1 px-3 py-2 rounded transition-colors text-sm">立即检查</button>
-                  <button @click="openEditSubscriptionDialog(sub)" class="btn-secondary px-3 py-2 rounded transition-colors text-sm">编辑</button>
-                  <button @click="renameExistingFiles(sub.id)" class="btn-secondary px-3 py-2 rounded transition-colors text-sm">修复命名</button>
-                  <button @click="scrapeSubscriptionMetadata(sub.id)" class="btn-secondary px-3 py-2 rounded transition-colors text-sm">刮削元数据</button>
-                  <button @click="deleteSubscription(sub.id)" class="btn-danger px-3 py-2 rounded transition-colors text-sm">删除</button>
                 </div>
               </div>
             </template>
@@ -1013,7 +1035,22 @@
             <div x-show="currentSettingsTab === 'automation'" class="p-4 sm:p-6 space-y-6">
               <div class="app-panel-soft p-4 space-y-4">
                 <h3 class="section-title">订阅自动化</h3>
-                <div><label class="field-label">检查间隔（分钟）</label><input type="number" x-model="settings.subscription_check_interval_minutes" min="5" step="5" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                <div class="space-y-3">
+                  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <label class="field-label mb-0">检查周期</label>
+                    <span class="text-xs text-gray-500" x-text="'当前每 ' + checkIntervalLabel(settings.subscription_check_interval_minutes) + ' 检查一次'"></span>
+                  </div>
+                  <div class="flex flex-wrap gap-2">
+                    <template x-for="minutes in checkIntervalPresets" :key="minutes">
+                      <button @click="setCheckInterval(minutes)" :class="Number(settings.subscription_check_interval_minutes) === minutes ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded text-sm transition-colors" x-text="checkIntervalLabel(minutes)"></button>
+                    </template>
+                  </div>
+                  <div>
+                    <label class="field-label">自定义分钟数</label>
+                    <input type="number" x-model.number="settings.subscription_check_interval_minutes" min="5" step="5" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                    <p class="text-xs text-gray-500 mt-2">最小 5 分钟，保存后调度器会按新的周期重新加载。</p>
+                  </div>
+                </div>
                 <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.subscription_scheduler_enabled" class="rounded" />启用自动检查</label>
                 <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.auto_download_new_subscription_items" class="rounded" />自动下载新订阅项</label>
               </div>
@@ -1189,7 +1226,8 @@
 
         <div>
           <label class="block text-sm font-medium text-gray-300 mb-2">季号</label>
-          <input type="number" min="1" x-model="newSubscription.season" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+          <input type="number" min="0" x-model="newSubscription.season" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+          <p class="text-xs text-gray-500 mt-1">0 表示不使用季度；填 2 会按第 2 季处理。</p>
         </div>
 
         <!-- 持续追更模式的额外选项 -->
@@ -1227,8 +1265,8 @@
             </div>
 
             <div x-show="newSubscription.custom_rename" class="space-y-2">
-              <input type="text" x-model="newSubscription.rename_template" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="例如：风起洛阳.S01E{}" />
-              <p class="text-xs text-gray-500">支持 {}、{title}、{season}、{episode}、{episode_number}、{original}、{name}、{ext}。</p>
+              <input type="text" x-model="newSubscription.rename_template" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="例如：风起洛阳.E{} 或 风起洛阳.S02E{}" />
+              <p class="text-xs text-gray-500">支持 {}、{title}、{season}、{season_number}、{episode}、{episode_number}、{original}、{name}、{ext}。</p>
             </div>
           </div>
 
@@ -1343,6 +1381,8 @@
           {id: 'advanced', name: '高级'}
         ],
 
+        checkIntervalPresets: [15, 30, 60, 120, 360, 720],
+
         pushChannels: [
           {id: 'wecom', name: '企业微信'},
           {id: 'telegram', name: 'Telegram'},
@@ -1378,7 +1418,7 @@
           url: '',
           password: '',
           media_type: 'series',
-          season: 1,
+          season: 0,
           target_path: '',
           target_fid: '0',
           target_dir_name: '',
@@ -1675,7 +1715,7 @@
             url: '',
             password: '',
             media_type: 'series',
-            season: 1,
+            season: 0,
             target_path: '',
             target_fid: '0',
             target_dir_name: '',
@@ -1725,7 +1765,7 @@
             url: result.url,
             password: result.password || '',
             media_type: 'series',
-            season: 1,
+            season: 0,
             target_path: '',
             target_fid: '0',
             target_dir_name: '',
@@ -1764,7 +1804,7 @@
             url: sub.url || '',
             password: sub.password || '',
             media_type: sub.media_type || 'series',
-            season: sub.season || 1,
+            season: this.normalizeSeason(sub.season),
             target_path: '',
             target_fid: '0',
             target_dir_name: rules.target_dir || '',
@@ -1806,6 +1846,79 @@
         formatTime(timestamp) {
           if (!timestamp) return '-';
           return new Date(Number(timestamp) * 1000).toLocaleString();
+        },
+
+        normalizeSeason(value) {
+          const season = Number(value);
+          return Number.isFinite(season) && season > 0 ? Math.floor(season) : 0;
+        },
+
+        mediaTypeLabel(type) {
+          const labels = {movie: '电影', series: '连续剧', anime: '动画'};
+          return labels[type] || type || '-';
+        },
+
+        subscriptionPoster(sub) {
+          return (sub && sub.metadata && sub.metadata.poster_url) || '';
+        },
+
+        subscriptionDisplayTitle(sub) {
+          return (sub && sub.metadata && sub.metadata.title) || (sub && sub.title) || '未命名';
+        },
+
+        subscriptionSourceLabel(sub) {
+          if (!sub) return '';
+          const displayTitle = this.subscriptionDisplayTitle(sub);
+          const sourceTitle = sub.source_title || sub.title || '';
+          if (!sourceTitle || sourceTitle === displayTitle) return '';
+          return sourceTitle;
+        },
+
+        subscriptionRatingLabel(sub) {
+          const rating = sub && sub.metadata ? sub.metadata.vote_average : null;
+          if (rating === 0 || rating) return `TMDB ${Number(rating).toFixed(1)}`;
+          return 'TMDB -';
+        },
+
+        subscriptionSeasonLabel(sub) {
+          const season = this.normalizeSeason(sub && sub.season);
+          return season > 0 ? `第 ${season} 季` : '未设置季度';
+        },
+
+        subscriptionProgressLabel(sub) {
+          const current = Math.max(0, Number((sub && sub.current_episode_number) || 0));
+          const total = Number((sub && sub.total_episode_number) || (sub && sub.rules && sub.rules.finish_after_episode) || 0);
+          return total > 0 ? `${current}/${total} 集` : `${current}/- 集`;
+        },
+
+        subscriptionStatusLabel(status) {
+          const labels = {active: '追更中', completed: '已完结', invalid: '失效'};
+          return labels[status] || status || '-';
+        },
+
+        subscriptionStatusClass(status) {
+          if (status === 'active') return 'bg-green-600/20 text-green-300';
+          if (status === 'completed') return 'bg-gray-600/20 text-gray-300';
+          if (status === 'invalid') return 'bg-red-600/20 text-red-300';
+          return 'bg-blue-600/20 text-blue-300';
+        },
+
+        setCheckInterval(minutes) {
+          this.settings.subscription_check_interval_minutes = Number(minutes);
+        },
+
+        sanitizeCheckInterval() {
+          const minutes = Number(this.settings.subscription_check_interval_minutes);
+          this.settings.subscription_check_interval_minutes = Math.max(5, Math.floor(Number.isFinite(minutes) ? minutes : 60));
+        },
+
+        checkIntervalLabel(minutes) {
+          const raw = Number(minutes);
+          const value = Math.max(5, Number.isFinite(raw) ? raw : 60);
+          if (value < 60) return `${value}分钟`;
+          const hours = Math.floor(value / 60);
+          const rest = value % 60;
+          return rest > 0 ? `${hours}小时${rest}分钟` : `${hours}小时`;
         },
 
         // 更新订阅默认值
@@ -1873,9 +1986,9 @@
 
         metadataSubtitle(item) {
           const parts = [];
-          if (item.media_type) parts.push(item.media_type === 'movie' ? '电影' : '连续剧');
+          if (item.media_type) parts.push(this.mediaTypeLabel(item.media_type));
           if (item.release_date) parts.push(item.release_date.slice(0, 4));
-          if (item.vote_average) parts.push(`评分 ${Number(item.vote_average).toFixed(1)}`);
+          if (item.vote_average === 0 || item.vote_average) parts.push(`评分 ${Number(item.vote_average).toFixed(1)}`);
           return parts.join(' · ') || item.provider.toUpperCase();
         },
 
@@ -1894,7 +2007,9 @@
         // 获取默认重命名模板
         getDefaultRenameTemplate() {
           const title = this.newSubscription.title || '未命名';
-          return `${title}.S01E{}`;
+          const season = this.normalizeSeason(this.newSubscription.season);
+          if (season > 0) return `${title}.S${String(season).padStart(2, '0')}E{}`;
+          return `${title}.E{}`;
         },
 
         splitRuleWords(value) {
@@ -1981,7 +2096,7 @@
                 url: this.newSubscription.url,
                 password: this.newSubscription.password,
                 media_type: this.newSubscription.media_type,
-                season: Number(this.newSubscription.season || 1),
+                season: this.normalizeSeason(this.newSubscription.season),
                 rules: this.buildSubscriptionRules(),
                 sample_files: this.previewSampleFiles()
               })
@@ -2108,7 +2223,7 @@
                 url: this.newSubscription.url,
                 password: this.newSubscription.password,
                 media_type: this.newSubscription.media_type,
-                season: Number(this.newSubscription.season || 1),
+                season: this.normalizeSeason(this.newSubscription.season),
                 target_dir: rules.target_dir,
                 target_fid: '0',
                 rename_template: rules.rename_template,
@@ -2149,7 +2264,7 @@
                 url: this.newSubscription.url,
                 password: this.newSubscription.password,
                 media_type: this.newSubscription.media_type,
-                season: Number(this.newSubscription.season || 1),
+                season: this.normalizeSeason(this.newSubscription.season),
                 notify_only: this.newSubscription.notify_only,
                 metadata: this.newSubscription.metadata,
                 rules,
@@ -2956,6 +3071,7 @@
 
         async saveSettings() {
           try {
+            this.sanitizeCheckInterval();
             const response = await fetch('/api/settings', {
               method: 'POST',  // 改为 POST
               headers: {'Content-Type': 'application/json'},

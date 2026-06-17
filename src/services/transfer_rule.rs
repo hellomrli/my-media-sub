@@ -93,6 +93,16 @@ fn format_episode(episode: Option<i32>) -> String {
     }
 }
 
+fn format_season(season: i32) -> String {
+    if season <= 0 {
+        String::new()
+    } else if season < 100 {
+        format!("{:02}", season)
+    } else {
+        season.to_string()
+    }
+}
+
 /// 应用重命名规则
 pub fn apply_rename(
     name: &str,
@@ -126,29 +136,31 @@ pub fn apply_rename(
     if !rules.rename_template.is_empty() {
         let template = &rules.rename_template;
         let title = subscription.map(|s| s.title.as_str()).unwrap_or("");
-        let season = subscription.map(|s| s.season).unwrap_or(1);
+        let season = subscription.map(|s| s.season).unwrap_or(0);
+        let season_str = format_season(season);
+        let season_number = if season > 0 {
+            season.to_string()
+        } else {
+            String::new()
+        };
         let episode_str = format_episode(episode);
         let original = display_name(name, true);
         let name_part = display_name(&target, true);
         let ext = suffix.trim_start_matches('.');
 
-        // 简单的 {} 占位符替换
-        if template.contains("{}") {
-            target = template.replace("{}", &episode_str);
-        } else {
-            // 尝试 format 风格（需手动替换）
-            target = template
-                .replace("{title}", title)
-                .replace("{season}", &season.to_string())
-                .replace("{episode}", &episode_str)
-                .replace(
-                    "{episode_number}",
-                    &episode.map(|e| e.to_string()).unwrap_or_default(),
-                )
-                .replace("{original}", &original)
-                .replace("{name}", &name_part)
-                .replace("{ext}", ext);
-        }
+        target = template
+            .replace("{}", &episode_str)
+            .replace("{title}", title)
+            .replace("{season}", &season_str)
+            .replace("{season_number}", &season_number)
+            .replace("{episode}", &episode_str)
+            .replace(
+                "{episode_number}",
+                &episode.map(|e| e.to_string()).unwrap_or_default(),
+            )
+            .replace("{original}", &original)
+            .replace("{name}", &name_part)
+            .replace("{ext}", ext);
     }
 
     // 补充扩展名
@@ -478,6 +490,29 @@ mod tests {
         };
         let (result, err) = apply_rename("第05集.mkv", &rules, None, Some(5));
         assert_eq!(result, "Show.S01E05.mkv");
+        assert!(err.is_none());
+    }
+
+    #[test]
+    fn test_apply_rename_template_respects_unset_season() {
+        let rules = TransferRules {
+            rename_template: "{title}.E{}".to_string(),
+            ..Default::default()
+        };
+        let mut sub = make_sub("Show", rules.clone());
+        sub.season = 0;
+
+        let (result, err) = apply_rename("第05集.mkv", &rules, Some(&sub), Some(5));
+        assert_eq!(result, "Show.E05.mkv");
+        assert!(err.is_none());
+
+        let rules = TransferRules {
+            rename_template: "{title}.S{season}E{}".to_string(),
+            ..Default::default()
+        };
+        sub.season = 2;
+        let (result, err) = apply_rename("第05集.mkv", &rules, Some(&sub), Some(5));
+        assert_eq!(result, "Show.S02E05.mkv");
         assert!(err.is_none());
     }
 
