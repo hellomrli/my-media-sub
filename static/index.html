@@ -499,6 +499,7 @@
                     </div>
                   </div>
                   <div class="flex gap-2 flex-shrink-0">
+                    <button x-show="item.file" @click="sendDriveItemToAria2(item)" class="btn-secondary px-2 py-1 text-xs rounded">Aria2</button>
                     <button @click="renameDriveItem(item)" class="btn-secondary px-2 py-1 text-xs rounded">重命名</button>
                     <button @click="deleteDriveItem(item)" class="btn-danger px-2 py-1 text-xs rounded">删除</button>
                   </div>
@@ -513,6 +514,7 @@
             <div x-show="driveSelectMode && driveSelectedItems.length > 0" class="p-4 border-t border-dark-border flex items-center justify-between bg-dark-hover">
               <span class="text-sm text-gray-300">已选择 <span x-text="driveSelectedItems.length"></span> 项</span>
               <div class="flex gap-2">
+                <button @click="sendSelectedDriveItemsToAria2()" class="btn-secondary px-4 py-2 rounded-lg text-sm">发送到 Aria2</button>
                 <button @click="batchDeleteDrive()" class="btn-danger px-4 py-2 rounded-lg text-sm">批量删除</button>
               </div>
             </div>
@@ -2326,6 +2328,41 @@
           } catch (error) {
             console.error('重命名失败:', error);
             this.showNotification('error', '重命名失败: ' + error.message);
+          }
+        },
+
+        async sendDriveItemToAria2(item) {
+          if (!item || !item.file) return;
+          await this.submitDriveFidsToAria2([item.fid]);
+        },
+
+        async sendSelectedDriveItemsToAria2() {
+          const selectedFiles = this.driveItems
+            .filter(item => item.file && this.driveSelectedItems.includes(item.fid))
+            .map(item => item.fid);
+          if (selectedFiles.length === 0) {
+            this.showNotification('warning', '请选择要发送到 Aria2 的文件');
+            return;
+          }
+          await this.submitDriveFidsToAria2(selectedFiles);
+        },
+
+        async submitDriveFidsToAria2(fids) {
+          try {
+            const response = await fetch('/api/drive/aria2', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({fids})
+            });
+            const data = await response.json().catch(() => ({}));
+            if (response.ok) {
+              this.showNotification('success', data.message || `已提交 ${fids.length} 个 Aria2 任务`);
+            } else {
+              this.showNotification('error', data.message || data.error || '提交 Aria2 失败');
+            }
+          } catch (error) {
+            console.error('提交 Aria2 失败:', error);
+            this.showNotification('error', '提交 Aria2 失败: ' + error.message);
           }
         },
 

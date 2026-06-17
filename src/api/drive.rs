@@ -7,7 +7,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::clients::{NormalizedItem, QuarkSaveClient};
+use crate::clients::{Aria2Client, NormalizedItem, QuarkSaveClient};
 use crate::error::{AppError, Result};
 use crate::store::SettingsStore;
 
@@ -70,6 +70,14 @@ pub struct RenameRequest {
     pub parent_fid: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct Aria2DownloadRequest {
+    #[serde(default)]
+    pub fid: String,
+    #[serde(default)]
+    pub fids: Vec<String>,
+}
+
 /// 通用操作响应
 #[derive(Serialize)]
 pub struct ActionResponse {
@@ -78,6 +86,22 @@ pub struct ActionResponse {
     pub message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fid: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct Aria2DownloadItem {
+    pub fid: String,
+    pub file_name: String,
+    pub size: i64,
+    pub gid: String,
+}
+
+#[derive(Serialize)]
+pub struct Aria2DownloadResponse {
+    pub success: bool,
+    pub count: usize,
+    pub message: String,
+    pub items: Vec<Aria2DownloadItem>,
 }
 
 /// 测试夸克连接
@@ -265,6 +289,68 @@ async fn rename_item(
     }))
 }
 
+/// 发送夸克网盘文件到 Aria2
+async fn send_to_aria2(
+    State(state): State<Arc<DriveState>>,
+    Json(req): Json<Aria2DownloadRequest>,
+) -> Result<Json<Aria2DownloadResponse>> {
+    let mut fids = req.fids;
+    if !req.fid.trim().is_empty() {
+        fids.push(req.fid);
+    }
+    fids = normalize_fids(fids);
+    if fids.is_empty() {
+        return Err(AppError::Validation("未选择要下载的文件".to_string()));
+    }
+
+    let settings = state.settings_store.get().await;
+    if settings.quark_cookie.trim().is_empty() {
+        return Err(AppError::Validation("未配置夸克 Cookie".to_string()));
+    }
+    if settings.aria2_rpc_url.trim().is_empty() {
+        return Err(AppError::Validation("未配置 Aria2 RPC URL".to_string()));
+    }
+
+    let quark = QuarkSaveClient::new(settings.quark_cookie);
+    let aria2 = Aria2Client::new(
+        settings.aria2_rpc_url,
+        settings.aria2_secret,
+        settings.aria2_dir,
+    );
+    let download_infos = quark.download_infos(&fids).await?;
+    let mut items = Vec::with_capacity(download_infos.len());
+
+    for info in download_infos {
+        let gid = aria2
+            .add_uri(&info.download_url, Some(&info.file_name), &info.headers)
+            .await?;
+        items.push(Aria2DownloadItem {
+            fid: info.fid,
+            file_name: info.file_name,
+            size: info.size,
+            gid,
+        });
+    }
+
+    Ok(Json(Aria2DownloadResponse {
+        success: true,
+        count: items.len(),
+        message: format!("已提交 {} 个 Aria2 下载任务", items.len()),
+        items,
+    }))
+}
+
+fn normalize_fids(fids: Vec<String>) -> Vec<String> {
+    let mut fids: Vec<String> = fids
+        .into_iter()
+        .map(|fid| fid.trim().to_string())
+        .filter(|fid| !fid.is_empty())
+        .collect();
+    fids.sort();
+    fids.dedup();
+    fids
+}
+
 /// 根据路径查找目录 fid
 async fn find_path(
     State(state): State<Arc<DriveState>>,
@@ -305,6 +391,18 @@ pub fn routes(settings_store: Arc<SettingsStore>) -> Router {
         .route("/api/drive/mkdir", post(mkdir))
         .route("/api/drive/delete", post(delete_items))
         .route("/api/drive/rename", post(rename_item))
+        .route("/api/drive/aria2", post(send_to_aria2))
         .route("/api/quark/test", post(test_quark))
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_fids_trims_and_dedups() {
+        let fids = normalize_fids(vec![" a ".to_string(), "".to_string(), "a".to_string()]);
+        assert_eq!(fids, vec!["a".to_string()]);
+    }
 }

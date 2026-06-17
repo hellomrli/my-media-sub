@@ -92,4 +92,4 @@ ARIA2_SECRET=
 ARIA2_DIR=/downloads
 ```
 
-After searching, click `Aria2` on a result to send its URL to Aria2. Cloud share URLs are not direct file URLs, so this is mainly useful for direct links, magnets, ed2k, or sources Aria2 can handle.
+The WebUI can send files from the Quark drive page to Aria2. The server first asks Quark for a temporary direct download URL, then submits it to Aria2 with the required request headers. Direct links, magnets, ed2k, and other URLs that Aria2 can handle may also be added by later download flows.
