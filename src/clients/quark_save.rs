@@ -6,10 +6,13 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 const QUARK_API_BASE: &str = "https://drive.quark.cn/1/clouddrive";
+const QUARK_PC_API_BASE: &str = "https://drive-pc.quark.cn/1/clouddrive";
+const QUARK_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
 
 /// 夸克转存客户端
 pub struct QuarkSaveClient {
     client: Client,
+    cookie: String,
 }
 
 #[derive(Deserialize)]
@@ -32,16 +35,20 @@ pub struct NormalizedItem {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct QuarkDownloadInfo {
+    pub fid: String,
+    pub file_name: String,
+    pub size: i64,
+    pub download_url: String,
+    pub headers: Vec<String>,
+}
+
 impl QuarkSaveClient {
     pub fn new(cookie: impl Into<String>) -> Self {
         let cookie = cookie.into();
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(
-            "User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                .parse()
-                .unwrap(),
-        );
+        headers.insert("User-Agent", QUARK_USER_AGENT.parse().unwrap());
         headers.insert(
             "Accept",
             "application/json, text/plain, */*".parse().unwrap(),
@@ -59,7 +66,7 @@ impl QuarkSaveClient {
             .build()
             .unwrap();
 
-        Self { client }
+        Self { client, cookie }
     }
 
     fn api_error(data: &ApiResponse) -> Option<String> {
@@ -121,7 +128,11 @@ impl QuarkSaveClient {
     }
 
     async fn post(&self, path: &str, payload: &Value) -> Result<ApiResponse> {
-        let url = format!("{}{}", QUARK_API_BASE, path);
+        self.post_with_base(QUARK_API_BASE, path, payload).await
+    }
+
+    async fn post_with_base(&self, base: &str, path: &str, payload: &Value) -> Result<ApiResponse> {
+        let url = format!("{}{}", base, path);
 
         let resp = self
             .client
@@ -135,6 +146,17 @@ impl QuarkSaveClient {
         resp.json()
             .await
             .map_err(|e| AppError::Http(format!("解析夸克响应失败: {}", e)))
+    }
+
+    fn download_headers(&self) -> Vec<String> {
+        let mut headers = vec![
+            format!("User-Agent: {}", QUARK_USER_AGENT),
+            "Referer: https://pan.quark.cn/".to_string(),
+        ];
+        if !self.cookie.trim().is_empty() {
+            headers.push(format!("Cookie: {}", self.cookie));
+        }
+        headers
     }
 
     // ── 目录管理 ──────────────────────────────────────────
@@ -223,6 +245,94 @@ impl QuarkSaveClient {
             size,
             updated_at,
         }
+    }
+
+    pub async fn download_infos(&self, fids: &[String]) -> Result<Vec<QuarkDownloadInfo>> {
+        let fids: Vec<String> = fids
+            .iter()
+            .map(|fid| fid.trim().to_string())
+            .filter(|fid| !fid.is_empty())
+            .collect();
+        if fids.is_empty() {
+            return Err(AppError::Validation("未选择要下载的文件".to_string()));
+        }
+
+        let payload = serde_json::json!({
+            "fids": fids,
+        });
+        let data = self
+            .post_with_base(QUARK_PC_API_BASE, "/file/download", &payload)
+            .await?;
+
+        if let Some(err) = Self::api_error(&data) {
+            return Err(AppError::Http(err));
+        }
+
+        let Some(data) = data.data else {
+            return Err(AppError::Http("夸克下载接口响应为空".to_string()));
+        };
+        let headers = self.download_headers();
+        let infos = Self::extract_download_infos(&data, &headers, &fids);
+        if infos.is_empty() {
+            return Err(AppError::Http("未能获取夸克文件下载链接".to_string()));
+        }
+
+        Ok(infos)
+    }
+
+    fn extract_download_infos(
+        data: &Value,
+        headers: &[String],
+        requested_fids: &[String],
+    ) -> Vec<QuarkDownloadInfo> {
+        let values: Vec<&Value> = if let Some(list) = data.get("list").and_then(Value::as_array) {
+            list.iter().collect()
+        } else if let Some(list) = data.get("file_list").and_then(Value::as_array) {
+            list.iter().collect()
+        } else if let Some(list) = data.as_array() {
+            list.iter().collect()
+        } else {
+            vec![data]
+        };
+
+        values
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, item)| {
+                let download_url = item
+                    .get("download_url")
+                    .or_else(|| item.get("downloadUrl"))
+                    .or_else(|| item.get("dlink"))
+                    .or_else(|| item.get("url"))
+                    .and_then(Value::as_str)
+                    .filter(|url| !url.trim().is_empty())?
+                    .to_string();
+
+                let fid = item
+                    .get("fid")
+                    .or_else(|| item.get("file_id"))
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string)
+                    .or_else(|| requested_fids.get(index).cloned())
+                    .unwrap_or_default();
+                let file_name = item
+                    .get("file_name")
+                    .or_else(|| item.get("name"))
+                    .and_then(Value::as_str)
+                    .filter(|name| !name.trim().is_empty())
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| fid.clone());
+                let size = item.get("size").and_then(Value::as_i64).unwrap_or(0);
+
+                Some(QuarkDownloadInfo {
+                    fid,
+                    file_name,
+                    size,
+                    download_url,
+                    headers: headers.to_vec(),
+                })
+            })
+            .collect()
     }
 
     /// 创建目录
@@ -428,5 +538,42 @@ mod tests {
         assert_eq!(normalized.file_name, "test.mkv");
         assert_eq!(normalized.size, 1024);
         assert!(!normalized.is_dir);
+    }
+
+    #[test]
+    fn test_extract_download_infos_from_list() {
+        let data = serde_json::json!({
+            "list": [
+                {
+                    "fid": "fid1",
+                    "file_name": "EP01.mkv",
+                    "size": 1024,
+                    "download_url": "https://download.example.com/ep01"
+                }
+            ]
+        });
+        let headers = vec!["Cookie: test".to_string()];
+        let infos =
+            QuarkSaveClient::extract_download_infos(&data, &headers, &["fallback".to_string()]);
+
+        assert_eq!(infos.len(), 1);
+        assert_eq!(infos[0].fid, "fid1");
+        assert_eq!(infos[0].file_name, "EP01.mkv");
+        assert_eq!(infos[0].download_url, "https://download.example.com/ep01");
+        assert_eq!(infos[0].headers, headers);
+    }
+
+    #[test]
+    fn test_extract_download_infos_from_single_object() {
+        let data = serde_json::json!({
+            "name": "movie.mp4",
+            "url": "https://download.example.com/movie"
+        });
+        let infos =
+            QuarkSaveClient::extract_download_infos(&data, &[], &["requested-fid".to_string()]);
+
+        assert_eq!(infos.len(), 1);
+        assert_eq!(infos[0].fid, "requested-fid");
+        assert_eq!(infos[0].file_name, "movie.mp4");
     }
 }

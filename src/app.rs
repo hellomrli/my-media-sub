@@ -129,6 +129,9 @@ async fn apply_env_overrides(settings_store: &SettingsStore) -> Result<()> {
         "GOTIFY_TOKEN",
         "PUSHPLUS_TOKEN",
         "SERVERCHAN_KEY",
+        "ARIA2_RPC_URL",
+        "ARIA2_SECRET",
+        "ARIA2_DIR",
         "TMDB_API_KEY",
         "TMDB_LANGUAGE",
     ]
@@ -182,6 +185,15 @@ async fn apply_env_overrides(settings_store: &SettingsStore) -> Result<()> {
             }
             if let Some(value) = env_non_empty("SERVERCHAN_KEY") {
                 settings.serverchan_key = value;
+            }
+            if let Some(value) = env_non_empty("ARIA2_RPC_URL") {
+                settings.aria2_rpc_url = value;
+            }
+            if let Some(value) = env_non_empty("ARIA2_SECRET") {
+                settings.aria2_secret = value;
+            }
+            if let Some(value) = env_non_empty("ARIA2_DIR") {
+                settings.aria2_dir = value;
             }
             if let Some(value) = env_non_empty("TMDB_API_KEY") {
                 settings.tmdb_api_key = value;
