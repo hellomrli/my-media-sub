@@ -5,7 +5,9 @@ use tracing::warn;
 
 use crate::error::Result;
 use crate::models::Notification;
-use crate::services::push::{record_push_message_with_errors, PushEvent, PushLevel, PushService};
+use crate::services::push::{
+    record_push_message_report, PushEvent, PushLevel, PushRetryPolicy, PushService,
+};
 use crate::store::{NotificationStore, SettingsStore};
 use std::sync::Arc;
 
@@ -66,17 +68,22 @@ async fn send_push_event(
     let settings = settings_store.get().await;
     let push_service = PushService::new(settings);
     let report = push_service
-        .send_event_detailed(event, title, message, level)
+        .send_event_with_retry_detailed(
+            event,
+            title,
+            message,
+            level,
+            PushRetryPolicy::background_default(),
+        )
         .await;
 
-    record_push_message_with_errors(
+    record_push_message_report(
         notification_store,
         event.as_str(),
         title,
         message,
         level,
-        &report.results,
-        &report.errors,
+        &report,
     )
     .await;
 
