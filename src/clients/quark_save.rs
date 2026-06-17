@@ -1,4 +1,5 @@
 use crate::error::{AppError, Result};
+use reqwest::header::SET_COOKIE;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -7,7 +8,7 @@ use std::time::Duration;
 
 const QUARK_API_BASE: &str = "https://drive.quark.cn/1/clouddrive";
 const QUARK_PC_API_BASE: &str = "https://drive-pc.quark.cn/1/clouddrive";
-const QUARK_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+const QUARK_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/3.14.2 Chrome/112.0.5615.165 Electron/24.1.3.8 Safari/537.36 Channel/pckk_other_ch";
 
 /// 夸克转存客户端
 pub struct QuarkSaveClient {
@@ -132,6 +133,18 @@ impl QuarkSaveClient {
     }
 
     async fn post_with_base(&self, base: &str, path: &str, payload: &Value) -> Result<ApiResponse> {
+        let (data, _) = self
+            .post_with_base_capture_cookies(base, path, payload)
+            .await?;
+        Ok(data)
+    }
+
+    async fn post_with_base_capture_cookies(
+        &self,
+        base: &str,
+        path: &str,
+        payload: &Value,
+    ) -> Result<(ApiResponse, Vec<String>)> {
         let url = format!("{}{}", base, path);
 
         let resp = self
@@ -143,20 +156,51 @@ impl QuarkSaveClient {
             .await
             .map_err(|e| AppError::Http(format!("夸克 POST 请求失败: {}", e)))?;
 
-        resp.json()
+        let set_cookies = resp
+            .headers()
+            .get_all(SET_COOKIE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .filter_map(|value| value.split(';').next())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string)
+            .collect();
+
+        let data = resp
+            .json()
             .await
-            .map_err(|e| AppError::Http(format!("解析夸克响应失败: {}", e)))
+            .map_err(|e| AppError::Http(format!("解析夸克响应失败: {}", e)))?;
+
+        Ok((data, set_cookies))
     }
 
-    fn download_headers(&self) -> Vec<String> {
+    fn download_headers(&self, extra_cookies: &[String]) -> Vec<String> {
         let mut headers = vec![
             format!("User-Agent: {}", QUARK_USER_AGENT),
             "Referer: https://pan.quark.cn/".to_string(),
         ];
-        if !self.cookie.trim().is_empty() {
-            headers.push(format!("Cookie: {}", self.cookie));
+        let cookie = self.download_cookie(extra_cookies);
+        if !cookie.is_empty() {
+            headers.push(format!("Cookie: {}", cookie));
         }
         headers
+    }
+
+    fn download_cookie(&self, extra_cookies: &[String]) -> String {
+        let mut cookies = Vec::new();
+        let base_cookie = self.cookie.trim().trim_end_matches(';').trim();
+        if !base_cookie.is_empty() {
+            cookies.push(base_cookie.to_string());
+        }
+        cookies.extend(
+            extra_cookies
+                .iter()
+                .map(|cookie| cookie.trim().trim_end_matches(';').trim())
+                .filter(|cookie| !cookie.is_empty())
+                .map(ToString::to_string),
+        );
+        cookies.join("; ")
     }
 
     // ── 目录管理 ──────────────────────────────────────────
@@ -260,8 +304,8 @@ impl QuarkSaveClient {
         let payload = serde_json::json!({
             "fids": fids,
         });
-        let data = self
-            .post_with_base(QUARK_PC_API_BASE, "/file/download", &payload)
+        let (data, set_cookies) = self
+            .post_with_base_capture_cookies(QUARK_PC_API_BASE, "/file/download", &payload)
             .await?;
 
         if let Some(err) = Self::api_error(&data) {
@@ -271,7 +315,7 @@ impl QuarkSaveClient {
         let Some(data) = data.data else {
             return Err(AppError::Http("夸克下载接口响应为空".to_string()));
         };
-        let headers = self.download_headers();
+        let headers = self.download_headers(&set_cookies);
         let infos = Self::extract_download_infos(&data, &headers, &fids);
         if infos.is_empty() {
             return Err(AppError::Http("未能获取夸克文件下载链接".to_string()));
@@ -575,5 +619,15 @@ mod tests {
         assert_eq!(infos.len(), 1);
         assert_eq!(infos[0].fid, "requested-fid");
         assert_eq!(infos[0].file_name, "movie.mp4");
+    }
+
+    #[test]
+    fn test_download_headers_include_temporary_cookies() {
+        let client = QuarkSaveClient::new("k=v; base=1;");
+        let headers = client.download_headers(&["__puus=temp".to_string()]);
+
+        assert!(headers
+            .iter()
+            .any(|header| header == "Cookie: k=v; base=1; __puus=temp"));
     }
 }
