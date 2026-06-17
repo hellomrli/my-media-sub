@@ -1,7 +1,8 @@
 use crate::error::{AppError, Result};
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::time::Duration;
 
 pub struct Aria2Client {
@@ -12,8 +13,8 @@ pub struct Aria2Client {
 }
 
 #[derive(Debug, Deserialize)]
-struct Aria2Response {
-    result: Option<String>,
+struct Aria2Response<T> {
+    result: Option<T>,
     error: Option<Aria2Error>,
 }
 
@@ -21,6 +22,99 @@ struct Aria2Response {
 struct Aria2Error {
     code: i64,
     message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Aria2TaskList {
+    pub active: Vec<Aria2Task>,
+    pub waiting: Vec<Aria2Task>,
+    pub stopped: Vec<Aria2Task>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Aria2Task {
+    pub gid: String,
+    pub status: String,
+    pub total_length: u64,
+    pub completed_length: u64,
+    pub download_speed: u64,
+    pub upload_speed: u64,
+    pub connections: u64,
+    pub dir: String,
+    pub file_name: String,
+    pub primary_uri: String,
+    pub error_code: String,
+    pub error_message: String,
+    pub progress: f64,
+    pub eta_seconds: Option<u64>,
+    pub files: Vec<Aria2TaskFile>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Aria2TaskFile {
+    pub index: String,
+    pub path: String,
+    pub file_name: String,
+    pub length: u64,
+    pub completed_length: u64,
+    pub selected: bool,
+    pub uris: Vec<Aria2TaskUri>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Aria2TaskUri {
+    pub uri: String,
+    pub status: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawAria2Task {
+    #[serde(default)]
+    gid: String,
+    #[serde(default)]
+    status: String,
+    #[serde(default, rename = "totalLength")]
+    total_length: String,
+    #[serde(default, rename = "completedLength")]
+    completed_length: String,
+    #[serde(default, rename = "downloadSpeed")]
+    download_speed: String,
+    #[serde(default, rename = "uploadSpeed")]
+    upload_speed: String,
+    #[serde(default)]
+    connections: String,
+    #[serde(default)]
+    dir: String,
+    #[serde(default, rename = "errorCode")]
+    error_code: String,
+    #[serde(default, rename = "errorMessage")]
+    error_message: String,
+    #[serde(default)]
+    files: Vec<RawAria2TaskFile>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawAria2TaskFile {
+    #[serde(default)]
+    index: String,
+    #[serde(default)]
+    path: String,
+    #[serde(default)]
+    length: String,
+    #[serde(default, rename = "completedLength")]
+    completed_length: String,
+    #[serde(default)]
+    selected: String,
+    #[serde(default)]
+    uris: Vec<RawAria2TaskUri>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawAria2TaskUri {
+    #[serde(default)]
+    uri: String,
+    #[serde(default)]
+    status: String,
 }
 
 impl Aria2Client {
@@ -61,15 +155,63 @@ impl Aria2Client {
             output_name,
             headers,
         );
+        let gid: Option<String> = self.send_payload(payload).await?;
+        gid.filter(|gid| !gid.trim().is_empty())
+            .ok_or_else(|| AppError::Http("Aria2 响应缺少任务 GID".to_string()))
+    }
+
+    pub async fn list_tasks(&self, stopped_limit: u64) -> Result<Aria2TaskList> {
+        if self.rpc_url.trim().is_empty() {
+            return Err(AppError::Validation("未配置 Aria2 RPC URL".to_string()));
+        }
+
+        let keys = json!(task_status_keys());
+        let active: Vec<RawAria2Task> = self
+            .call_rpc("aria2.tellActive", vec![keys.clone()])
+            .await?;
+        let waiting: Vec<RawAria2Task> = self
+            .call_rpc(
+                "aria2.tellWaiting",
+                vec![json!(0), json!(100), keys.clone()],
+            )
+            .await?;
+        let stopped: Vec<RawAria2Task> = self
+            .call_rpc(
+                "aria2.tellStopped",
+                vec![json!(0), json!(stopped_limit), keys],
+            )
+            .await?;
+
+        Ok(Aria2TaskList {
+            active: active.into_iter().map(Into::into).collect(),
+            waiting: waiting.into_iter().map(Into::into).collect(),
+            stopped: stopped.into_iter().map(Into::into).collect(),
+        })
+    }
+
+    async fn call_rpc<T>(&self, method: &str, params: Vec<Value>) -> Result<T>
+    where
+        T: DeserializeOwned,
+    {
+        let payload = build_rpc_payload(method, self.secret.trim(), params);
+        self.send_payload(payload)
+            .await?
+            .ok_or_else(|| AppError::Http(format!("Aria2 响应缺少结果: {}", method)))
+    }
+
+    async fn send_payload<T>(&self, payload: Value) -> Result<Option<T>>
+    where
+        T: DeserializeOwned,
+    {
         let response = self
             .client
             .post(self.rpc_url.trim())
             .json(&payload)
             .send()
             .await
-            .map_err(|e| AppError::Http(format!("提交 Aria2 任务失败: {}", e)))?;
+            .map_err(|e| AppError::Http(format!("请求 Aria2 失败: {}", e)))?;
 
-        let data: Aria2Response = response
+        let data: Aria2Response<T> = response
             .json()
             .await
             .map_err(|e| AppError::Http(format!("解析 Aria2 响应失败: {}", e)))?;
@@ -81,9 +223,7 @@ impl Aria2Client {
             )));
         }
 
-        data.result
-            .filter(|gid| !gid.trim().is_empty())
-            .ok_or_else(|| AppError::Http("Aria2 响应缺少任务 GID".to_string()))
+        Ok(data.result)
     }
 }
 
@@ -105,19 +245,163 @@ fn build_add_uri_payload(
         options.insert("header".to_string(), json!(headers));
     }
 
-    let mut params = Vec::new();
+    let params = vec![json!([uri]), Value::Object(options)];
+
+    build_rpc_payload("aria2.addUri", secret, params)
+}
+
+fn build_rpc_payload(method: &str, secret: &str, params: Vec<Value>) -> Value {
+    let mut rpc_params = Vec::new();
     if !secret.is_empty() {
-        params.push(json!(format!("token:{}", secret)));
+        rpc_params.push(json!(format!("token:{}", secret)));
     }
-    params.push(json!([uri]));
-    params.push(Value::Object(options));
+    rpc_params.extend(params);
 
     json!({
         "jsonrpc": "2.0",
         "id": "my-media-sub",
-        "method": "aria2.addUri",
-        "params": params,
+        "method": method,
+        "params": rpc_params,
     })
+}
+
+fn task_status_keys() -> Vec<&'static str> {
+    vec![
+        "gid",
+        "status",
+        "totalLength",
+        "completedLength",
+        "downloadSpeed",
+        "uploadSpeed",
+        "connections",
+        "dir",
+        "errorCode",
+        "errorMessage",
+        "files",
+    ]
+}
+
+impl From<RawAria2Task> for Aria2Task {
+    fn from(raw: RawAria2Task) -> Self {
+        let total_length = parse_u64(&raw.total_length);
+        let completed_length = parse_u64(&raw.completed_length);
+        let download_speed = parse_u64(&raw.download_speed);
+        let progress = calculate_progress(completed_length, total_length);
+        let eta_seconds =
+            calculate_eta(completed_length, total_length, download_speed, &raw.status);
+
+        let files: Vec<Aria2TaskFile> = raw.files.into_iter().map(Into::into).collect();
+        let primary_uri = files
+            .iter()
+            .flat_map(|file| file.uris.iter())
+            .map(|uri| uri.uri.as_str())
+            .find(|uri| !uri.trim().is_empty())
+            .unwrap_or_default()
+            .to_string();
+        let file_name = files
+            .iter()
+            .map(|file| file.file_name.as_str())
+            .find(|name| !name.trim().is_empty())
+            .map(ToString::to_string)
+            .unwrap_or_else(|| file_name_from_uri(&primary_uri));
+
+        Self {
+            gid: raw.gid,
+            status: raw.status,
+            total_length,
+            completed_length,
+            download_speed,
+            upload_speed: parse_u64(&raw.upload_speed),
+            connections: parse_u64(&raw.connections),
+            dir: raw.dir,
+            file_name,
+            primary_uri,
+            error_code: raw.error_code,
+            error_message: raw.error_message,
+            progress,
+            eta_seconds,
+            files,
+        }
+    }
+}
+
+impl From<RawAria2TaskFile> for Aria2TaskFile {
+    fn from(raw: RawAria2TaskFile) -> Self {
+        let file_name = file_name_from_path(&raw.path);
+        let mut seen_uris = HashSet::new();
+        let uris = raw
+            .uris
+            .into_iter()
+            .filter(|uri| !uri.uri.trim().is_empty() && seen_uris.insert(uri.uri.clone()))
+            .map(Into::into)
+            .collect();
+
+        Self {
+            index: raw.index,
+            path: raw.path,
+            file_name,
+            length: parse_u64(&raw.length),
+            completed_length: parse_u64(&raw.completed_length),
+            selected: parse_bool(&raw.selected),
+            uris,
+        }
+    }
+}
+
+impl From<RawAria2TaskUri> for Aria2TaskUri {
+    fn from(raw: RawAria2TaskUri) -> Self {
+        Self {
+            uri: raw.uri,
+            status: raw.status,
+        }
+    }
+}
+
+fn parse_u64(value: &str) -> u64 {
+    value.trim().parse().unwrap_or(0)
+}
+
+fn parse_bool(value: &str) -> bool {
+    matches!(value.trim(), "true" | "1")
+}
+
+fn calculate_progress(completed_length: u64, total_length: u64) -> f64 {
+    if total_length == 0 {
+        return 0.0;
+    }
+    let progress = completed_length as f64 / total_length as f64 * 100.0;
+    progress.clamp(0.0, 100.0)
+}
+
+fn calculate_eta(
+    completed_length: u64,
+    total_length: u64,
+    download_speed: u64,
+    status: &str,
+) -> Option<u64> {
+    if status != "active" || download_speed == 0 || total_length <= completed_length {
+        return None;
+    }
+    Some((total_length - completed_length).div_ceil(download_speed))
+}
+
+fn file_name_from_path(path: &str) -> String {
+    path.trim()
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn file_name_from_uri(uri: &str) -> String {
+    uri.trim()
+        .split('?')
+        .next()
+        .unwrap_or_default()
+        .rsplit('/')
+        .next()
+        .unwrap_or_default()
+        .to_string()
 }
 
 #[cfg(test)]
@@ -151,5 +435,55 @@ mod tests {
 
         assert_eq!(payload["params"][0][0], json!("https://example.com/a.mkv"));
         assert!(payload["params"][1].as_object().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_build_rpc_payload_with_secret() {
+        let payload = build_rpc_payload("aria2.tellActive", "secret", vec![json!(["gid"])]);
+
+        assert_eq!(payload["method"], json!("aria2.tellActive"));
+        assert_eq!(payload["params"][0], json!("token:secret"));
+        assert_eq!(payload["params"][1][0], json!("gid"));
+    }
+
+    #[test]
+    fn test_convert_raw_task_calculates_progress_and_eta() {
+        let task = Aria2Task::from(RawAria2Task {
+            gid: "gid-1".to_string(),
+            status: "active".to_string(),
+            total_length: "100".to_string(),
+            completed_length: "40".to_string(),
+            download_speed: "10".to_string(),
+            upload_speed: "0".to_string(),
+            connections: "2".to_string(),
+            dir: "/downloads".to_string(),
+            error_code: String::new(),
+            error_message: String::new(),
+            files: vec![RawAria2TaskFile {
+                index: "1".to_string(),
+                path: "/downloads/movie.mkv".to_string(),
+                length: "100".to_string(),
+                completed_length: "40".to_string(),
+                selected: "true".to_string(),
+                uris: vec![
+                    RawAria2TaskUri {
+                        uri: "https://example.com/movie.mkv?token=1".to_string(),
+                        status: "used".to_string(),
+                    },
+                    RawAria2TaskUri {
+                        uri: "https://example.com/movie.mkv?token=1".to_string(),
+                        status: "waiting".to_string(),
+                    },
+                ],
+            }],
+        });
+
+        assert_eq!(task.file_name, "movie.mkv");
+        assert_eq!(task.primary_uri, "https://example.com/movie.mkv?token=1");
+        assert_eq!(task.progress, 40.0);
+        assert_eq!(task.eta_seconds, Some(6));
+        assert_eq!(task.connections, 2);
+        assert!(task.files[0].selected);
+        assert_eq!(task.files[0].uris.len(), 1);
     }
 }
