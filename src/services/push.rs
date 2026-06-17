@@ -20,6 +20,16 @@ pub enum PushLevel {
 }
 
 impl PushLevel {
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "info" => Some(Self::Info),
+            "success" => Some(Self::Success),
+            "warning" => Some(Self::Warning),
+            "error" => Some(Self::Error),
+            _ => None,
+        }
+    }
+
     pub fn as_str(&self) -> &str {
         match self {
             Self::Info => "info",
@@ -49,6 +59,16 @@ pub enum PushEvent {
 }
 
 impl PushEvent {
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "subscription_updated" => Some(Self::SubscriptionUpdated),
+            "subscription_failed" => Some(Self::SubscriptionFailed),
+            "subscription_completed" => Some(Self::SubscriptionCompleted),
+            "transfer_saved" => Some(Self::TransferSaved),
+            _ => None,
+        }
+    }
+
     pub fn as_str(&self) -> &str {
         match self {
             Self::SubscriptionUpdated => "subscription_updated",
@@ -151,6 +171,15 @@ impl PushService {
         }
 
         channels
+    }
+
+    pub fn event_enabled(&self, event: PushEvent) -> bool {
+        match event {
+            PushEvent::SubscriptionUpdated => self.settings.push_on_update,
+            PushEvent::SubscriptionFailed => self.settings.push_on_failed,
+            PushEvent::SubscriptionCompleted => self.settings.push_on_completed,
+            PushEvent::TransferSaved => self.settings.push_on_save,
+        }
     }
 
     /// 发送推送到所有启用的渠道
@@ -267,14 +296,7 @@ impl PushService {
         message: &str,
         level: PushLevel,
     ) -> PushDeliveryReport {
-        let enabled = match event {
-            PushEvent::SubscriptionUpdated => self.settings.push_on_update,
-            PushEvent::SubscriptionFailed => self.settings.push_on_failed,
-            PushEvent::SubscriptionCompleted => self.settings.push_on_completed,
-            PushEvent::TransferSaved => self.settings.push_on_save,
-        };
-
-        if !enabled {
+        if !self.event_enabled(event) {
             return PushDeliveryReport::default();
         }
 
@@ -289,14 +311,7 @@ impl PushService {
         level: PushLevel,
         retry_policy: PushRetryPolicy,
     ) -> PushDeliveryReport {
-        let enabled = match event {
-            PushEvent::SubscriptionUpdated => self.settings.push_on_update,
-            PushEvent::SubscriptionFailed => self.settings.push_on_failed,
-            PushEvent::SubscriptionCompleted => self.settings.push_on_completed,
-            PushEvent::TransferSaved => self.settings.push_on_save,
-        };
-
-        if !enabled {
+        if !self.event_enabled(event) {
             return PushDeliveryReport::default();
         }
 

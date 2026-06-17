@@ -9,7 +9,7 @@ use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
 use super::model::{
     now, Job, JobKind, JobStatus, ManualTransferPayload, MetadataScrapePayload,
-    SubscriptionTransferPayload,
+    PushDispatchPayload, SubscriptionTransferPayload,
 };
 use super::store::JobStore;
 use super::worker::JobWorker;
@@ -31,6 +31,7 @@ impl JobQueue {
         let (sender, receiver) = mpsc::channel(100);
         let worker = JobWorker {
             store: store.clone(),
+            sender: sender.clone(),
             settings_store,
             subscription_store,
             notification_store,
@@ -80,6 +81,15 @@ impl JobQueue {
         .await
     }
 
+    pub async fn submit_push_dispatch(&self, payload: PushDispatchPayload) -> Result<Job> {
+        self.submit_job(
+            JobKind::PushDispatch,
+            "推送派发",
+            serde_json::to_value(payload)?,
+        )
+        .await
+    }
+
     pub async fn cancel(&self, id: &str) -> Result<Job> {
         self.store
             .try_update(id, |job| {
@@ -116,6 +126,7 @@ impl JobQueue {
                     JobKind::ManualTransfer => "手动转存",
                     JobKind::SubscriptionTransfer => "订阅自动转存",
                     JobKind::MetadataScrape => "订阅元数据刮削",
+                    JobKind::PushDispatch => "推送派发",
                 };
                 self.submit_job(job.kind.clone(), title, job.payload).await
             }

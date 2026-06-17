@@ -16,6 +16,7 @@ pub enum JobKind {
     ManualTransfer,
     SubscriptionTransfer,
     MetadataScrape,
+    PushDispatch,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,6 +61,14 @@ pub struct MetadataScrapePayload {
     pub subscription_id: Option<String>,
     #[serde(default)]
     pub overwrite: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PushDispatchPayload {
+    pub event: String,
+    pub title: String,
+    pub message: String,
+    pub level: String,
 }
 
 pub(crate) fn now() -> i64 {

@@ -59,5 +59,40 @@
     "updated_at": 1800000210,
     "started_at": 1800000201,
     "finished_at": 1800000210
+  },
+  {
+    "id": "push-dispatch-fixture",
+    "kind": "push_dispatch",
+    "status": "failed",
+    "progress": 100,
+    "title": "推送派发",
+    "message": "推送派发失败：成功 0 个，失败 1 个",
+    "payload": {
+      "event": "subscription_updated",
+      "title": "订阅有更新: 示例",
+      "message": "发现新集: 第 5 集",
+      "level": "info"
+    },
+    "result": {
+      "source_event": "subscription_updated",
+      "push_title": "订阅有更新: 示例",
+      "push_level": "info",
+      "results": {
+        "telegram": false
+      },
+      "errors": {
+        "telegram": "尝试 3 次后失败: 渠道返回失败状态"
+      },
+      "attempts": {
+        "telegram": 3
+      },
+      "success_count": 0,
+      "failed_count": 1
+    },
+    "error": "推送派发失败：成功 0 个，失败 1 个",
+    "created_at": 1800000300,
+    "updated_at": 1800000310,
+    "started_at": 1800000301,
+    "finished_at": 1800000310
   }
 ]
