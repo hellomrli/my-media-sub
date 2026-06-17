@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn};
@@ -58,6 +59,54 @@ fn filter_rename_candidates(
             .collect(),
         _ => video_files,
     }
+}
+
+async fn wait_for_rename_candidates<C, Fut>(
+    mut collect_video_files: C,
+    expected_names: Option<&HashSet<String>>,
+    max_attempts: usize,
+    retry_delay: Duration,
+) -> Result<Vec<NormalizedItem>>
+where
+    C: FnMut() -> Fut,
+    Fut: Future<Output = Result<Vec<NormalizedItem>>>,
+{
+    let expected_count = expected_names
+        .as_ref()
+        .map(|names| names.len())
+        .unwrap_or_default();
+    let mut rename_candidates = Vec::new();
+
+    for attempt in 1..=max_attempts {
+        let video_files = collect_video_files().await?;
+        rename_candidates = filter_rename_candidates(video_files, expected_names);
+
+        if expected_count > 0 {
+            if rename_candidates.len() >= expected_count {
+                break;
+            }
+            info!(
+                "本次转存视频暂未全部出现，已看到 {}/{}，等待后重试 ({}/{})",
+                rename_candidates.len(),
+                expected_count,
+                attempt,
+                max_attempts
+            );
+        } else if !rename_candidates.is_empty() {
+            break;
+        } else {
+            info!(
+                "目标目录暂未看到视频文件，等待后重试 ({}/{})",
+                attempt, max_attempts
+            );
+        }
+
+        if !retry_delay.is_zero() {
+            tokio::time::sleep(retry_delay).await;
+        }
+    }
+
+    Ok(rename_candidates)
 }
 
 /// 订阅自动转存服务
@@ -293,32 +342,13 @@ impl SubscriptionTransferService {
         let max_attempts = if expected_count > 0 { 30 } else { 10 };
 
         // 夸克转存接口可能先返回成功，再异步落盘；自动转存时等待本次新增视频出现。
-        let mut rename_candidates = Vec::new();
-        for attempt in 1..=max_attempts {
-            let video_files = collect_video_files_recursive(save_client, target_fid).await?;
-            rename_candidates = filter_rename_candidates(video_files, expected_names.as_ref());
-
-            if expected_count > 0 {
-                if rename_candidates.len() >= expected_count {
-                    break;
-                }
-                info!(
-                    "本次转存视频暂未全部出现，已看到 {}/{}，等待后重试 ({}/{})",
-                    rename_candidates.len(),
-                    expected_count,
-                    attempt,
-                    max_attempts
-                );
-            } else if !rename_candidates.is_empty() {
-                break;
-            } else {
-                info!(
-                    "目标目录暂未看到视频文件，等待后重试 ({}/{})",
-                    attempt, max_attempts
-                );
-            }
-            tokio::time::sleep(Duration::from_secs(2)).await;
-        }
+        let rename_candidates = wait_for_rename_candidates(
+            || collect_video_files_recursive(save_client, target_fid),
+            expected_names.as_ref(),
+            max_attempts,
+            Duration::from_secs(2),
+        )
+        .await?;
         info!("找到 {} 个待重命名视频文件", rename_candidates.len());
 
         let mut renamed_count = 0;
@@ -561,6 +591,8 @@ pub struct TransferResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
 
     fn video_item(name: &str) -> NormalizedItem {
         NormalizedItem {
@@ -616,5 +648,69 @@ mod tests {
         let filtered = filter_rename_candidates(candidates, None);
 
         assert_eq!(filtered.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn wait_for_rename_candidates_waits_for_expected_transfer_file() {
+        let expected = expected_video_names(&[
+            "Joy.of.Life.2019.S01.EP05.WEB-DL.4K.HEVC.AAC-LeagueWEB.mp4".to_string(),
+        ]);
+        let responses = Arc::new(Mutex::new(VecDeque::from([
+            vec![video_item(
+                "Joy.of.Life.2019.S01.EP04.WEB-DL.4K.HEVC.AAC-LeagueWEB.mp4",
+            )],
+            vec![
+                video_item("Joy.of.Life.2019.S01.EP04.WEB-DL.4K.HEVC.AAC-LeagueWEB.mp4"),
+                video_item("Joy.of.Life.2019.S01.EP05.WEB-DL.4K.HEVC.AAC-LeagueWEB.mp4"),
+            ],
+        ])));
+        let attempts = Arc::new(Mutex::new(0usize));
+
+        let candidates = wait_for_rename_candidates(
+            || {
+                let responses = responses.clone();
+                let attempts = attempts.clone();
+                async move {
+                    *attempts.lock().unwrap() += 1;
+                    Ok(responses.lock().unwrap().pop_front().unwrap_or_default())
+                }
+            },
+            Some(&expected),
+            3,
+            Duration::ZERO,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(*attempts.lock().unwrap(), 2);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(
+            candidates[0].file_name,
+            "Joy.of.Life.2019.S01.EP05.WEB-DL.4K.HEVC.AAC-LeagueWEB.mp4"
+        );
+    }
+
+    #[tokio::test]
+    async fn wait_for_rename_candidates_stops_after_max_attempts() {
+        let expected = expected_video_names(&["Episode.03.mp4".to_string()]);
+        let attempts = Arc::new(Mutex::new(0usize));
+
+        let candidates = wait_for_rename_candidates(
+            || {
+                let attempts = attempts.clone();
+                async move {
+                    *attempts.lock().unwrap() += 1;
+                    Ok(vec![video_item("Episode.01.mp4")])
+                }
+            },
+            Some(&expected),
+            2,
+            Duration::ZERO,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(*attempts.lock().unwrap(), 2);
+        assert!(candidates.is_empty());
     }
 }
