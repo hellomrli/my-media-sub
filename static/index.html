@@ -868,6 +868,17 @@
                 </details>
               </div>
 
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">渠道测试</h3>
+                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                  <template x-for="channel in pushChannels" :key="channel.id">
+                    <button @click="testPush(channel.id)" :disabled="!pushChannelConfigured(channel.id)" class="btn-secondary px-3 py-2 rounded text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                      <span x-text="channel.name"></span>
+                    </button>
+                  </template>
+                </div>
+              </div>
+
               <div class="flex justify-end gap-3 pt-4 border-t border-dark-border">
                 <button @click="testPush()" class="btn-secondary px-4 py-2 rounded-lg">测试推送</button>
                 <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
@@ -1137,6 +1148,16 @@
           {id: 'push', name: '消息推送'},
           {id: 'automation', name: '自动化'},
           {id: 'advanced', name: '高级'}
+        ],
+
+        pushChannels: [
+          {id: 'wecom', name: '企业微信'},
+          {id: 'telegram', name: 'Telegram'},
+          {id: 'wxpusher', name: 'WxPusher'},
+          {id: 'bark', name: 'Bark'},
+          {id: 'gotify', name: 'Gotify'},
+          {id: 'pushplus', name: 'PushPlus'},
+          {id: 'serverchan', name: 'Server 酱'}
         ],
 
         // 搜索
@@ -2390,13 +2411,30 @@
           }
         },
 
-        async testPush() {
-          this.showNotification('info', '发送测试推送中...');
+        pushChannelConfigured(channel) {
+          const s = this.settings || {};
+          if (channel === 'wecom') return !!s.wecom_bot_url;
+          if (channel === 'telegram') return !!s.telegram_bot_token && !!s.telegram_chat_id;
+          if (channel === 'wxpusher') return !!s.wxpusher_app_token;
+          if (channel === 'bark') return !!s.bark_url;
+          if (channel === 'gotify') return !!s.gotify_url && !!s.gotify_token;
+          if (channel === 'pushplus') return !!s.pushplus_token;
+          if (channel === 'serverchan') return !!s.serverchan_key;
+          return false;
+        },
+
+        pushChannelName(channel) {
+          const item = this.pushChannels.find(item => item.id === channel);
+          return item ? item.name : channel;
+        },
+
+        async testPush(channel = null) {
+          this.showNotification('info', channel ? `发送 ${this.pushChannelName(channel)} 测试推送中...` : '发送测试推送中...');
           try {
             const response = await fetch('/api/push/test', {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({})
+              body: JSON.stringify(channel ? {channels: [channel]} : {})
             });
             const data = await response.json();
             if (response.ok) {
@@ -2412,6 +2450,8 @@
                 this.showNotification('success', `推送成功 ${successCount}/${successCount + failedCount} 个渠道：${channelList}`);
               } else if (enabledChannels.length === 0) {
                 this.showNotification('warning', '未配置任何推送渠道');
+              } else if (channel) {
+                this.showNotification('error', `${this.pushChannelName(channel)} 推送测试失败`);
               } else {
                 this.showNotification('error', `推送失败，${failedCount} 个渠道失败`);
               }
