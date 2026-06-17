@@ -20,9 +20,9 @@
 - 智能重命名：按订阅模板识别 `S01E05`、`EP05`、`第05集` 等集数格式并重命名。
 - 命名修复：订阅列表提供“修复命名”，可对已转存的现有视频重新按模板命名。
 - 元数据匹配：支持订阅创建时匹配 TMDB，并可后台批量刮削已有订阅元数据。
-- 网盘管理：浏览夸克目录，支持新建文件夹、重命名、删除和批量删除。
+- 网盘管理：浏览夸克目录，支持新建文件夹、重命名、删除、批量删除，并可将文件发送到 Aria2 下载。
 - 通知中心：保存系统通知，支持已读和清空。
-- 推送渠道：企业微信、Telegram、WxPusher、Bark、Gotify、PushPlus、Server 酱，支持全量/单渠道测试，业务推送后台派发并记录脱敏失败原因。
+- 推送渠道：企业微信、Telegram、WxPusher、Bark、Gotify、PushPlus、Server 酱，支持全量/单渠道测试，业务推送以持久化任务派发并记录脱敏失败原因和重试次数。
 - 设置管理：支持运行时保存夸克 Cookie、推送配置、调度配置、NAS 同步、Aria2 等设置。
 
 ## 快速开始
@@ -80,6 +80,9 @@ cargo run
 | `WECOM_BOT_URL` | 企业微信机器人地址 | 空 |
 | `TELEGRAM_BOT_TOKEN` | Telegram Bot Token | 空 |
 | `TELEGRAM_CHAT_ID` | Telegram Chat ID | 空 |
+| `ARIA2_RPC_URL` | Aria2 JSON-RPC 地址 | 空 |
+| `ARIA2_SECRET` | Aria2 RPC Secret | 空 |
+| `ARIA2_DIR` | Aria2 下载目录 | 空 |
 | `TMDB_API_KEY` | TMDB API Key，用于元数据搜索和刮削 | 空 |
 | `TMDB_LANGUAGE` | TMDB 返回语言 | `zh-CN` |
 
@@ -88,10 +91,10 @@ cargo run
 ## 使用流程
 
 1. 登录 WebUI。
-2. 在“系统设置”中配置夸克 Cookie、保存目录、推送渠道和自动检查间隔。
+2. 在“系统设置”中配置夸克 Cookie、保存目录、Aria2、推送渠道和自动检查间隔。
 3. 在“资源搜索”中搜索资源，可选择“转存”或“订阅”。
 4. 在“订阅管理”中检查订阅、删除订阅、补全元数据或对已有文件执行“修复命名”。
-5. 在“我的网盘”中浏览、创建文件夹、重命名和删除文件。
+5. 在“我的网盘”中浏览、创建文件夹、重命名、删除文件，或将文件发送到 Aria2 下载。
 
 ## 重命名模板
 
@@ -132,7 +135,7 @@ cargo run
 - `POST /api/jobs/{id}/cancel`
 - `POST /api/jobs/{id}/retry`
 - `GET /api/jobs/events`：SSE 任务进度事件流
-- 任务类型：`manual_transfer`、`subscription_transfer`、`metadata_scrape`
+- 任务类型：`manual_transfer`、`subscription_transfer`、`metadata_scrape`、`push_dispatch`
 
 ### 元数据
 
@@ -166,6 +169,7 @@ cargo run
 - `POST /api/drive/mkdir`
 - `POST /api/drive/delete`
 - `POST /api/drive/rename`
+- `POST /api/drive/aria2`：获取夸克文件临时直链并提交到 Aria2
 
 ### 推送
 
