@@ -6,6 +6,10 @@ use std::fs;
 #[path = "../src/models/mod.rs"]
 mod models;
 
+#[allow(dead_code)]
+#[path = "../src/jobs/model.rs"]
+mod job_model;
+
 #[test]
 fn test_deserialize_real_subscriptions() {
     let Ok(content) = fs::read_to_string("data/subscriptions.json") else {
@@ -66,4 +70,27 @@ fn test_deserialize_real_notifications() {
     let json = serde_json::to_string_pretty(&notifs).unwrap();
     let _reparsed: Vec<models::Notification> =
         serde_json::from_str(&json).expect("往返序列化应该成功");
+}
+
+#[test]
+fn test_deserialize_jobs_fixture_with_all_current_kinds() {
+    let content =
+        fs::read_to_string("tests/fixtures/jobs.json").expect("应该能读取任务兼容性测试样例");
+
+    let jobs: Vec<job_model::Job> = serde_json::from_str(&content).expect("应该能反序列化任务样例");
+
+    assert_eq!(jobs.len(), 3);
+    assert!(jobs
+        .iter()
+        .any(|job| job.kind == job_model::JobKind::ManualTransfer));
+    assert!(jobs
+        .iter()
+        .any(|job| job.kind == job_model::JobKind::SubscriptionTransfer));
+    assert!(jobs
+        .iter()
+        .any(|job| job.kind == job_model::JobKind::MetadataScrape));
+
+    let json = serde_json::to_string_pretty(&jobs).unwrap();
+    let _reparsed: Vec<job_model::Job> =
+        serde_json::from_str(&json).expect("任务样例往返序列化应该成功");
 }

@@ -1,0 +1,63 @@
+[
+  {
+    "id": "manual-transfer-fixture",
+    "kind": "manual_transfer",
+    "status": "succeeded",
+    "progress": 100,
+    "title": "手动转存",
+    "message": "成功转存 2 个文件到网盘",
+    "payload": {
+      "url": "https://pan.quark.cn/s/example",
+      "passcode": "",
+      "target_fid": "0"
+    },
+    "result": {
+      "file_count": 2,
+      "saved_count": 2,
+      "target_fid": "0"
+    },
+    "error": null,
+    "created_at": 1800000000,
+    "updated_at": 1800000060,
+    "started_at": 1800000001,
+    "finished_at": 1800000060
+  },
+  {
+    "id": "subscription-transfer-fixture",
+    "kind": "subscription_transfer",
+    "status": "queued",
+    "progress": 0,
+    "title": "订阅自动转存",
+    "message": "等待后台任务执行",
+    "payload": {
+      "subscription_id": "sub-fixture",
+      "file_names": [
+        "Joy.of.Life.2019.S01.EP05.WEB-DL.4K.HEVC.AAC-LeagueWEB.mp4"
+      ]
+    },
+    "result": null,
+    "error": null,
+    "created_at": 1800000100,
+    "updated_at": 1800000100,
+    "started_at": null,
+    "finished_at": null
+  },
+  {
+    "id": "metadata-scrape-fixture",
+    "kind": "metadata_scrape",
+    "status": "canceled",
+    "progress": 100,
+    "title": "批量订阅元数据刮削",
+    "message": "任务已取消",
+    "payload": {
+      "subscription_id": null,
+      "overwrite": false
+    },
+    "result": null,
+    "error": null,
+    "created_at": 1800000200,
+    "updated_at": 1800000210,
+    "started_at": 1800000201,
+    "finished_at": 1800000210
+  }
+]
