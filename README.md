@@ -237,6 +237,28 @@ MOCK_QUARK_SHARE_FIXTURE=tests/fixtures/mock_quark_share.json cargo run
 
 创建订阅时使用 `https://pan.quark.cn/s/mock-show` 可模拟正常分享，使用 `https://pan.quark.cn/s/mock-invalid` 可模拟失效分享。启用该环境变量后，未在 fixture 中声明的分享链接会按失效处理。
 
+## 发布流程
+
+普通功能提交直接推送到 `main`，GitHub Actions 会构建并推送 `ghcr.io/hellomrli/my-media-sub:latest` 镜像。需要发布新版本时按下面顺序执行：
+
+```bash
+cargo fmt --all -- --check
+cargo check --locked
+cargo clippy --locked -- -D warnings
+cargo test --locked
+node --check static/app.js
+```
+
+确认通过后更新 `Cargo.toml` 和 README 中的版本号，提交到 `main`，再创建并推送版本标签：
+
+```bash
+git tag v0.7.15
+git push origin main
+git push origin v0.7.15
+```
+
+`v*` 标签会触发 Release 工作流，自动编译 Linux x86_64 二进制包、打包 `static/` 和 README，并上传 `.tar.gz` 与 `.sha256` 到 GitHub Release。仓库不维护 `RELEASES.md`，版本说明由 GitHub Release 自动生成。
+
 ## 项目结构
 
 ```text
