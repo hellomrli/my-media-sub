@@ -521,6 +521,74 @@ fn extract_episode_number(filename: &str) -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
+    use std::sync::Arc;
+
+    fn test_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "my_media_sub_{}_{}_{}.json",
+            name,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
+    fn make_subscription() -> Subscription {
+        Subscription {
+            id: "sub1".to_string(),
+            title: "Show".to_string(),
+            source_title: String::new(),
+            media_type: "series".to_string(),
+            season: 1,
+            current_episode_number: 0,
+            total_episode_number: None,
+            source_group: String::new(),
+            metadata: None,
+            cloud_type: "quark".to_string(),
+            url: "https://pan.quark.cn/s/test".to_string(),
+            password: String::new(),
+            known_files: vec![],
+            known_file_keys: vec![],
+            known_episodes: vec![],
+            transferred_files: vec![],
+            transferred_file_keys: vec![],
+            last_probe: None,
+            last_plan_summary: String::new(),
+            notify_only: false,
+            enabled: true,
+            completed: false,
+            rules: crate::models::rules::TransferRules::default(),
+            created_at: 0,
+            updated_at: 0,
+            last_checked_at: 0,
+            last_new_files: vec![],
+            last_new_episodes: vec![],
+            last_check_summary: String::new(),
+            check_history: vec![],
+            status: "active".to_string(),
+            invalid_since: None,
+            last_error: String::new(),
+            rule_summary: String::new(),
+        }
+    }
+
+    fn make_service() -> (
+        SubscriptionCheckService,
+        Arc<SubscriptionStore>,
+        Arc<NotificationStore>,
+    ) {
+        let subscriptions = Arc::new(SubscriptionStore::new(test_path("subscriptions")));
+        let settings = Arc::new(SettingsStore::new(test_path("settings")));
+        let notifications = Arc::new(NotificationStore::new(test_path("notifications")));
+        (
+            SubscriptionCheckService::new(subscriptions.clone(), settings, notifications.clone()),
+            subscriptions,
+            notifications,
+        )
+    }
 
     #[test]
     fn test_extract_episode_number() {
@@ -533,6 +601,78 @@ mod tests {
         assert_eq!(extract_episode_number("[01][1080p].mkv"), Some(1));
         assert_eq!(extract_episode_number("EP 03.mkv"), Some(3));
         assert_eq!(extract_episode_number("Movie.2024.mkv"), None);
+    }
+
+    #[tokio::test]
+    async fn test_update_subscription_after_check_records_new_files() {
+        let (service, store, _) = make_service();
+        let mut sub = make_subscription();
+        sub.known_file_keys = vec!["old-key".to_string()];
+        sub.status = "invalid".to_string();
+        sub.invalid_since = Some(1);
+        store.create(sub.clone()).await.unwrap();
+
+        let probe = ProbeResult {
+            ok: true,
+            state: "ok".to_string(),
+            message: String::new(),
+            files: vec![
+                ProbeFile {
+                    name: "Show.S01E01.mkv".to_string(),
+                    size: 1,
+                    file_key: "old-key".to_string(),
+                },
+                ProbeFile {
+                    name: "Show.S01E02.mkv".to_string(),
+                    size: 1,
+                    file_key: "new-key".to_string(),
+                },
+            ],
+        };
+        let new_files = service.find_new_files(&sub, &probe.files);
+        let new_names = new_files
+            .iter()
+            .map(|file| file.name.clone())
+            .collect::<Vec<_>>();
+        let new_episodes = service.parse_episodes(&new_names);
+
+        service
+            .update_subscription_after_check(
+                &sub,
+                &probe,
+                &new_names,
+                &new_episodes,
+                "发现 1 个新文件",
+                false,
+            )
+            .await
+            .unwrap();
+
+        let updated = store.get("sub1").await.unwrap();
+        assert_eq!(new_names, vec!["Show.S01E02.mkv"]);
+        assert_eq!(new_episodes, vec![2]);
+        assert_eq!(updated.current_episode_number, 2);
+        assert_eq!(updated.status, "active");
+        assert!(updated.invalid_since.is_none());
+        assert!(updated.known_file_keys.contains(&"new-key".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_mark_subscription_invalid_sets_status() {
+        let (service, store, _) = make_service();
+        let mut sub = make_subscription();
+        sub.rules.notify_on_invalid = false;
+        store.create(sub.clone()).await.unwrap();
+
+        service
+            .mark_subscription_invalid(&sub, "invalid share")
+            .await
+            .unwrap();
+
+        let updated = store.get("sub1").await.unwrap();
+        assert_eq!(updated.status, "invalid");
+        assert_eq!(updated.last_error, "invalid share");
+        assert!(updated.invalid_since.is_some());
     }
 
     #[test]

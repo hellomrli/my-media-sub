@@ -17,4 +17,6 @@ pub use search::SearchResult;
 
 pub use notification::Notification;
 
-pub use metadata::{MediaMetadata, MetadataProvider};
+pub use metadata::{
+    episode_count_for_season, MediaMetadata, MediaMetadataSeason, MetadataProvider,
+};

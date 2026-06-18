@@ -346,20 +346,9 @@
             <details class="mt-4">
               <summary class="cursor-pointer text-sm text-gray-400 hover:text-white flex items-center justify-between">
                 <span>高级筛选</span>
-                <span class="text-xs text-gray-600">链接检测、文件嗅探、云盘类型</span>
+                <span class="text-xs text-gray-600">链接检测、文件嗅探</span>
               </summary>
               <div class="mt-3 app-panel-soft p-4 space-y-4">
-                <div>
-                  <label class="block text-sm text-gray-400 mb-2">云盘类型</label>
-                  <div class="flex flex-wrap gap-2">
-                    <template x-for="type in cloudTypes" :key="type">
-                      <label class="flex items-center gap-2 px-3 py-2 bg-dark-hover rounded-lg cursor-pointer hover:bg-gray-700">
-                        <input type="checkbox" x-model="selectedCloudTypes" :value="type" class="rounded" />
-                        <span class="text-sm" x-text="type"></span>
-                      </label>
-                    </template>
-                  </div>
-                </div>
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <label class="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
                     <input type="checkbox" x-model="searchOptions.checkLinks" class="rounded" />
@@ -394,7 +383,7 @@
                       <span x-show="result.is_valid === false" class="px-2 py-1 bg-red-600/20 text-red-400 rounded text-xs">✗ 失效</span>
                     </div>
                     <div class="flex flex-wrap gap-2 text-sm text-gray-400 mb-2">
-                      <span x-text="result.cloud_type" class="chip text-blue-300"></span>
+                      <span x-text="cloudTypeLabel(result.cloud_type)" class="chip text-blue-300"></span>
                       <span x-show="result.source" x-text="result.source" class="text-gray-500"></span>
                       <!-- 文件数量标记 -->
                       <span x-show="result.probe_info" class="chip">
@@ -669,22 +658,14 @@
                     <div class="flex flex-wrap gap-2">
                       <span class="chip" x-text="mediaTypeLabel(sub.media_type)"></span>
                       <span class="chip" x-text="subscriptionRatingLabel(sub)"></span>
-                      <span class="chip" x-text="subscriptionSeasonLabel(sub)"></span>
-                      <span class="chip" x-text="subscriptionProgressLabel(sub)"></span>
+                      <span x-show="sub.media_type !== 'movie'" class="chip" x-text="subscriptionSeasonLabel(sub)"></span>
+                      <span x-show="sub.media_type !== 'movie'" class="chip" x-text="subscriptionProgressLabel(sub)"></span>
                       <span class="chip" x-text="'最后检查 ' + formatTime(sub.last_checked_at)"></span>
                     </div>
 
-                    <p x-show="sub.metadata && sub.metadata.overview" class="text-sm text-gray-400 leading-6 line-clamp-2" x-text="sub.metadata && sub.metadata.overview"></p>
-
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 text-sm">
-                      <div class="min-w-0">
-                        <span class="block text-xs text-gray-500 mb-1">保存目录</span>
-                        <span class="text-gray-300 break-all" x-text="(sub.rules && sub.rules.target_dir) || '-'"></span>
-                      </div>
-                      <div class="min-w-0">
-                        <span class="block text-xs text-gray-500 mb-1">规则摘要</span>
-                        <span class="text-gray-300 break-all" x-text="sub.rule_summary || ruleSummary(sub.rules)"></span>
-                      </div>
+                    <div class="text-sm min-w-0">
+                      <span class="block text-xs text-gray-500 mb-1">保存目录</span>
+                      <span class="text-gray-300 break-all" x-text="(sub.rules && sub.rules.target_dir) || '-'"></span>
                     </div>
 
                     <div class="flex flex-wrap gap-2 pt-1">
@@ -902,17 +883,6 @@
                   <div><label class="field-label">Secret</label><input type="password" x-model="settings.aria2_secret" placeholder="留空不修改" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
                 </div>
                 <div><label class="field-label">下载目录</label><input type="text" x-model="settings.aria2_dir" placeholder="/downloads" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-              </div>
-
-              <div class="app-panel-soft p-4 space-y-4">
-                <h3 class="section-title">搜索配置</h3>
-                <div><label class="block text-sm font-medium text-gray-300 mb-2">云盘类型</label>
-                  <div class="flex flex-wrap gap-2">
-                    <template x-for="type in cloudTypes" :key="type">
-                      <label class="flex items-center gap-2 px-3 py-2 bg-dark-hover rounded-lg cursor-pointer"><input type="checkbox" :value="type" x-model="settings.cloud_types" class="rounded" /><span class="text-sm" x-text="type"></span></label>
-                    </template>
-                  </div>
-                </div>
               </div>
 
               <div class="app-panel-soft p-4 space-y-4">
@@ -1224,10 +1194,10 @@
           </div>
         </div>
 
-        <div>
+        <div x-show="newSubscription.media_type !== 'movie'">
           <label class="block text-sm font-medium text-gray-300 mb-2">季号</label>
-          <input type="number" min="0" x-model="newSubscription.season" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
-          <p class="text-xs text-gray-500 mt-1">0 表示不使用季度；填 2 会按第 2 季处理。</p>
+          <input type="number" min="1" x-model="newSubscription.season" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+          <p class="text-xs text-gray-500 mt-1">默认第 1 季；填 2 会保存到 Season 2。</p>
         </div>
 
         <!-- 持续追更模式的额外选项 -->
@@ -1246,8 +1216,8 @@
             </div>
 
             <div x-show="newSubscription.custom_dir" class="space-y-2">
-              <input type="text" x-model="newSubscription.target_dir_name" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="目录名称，例如：风起洛阳" />
-              <p class="text-xs text-gray-500">将创建在分类目录下，例如：/NAS/动画/风起洛阳</p>
+              <input type="text" x-model="newSubscription.target_dir_name" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="目录名称，例如：庆余年（2024）" />
+              <p class="text-xs text-gray-500">电影保存到该目录；连续剧和动画会在该目录下保存到 Season X。</p>
             </div>
           </div>
 
@@ -1265,7 +1235,7 @@
             </div>
 
             <div x-show="newSubscription.custom_rename" class="space-y-2">
-              <input type="text" x-model="newSubscription.rename_template" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="例如：风起洛阳.E{} 或 风起洛阳.S02E{}" />
+              <input type="text" x-model="newSubscription.rename_template" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="例如：庆余年.S01E{} 或 影片名" />
               <p class="text-xs text-gray-500">支持 {}、{title}、{season}、{season_number}、{episode}、{episode_number}、{original}、{name}、{ext}。</p>
             </div>
           </div>
@@ -1398,8 +1368,7 @@
         searching: false,
         searchResults: [],
         searchHistory: [],
-        cloudTypes: ['夸克', '阿里云盘', '百度网盘', '迅雷'],
-        selectedCloudTypes: [],
+        cloudTypes: ['夸克'],
         searchOptions: {checkLinks: false, probeFiles: true, filterBad: true},
 
         // 订阅
@@ -1418,7 +1387,7 @@
           url: '',
           password: '',
           media_type: 'series',
-          season: 0,
+          season: 1,
           target_path: '',
           target_fid: '0',
           target_dir_name: '',
@@ -1487,7 +1456,7 @@
           app_username: '', app_password: '', quark_cookie: '', quark_save_enabled: false, quark_save_root: '',
           quark_save_movie_dir: '', quark_save_series_dir: '', quark_save_anime_dir: '',
           aria2_rpc_url: '', aria2_secret: '', aria2_dir: '',
-          cloud_types: [], push_on_update: false, push_on_failed: false, push_on_completed: false, push_on_save: false,
+          cloud_types: ['quark'], push_on_update: false, push_on_failed: false, push_on_completed: false, push_on_save: false,
           metadata_provider: 'tmdb', tmdb_api_key: '', tmdb_language: 'zh-CN',
           wecom_bot_url: '', telegram_bot_token: '', telegram_chat_id: '', bark_url: '', serverchan_key: '',
           wxpusher_app_token: '', wxpusher_uids: '', gotify_url: '', gotify_token: '', pushplus_token: '',
@@ -1578,7 +1547,6 @@
           await this.loadJobs();
           await this.loadSettings();
           this.setupJobEvents();
-          this.selectedCloudTypes = this.cloudTypes.slice();
           this.loadSearchHistory();
         },
 
@@ -1715,7 +1683,7 @@
             url: '',
             password: '',
             media_type: 'series',
-            season: 0,
+            season: 1,
             target_path: '',
             target_fid: '0',
             target_dir_name: '',
@@ -1765,7 +1733,7 @@
             url: result.url,
             password: result.password || '',
             media_type: 'series',
-            season: 0,
+            season: 1,
             target_path: '',
             target_fid: '0',
             target_dir_name: '',
@@ -1850,12 +1818,16 @@
 
         normalizeSeason(value) {
           const season = Number(value);
-          return Number.isFinite(season) && season > 0 ? Math.floor(season) : 0;
+          return Number.isFinite(season) && season > 0 ? Math.floor(season) : 1;
         },
 
         mediaTypeLabel(type) {
           const labels = {movie: '电影', series: '连续剧', anime: '动画'};
           return labels[type] || type || '-';
+        },
+
+        cloudTypeLabel(type) {
+          return type === 'quark' || type === '夸克' ? '夸克网盘' : (type || '-');
         },
 
         subscriptionPoster(sub) {
@@ -1882,7 +1854,7 @@
 
         subscriptionSeasonLabel(sub) {
           const season = this.normalizeSeason(sub && sub.season);
-          return season > 0 ? `第 ${season} 季` : '未设置季度';
+          return `第 ${season} 季`;
         },
 
         subscriptionProgressLabel(sub) {
@@ -1924,7 +1896,7 @@
         // 更新订阅默认值
         updateSubscriptionDefaults() {
           if (!this.newSubscription.custom_dir) {
-            this.newSubscription.target_dir_name = this.newSubscription.title;
+            this.newSubscription.target_dir_name = this.mediaFolderName();
           }
           if (!this.newSubscription.custom_rename) {
             this.newSubscription.rename_template = '';
@@ -1989,27 +1961,73 @@
           if (item.media_type) parts.push(this.mediaTypeLabel(item.media_type));
           if (item.release_date) parts.push(item.release_date.slice(0, 4));
           if (item.vote_average === 0 || item.vote_average) parts.push(`评分 ${Number(item.vote_average).toFixed(1)}`);
+          if (item.number_of_episodes) parts.push(`${item.number_of_episodes} 集`);
           return parts.join(' · ') || item.provider.toUpperCase();
+        },
+
+        targetBaseDir(type = this.newSubscription.media_type) {
+          return {
+            'movie': this.settings.quark_save_movie_dir || '/NAS/电影',
+            'series': this.settings.quark_save_series_dir || '/NAS/连续剧',
+            'anime': this.settings.quark_save_anime_dir || '/NAS/动画'
+          }[type] || '/NAS';
+        },
+
+        metadataYear() {
+          const date = this.newSubscription.metadata && this.newSubscription.metadata.release_date;
+          if (!date || !/^\d{4}/.test(date)) return '';
+          return date.slice(0, 4);
+        },
+
+        safePathSegment(value) {
+          const segment = String(value || '')
+            .replace(/[\\/]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          return segment || '未命名';
+        },
+
+        mediaFolderName() {
+          const title = this.safePathSegment((this.newSubscription.metadata && this.newSubscription.metadata.title) || this.newSubscription.title || '未命名');
+          const year = this.metadataYear();
+          return year ? `${title}（${year}）` : title;
+        },
+
+        seasonFolderName() {
+          return `Season ${this.normalizeSeason(this.newSubscription.season)}`;
+        },
+
+        appendPath(base, segment) {
+          const cleanBase = String(base || '').trim().replace(/\/+$/, '');
+          const cleanSegment = String(segment || '').trim().replace(/^\/+|\/+$/g, '');
+          if (!cleanSegment) return cleanBase;
+          if (!cleanBase || cleanBase === '/') return `/${cleanSegment}`;
+          return `${cleanBase}/${cleanSegment}`;
+        },
+
+        hasSeasonSuffix(path) {
+          const last = String(path || '').trim().replace(/\/+$/, '').split('/').pop() || '';
+          return /^Season\s+\d+$/i.test(last.trim());
+        },
+
+        withSeasonFolder(path) {
+          if (this.newSubscription.media_type === 'movie') return path;
+          if (this.hasSeasonSuffix(path)) return path;
+          return this.appendPath(path, this.seasonFolderName());
         },
 
         // 获取默认目标目录
         getDefaultTargetDir() {
-          const baseDir = {
-            'movie': this.settings.quark_save_movie_dir || '/NAS/电影',
-            'series': this.settings.quark_save_series_dir || '/NAS/连续剧',
-            'anime': this.settings.quark_save_anime_dir || '/NAS/动画'
-          }[this.newSubscription.media_type] || '/NAS';
-
-          const folderName = this.newSubscription.title || '未命名';
-          return `${baseDir}/${folderName}`;
+          const mediaDir = this.appendPath(this.targetBaseDir(), this.mediaFolderName());
+          return this.withSeasonFolder(mediaDir);
         },
 
         // 获取默认重命名模板
         getDefaultRenameTemplate() {
           const title = this.newSubscription.title || '未命名';
+          if (this.newSubscription.media_type === 'movie') return title;
           const season = this.normalizeSeason(this.newSubscription.season);
-          if (season > 0) return `${title}.S${String(season).padStart(2, '0')}E{}`;
-          return `${title}.E{}`;
+          return `${title}.S${String(season).padStart(2, '0')}E{}`;
         },
 
         splitRuleWords(value) {
@@ -2021,14 +2039,11 @@
 
         resolveSubscriptionTargetDir() {
           if (this.newSubscription.custom_dir) {
-            const baseDir = {
-              'movie': this.settings.quark_save_movie_dir || '/NAS/电影',
-              'series': this.settings.quark_save_series_dir || '/NAS/连续剧',
-              'anime': this.settings.quark_save_anime_dir || '/NAS/动画'
-            }[this.newSubscription.media_type] || '/NAS';
-            const dirName = this.newSubscription.target_dir_name.trim() || this.newSubscription.title || '未命名';
-            if (dirName.startsWith('/')) return dirName;
-            return `${baseDir}/${dirName}`;
+            const dirName = this.newSubscription.target_dir_name.trim() || this.mediaFolderName();
+            const target = dirName.startsWith('/')
+              ? dirName
+              : this.appendPath(this.targetBaseDir(), dirName);
+            return this.withSeasonFolder(target);
           }
           return this.getDefaultTargetDir();
         },

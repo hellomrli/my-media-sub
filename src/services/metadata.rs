@@ -3,7 +3,7 @@ use serde::Deserialize;
 use std::time::Duration;
 
 use crate::error::{AppError, Result};
-use crate::models::{MediaMetadata, MetadataProvider};
+use crate::models::{MediaMetadata, MediaMetadataSeason, MetadataProvider};
 use crate::store::SettingsStore;
 
 pub struct MetadataService {
@@ -104,12 +104,54 @@ impl MetadataService {
         }
 
         let data: TmdbSearchResponse = response.json().await?;
-        Ok(data
+        let mut results: Vec<MediaMetadata> = data
             .results
             .into_iter()
-            .filter_map(|item| item.into_metadata())
+            .filter_map(|item| {
+                let mut metadata = item.into_metadata()?;
+                if media_type == Some("anime") && metadata.media_type == "series" {
+                    metadata.media_type = "anime".to_string();
+                }
+                Some(metadata)
+            })
             .take(10)
-            .collect())
+            .collect();
+
+        for item in &mut results {
+            if item.media_type == "series" || item.media_type == "anime" {
+                if let Ok(Some(details)) = self
+                    .fetch_tmdb_tv_details(api_key, language, &item.provider_id)
+                    .await
+                {
+                    item.number_of_episodes = details.number_of_episodes;
+                    item.number_of_seasons = details.number_of_seasons;
+                    item.seasons = details.seasons.into_iter().map(Into::into).collect();
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
+    async fn fetch_tmdb_tv_details(
+        &self,
+        api_key: &str,
+        language: &str,
+        provider_id: &str,
+    ) -> Result<Option<TmdbTvDetails>> {
+        let endpoint = format!("https://api.themoviedb.org/3/tv/{}", provider_id);
+        let response = self
+            .client
+            .get(endpoint)
+            .query(&[("api_key", api_key), ("language", language)])
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Ok(None);
+        }
+
+        Ok(Some(response.json().await?))
     }
 }
 
@@ -144,6 +186,42 @@ struct TmdbSearchItem {
     first_air_date: Option<String>,
     #[serde(default)]
     vote_average: Option<f32>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TmdbTvDetails {
+    #[serde(default)]
+    number_of_episodes: Option<i32>,
+    #[serde(default)]
+    number_of_seasons: Option<i32>,
+    #[serde(default)]
+    seasons: Vec<TmdbSeason>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TmdbSeason {
+    #[serde(default)]
+    season_number: i32,
+    #[serde(default)]
+    episode_count: Option<i32>,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    air_date: Option<String>,
+    #[serde(default)]
+    poster_path: Option<String>,
+}
+
+impl From<TmdbSeason> for MediaMetadataSeason {
+    fn from(value: TmdbSeason) -> Self {
+        Self {
+            season_number: value.season_number,
+            episode_count: value.episode_count,
+            name: value.name,
+            air_date: value.air_date,
+            poster_url: tmdb_image_url(value.poster_path),
+        }
+    }
 }
 
 impl TmdbSearchItem {
@@ -182,6 +260,9 @@ impl TmdbSearchItem {
             backdrop_url: tmdb_image_url(self.backdrop_path),
             release_date: self.release_date.or(self.first_air_date),
             vote_average: self.vote_average,
+            number_of_episodes: None,
+            number_of_seasons: None,
+            seasons: vec![],
         })
     }
 }
@@ -279,6 +360,9 @@ mod tests {
                 backdrop_url: None,
                 release_date: None,
                 vote_average: Some(9.0),
+                number_of_episodes: None,
+                number_of_seasons: None,
+                seasons: vec![],
             },
             MediaMetadata {
                 provider: MetadataProvider::Tmdb,
@@ -291,6 +375,9 @@ mod tests {
                 backdrop_url: None,
                 release_date: None,
                 vote_average: Some(7.0),
+                number_of_episodes: None,
+                number_of_seasons: None,
+                seasons: vec![],
             },
         ];
 

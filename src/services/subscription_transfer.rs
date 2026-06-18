@@ -9,6 +9,7 @@ use crate::clients::quark_save::{NormalizedItem, QuarkSaveClient};
 use crate::error::{AppError, Result};
 use crate::models::rules::TransferRules;
 use crate::models::subscription::Subscription;
+use crate::models::Settings;
 use crate::services::notification::add_notification;
 use crate::services::transfer_rule::apply_rename;
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
@@ -64,6 +65,107 @@ fn filter_rename_candidates(
             .collect(),
         _ => video_files,
     }
+}
+
+fn append_path(base: &str, segment: &str) -> String {
+    let base = base.trim().trim_end_matches('/');
+    let segment = segment.trim().trim_matches('/');
+    if segment.is_empty() {
+        return base.to_string();
+    }
+    if base.is_empty() || base == "/" {
+        format!("/{}", segment)
+    } else {
+        format!("{}/{}", base, segment)
+    }
+}
+
+fn sanitize_path_segment(value: &str) -> String {
+    let sanitized = value
+        .chars()
+        .map(|ch| match ch {
+            '/' | '\\' => ' ',
+            ch if ch.is_control() => ' ',
+            ch => ch,
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if sanitized.trim().is_empty() {
+        "未命名".to_string()
+    } else {
+        sanitized.trim().to_string()
+    }
+}
+
+fn metadata_year(sub: &Subscription) -> Option<String> {
+    sub.metadata
+        .as_ref()
+        .and_then(|metadata| metadata.release_date.as_deref())
+        .and_then(|date| date.get(0..4))
+        .filter(|year| year.chars().all(|ch| ch.is_ascii_digit()))
+        .map(str::to_string)
+}
+
+fn media_folder_name(sub: &Subscription) -> String {
+    let title = sub
+        .metadata
+        .as_ref()
+        .map(|metadata| metadata.title.as_str())
+        .filter(|title| !title.trim().is_empty())
+        .unwrap_or(&sub.title);
+    let title = sanitize_path_segment(title);
+    match metadata_year(sub) {
+        Some(year) => format!("{}（{}）", title, year),
+        None => title,
+    }
+}
+
+fn season_folder_name(season: i32) -> String {
+    format!("Season {}", season.max(1))
+}
+
+fn has_season_suffix(path: &str) -> bool {
+    let last = path
+        .trim()
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    last.strip_prefix("season ")
+        .and_then(|number| number.parse::<i32>().ok())
+        .is_some()
+}
+
+fn category_directory(sub: &Subscription, settings: &Settings) -> String {
+    match sub.media_type.as_str() {
+        "movie" => settings.quark_save_movie_dir.clone(),
+        "series" => settings.quark_save_series_dir.clone(),
+        "anime" => settings.quark_save_anime_dir.clone(),
+        _ => settings
+            .custom_categories
+            .iter()
+            .find(|cat| sub.media_type == format!("custom_{}", cat.id))
+            .map(|cat| cat.dir.clone())
+            .unwrap_or_else(|| settings.quark_save_root.clone()),
+    }
+}
+
+fn determine_subscription_target_directory(sub: &Subscription, settings: &Settings) -> String {
+    let mut target_dir = if sub.rules.target_dir.trim().is_empty() {
+        append_path(&category_directory(sub, settings), &media_folder_name(sub))
+    } else {
+        sub.rules.target_dir.trim().to_string()
+    };
+
+    if matches!(sub.media_type.as_str(), "series" | "anime") && !has_season_suffix(&target_dir) {
+        target_dir = append_path(&target_dir, &season_folder_name(sub.season));
+    }
+
+    target_dir
 }
 
 async fn wait_for_rename_candidates<C, Fut>(
@@ -448,43 +550,8 @@ impl SubscriptionTransferService {
     }
 
     /// 确定目标目录
-    fn determine_target_directory(
-        &self,
-        sub: &Subscription,
-        settings: &crate::models::Settings,
-    ) -> String {
-        // 如果订阅设置了 target_dir，优先使用
-        if !sub.rules.target_dir.is_empty() {
-            return sub.rules.target_dir.clone();
-        }
-
-        // 否则根据媒体类型选择分类目录
-        let base = if settings.quark_save_root.is_empty() {
-            String::new()
-        } else {
-            settings.quark_save_root.clone()
-        };
-
-        let category_dir = match sub.media_type.as_str() {
-            "movie" => &settings.quark_save_movie_dir,
-            "series" => &settings.quark_save_series_dir,
-            "anime" => &settings.quark_save_anime_dir,
-            _ => {
-                // 检查自定义分类
-                for cat in &settings.custom_categories {
-                    if sub.media_type == format!("custom_{}", cat.id) {
-                        return cat.dir.clone();
-                    }
-                }
-                return base;
-            }
-        };
-
-        if category_dir.is_empty() {
-            base
-        } else {
-            category_dir.clone()
-        }
+    fn determine_target_directory(&self, sub: &Subscription, settings: &Settings) -> String {
+        determine_subscription_target_directory(sub, settings)
     }
 
     /// 标记文件为已转存
@@ -593,6 +660,7 @@ pub struct TransferResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::{MediaMetadata, MetadataProvider, Settings};
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
 
@@ -606,6 +674,93 @@ mod tests {
             size: 0,
             updated_at: String::new(),
         }
+    }
+
+    fn subscription(media_type: &str, season: i32) -> Subscription {
+        Subscription {
+            id: "sub".to_string(),
+            title: "庆余年".to_string(),
+            source_title: String::new(),
+            media_type: media_type.to_string(),
+            season,
+            current_episode_number: 0,
+            total_episode_number: None,
+            source_group: String::new(),
+            metadata: Some(MediaMetadata {
+                provider: MetadataProvider::Tmdb,
+                provider_id: "1".to_string(),
+                title: "庆余年".to_string(),
+                original_title: String::new(),
+                media_type: media_type.to_string(),
+                overview: String::new(),
+                poster_url: None,
+                backdrop_url: None,
+                release_date: Some("2024-01-01".to_string()),
+                vote_average: None,
+                number_of_episodes: None,
+                number_of_seasons: None,
+                seasons: vec![],
+            }),
+            cloud_type: "quark".to_string(),
+            url: "https://pan.quark.cn/s/test".to_string(),
+            password: String::new(),
+            known_files: vec![],
+            known_file_keys: vec![],
+            known_episodes: vec![],
+            transferred_files: vec![],
+            transferred_file_keys: vec![],
+            last_probe: None,
+            last_plan_summary: String::new(),
+            notify_only: false,
+            enabled: true,
+            completed: false,
+            rules: TransferRules::default(),
+            created_at: 1,
+            updated_at: 1,
+            last_checked_at: 1,
+            last_new_files: vec![],
+            last_new_episodes: vec![],
+            last_check_summary: String::new(),
+            check_history: vec![],
+            status: "active".to_string(),
+            invalid_since: None,
+            last_error: String::new(),
+            rule_summary: String::new(),
+        }
+    }
+
+    #[test]
+    fn determine_target_directory_uses_media_folder_and_season_for_series() {
+        let mut settings = Settings::default();
+        settings.quark_save_series_dir = "/连续剧".to_string();
+        let sub = subscription("series", 1);
+
+        let target = determine_subscription_target_directory(&sub, &settings);
+
+        assert_eq!(target, "/连续剧/庆余年（2024）/Season 1");
+    }
+
+    #[test]
+    fn determine_target_directory_does_not_append_season_for_movie() {
+        let mut settings = Settings::default();
+        settings.quark_save_movie_dir = "/电影".to_string();
+        let sub = subscription("movie", 1);
+
+        let target = determine_subscription_target_directory(&sub, &settings);
+
+        assert_eq!(target, "/电影/庆余年（2024）");
+    }
+
+    #[test]
+    fn determine_target_directory_keeps_existing_season_suffix() {
+        let mut settings = Settings::default();
+        settings.quark_save_anime_dir = "/动画".to_string();
+        let mut sub = subscription("anime", 2);
+        sub.rules.target_dir = "/动画/孤独摇滚（2022）/Season 2".to_string();
+
+        let target = determine_subscription_target_directory(&sub, &settings);
+
+        assert_eq!(target, "/动画/孤独摇滚（2022）/Season 2");
     }
 
     #[test]
