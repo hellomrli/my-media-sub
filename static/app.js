@@ -18,7 +18,8 @@ function app() {
       {id: 'quark', name: '夸克网盘'},
       {id: 'push', name: '消息推送'},
       {id: 'automation', name: '自动化'},
-      {id: 'advanced', name: '高级'}
+      {id: 'advanced', name: '高级'},
+      {id: 'update', name: '在线更新'}
     ],
 
     checkIntervalPresets: [15, 30, 60, 120, 360, 720],
@@ -119,6 +120,11 @@ function app() {
     downloadsUpdatedAt: null,
     downloadsAutoRefresh: true,
     downloadsPoller: null,
+
+    // 在线更新
+    updateInfo: null,
+    updateLoading: false,
+    updateError: '',
 
     // 转存相关
     showTransferModal: false,
@@ -237,6 +243,13 @@ function app() {
       }
     },
 
+    selectSettingsTab(tabId) {
+      this.currentSettingsTab = tabId;
+      if (tabId === 'update' && !this.updateInfo && !this.updateLoading) {
+        this.checkUpdate(true);
+      }
+    },
+
     async refresh() {
       if (this.currentTab === 'subscriptions') await this.loadSubscriptions();
       else if (this.currentTab === 'transferHistory') {
@@ -244,7 +257,10 @@ function app() {
         await this.loadNotifications();
       }
       else if (this.currentTab === 'notifications') await this.loadNotifications();
-      else if (this.currentTab === 'settings') await this.loadSettings();
+      else if (this.currentTab === 'settings') {
+        if (this.currentSettingsTab === 'update') await this.checkUpdate(true);
+        else await this.loadSettings();
+      }
       else if (this.currentTab === 'drive') await this.loadDrive();
       else if (this.currentTab === 'downloads') await this.loadDownloads();
     },
@@ -1823,6 +1839,65 @@ function app() {
     },
 
     // ===== 设置 =====
+    async checkUpdate(silent = false) {
+      this.updateLoading = true;
+      this.updateError = '';
+      try {
+        const response = await fetch('/api/update/check');
+        const result = await response.json().catch(() => ({}));
+        if (response.ok && result.data) {
+          this.updateInfo = result.data;
+          if (!silent) {
+            this.showNotification(
+              result.data.update_available ? 'success' : 'info',
+              result.data.update_available ? `发现新版本 ${result.data.latest_tag}` : '当前已是最新版本'
+            );
+          }
+        } else {
+          this.updateError = result.message || result.error || '检查更新失败';
+          if (!silent) this.showNotification('error', this.updateError);
+        }
+      } catch (error) {
+        this.updateError = '检查更新失败: ' + error.message;
+        if (!silent) this.showNotification('error', this.updateError);
+      } finally {
+        this.updateLoading = false;
+      }
+    },
+
+    updateStatusLabel() {
+      if (!this.updateInfo) return '未检查';
+      return this.updateInfo.update_available ? '可更新' : '已最新';
+    },
+
+    updateStatusClass() {
+      if (!this.updateInfo) return 'text-gray-400';
+      return this.updateInfo.update_available ? 'text-amber-300' : 'text-green-300';
+    },
+
+    updateRuntimeLabel() {
+      if (!this.updateInfo) return '-';
+      return this.updateInfo.runtime === 'docker' ? 'Docker' : '二进制';
+    },
+
+    assetSizeLabel(asset) {
+      return asset && asset.size ? this.formatSize(asset.size) : '-';
+    },
+
+    formatUpdateTime(value) {
+      return value ? new Date(value).toLocaleString() : '-';
+    },
+
+    async copyText(value) {
+      if (!value) return;
+      try {
+        await navigator.clipboard.writeText(value);
+        this.showNotification('success', '已复制');
+      } catch (error) {
+        this.showNotification('error', '复制失败');
+      }
+    },
+
     async loadSettings() {
       try {
         const response = await fetch('/api/settings');

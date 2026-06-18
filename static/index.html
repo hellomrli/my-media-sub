@@ -701,7 +701,7 @@
           <div class="app-panel overflow-hidden">
             <div class="border-b border-dark-border flex gap-2 p-2 overflow-x-auto">
               <template x-for="tab in settingsTabs" :key="tab.id">
-                <button @click="currentSettingsTab = tab.id" :class="currentSettingsTab === tab.id ? 'is-active' : 'text-gray-400'" class="nav-button px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors">
+                <button @click="selectSettingsTab(tab.id)" :class="currentSettingsTab === tab.id ? 'is-active' : 'text-gray-400'" class="nav-button px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors">
                   <span x-text="tab.name"></span>
                 </button>
               </template>
@@ -901,6 +901,103 @@
 
               <div class="flex justify-end gap-3 pt-4 border-t border-dark-border">
                 <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
+              </div>
+            </div>
+
+            <!-- 在线更新 -->
+            <div x-show="currentSettingsTab === 'update'" class="p-4 sm:p-6 space-y-6">
+              <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <div class="stat-tile p-4">
+                  <div class="text-xs text-gray-500">当前版本</div>
+                  <div class="mt-2 text-lg font-semibold text-white" x-text="updateInfo ? updateInfo.current_version : '-'"></div>
+                </div>
+                <div class="stat-tile p-4">
+                  <div class="text-xs text-gray-500">最新版本</div>
+                  <div class="mt-2 text-lg font-semibold text-white" x-text="updateInfo ? updateInfo.latest_tag : '-'"></div>
+                </div>
+                <div class="stat-tile p-4">
+                  <div class="text-xs text-gray-500">状态</div>
+                  <div class="mt-2 text-lg font-semibold" :class="updateStatusClass()" x-text="updateStatusLabel()"></div>
+                </div>
+                <div class="stat-tile p-4">
+                  <div class="text-xs text-gray-500">运行方式</div>
+                  <div class="mt-2 text-lg font-semibold text-white" x-text="updateRuntimeLabel()"></div>
+                </div>
+              </div>
+
+              <div class="app-panel-soft p-4 space-y-4">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 class="section-title">版本检查</h3>
+                    <p class="text-sm text-gray-500 mt-1" x-text="updateInfo ? '检查时间 ' + formatUpdateTime(updateInfo.checked_at) : '尚未检查'"></p>
+                  </div>
+                  <button @click="checkUpdate()" :disabled="updateLoading" class="btn-primary px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
+                    <span x-show="!updateLoading">检查更新</span>
+                    <span x-show="updateLoading">检查中</span>
+                  </button>
+                </div>
+
+                <div x-show="updateError" class="text-sm text-red-300 break-all" x-text="updateError"></div>
+
+                <div x-show="updateInfo" class="space-y-4">
+                  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div class="app-panel-soft p-4 space-y-3">
+                      <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div class="min-w-0">
+                          <div class="text-sm font-medium text-white break-words" x-text="updateInfo ? updateInfo.release_name : '-'"></div>
+                          <div class="text-xs text-gray-500 mt-1" x-text="updateInfo ? '发布时间 ' + formatUpdateTime(updateInfo.published_at) : '-'"></div>
+                        </div>
+                        <a x-show="updateInfo && updateInfo.release_url" :href="updateInfo.release_url" target="_blank" rel="noopener noreferrer" class="btn-secondary px-3 py-2 rounded text-xs text-center whitespace-nowrap">打开 Release</a>
+                      </div>
+                      <pre x-show="updateInfo && updateInfo.release_notes" class="max-h-48 overflow-y-auto whitespace-pre-wrap text-xs text-gray-400 leading-5" x-text="updateInfo ? updateInfo.release_notes : ''"></pre>
+                    </div>
+
+                    <div class="app-panel-soft p-4 space-y-3">
+                      <h3 class="section-title">Release 文件</h3>
+                      <div class="space-y-2">
+                        <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <div class="text-sm text-gray-300">Linux x86_64</div>
+                            <div class="text-xs text-gray-500" x-text="assetSizeLabel(updateInfo && updateInfo.linux_x86_64_asset)"></div>
+                          </div>
+                          <a x-show="updateInfo && updateInfo.linux_x86_64_asset" :href="updateInfo.linux_x86_64_asset && updateInfo.linux_x86_64_asset.download_url" target="_blank" rel="noopener noreferrer" class="btn-secondary px-3 py-2 rounded text-xs text-center">下载</a>
+                        </div>
+                        <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <div class="text-sm text-gray-300">SHA256</div>
+                            <div class="text-xs text-gray-500" x-text="assetSizeLabel(updateInfo && updateInfo.checksum_asset)"></div>
+                          </div>
+                          <a x-show="updateInfo && updateInfo.checksum_asset" :href="updateInfo.checksum_asset && updateInfo.checksum_asset.download_url" target="_blank" rel="noopener noreferrer" class="btn-secondary px-3 py-2 rounded text-xs text-center">下载</a>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="app-panel-soft p-4 space-y-4">
+                    <h3 class="section-title">Docker 更新</h3>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                      <div class="bg-dark-bg border border-dark-border rounded-lg p-3">
+                        <div class="text-xs text-gray-500 mb-2">Docker Compose</div>
+                        <div class="flex gap-2 items-center">
+                          <code class="flex-1 text-sm text-gray-200 break-all" x-text="updateInfo ? updateInfo.docker_compose_command : '-'"></code>
+                          <button @click="copyText(updateInfo && updateInfo.docker_compose_command)" class="btn-secondary px-3 py-2 rounded text-xs">复制</button>
+                        </div>
+                      </div>
+                      <div class="bg-dark-bg border border-dark-border rounded-lg p-3">
+                        <div class="text-xs text-gray-500 mb-2">版本镜像</div>
+                        <div class="flex gap-2 items-center">
+                          <code class="flex-1 text-sm text-gray-200 break-all" x-text="updateInfo ? 'docker pull ' + updateInfo.docker_version_image : '-'"></code>
+                          <button @click="copyText(updateInfo ? 'docker pull ' + updateInfo.docker_version_image : '')" class="btn-secondary px-3 py-2 rounded text-xs">复制</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="app-panel-soft p-4">
+                    <h3 class="section-title">二进制部署</h3>
+                    <p class="text-sm text-gray-400 mt-2">下载压缩包和 SHA256 文件，校验后停止服务，替换 my-media-sub 二进制与 static 目录，再重启服务。</p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
