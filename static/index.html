@@ -636,6 +636,37 @@
               </button>
             </div>
           </div>
+          <div x-show="lastCheckResult" class="app-panel p-4 space-y-4">
+            <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+              <div>
+                <h3 class="section-title">最近检查结果</h3>
+                <p class="text-sm text-gray-500 mt-1" x-text="lastCheckResult ? lastCheckResult.summary : ''"></p>
+              </div>
+              <button @click="lastCheckResult = null" class="btn-secondary px-3 py-2 rounded text-sm">关闭</button>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div class="stat-tile p-3"><div class="text-xs text-gray-500">扫描文件</div><div class="mt-1 text-xl font-semibold text-white" x-text="lastCheckMetric('scanned_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-gray-500">新增</div><div class="mt-1 text-xl font-semibold text-green-300" x-text="lastCheckMetric('new_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-gray-500">已知</div><div class="mt-1 text-xl font-semibold text-blue-300" x-text="lastCheckMetric('known_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-gray-500">起始集跳过</div><div class="mt-1 text-xl font-semibold text-amber-300" x-text="lastCheckMetric('skipped_before_start_count')"></div></div>
+            </div>
+            <div x-show="checkDetailItems().length > 0" class="border border-dark-border rounded-lg overflow-hidden">
+              <div class="grid grid-cols-12 gap-2 px-3 py-2 bg-dark-bg text-xs text-gray-500">
+                <div class="col-span-5">文件名</div>
+                <div class="col-span-2">集数</div>
+                <div class="col-span-2">结果</div>
+                <div class="col-span-3">原因</div>
+              </div>
+              <template x-for="item in checkDetailItems()" :key="item.file_key || item.name">
+                <div class="grid grid-cols-12 gap-2 px-3 py-2 border-t border-dark-border text-xs">
+                  <div class="col-span-5 text-gray-300 break-all" x-text="item.name"></div>
+                  <div class="col-span-2 text-gray-400" x-text="item.episode ? '第 ' + item.episode + ' 集' : '-'"></div>
+                  <div class="col-span-2"><span :class="checkActionClass(item.action)" x-text="checkActionLabel(item.action)"></span></div>
+                  <div class="col-span-3 text-gray-400 break-all" x-text="item.reason || '-'"></div>
+                </div>
+              </template>
+            </div>
+          </div>
           <div class="grid grid-cols-1 gap-4">
             <template x-for="sub in subscriptions" :key="sub.id">
               <div class="app-panel p-4 sm:p-5 hover:border-blue-500 transition-colors">
@@ -1409,6 +1440,7 @@
 
         // 订阅
         subscriptions: [],
+        lastCheckResult: null,
         showSubscriptionDialog: false,
         subscriptionMode: 'once',  // 'once' 或 'continuous'
         subscriptionEditingId: null,
@@ -1952,6 +1984,26 @@
           if (!sub || sub.media_type === 'movie') return '';
           const episode = this.normalizeStartEpisode(sub.start_episode_number || 0);
           return episode > 1 ? `从第 ${episode} 集开始` : '';
+        },
+
+        lastCheckMetric(key) {
+          return (this.lastCheckResult && this.lastCheckResult.details && this.lastCheckResult.details[key]) || 0;
+        },
+
+        checkDetailItems() {
+          const items = (this.lastCheckResult && this.lastCheckResult.details && this.lastCheckResult.details.items) || [];
+          return items.slice(0, 80);
+        },
+
+        checkActionLabel(action) {
+          return {new: '新增', known: '已知', skip: '跳过'}[action] || action || '-';
+        },
+
+        checkActionClass(action) {
+          if (action === 'new') return 'text-green-300';
+          if (action === 'known') return 'text-blue-300';
+          if (action === 'skip') return 'text-amber-300';
+          return 'text-gray-300';
         },
 
         subscriptionStatusLabel(status) {
@@ -2557,6 +2609,7 @@
 
             if (response.ok && data.data) {
               const result = data.data;
+              this.lastCheckResult = result;
               if (result.new_files.length > 0) {
                 this.showNotification('success', `发现 ${result.new_files.length} 个新文件`);
               } else {
