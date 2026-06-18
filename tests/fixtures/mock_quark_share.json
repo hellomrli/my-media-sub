@@ -1,0 +1,30 @@
+{
+  "https://pan.quark.cn/s/mock-show": {
+    "ok": true,
+    "state": "ok",
+    "message": "",
+    "files": [
+      {
+        "name": "Show.S01E01.mkv",
+        "size": 1048576,
+        "file_key": "mock-show-ep01"
+      },
+      {
+        "name": "Show.S01E02.mkv",
+        "size": 1048576,
+        "file_key": "mock-show-ep02"
+      },
+      {
+        "name": "Show.S01E03.mkv",
+        "size": 1048576,
+        "file_key": "mock-show-ep03"
+      }
+    ]
+  },
+  "https://pan.quark.cn/s/mock-invalid": {
+    "ok": false,
+    "state": "invalid",
+    "message": "mock share expired",
+    "files": []
+  }
+}

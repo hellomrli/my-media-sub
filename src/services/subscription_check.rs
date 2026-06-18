@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -221,6 +222,10 @@ impl SubscriptionCheckService {
 
     /// 探测分享链接
     async fn probe_share(&self, sub: &Subscription, cookie: &str) -> Result<ProbeResult> {
+        if let Some(mock_result) = mock_probe_result(&sub.url)? {
+            return Ok(mock_result);
+        }
+
         let probe = QuarkShareProbe::new(cookie.to_string());
         let share_info = probe.probe(&sub.url, &sub.password, 200).await;
 
@@ -533,6 +538,30 @@ impl SubscriptionCheckService {
     }
 }
 
+fn mock_probe_result(url: &str) -> Result<Option<ProbeResult>> {
+    let Ok(path) = std::env::var("MOCK_QUARK_SHARE_FIXTURE") else {
+        return Ok(None);
+    };
+    let path = path.trim();
+    if path.is_empty() {
+        return Ok(None);
+    }
+
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| AppError::Database(format!("读取模拟分享 fixture 失败: {}", e)))?;
+    let fixtures: HashMap<String, ProbeResult> = serde_json::from_str(&content)
+        .map_err(|e| AppError::Database(format!("解析模拟分享 fixture 失败: {}", e)))?;
+
+    Ok(Some(fixtures.get(url).cloned().unwrap_or_else(|| {
+        ProbeResult {
+            ok: false,
+            state: "mock_missing".to_string(),
+            message: format!("模拟分享 fixture 中不存在链接: {}", url),
+            files: vec![],
+        }
+    })))
+}
+
 /// 检查结果
 #[derive(Debug, Clone)]
 pub struct CheckResult {
@@ -764,6 +793,38 @@ mod tests {
         assert_eq!(details.items[0].action, "known");
         assert_eq!(details.items[1].action, "skip");
         assert_eq!(details.items[2].action, "new");
+    }
+
+    #[test]
+    fn test_mock_probe_result_reads_fixture() {
+        let path = test_path("mock_probe");
+        let fixture = r#"{
+            "https://pan.quark.cn/s/mock": {
+                "ok": true,
+                "state": "ok",
+                "message": "",
+                "files": [
+                    {"name": "Show.S01E01.mkv", "size": 1, "file_key": "fid1"}
+                ]
+            }
+        }"#;
+        std::fs::write(&path, fixture).unwrap();
+        std::env::set_var("MOCK_QUARK_SHARE_FIXTURE", &path);
+
+        let result = mock_probe_result("https://pan.quark.cn/s/mock")
+            .unwrap()
+            .unwrap();
+        let missing = mock_probe_result("https://pan.quark.cn/s/missing")
+            .unwrap()
+            .unwrap();
+
+        std::env::remove_var("MOCK_QUARK_SHARE_FIXTURE");
+        let _ = std::fs::remove_file(&path);
+
+        assert!(result.ok);
+        assert_eq!(result.files.len(), 1);
+        assert!(!missing.ok);
+        assert_eq!(missing.state, "mock_missing");
     }
 
     #[tokio::test]
