@@ -75,6 +75,10 @@ pub struct UpdateSubscriptionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notify_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub keep_progress_on_source_change: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub continue_from_current_episode: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub total_episode_number: Option<Option<i32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Option<MediaMetadata>>,
@@ -293,6 +297,41 @@ fn normalize_start_episode_number(value: Option<i32>, media_type: &str) -> Optio
     })
 }
 
+fn apply_source_change_options(
+    sub: &mut Subscription,
+    source_changed: bool,
+    keep_progress: bool,
+    continue_from_current: bool,
+) {
+    if !source_changed {
+        return;
+    }
+
+    sub.status = "active".to_string();
+    sub.invalid_since = None;
+    sub.last_error = String::new();
+    sub.completed = false;
+    sub.last_probe = None;
+    sub.last_new_files.clear();
+    sub.last_new_episodes.clear();
+    sub.last_check_summary = "已更换订阅资源，等待下次检查".to_string();
+
+    if !keep_progress {
+        sub.current_episode_number = 0;
+        sub.known_files.clear();
+        sub.known_file_keys.clear();
+        sub.known_episodes.clear();
+        sub.transferred_files.clear();
+        sub.transferred_file_keys.clear();
+        sub.start_episode_number = None;
+        return;
+    }
+
+    if continue_from_current && sub.media_type != "movie" && sub.current_episode_number > 0 {
+        sub.start_episode_number = Some(sub.current_episode_number + 1);
+    }
+}
+
 fn preview_files(req: &RenamePreviewRequest, sub: &Subscription) -> Vec<RuleProbeFile> {
     if !req.sample_files.is_empty() {
         return req
@@ -420,16 +459,21 @@ async fn update_subscription(
     Json(req): Json<UpdateSubscriptionRequest>,
 ) -> Result<impl IntoResponse> {
     let has_explicit_total_episode_number = req.total_episode_number.is_some();
+    let keep_progress_on_source_change = req.keep_progress_on_source_change.unwrap_or(true);
+    let continue_from_current_episode = req.continue_from_current_episode.unwrap_or(false);
     let updated = state
         .store
         .update(&id, |sub| {
+            let mut source_changed = false;
             if let Some(title) = req.title {
                 sub.title = title;
             }
             if let Some(url) = req.url {
+                source_changed |= url != sub.url;
                 sub.url = url;
             }
             if let Some(password) = req.password {
+                source_changed |= password != sub.password;
                 sub.password = password;
             }
             if let Some(media_type) = req.media_type {
@@ -469,6 +513,12 @@ async fn update_subscription(
             if let Some(rename_template) = req.rename_template {
                 sub.rules.rename_template = rename_template;
             }
+            apply_source_change_options(
+                sub,
+                source_changed,
+                keep_progress_on_source_change,
+                continue_from_current_episode,
+            );
             if !has_explicit_total_episode_number {
                 if let Some(count) = episode_count_for_season(sub.metadata.as_ref(), sub.season) {
                     sub.total_episode_number = Some(count);
@@ -710,4 +760,82 @@ pub fn routes(
             post(scrape_subscription_metadata),
         )
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn subscription_for_source_change() -> Subscription {
+        let mut sub: Subscription = serde_json::from_value(json!({
+            "id": "sub1",
+            "title": "Show",
+            "media_type": "series",
+            "season": 1,
+            "url": "https://pan.quark.cn/s/old",
+            "created_at": 1,
+            "updated_at": 1,
+            "last_checked_at": 1
+        }))
+        .unwrap();
+        sub.status = "invalid".to_string();
+        sub.invalid_since = Some(10);
+        sub.last_error = "share expired".to_string();
+        sub.current_episode_number = 12;
+        sub.known_files = vec!["Show.S01E12.mkv".to_string()];
+        sub.known_file_keys = vec!["fid12".to_string()];
+        sub.known_episodes = vec![12];
+        sub.transferred_files = vec!["Show.S01E12.mkv".to_string()];
+        sub.transferred_file_keys = vec!["ep:12".to_string()];
+        sub.last_new_files = vec!["Show.S01E12.mkv".to_string()];
+        sub.last_new_episodes = vec![12];
+        sub.last_check_summary = "链接失效".to_string();
+        sub
+    }
+
+    #[test]
+    fn apply_source_change_options_reactivates_and_continues_from_next_episode() {
+        let mut sub = subscription_for_source_change();
+
+        apply_source_change_options(&mut sub, true, true, true);
+
+        assert_eq!(sub.status, "active");
+        assert_eq!(sub.invalid_since, None);
+        assert!(sub.last_error.is_empty());
+        assert!(!sub.completed);
+        assert_eq!(sub.current_episode_number, 12);
+        assert_eq!(sub.start_episode_number, Some(13));
+        assert_eq!(sub.known_episodes, vec![12]);
+        assert_eq!(sub.transferred_file_keys, vec!["ep:12"]);
+        assert!(sub.last_new_files.is_empty());
+        assert_eq!(sub.last_check_summary, "已更换订阅资源，等待下次检查");
+    }
+
+    #[test]
+    fn apply_source_change_options_can_reset_progress() {
+        let mut sub = subscription_for_source_change();
+
+        apply_source_change_options(&mut sub, true, false, true);
+
+        assert_eq!(sub.status, "active");
+        assert_eq!(sub.current_episode_number, 0);
+        assert_eq!(sub.start_episode_number, None);
+        assert!(sub.known_files.is_empty());
+        assert!(sub.known_file_keys.is_empty());
+        assert!(sub.known_episodes.is_empty());
+        assert!(sub.transferred_files.is_empty());
+        assert!(sub.transferred_file_keys.is_empty());
+    }
+
+    #[test]
+    fn apply_source_change_options_ignores_unchanged_source() {
+        let mut sub = subscription_for_source_change();
+
+        apply_source_change_options(&mut sub, false, false, true);
+
+        assert_eq!(sub.status, "invalid");
+        assert_eq!(sub.current_episode_number, 12);
+        assert_eq!(sub.known_episodes, vec![12]);
+    }
 }

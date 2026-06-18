@@ -664,6 +664,8 @@
                       <span class="chip" x-text="'最后检查 ' + formatTime(sub.last_checked_at)"></span>
                     </div>
 
+                    <div x-show="sub.status === 'invalid' && sub.last_error" class="text-sm text-red-300 break-all" x-text="'失效原因：' + sub.last_error"></div>
+
                     <div class="text-sm min-w-0">
                       <span class="block text-xs text-gray-500 mb-1">保存目录</span>
                       <span class="text-gray-300 break-all" x-text="(sub.rules && sub.rules.target_dir) || '-'"></span>
@@ -1168,6 +1170,26 @@
           <input type="text" x-model="newSubscription.password" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="没有可留空" />
         </div>
 
+        <div x-show="subscriptionEditingId && subscriptionSourceChanged()" class="app-panel-soft p-4 space-y-3">
+          <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+            <div>
+              <div class="text-sm font-medium text-gray-300">更换资源处理</div>
+              <div class="text-xs text-gray-500" x-text="sourceChangeSummary()"></div>
+            </div>
+            <span class="chip">换源</span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+              <input type="checkbox" x-model="newSubscription.keep_progress_on_source_change" class="rounded" />
+              <span>保留追更记录</span>
+            </label>
+            <label x-show="newSubscription.media_type !== 'movie' && newSubscription.keep_progress_on_source_change" class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+              <input type="checkbox" x-model="newSubscription.continue_from_current_episode" class="rounded" />
+              <span>从当前进度下一集继续</span>
+            </label>
+          </div>
+        </div>
+
         <div x-show="metadataSearchAvailable()" class="app-panel-soft p-3 space-y-3">
           <div class="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
             <div>
@@ -1400,6 +1422,9 @@
           title: '',
           url: '',
           password: '',
+          original_url: '',
+          original_password: '',
+          original_current_episode: 0,
           media_type: 'series',
           season: 1,
           target_path: '',
@@ -1420,6 +1445,8 @@
           skip_existing_transferred: true,
           auto_create_target_dir: true,
           start_episode_number: '',
+          keep_progress_on_source_change: true,
+          continue_from_current_episode: true,
           finish_after_episode: '',
           preview_samples: ''
         },
@@ -1697,6 +1724,9 @@
             title: '',
             url: '',
             password: '',
+            original_url: '',
+            original_password: '',
+            original_current_episode: 0,
             media_type: 'series',
             season: 1,
             target_path: '',
@@ -1717,6 +1747,8 @@
             skip_existing_transferred: true,
             auto_create_target_dir: true,
             start_episode_number: '',
+            keep_progress_on_source_change: true,
+            continue_from_current_episode: true,
             finish_after_episode: '',
             preview_samples: ''
           };
@@ -1748,6 +1780,9 @@
             title: result.note || result.url,
             url: result.url,
             password: result.password || '',
+            original_url: result.url,
+            original_password: result.password || '',
+            original_current_episode: 0,
             media_type: 'series',
             season: 1,
             target_path: '',
@@ -1768,6 +1803,8 @@
             skip_existing_transferred: true,
             auto_create_target_dir: true,
             start_episode_number: '',
+            keep_progress_on_source_change: true,
+            continue_from_current_episode: true,
             finish_after_episode: '',
             preview_samples: this.sampleFilesFromSearchResult(result)
           };
@@ -1788,6 +1825,9 @@
             title: sub.title || '',
             url: sub.url || '',
             password: sub.password || '',
+            original_url: sub.url || '',
+            original_password: sub.password || '',
+            original_current_episode: Number(sub.current_episode_number || 0),
             media_type: sub.media_type || 'series',
             season: this.normalizeSeason(sub.season),
             target_path: '',
@@ -1808,6 +1848,8 @@
             skip_existing_transferred: rules.skip_existing_transferred !== false,
             auto_create_target_dir: rules.auto_create_target_dir !== false,
             start_episode_number: sub.start_episode_number || '',
+            keep_progress_on_source_change: true,
+            continue_from_current_episode: sub.media_type !== 'movie' && Number(sub.current_episode_number || 0) > 0,
             finish_after_episode: rules.finish_after_episode || '',
             preview_samples: ((sub.last_probe && sub.last_probe.files) || []).map(file => file.name).join('\n')
           };
@@ -1847,6 +1889,21 @@
         subscriptionStartEpisodePayload() {
           if (this.newSubscription.media_type === 'movie') return 0;
           return this.normalizeStartEpisode(this.newSubscription.start_episode_number);
+        },
+
+        subscriptionSourceChanged() {
+          if (!this.subscriptionEditingId) return false;
+          return String(this.newSubscription.url || '') !== String(this.newSubscription.original_url || '')
+            || String(this.newSubscription.password || '') !== String(this.newSubscription.original_password || '');
+        },
+
+        sourceChangeSummary() {
+          const current = Math.max(0, Number(this.newSubscription.original_current_episode || 0));
+          if (!this.newSubscription.keep_progress_on_source_change) return '清空追更记录后按新资源重新识别。';
+          if (this.newSubscription.media_type !== 'movie' && this.newSubscription.continue_from_current_episode && current > 0) {
+            return `保留记录，并从第 ${current + 1} 集继续追更。`;
+          }
+          return '保留已知文件、已知集数和已转存记录。';
         },
 
         mediaTypeLabel(type) {
@@ -2321,6 +2378,8 @@
                 season: this.normalizeSeason(this.newSubscription.season),
                 start_episode_number: this.subscriptionStartEpisodePayload(),
                 notify_only: this.newSubscription.notify_only,
+                keep_progress_on_source_change: !!this.newSubscription.keep_progress_on_source_change,
+                continue_from_current_episode: !!this.newSubscription.continue_from_current_episode,
                 metadata: this.newSubscription.metadata,
                 rules,
                 target_dir: rules.target_dir,
