@@ -239,7 +239,9 @@ src/
   services/  订阅检查、转存、重命名、推送等业务逻辑
   store/     JSON 数据存储
 static/
-  index.html WebUI
+  index.html WebUI 结构
+  app.js     WebUI 交互逻辑
+  styles.css WebUI 样式
 tests/
   real_data_compat.rs
 ```
