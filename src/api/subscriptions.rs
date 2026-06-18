@@ -38,6 +38,8 @@ pub struct CreateSubscriptionRequest {
     #[serde(default)]
     pub season: i32,
     #[serde(default)]
+    pub start_episode_number: Option<i32>,
+    #[serde(default)]
     pub cloud_type: String,
     #[serde(default)]
     pub target_dir: String,
@@ -64,6 +66,8 @@ pub struct UpdateSubscriptionRequest {
     pub media_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub season: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_episode_number: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cloud_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -102,6 +106,8 @@ pub struct RenamePreviewRequest {
     pub media_type: Option<String>,
     #[serde(default)]
     pub season: Option<i32>,
+    #[serde(default)]
+    pub start_episode_number: Option<i32>,
     #[serde(default)]
     pub rules: Option<TransferRules>,
     #[serde(default)]
@@ -216,6 +222,14 @@ fn preview_subscription(req: &RenamePreviewRequest, base: Option<&Subscription>)
             .or_else(|| base.map(|sub| sub.season))
             .filter(|season| *season > 0)
             .unwrap_or(1),
+        start_episode_number: normalize_start_episode_number(
+            req.start_episode_number
+                .or_else(|| base.and_then(|sub| sub.start_episode_number)),
+            req.media_type
+                .as_deref()
+                .or_else(|| base.map(|sub| sub.media_type.as_str()))
+                .unwrap_or("series"),
+        ),
         current_episode_number: base.map(|sub| sub.current_episode_number).unwrap_or(0),
         total_episode_number: base.and_then(|sub| sub.total_episode_number),
         source_group: base.map(|sub| sub.source_group.clone()).unwrap_or_default(),
@@ -262,6 +276,21 @@ fn preview_subscription(req: &RenamePreviewRequest, base: Option<&Subscription>)
         last_error: String::new(),
         rule_summary: String::new(),
     }
+}
+
+fn normalize_start_episode_number(value: Option<i32>, media_type: &str) -> Option<i32> {
+    if media_type == "movie" {
+        return None;
+    }
+
+    value.and_then(|episode| {
+        let episode = episode.max(0);
+        if episode > 0 {
+            Some(episode)
+        } else {
+            None
+        }
+    })
 }
 
 fn preview_files(req: &RenamePreviewRequest, sub: &Subscription) -> Vec<RuleProbeFile> {
@@ -328,6 +357,13 @@ async fn create_subscription(
         .as_secs() as i64;
 
     let season = req.season.max(1);
+    let media_type = if req.media_type.is_empty() {
+        "series".to_string()
+    } else {
+        req.media_type
+    };
+    let start_episode_number =
+        normalize_start_episode_number(req.start_episode_number, &media_type);
     let total_episode_number =
         episode_count_for_season(req.metadata.as_ref(), season).or(rules.finish_after_episode);
 
@@ -335,12 +371,9 @@ async fn create_subscription(
         id: id.to_string(),
         title: req.title,
         source_title: String::new(),
-        media_type: if req.media_type.is_empty() {
-            "series".to_string()
-        } else {
-            req.media_type
-        },
+        media_type,
         season,
+        start_episode_number,
         current_episode_number: 0,
         total_episode_number,
         source_group: String::new(),
@@ -404,6 +437,13 @@ async fn update_subscription(
             }
             if let Some(season) = req.season {
                 sub.season = season.max(1);
+            }
+            if let Some(start_episode_number) = req.start_episode_number {
+                sub.start_episode_number =
+                    normalize_start_episode_number(Some(start_episode_number), &sub.media_type);
+            }
+            if sub.media_type == "movie" {
+                sub.start_episode_number = None;
             }
             if let Some(cloud_type) = req.cloud_type {
                 sub.cloud_type = cloud_type;

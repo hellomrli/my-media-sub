@@ -264,6 +264,18 @@ pub fn build_transfer_plan(
             }
         }
 
+        if item.skip_reason.is_empty() && subscription.media_type != "movie" {
+            if let Some(start_episode) = subscription.start_episode_number {
+                if start_episode > 1
+                    && episode
+                        .map(|episode| episode < start_episode)
+                        .unwrap_or(false)
+                {
+                    item.skip_reason = format!("低于起始转存集数：第 {} 集", start_episode);
+                }
+            }
+        }
+
         // 通过过滤，检查转存条件
         if item.skip_reason.is_empty() {
             if rules.skip_existing_transferred && transferred.contains(&key) {
@@ -423,6 +435,7 @@ mod tests {
             source_title: String::new(),
             media_type: "series".to_string(),
             season: 1,
+            start_episode_number: None,
             current_episode_number: 0,
             total_episode_number: None,
             source_group: String::new(),
@@ -480,6 +493,20 @@ mod tests {
         assert_eq!(plan.transfer_count, 2); // 预告被排除
         assert_eq!(plan.current_episode_number, 2);
         assert_eq!(plan.episodes, vec![1, 2]);
+    }
+
+    #[test]
+    fn test_build_transfer_plan_respects_start_episode_number() {
+        let rules = TransferRules::default();
+        let mut sub = make_sub("Show", rules);
+        sub.start_episode_number = Some(5);
+        let files = vec![make_file("Show.S01E04.mkv"), make_file("Show.S01E05.mkv")];
+
+        let plan = build_transfer_plan(&sub, Some(&files), None, None, None);
+
+        assert_eq!(plan.transfer_count, 1);
+        assert_eq!(plan.transfers[0].source_name, "Show.S01E05.mkv");
+        assert_eq!(plan.skipped[0].skip_reason, "低于起始转存集数：第 5 集");
     }
 
     #[test]

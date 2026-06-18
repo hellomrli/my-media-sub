@@ -683,6 +683,7 @@ mod tests {
             source_title: String::new(),
             media_type: media_type.to_string(),
             season,
+            start_episode_number: None,
             current_episode_number: 0,
             total_episode_number: None,
             source_group: String::new(),
