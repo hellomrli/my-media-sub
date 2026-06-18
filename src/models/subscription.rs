@@ -105,6 +105,10 @@ pub struct Subscription {
     #[serde(default = "default_season")]
     pub season: i32,
 
+    /// 起始转存集数；低于该集数的剧集文件会记为已知但不触发转存
+    #[serde(default)]
+    pub start_episode_number: Option<i32>,
+
     /// 当前集数
     #[serde(default)]
     pub current_episode_number: i32,
@@ -247,6 +251,7 @@ mod tests {
             source_title: "【某字幕组】测试动画".to_string(),
             media_type: "anime".to_string(),
             season: 1,
+            start_episode_number: Some(5),
             current_episode_number: 12,
             total_episode_number: Some(24),
             source_group: "某字幕组".to_string(),
@@ -300,6 +305,7 @@ mod tests {
         let sub: Subscription = serde_json::from_str(json).unwrap();
         assert_eq!(sub.id, "abc123");
         assert_eq!(sub.season, 1); // 默认值：第 1 季
+        assert_eq!(sub.start_episode_number, None); // 默认值：不限制起始集数
         assert_eq!(sub.cloud_type, "quark"); // 默认值
         assert_eq!(sub.enabled, true); // 默认值
         assert_eq!(sub.status, "active"); // 默认值

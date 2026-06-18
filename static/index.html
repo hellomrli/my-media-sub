@@ -660,6 +660,7 @@
                       <span class="chip" x-text="subscriptionRatingLabel(sub)"></span>
                       <span x-show="sub.media_type !== 'movie'" class="chip" x-text="subscriptionSeasonLabel(sub)"></span>
                       <span x-show="sub.media_type !== 'movie'" class="chip" x-text="subscriptionProgressLabel(sub)"></span>
+                      <span x-show="subscriptionStartEpisodeLabel(sub)" class="chip" x-text="subscriptionStartEpisodeLabel(sub)"></span>
                       <span class="chip" x-text="'最后检查 ' + formatTime(sub.last_checked_at)"></span>
                     </div>
 
@@ -1209,6 +1210,12 @@
 
         <!-- 持续追更模式的额外选项 -->
         <div x-show="subscriptionMode === 'continuous' || subscriptionEditingId" class="space-y-4">
+          <div x-show="newSubscription.media_type !== 'movie'">
+            <label class="block text-sm font-medium text-gray-300 mb-2">从第几集开始转存</label>
+            <input type="number" min="1" x-model="newSubscription.start_episode_number" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="留空不限制，例如：13" />
+            <p class="text-xs text-gray-500 mt-1">低于该集数的新增文件会记为已知，但不会通知或自动转存。</p>
+          </div>
+
           <div>
             <label class="flex items-center justify-between text-sm font-medium text-gray-300 mb-2">
               <span>转存目录</span>
@@ -1412,6 +1419,7 @@
           only_latest: false,
           skip_existing_transferred: true,
           auto_create_target_dir: true,
+          start_episode_number: '',
           finish_after_episode: '',
           preview_samples: ''
         },
@@ -1708,6 +1716,7 @@
             only_latest: false,
             skip_existing_transferred: true,
             auto_create_target_dir: true,
+            start_episode_number: '',
             finish_after_episode: '',
             preview_samples: ''
           };
@@ -1758,6 +1767,7 @@
             only_latest: false,
             skip_existing_transferred: true,
             auto_create_target_dir: true,
+            start_episode_number: '',
             finish_after_episode: '',
             preview_samples: this.sampleFilesFromSearchResult(result)
           };
@@ -1797,6 +1807,7 @@
             only_latest: !!rules.only_latest,
             skip_existing_transferred: rules.skip_existing_transferred !== false,
             auto_create_target_dir: rules.auto_create_target_dir !== false,
+            start_episode_number: sub.start_episode_number || '',
             finish_after_episode: rules.finish_after_episode || '',
             preview_samples: ((sub.last_probe && sub.last_probe.files) || []).map(file => file.name).join('\n')
           };
@@ -1826,6 +1837,16 @@
         normalizeSeason(value) {
           const season = Number(value);
           return Number.isFinite(season) && season > 0 ? Math.floor(season) : 1;
+        },
+
+        normalizeStartEpisode(value) {
+          const episode = Number(value);
+          return Number.isFinite(episode) && episode > 0 ? Math.floor(episode) : 0;
+        },
+
+        subscriptionStartEpisodePayload() {
+          if (this.newSubscription.media_type === 'movie') return 0;
+          return this.normalizeStartEpisode(this.newSubscription.start_episode_number);
         },
 
         mediaTypeLabel(type) {
@@ -1870,6 +1891,12 @@
           return total > 0 ? `${current}/${total} 集` : `${current}/- 集`;
         },
 
+        subscriptionStartEpisodeLabel(sub) {
+          if (!sub || sub.media_type === 'movie') return '';
+          const episode = this.normalizeStartEpisode(sub.start_episode_number || 0);
+          return episode > 1 ? `从第 ${episode} 集开始` : '';
+        },
+
         subscriptionStatusLabel(status) {
           const labels = {active: '追更中', completed: '已完结', invalid: '失效'};
           return labels[status] || status || '-';
@@ -1902,6 +1929,9 @@
 
         // 更新订阅默认值
         updateSubscriptionDefaults() {
+          if (this.newSubscription.media_type === 'movie') {
+            this.newSubscription.start_episode_number = '';
+          }
           if (!this.newSubscription.custom_dir) {
             this.newSubscription.target_dir_name = this.mediaFolderName();
           }
@@ -2119,6 +2149,7 @@
                 password: this.newSubscription.password,
                 media_type: this.newSubscription.media_type,
                 season: this.normalizeSeason(this.newSubscription.season),
+                start_episode_number: this.subscriptionStartEpisodePayload(),
                 rules: this.buildSubscriptionRules(),
                 sample_files: this.previewSampleFiles()
               })
@@ -2246,6 +2277,7 @@
                 password: this.newSubscription.password,
                 media_type: this.newSubscription.media_type,
                 season: this.normalizeSeason(this.newSubscription.season),
+                start_episode_number: this.subscriptionStartEpisodePayload(),
                 target_dir: rules.target_dir,
                 target_fid: '0',
                 rename_template: rules.rename_template,
@@ -2287,6 +2319,7 @@
                 password: this.newSubscription.password,
                 media_type: this.newSubscription.media_type,
                 season: this.normalizeSeason(this.newSubscription.season),
+                start_episode_number: this.subscriptionStartEpisodePayload(),
                 notify_only: this.newSubscription.notify_only,
                 metadata: this.newSubscription.metadata,
                 rules,

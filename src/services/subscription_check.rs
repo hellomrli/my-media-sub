@@ -224,9 +224,29 @@ impl SubscriptionCheckService {
     fn find_new_files(&self, sub: &Subscription, files: &[ProbeFile]) -> Vec<ProbeFile> {
         files
             .iter()
-            .filter(|f| !sub.known_file_keys.contains(&f.file_key))
+            .filter(|f| {
+                !sub.known_file_keys.contains(&f.file_key)
+                    && !self.is_before_start_episode(sub, &f.name)
+            })
             .cloned()
             .collect()
+    }
+
+    fn is_before_start_episode(&self, sub: &Subscription, file_name: &str) -> bool {
+        if sub.media_type == "movie" {
+            return false;
+        }
+
+        let Some(start_episode) = sub.start_episode_number else {
+            return false;
+        };
+        if start_episode <= 1 {
+            return false;
+        }
+
+        extract_episode_number(file_name)
+            .map(|episode| episode < start_episode)
+            .unwrap_or(false)
     }
 
     /// 解析集数
@@ -501,6 +521,7 @@ fn extract_episode_number(filename: &str) -> Option<i32> {
         r"第\s*([0-9]{1,3})\s*[集话話]",   // 第01集
         r"\[([0-9]{1,3})\]",               // [01]
         r"[Ss][0-9]{1,2}[Ee]([0-9]{1,3})", // S01E01
+        r"(?i)(?:^|[^\d])([0-9]{1,3})\.(mkv|mp4|avi|ts|mov|wmv|flv|m4v|rmvb|webm)$", // 03.mkv
     ];
 
     for pattern in &patterns {
@@ -543,6 +564,7 @@ mod tests {
             source_title: String::new(),
             media_type: "series".to_string(),
             season: 1,
+            start_episode_number: None,
             current_episode_number: 0,
             total_episode_number: None,
             source_group: String::new(),
@@ -600,7 +622,41 @@ mod tests {
         assert_eq!(extract_episode_number("Show.S01E05.720p.mkv"), Some(5));
         assert_eq!(extract_episode_number("[01][1080p].mkv"), Some(1));
         assert_eq!(extract_episode_number("EP 03.mkv"), Some(3));
+        assert_eq!(extract_episode_number("03.mkv"), Some(3));
         assert_eq!(extract_episode_number("Movie.2024.mkv"), None);
+    }
+
+    #[test]
+    fn test_find_new_files_respects_start_episode_number() {
+        let (service, _, _) = make_service();
+        let mut sub = make_subscription();
+        sub.start_episode_number = Some(5);
+
+        let files = vec![
+            ProbeFile {
+                name: "Show.S01E04.mkv".to_string(),
+                size: 1,
+                file_key: "old-ep".to_string(),
+            },
+            ProbeFile {
+                name: "Show.S01E05.mkv".to_string(),
+                size: 1,
+                file_key: "start-ep".to_string(),
+            },
+            ProbeFile {
+                name: "special.mkv".to_string(),
+                size: 1,
+                file_key: "special".to_string(),
+            },
+        ];
+
+        let new_names = service
+            .find_new_files(&sub, &files)
+            .into_iter()
+            .map(|file| file.name)
+            .collect::<Vec<_>>();
+
+        assert_eq!(new_names, vec!["Show.S01E05.mkv", "special.mkv"]);
     }
 
     #[tokio::test]
@@ -658,6 +714,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_start_episode_skips_old_files_but_records_known_keys() {
+        let (service, store, _) = make_service();
+        let mut sub = make_subscription();
+        sub.start_episode_number = Some(5);
+        store.create(sub.clone()).await.unwrap();
+
+        let probe = ProbeResult {
+            ok: true,
+            state: "ok".to_string(),
+            message: String::new(),
+            files: vec![
+                ProbeFile {
+                    name: "Show.S01E04.mkv".to_string(),
+                    size: 1,
+                    file_key: "ep4-key".to_string(),
+                },
+                ProbeFile {
+                    name: "Show.S01E05.mkv".to_string(),
+                    size: 1,
+                    file_key: "ep5-key".to_string(),
+                },
+            ],
+        };
+        let new_files = service.find_new_files(&sub, &probe.files);
+        let new_names = new_files
+            .iter()
+            .map(|file| file.name.clone())
+            .collect::<Vec<_>>();
+        let new_episodes = service.parse_episodes(&new_names);
+
+        service
+            .update_subscription_after_check(
+                &sub,
+                &probe,
+                &new_names,
+                &new_episodes,
+                "发现 1 个新文件",
+                false,
+            )
+            .await
+            .unwrap();
+
+        let updated = store.get("sub1").await.unwrap();
+        assert_eq!(new_names, vec!["Show.S01E05.mkv"]);
+        assert_eq!(new_episodes, vec![5]);
+        assert!(updated.known_file_keys.contains(&"ep4-key".to_string()));
+        assert!(updated.known_file_keys.contains(&"ep5-key".to_string()));
+        assert_eq!(updated.last_new_files, vec!["Show.S01E05.mkv"]);
+    }
+
+    #[tokio::test]
     async fn test_mark_subscription_invalid_sets_status() {
         let (service, store, _) = make_service();
         let mut sub = make_subscription();
@@ -683,6 +790,7 @@ mod tests {
             source_title: String::new(),
             media_type: "series".to_string(),
             season: 1,
+            start_episode_number: None,
             current_episode_number: 11,
             total_episode_number: None,
             source_group: String::new(),
