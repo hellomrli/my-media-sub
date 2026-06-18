@@ -4,7 +4,7 @@
 
 ## 当前版本
 
-- 版本：`0.7.14`
+- 版本：`0.7.15`
 - 后端：Rust + Axum + Tokio
 - 前端：静态 WebUI，入口为 `static/index.html`，交互逻辑在 `static/app.js`
 - 数据目录：默认 `./data`，可通过 `DATA_DIR` 修改
@@ -257,9 +257,9 @@ node --check static/app.js
 确认通过后更新 `Cargo.toml` 和 README 中的版本号，提交到 `main`，再创建并推送版本标签：
 
 ```bash
-git tag v0.7.15
+git tag v0.7.16
 git push origin main
-git push origin v0.7.15
+git push origin v0.7.16
 ```
 
 `v*` 标签会触发 Release 工作流，自动编译 Linux x86_64 二进制包、打包 `static/` 和 README，并上传 `.tar.gz` 与 `.sha256` 到 GitHub Release。仓库不维护 `RELEASES.md`，版本说明由 GitHub Release 自动生成。
