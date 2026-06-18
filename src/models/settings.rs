@@ -29,6 +29,10 @@ pub struct Settings {
     #[serde(default = "default_true")]
     pub filter_bad_links: bool,
 
+    /// PanSou API URL
+    #[serde(default)]
+    pub pansou_api_url: String,
+
     // ===== 媒体元数据配置 =====
     /// 元数据提供方：tmdb / douban / none
     #[serde(default = "default_metadata_provider")]
@@ -232,6 +236,7 @@ impl Default for Settings {
             check_links: true,
             probe_quark_files: true,
             filter_bad_links: true,
+            pansou_api_url: String::new(),
             metadata_provider: default_metadata_provider(),
             tmdb_api_key: String::new(),
             tmdb_language: default_tmdb_language(),
