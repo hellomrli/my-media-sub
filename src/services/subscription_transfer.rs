@@ -263,6 +263,17 @@ impl SubscriptionTransferService {
 
         let settings = self.settings_store.get().await;
 
+        if !settings.auto_download_new_subscription_items {
+            return Ok(TransferResult {
+                subscription_id: sub.id.clone(),
+                transferred_count: 0,
+                skipped: true,
+                reason: "自动下载新订阅项未启用".to_string(),
+                push_title: None,
+                push_message: None,
+            });
+        }
+
         if !settings.quark_save_enabled {
             return Ok(TransferResult {
                 subscription_id: sub.id.clone(),
@@ -664,6 +675,18 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
 
+    fn test_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "my_media_sub_transfer_{}_{}_{}.json",
+            name,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
     fn video_item(name: &str) -> NormalizedItem {
         NormalizedItem {
             fid: format!("fid-{name}"),
@@ -806,6 +829,35 @@ mod tests {
         let filtered = filter_rename_candidates(candidates, None);
 
         assert_eq!(filtered.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn auto_transfer_new_files_respects_subscription_auto_download_switch() {
+        let subscriptions = Arc::new(SubscriptionStore::new(test_path("subscriptions")));
+        let settings = Arc::new(SettingsStore::new(test_path("settings")));
+        let notifications = Arc::new(NotificationStore::new(test_path("notifications")));
+        subscriptions
+            .create(subscription("series", 1))
+            .await
+            .unwrap();
+        settings
+            .update(|settings| {
+                settings.auto_download_new_subscription_items = false;
+                settings.quark_save_enabled = true;
+                settings.quark_cookie = "cookie".to_string();
+            })
+            .await
+            .unwrap();
+
+        let service = SubscriptionTransferService::new(subscriptions, settings, notifications);
+        let result = service
+            .auto_transfer_new_files("sub", &["Episode.01.mkv".to_string()])
+            .await
+            .unwrap();
+
+        assert!(result.skipped);
+        assert_eq!(result.transferred_count, 0);
+        assert_eq!(result.reason, "自动下载新订阅项未启用");
     }
 
     #[tokio::test]

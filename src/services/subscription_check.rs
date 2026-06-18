@@ -124,7 +124,9 @@ impl SubscriptionCheckService {
 
         // 6. 自动转存：优先提交后台任务，保留同步转存作为回退路径。
         if !new_file_names.is_empty() {
-            if let Some(job_queue) = &self.job_queue {
+            if let Some(reason) = self.auto_transfer_disabled_reason(&sub).await {
+                info!("跳过订阅自动转存: {} ({})", sub.title, reason);
+            } else if let Some(job_queue) = &self.job_queue {
                 match job_queue
                     .submit_subscription_transfer(SubscriptionTransferPayload {
                         subscription_id: sub.id.clone(),
@@ -174,6 +176,22 @@ impl SubscriptionCheckService {
             became_completed,
             summary,
         })
+    }
+
+    async fn auto_transfer_disabled_reason(&self, sub: &Subscription) -> Option<&'static str> {
+        if sub.notify_only {
+            return Some("订阅设置为仅通知模式");
+        }
+
+        let settings = self.settings_store.get().await;
+        if !settings.auto_download_new_subscription_items {
+            return Some("自动下载新订阅项未启用");
+        }
+        if !settings.quark_save_enabled {
+            return Some("全局自动转存未启用");
+        }
+
+        None
     }
 
     /// 检查所有启用的订阅
@@ -657,6 +675,45 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(new_names, vec!["Show.S01E05.mkv", "special.mkv"]);
+    }
+
+    #[tokio::test]
+    async fn test_auto_transfer_disabled_reason_respects_switches() {
+        let (service, _, _) = make_service();
+        let mut sub = make_subscription();
+
+        assert_eq!(
+            service.auto_transfer_disabled_reason(&sub).await,
+            Some("自动下载新订阅项未启用")
+        );
+
+        service
+            .settings_store
+            .update(|settings| {
+                settings.auto_download_new_subscription_items = true;
+                settings.quark_save_enabled = false;
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            service.auto_transfer_disabled_reason(&sub).await,
+            Some("全局自动转存未启用")
+        );
+
+        service
+            .settings_store
+            .update(|settings| {
+                settings.quark_save_enabled = true;
+            })
+            .await
+            .unwrap();
+        assert_eq!(service.auto_transfer_disabled_reason(&sub).await, None);
+
+        sub.notify_only = true;
+        assert_eq!(
+            service.auto_transfer_disabled_reason(&sub).await,
+            Some("订阅设置为仅通知模式")
+        );
     }
 
     #[tokio::test]
