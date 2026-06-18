@@ -89,8 +89,6 @@ cargo run
 | `TMDB_API_KEY` | TMDB API Key，用于元数据搜索和刮削 | 空 |
 | `TMDB_LANGUAGE` | TMDB 返回语言 | `zh-CN` |
 
-更多部署说明见 [DOCKER.md](DOCKER.md)。
-
 ## Aria2 下载说明
 
 “我的网盘”发送文件到 Aria2 时，服务端会通过夸克 PC 下载接口获取临时直链，并把夸克 Cookie 与下载接口返回的临时 Cookie 一起写入 Aria2 任务 Header。
@@ -243,13 +241,6 @@ static/
 tests/
   real_data_compat.rs
 ```
-
-## 文档
-
-- [Docker 部署指南](DOCKER.md)
-- [架构文档](docs/architecture.md)
-- [后续开发计划](NEXT_STEPS.md)
-- [迁移记录](RUST_MIGRATION_V2.md)
 
 ## License
 

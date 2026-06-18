@@ -52,7 +52,7 @@ jobs:
           mkdir -p "dist/${DIST}"
           cp target/release/my-media-sub "dist/${DIST}/"
           cp -r static "dist/${DIST}/static"
-          cp README.md DOCKER.md "dist/${DIST}/"
+          cp README.md "dist/${DIST}/"
           tar -C dist -czf "${DIST}.tar.gz" "${DIST}"
           sha256sum "${DIST}.tar.gz" > "${DIST}.tar.gz.sha256"
           echo "archive=${DIST}.tar.gz" >> "$GITHUB_ENV"

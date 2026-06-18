@@ -1,4 +1,0 @@
-<!doctype html>
-<html lang="zh-CN">
-<head><meta charset="utf-8"><title>my-media-sub 当前架构</title><style>body{font-family:system-ui;margin:32px;background:#f7f8fb;color:#172033}main{max-width:900px;margin:auto;background:#fff;border:1px solid #d9deea;border-radius:16px;padding:28px;box-shadow:0 8px 24px rgba(21,31,50,.08)}li{margin:8px 0}code{background:#eef2f7;padding:2px 6px;border-radius:6px}</style></head>
-<body><main><h1>my-media-sub 当前架构</h1><p>当前分支把搜索和挂载同步能力内置到项目中，不再依赖外部 PanSou/OpenList 服务。</p><ol><li>入口：WebUI / 微信文本接口 / HTTP API。</li><li>搜索：<code>search_service</code> 调用内置搜索聚合器，统一结果结构。</li><li>检测：<code>InlineLinkChecker</code> 和 <code>QuarkShareProbe</code> 直接检查夸克分享。</li><li>订阅：<code>subscription_service</code> 规划转存、重命名、去重和通知。</li><li>网盘：<code>quark_save_service</code> 与 <code>routes_quark_drive</code> 直接操作夸克网盘。</li><li>下载：<code>download_service</code> 提交 Aria2 JSON-RPC。</li><li>同步：<code>nas_sync_service</code> 通过本机挂载路径复制到 NAS。</li></ol></main></body></html>
