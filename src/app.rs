@@ -52,7 +52,14 @@ impl AppContext {
         job_store.load().await?;
         tracing::info!("✅ Loaded jobs");
 
-        let pansou_client = Arc::new(PanSouClient::default());
+        let settings = settings_store.get().await;
+        let pansou_api_url = settings.pansou_api_url.trim().to_string();
+        let pansou_api_url = if pansou_api_url.is_empty() {
+            None
+        } else {
+            Some(pansou_api_url)
+        };
+        let pansou_client = Arc::new(PanSouClient::new(pansou_api_url));
         let metadata_service = Arc::new(MetadataService::new());
         tracing::info!("✅ Clients initialized");
 
@@ -200,6 +207,9 @@ async fn apply_env_overrides(settings_store: &SettingsStore) -> Result<()> {
             }
             if let Some(value) = env_non_empty("TMDB_LANGUAGE") {
                 settings.tmdb_language = value;
+            }
+            if let Some(value) = env_non_empty("PANSOU_API_URL") {
+                settings.pansou_api_url = value;
             }
         })
         .await?;

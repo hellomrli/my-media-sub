@@ -4,7 +4,7 @@
 
 ## 当前版本
 
-- 版本：`0.7.12`
+- 版本：`0.7.13`
 - 后端：Rust + Axum + Tokio
 - 前端：单文件 WebUI，入口为 `static/index.html`
 - 数据目录：默认 `./data`，可通过 `DATA_DIR` 修改
@@ -85,6 +85,7 @@ cargo run
 | `ARIA2_RPC_URL` | Aria2 JSON-RPC 地址 | 空 |
 | `ARIA2_SECRET` | Aria2 RPC Secret | 空 |
 | `ARIA2_DIR` | Aria2 下载目录 | 空 |
+| `PANSOU_API_URL` | PanSou API 地址，WebUI 中会脱敏显示 | 内置默认 |
 | `TMDB_API_KEY` | TMDB API Key，用于元数据搜索和刮削 | 空 |
 | `TMDB_LANGUAGE` | TMDB 返回语言 | `zh-CN` |
 
@@ -104,6 +105,8 @@ cargo run
 4. 在“订阅管理”中检查订阅、编辑订阅规则、补全元数据或对已有文件执行“修复命名”。
 5. 在“我的网盘”中浏览、创建文件夹、重命名、删除文件，或将文件发送到 Aria2 下载。
 6. 在“下载任务”中查看 Aria2 实时下载进度、速度和保存目录。
+
+高级设置中的 PanSou API URL 会按敏感配置处理：WebUI 只显示是否已配置，不回显真实地址；留空保存不会覆盖已有地址。修改 PanSou API URL 后需要重启服务才会切换搜索客户端。
 
 ## 保存目录规则
 

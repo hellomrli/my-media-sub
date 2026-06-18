@@ -118,6 +118,11 @@ async fn update_settings(
                             settings.filter_bad_links = b;
                         }
                     }
+                    "pansou_api_url" => {
+                        if let Some(s) = non_empty_string(&value) {
+                            settings.pansou_api_url = s;
+                        }
+                    }
                     "metadata_provider" => {
                         if let Some(s) = string_value(&value) {
                             settings.metadata_provider = s;
