@@ -229,6 +229,14 @@ cargo build
 
 前端目前没有单独构建步骤，WebUI 直接由 `static/index.html` 提供。
 
+本地调试订阅检查时可以使用模拟夸克分享 fixture，避免访问真实网盘：
+
+```bash
+MOCK_QUARK_SHARE_FIXTURE=tests/fixtures/mock_quark_share.json cargo run
+```
+
+创建订阅时使用 `https://pan.quark.cn/s/mock-show` 可模拟正常分享，使用 `https://pan.quark.cn/s/mock-invalid` 可模拟失效分享。启用该环境变量后，未在 fixture 中声明的分享链接会按失效处理。
+
 ## 项目结构
 
 ```text
@@ -243,6 +251,7 @@ static/
   app.js     WebUI 交互逻辑
   styles.css WebUI 样式
 tests/
+  fixtures/             测试和本地模拟数据
   real_data_compat.rs
 ```
 
