@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use crate::error::{AppError, Result};
 use crate::jobs::{JobQueue, MetadataScrapePayload};
-use crate::models::{MediaMetadata, Subscription, TransferRules};
+use crate::models::{episode_count_for_season, MediaMetadata, Subscription, TransferRules};
 use crate::services::transfer_rule::{
     build_transfer_plan, summarize_rules, ProbeFile as RuleProbeFile,
 };
@@ -214,8 +214,8 @@ fn preview_subscription(req: &RenamePreviewRequest, base: Option<&Subscription>)
         season: req
             .season
             .or_else(|| base.map(|sub| sub.season))
-            .filter(|season| *season >= 0)
-            .unwrap_or(0),
+            .filter(|season| *season > 0)
+            .unwrap_or(1),
         current_episode_number: base.map(|sub| sub.current_episode_number).unwrap_or(0),
         total_episode_number: base.and_then(|sub| sub.total_episode_number),
         source_group: base.map(|sub| sub.source_group.clone()).unwrap_or_default(),
@@ -327,6 +327,10 @@ async fn create_subscription(
         .unwrap()
         .as_secs() as i64;
 
+    let season = req.season.max(1);
+    let total_episode_number =
+        episode_count_for_season(req.metadata.as_ref(), season).or(rules.finish_after_episode);
+
     let subscription = Subscription {
         id: id.to_string(),
         title: req.title,
@@ -336,9 +340,9 @@ async fn create_subscription(
         } else {
             req.media_type
         },
-        season: req.season.max(0),
+        season,
         current_episode_number: 0,
-        total_episode_number: None,
+        total_episode_number,
         source_group: String::new(),
         metadata: req.metadata,
         cloud_type: if req.cloud_type.is_empty() {
@@ -382,6 +386,7 @@ async fn update_subscription(
     Path(id): Path<String>,
     Json(req): Json<UpdateSubscriptionRequest>,
 ) -> Result<impl IntoResponse> {
+    let has_explicit_total_episode_number = req.total_episode_number.is_some();
     let updated = state
         .store
         .update(&id, |sub| {
@@ -398,9 +403,7 @@ async fn update_subscription(
                 sub.media_type = media_type;
             }
             if let Some(season) = req.season {
-                if season > 0 {
-                    sub.season = season;
-                }
+                sub.season = season.max(1);
             }
             if let Some(cloud_type) = req.cloud_type {
                 sub.cloud_type = cloud_type;
@@ -425,6 +428,13 @@ async fn update_subscription(
             }
             if let Some(rename_template) = req.rename_template {
                 sub.rules.rename_template = rename_template;
+            }
+            if !has_explicit_total_episode_number {
+                if let Some(count) = episode_count_for_season(sub.metadata.as_ref(), sub.season) {
+                    sub.total_episode_number = Some(count);
+                } else if sub.total_episode_number.is_none() {
+                    sub.total_episode_number = sub.rules.finish_after_episode;
+                }
             }
             sub.rule_summary = summarize_rules(Some(&sub.rules));
             sub.updated_at = std::time::SystemTime::now()

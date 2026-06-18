@@ -7,7 +7,7 @@ use tracing::{error, info, warn};
 
 use crate::clients::{QuarkSaveClient, QuarkShareProbe};
 use crate::error::{AppError, Result};
-use crate::models::{MediaMetadata, Subscription};
+use crate::models::{episode_count_for_season, MediaMetadata, Subscription};
 use crate::services::notification::add_notification;
 use crate::services::push::{
     record_push_message_report, PushEvent, PushLevel, PushRetryPolicy, PushService,
@@ -381,6 +381,11 @@ impl JobWorker {
         self.subscription_store
             .update(subscription_id, |sub| {
                 sub.metadata = Some(metadata);
+                if let Some(count) = episode_count_for_season(sub.metadata.as_ref(), sub.season) {
+                    sub.total_episode_number = Some(count);
+                } else if sub.total_episode_number.is_none() {
+                    sub.total_episode_number = sub.rules.finish_after_episode;
+                }
                 sub.updated_at = now();
             })
             .await?
