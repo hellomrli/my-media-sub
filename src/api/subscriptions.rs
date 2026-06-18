@@ -11,6 +11,7 @@ use std::sync::Arc;
 use crate::error::{AppError, Result};
 use crate::jobs::{JobQueue, MetadataScrapePayload};
 use crate::models::{episode_count_for_season, MediaMetadata, Subscription, TransferRules};
+use crate::services::subscription_check::CheckDetails;
 use crate::services::transfer_rule::{
     build_transfer_plan, summarize_rules, ProbeFile as RuleProbeFile,
 };
@@ -559,6 +560,7 @@ struct CheckResponse {
     subscription_id: String,
     new_files: Vec<String>,
     new_episodes: Vec<i32>,
+    details: CheckDetails,
     became_invalid: bool,
     became_completed: bool,
     summary: String,
@@ -589,6 +591,7 @@ async fn check_subscription(
         subscription_id: result.subscription_id,
         new_files: result.new_files,
         new_episodes: result.new_episodes,
+        details: result.details,
         became_invalid: result.became_invalid,
         became_completed: result.became_completed,
         summary: result.summary,
@@ -694,6 +697,7 @@ async fn check_all_subscriptions(
             subscription_id: r.subscription_id,
             new_files: r.new_files,
             new_episodes: r.new_episodes,
+            details: r.details,
             became_invalid: r.became_invalid,
             became_completed: r.became_completed,
             summary: r.summary,

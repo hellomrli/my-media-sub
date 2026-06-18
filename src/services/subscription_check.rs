@@ -1,3 +1,4 @@
+use serde::Serialize;
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -82,6 +83,7 @@ impl SubscriptionCheckService {
                 subscription_id: sub.id.clone(),
                 new_files: vec![],
                 new_episodes: vec![],
+                details: CheckDetails::default(),
                 became_invalid: true,
                 became_completed: false,
                 summary: format!("链接失效: {}", probe_result.message),
@@ -94,6 +96,7 @@ impl SubscriptionCheckService {
 
         // 3. 解析集数
         let new_episodes = self.parse_episodes(&new_file_names);
+        let details = self.build_check_details(&sub, &probe_result.files);
         let became_completed = should_mark_completed(&sub, &new_episodes);
 
         // 4. 更新订阅状态
@@ -172,6 +175,7 @@ impl SubscriptionCheckService {
             subscription_id: sub.id.clone(),
             new_files: new_file_names,
             new_episodes,
+            details,
             became_invalid: false,
             became_completed,
             summary,
@@ -265,6 +269,37 @@ impl SubscriptionCheckService {
         extract_episode_number(file_name)
             .map(|episode| episode < start_episode)
             .unwrap_or(false)
+    }
+
+    fn build_check_details(&self, sub: &Subscription, files: &[ProbeFile]) -> CheckDetails {
+        let mut details = CheckDetails {
+            scanned_count: files.len(),
+            ..Default::default()
+        };
+
+        for file in files {
+            let episode = extract_episode_number(&file.name);
+            let (action, reason) = if sub.known_file_keys.contains(&file.file_key) {
+                details.known_count += 1;
+                ("known", "已知文件")
+            } else if self.is_before_start_episode(sub, &file.name) {
+                details.skipped_before_start_count += 1;
+                ("skip", "低于起始转存集数")
+            } else {
+                details.new_count += 1;
+                ("new", "新增文件")
+            };
+
+            details.items.push(CheckDetailItem {
+                name: file.name.clone(),
+                episode,
+                file_key: file.file_key.clone(),
+                action: action.to_string(),
+                reason: reason.to_string(),
+            });
+        }
+
+        details
     }
 
     /// 解析集数
@@ -504,9 +539,28 @@ pub struct CheckResult {
     pub subscription_id: String,
     pub new_files: Vec<String>,
     pub new_episodes: Vec<i32>,
+    pub details: CheckDetails,
     pub became_invalid: bool,
     pub became_completed: bool,
     pub summary: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct CheckDetails {
+    pub scanned_count: usize,
+    pub new_count: usize,
+    pub known_count: usize,
+    pub skipped_before_start_count: usize,
+    pub items: Vec<CheckDetailItem>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CheckDetailItem {
+    pub name: String,
+    pub episode: Option<i32>,
+    pub file_key: String,
+    pub action: String,
+    pub reason: String,
 }
 
 fn should_mark_completed(sub: &Subscription, new_episodes: &[i32]) -> bool {
@@ -675,6 +729,41 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(new_names, vec!["Show.S01E05.mkv", "special.mkv"]);
+    }
+
+    #[test]
+    fn test_build_check_details_classifies_probe_files() {
+        let (service, _, _) = make_service();
+        let mut sub = make_subscription();
+        sub.known_file_keys = vec!["known-key".to_string()];
+        sub.start_episode_number = Some(5);
+        let files = vec![
+            ProbeFile {
+                name: "Show.S01E03.mkv".to_string(),
+                size: 1,
+                file_key: "known-key".to_string(),
+            },
+            ProbeFile {
+                name: "Show.S01E04.mkv".to_string(),
+                size: 1,
+                file_key: "before-start".to_string(),
+            },
+            ProbeFile {
+                name: "Show.S01E05.mkv".to_string(),
+                size: 1,
+                file_key: "new-key".to_string(),
+            },
+        ];
+
+        let details = service.build_check_details(&sub, &files);
+
+        assert_eq!(details.scanned_count, 3);
+        assert_eq!(details.known_count, 1);
+        assert_eq!(details.skipped_before_start_count, 1);
+        assert_eq!(details.new_count, 1);
+        assert_eq!(details.items[0].action, "known");
+        assert_eq!(details.items[1].action, "skip");
+        assert_eq!(details.items[2].action, "new");
     }
 
     #[tokio::test]
