@@ -7,6 +7,7 @@ pub mod search;
 pub mod settings;
 pub mod subscriptions;
 pub mod transfer;
+pub mod update;
 
 use axum::{
     body::Body,
@@ -123,6 +124,7 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
         .merge(notifications::routes(context.notification_store.clone()))
         .merge(drive::routes(settings_store.clone()))
         .merge(transfer::routes(context.job_queue.clone()))
+        .merge(update::routes())
         .merge(push::routes(
             settings_store,
             context.notification_store.clone(),

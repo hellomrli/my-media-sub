@@ -6,7 +6,7 @@
 
 - 版本：`0.7.14`
 - 后端：Rust + Axum + Tokio
-- 前端：单文件 WebUI，入口为 `static/index.html`
+- 前端：静态 WebUI，入口为 `static/index.html`，交互逻辑在 `static/app.js`
 - 数据目录：默认 `./data`，可通过 `DATA_DIR` 修改
 - 默认端口：`56001`
 - 默认登录：`admin` / `change-me`
@@ -26,6 +26,7 @@
 - 通知中心：保存系统通知，支持已读和清空。
 - 推送渠道：企业微信、Telegram、WxPusher、Bark、Gotify、PushPlus、Server 酱，支持全量/单渠道测试，业务推送以持久化任务派发并记录脱敏失败原因和重试次数。
 - 设置管理：面向夸克网盘场景，支持运行时保存夸克 Cookie、推送配置、自定义订阅检查周期、NAS 同步、Aria2 等设置。
+- 在线更新：在设置页检查 GitHub Release 最新版本，展示 Release 文件、校验文件和 Docker 更新命令。
 
 ## 快速开始
 
@@ -218,6 +219,10 @@ cargo run
 ### 推送
 
 - `POST /api/push/test`
+
+### 在线更新
+
+- `GET /api/update/check`：检查 GitHub Release 最新版本、Release 文件和 Docker 镜像信息
 
 ## 开发
 
