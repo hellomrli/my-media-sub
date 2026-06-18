@@ -1,5 +1,5 @@
 # Docker 忽略文件
-# target/  # 注释掉，因为 Dockerfile.local 需要使用构建产物
+target/
 .git/
 .gitignore
 *.log
@@ -8,7 +8,6 @@ data/
 src.backup/
 *.sh
 README.md
-RUST_MIGRATION_V2.md
 .claude/
 .ruff_cache/
 __pycache__/
