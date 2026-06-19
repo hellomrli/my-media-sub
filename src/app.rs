@@ -137,7 +137,13 @@ const SETTINGS_ENV_KEYS: &[&str] = &[
     "SERVERCHAN_KEY",
     "ARIA2_RPC_URL",
     "ARIA2_SECRET",
-    "ARIA2_DIR",
+    "ARIA2_MOVIE_DIR",
+    "ARIA2_SERIES_DIR",
+    "ARIA2_ANIME_DIR",
+    "STRM_ENABLED",
+    "STRM_OUTPUT_DIR",
+    "STRM_PUBLIC_BASE_URL",
+    "STRM_ACCESS_TOKEN",
     "TMDB_API_KEY",
     "TMDB_LANGUAGE",
     "PANSOU_API_URL",
@@ -202,8 +208,26 @@ async fn apply_env_overrides(settings_store: &SettingsStore) -> Result<()> {
             if let Some(value) = env_non_empty("ARIA2_SECRET") {
                 settings.aria2_secret = value;
             }
-            if let Some(value) = env_non_empty("ARIA2_DIR") {
-                settings.aria2_dir = value;
+            if let Some(value) = env_non_empty("ARIA2_MOVIE_DIR") {
+                settings.aria2_movie_dir = value;
+            }
+            if let Some(value) = env_non_empty("ARIA2_SERIES_DIR") {
+                settings.aria2_series_dir = value;
+            }
+            if let Some(value) = env_non_empty("ARIA2_ANIME_DIR") {
+                settings.aria2_anime_dir = value;
+            }
+            if let Some(value) = env_non_empty("STRM_ENABLED") {
+                settings.strm_enabled = parse_bool_env(&value);
+            }
+            if let Some(value) = env_non_empty("STRM_OUTPUT_DIR") {
+                settings.strm_output_dir = value;
+            }
+            if let Some(value) = env_non_empty("STRM_PUBLIC_BASE_URL") {
+                settings.strm_public_base_url = value;
+            }
+            if let Some(value) = env_non_empty("STRM_ACCESS_TOKEN") {
+                settings.strm_access_token = value;
             }
             if let Some(value) = env_non_empty("TMDB_API_KEY") {
                 settings.tmdb_api_key = value;
@@ -218,6 +242,13 @@ async fn apply_env_overrides(settings_store: &SettingsStore) -> Result<()> {
         .await?;
 
     Ok(())
+}
+
+fn parse_bool_env(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
 }
 
 #[cfg(test)]

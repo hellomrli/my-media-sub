@@ -23,7 +23,9 @@ env/
 /target
 
 # 构建产物
+dist/
 *.tar.gz
+*.sha256
 *.zip
 *.deb
 *.rpm

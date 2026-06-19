@@ -12,6 +12,9 @@ use crate::models::rules::TransferRules;
 use crate::models::subscription::Subscription;
 use crate::models::Settings;
 use crate::services::notification::add_notification;
+use crate::services::strm::{
+    generate_subscription_strm_files, strm_generation_enabled, StrmGenerationResult,
+};
 use crate::services::transfer_rule::apply_rename;
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
@@ -77,6 +80,13 @@ struct RenameResult {
 #[derive(Debug, Clone)]
 struct SyncDownloadReport {
     submitted_count: usize,
+    dir: String,
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct StrmGenerationReport {
+    generated_count: usize,
     dir: String,
     error: Option<String>,
 }
@@ -207,6 +217,22 @@ fn category_directory(sub: &Subscription, settings: &Settings) -> String {
     }
 }
 
+fn media_type_aria2_directory(sub: &Subscription, settings: &Settings) -> String {
+    let dir = match sub.media_type.as_str() {
+        "movie" => settings.aria2_movie_dir.trim(),
+        "series" => settings.aria2_series_dir.trim(),
+        "anime" => settings.aria2_anime_dir.trim(),
+        _ => settings
+            .custom_categories
+            .iter()
+            .find(|cat| sub.media_type == format!("custom_{}", cat.id))
+            .map(|cat| cat.aria2_dir.trim())
+            .unwrap_or(""),
+    };
+
+    dir.to_string()
+}
+
 fn determine_subscription_target_directory(sub: &Subscription, settings: &Settings) -> String {
     let mut target_dir = if sub.rules.target_dir.trim().is_empty() {
         append_path(&category_directory(sub, settings), &media_folder_name(sub))
@@ -221,37 +247,58 @@ fn determine_subscription_target_directory(sub: &Subscription, settings: &Settin
     target_dir
 }
 
-fn transfer_reason(target_dir: &str, sync_report: Option<&SyncDownloadReport>) -> String {
+fn transfer_reason(
+    target_dir: &str,
+    sync_report: Option<&SyncDownloadReport>,
+    strm_report: Option<&StrmGenerationReport>,
+) -> String {
     let target = if target_dir.trim().is_empty() {
         "根目录"
     } else {
         target_dir
     };
-    match sync_report {
-        Some(report) if report.submitted_count > 0 && report.error.is_none() => format!(
-            "已转存到 {}，已提交 {} 个 Aria2 同步下载任务到 {}",
-            target,
-            report.submitted_count,
-            sync_dir_label(&report.dir)
-        ),
-        Some(report) if report.submitted_count > 0 => format!(
-            "已转存到 {}，已提交 {} 个 Aria2 同步下载任务，部分失败: {}",
-            target,
-            report.submitted_count,
-            report.error.as_deref().unwrap_or("未知错误")
-        ),
-        Some(report) => format!(
-            "已转存到 {}，同步下载失败: {}",
-            target,
-            report.error.as_deref().unwrap_or("未知错误")
-        ),
-        None => format!("已转存到 {}", target),
+    let mut parts = vec![format!("已转存到 {}", target)];
+    if let Some(report) = sync_report {
+        parts.push(match report {
+            report if report.submitted_count > 0 && report.error.is_none() => format!(
+                "已提交 {} 个 Aria2 同步下载任务到 {}",
+                report.submitted_count,
+                sync_dir_label(&report.dir)
+            ),
+            report if report.submitted_count > 0 => format!(
+                "已提交 {} 个 Aria2 同步下载任务，部分失败: {}",
+                report.submitted_count,
+                report.error.as_deref().unwrap_or("未知错误")
+            ),
+            report => format!(
+                "同步下载失败: {}",
+                report.error.as_deref().unwrap_or("未知错误")
+            ),
+        });
     }
+    if let Some(report) = strm_report {
+        parts.push(match report {
+            report if report.generated_count > 0 && report.error.is_none() => format!(
+                "已生成 {} 个 STRM 文件到 {}",
+                report.generated_count, report.dir
+            ),
+            report if report.generated_count > 0 => format!(
+                "已生成 {} 个 STRM 文件，部分失败: {}",
+                report.generated_count,
+                report.error.as_deref().unwrap_or("未知错误")
+            ),
+            report => format!(
+                "STRM 生成失败: {}",
+                report.error.as_deref().unwrap_or("未知错误")
+            ),
+        });
+    }
+    parts.join("，")
 }
 
 fn sync_dir_label(dir: &str) -> &str {
     if dir.trim().is_empty() {
-        "Aria2 默认目录"
+        "Aria2 自身目录"
     } else {
         dir
     }
@@ -261,30 +308,45 @@ fn transfer_notification_message(
     file_count: usize,
     target_dir: &str,
     sync_report: Option<&SyncDownloadReport>,
+    strm_report: Option<&StrmGenerationReport>,
 ) -> String {
-    match sync_report {
-        Some(report) if report.submitted_count > 0 && report.error.is_none() => format!(
-            "已转存 {} 个文件到 {}，并提交 {} 个 Aria2 下载任务到 {}",
-            file_count,
-            target_dir,
-            report.submitted_count,
-            sync_dir_label(&report.dir)
-        ),
-        Some(report) if report.submitted_count > 0 => format!(
-            "已转存 {} 个文件到 {}，已提交 {} 个 Aria2 下载任务，部分失败: {}",
-            file_count,
-            target_dir,
-            report.submitted_count,
-            report.error.as_deref().unwrap_or("未知错误")
-        ),
-        Some(report) => format!(
-            "已转存 {} 个文件到 {}，但同步下载失败: {}",
-            file_count,
-            target_dir,
-            report.error.as_deref().unwrap_or("未知错误")
-        ),
-        None => format!("已转存 {} 个文件到 {}", file_count, target_dir),
+    let mut parts = vec![format!("已转存 {} 个文件到 {}", file_count, target_dir)];
+    if let Some(report) = sync_report {
+        parts.push(match report {
+            report if report.submitted_count > 0 && report.error.is_none() => format!(
+                "提交 {} 个 Aria2 下载任务到 {}",
+                report.submitted_count,
+                sync_dir_label(&report.dir)
+            ),
+            report if report.submitted_count > 0 => format!(
+                "提交 {} 个 Aria2 下载任务，部分失败: {}",
+                report.submitted_count,
+                report.error.as_deref().unwrap_or("未知错误")
+            ),
+            report => format!(
+                "同步下载失败: {}",
+                report.error.as_deref().unwrap_or("未知错误")
+            ),
+        });
     }
+    if let Some(report) = strm_report {
+        parts.push(match report {
+            report if report.generated_count > 0 && report.error.is_none() => format!(
+                "生成 {} 个 STRM 文件到 {}",
+                report.generated_count, report.dir
+            ),
+            report if report.generated_count > 0 => format!(
+                "生成 {} 个 STRM 文件，部分失败: {}",
+                report.generated_count,
+                report.error.as_deref().unwrap_or("未知错误")
+            ),
+            report => format!(
+                "STRM 生成失败: {}",
+                report.error.as_deref().unwrap_or("未知错误")
+            ),
+        });
+    }
+    parts.join("，")
 }
 
 async fn wait_for_rename_candidates<C, Fut>(
@@ -608,18 +670,24 @@ impl SubscriptionTransferService {
             .submit_sync_downloads(&save_client, &settings, &sub, &transferred_files)
             .await;
 
-        // 12. 发送转存成功通知
+        // 12. 如果订阅开启了 STRM，生成 HTTPStrm 文件
+        let strm_report = self
+            .generate_strm_files(&settings, &sub, &target_dir, &transferred_files)
+            .await;
+
+        // 13. 发送转存成功通知
         let (push_title, push_message) = self
             .send_transfer_notification(
                 &sub,
                 &transfer_file_names,
                 &target_dir,
                 sync_report.as_ref(),
+                strm_report.as_ref(),
             )
             .await;
 
         info!("成功转存 {} 个文件", fid_list.len());
-        let reason = transfer_reason(&target_dir, sync_report.as_ref());
+        let reason = transfer_reason(&target_dir, sync_report.as_ref(), strm_report.as_ref());
 
         Ok(TransferResult {
             subscription_id: sub.id.clone(),
@@ -749,6 +817,36 @@ impl SubscriptionTransferService {
             .map(|result| result.renamed_count)
     }
 
+    /// 按订阅目标目录中的现有视频补齐 STRM 文件。
+    pub async fn generate_existing_strm_files(
+        &self,
+        subscription_id: &str,
+    ) -> Result<StrmGenerationResult> {
+        let sub = self
+            .subscription_store
+            .get(subscription_id)
+            .await
+            .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?;
+
+        let settings = self.settings_store.get().await;
+        if !settings.strm_enabled {
+            return Err(AppError::Validation("全局 STRM 生成未启用".to_string()));
+        }
+        if !sub.strm_enabled {
+            return Err(AppError::Validation("订阅未启用 STRM 生成".to_string()));
+        }
+        if settings.quark_cookie.trim().is_empty() {
+            return Err(AppError::Validation("未配置夸克 Cookie".to_string()));
+        }
+
+        let save_client = QuarkSaveClient::new(settings.quark_cookie.clone());
+        let target_dir = self.determine_target_directory(&sub, &settings);
+        let target_fid = save_client.ensure_dir_path(&target_dir).await?;
+        let files = collect_video_files_recursive(&save_client, &target_fid).await?;
+
+        generate_subscription_strm_files(&settings, &sub, &target_dir, &files)
+    }
+
     async fn submit_sync_downloads(
         &self,
         save_client: &QuarkSaveClient,
@@ -762,9 +860,9 @@ impl SubscriptionTransferService {
 
         let dir = sub.sync_download_dir.trim();
         let dir = if dir.is_empty() {
-            settings.aria2_dir.trim()
+            media_type_aria2_directory(sub, settings)
         } else {
-            dir
+            dir.to_string()
         };
 
         if settings.aria2_rpc_url.trim().is_empty() {
@@ -772,7 +870,7 @@ impl SubscriptionTransferService {
             warn!("订阅 {} 同步下载跳过: {}", sub.title, error);
             return Some(SyncDownloadReport {
                 submitted_count: 0,
-                dir: dir.to_string(),
+                dir: dir.clone(),
                 error: Some(error),
             });
         }
@@ -790,7 +888,7 @@ impl SubscriptionTransferService {
             warn!("订阅 {} 同步下载跳过: {}", sub.title, error);
             return Some(SyncDownloadReport {
                 submitted_count: 0,
-                dir: dir.to_string(),
+                dir: dir.clone(),
                 error: Some(error),
             });
         }
@@ -798,7 +896,7 @@ impl SubscriptionTransferService {
         let aria2 = Aria2Client::new(
             settings.aria2_rpc_url.clone(),
             settings.aria2_secret.clone(),
-            dir.to_string(),
+            dir.clone(),
         );
 
         let download_infos = match save_client.download_infos(&fids).await {
@@ -808,7 +906,7 @@ impl SubscriptionTransferService {
                 warn!("订阅 {} 同步下载失败: {}", sub.title, error);
                 return Some(SyncDownloadReport {
                     submitted_count: 0,
-                    dir: dir.to_string(),
+                    dir: dir.clone(),
                     error: Some(error),
                 });
             }
@@ -835,9 +933,45 @@ impl SubscriptionTransferService {
 
         Some(SyncDownloadReport {
             submitted_count,
-            dir: dir.to_string(),
+            dir,
             error: last_error,
         })
+    }
+
+    async fn generate_strm_files(
+        &self,
+        settings: &Settings,
+        sub: &Subscription,
+        target_dir: &str,
+        files: &[NormalizedItem],
+    ) -> Option<StrmGenerationReport> {
+        if !strm_generation_enabled(settings, sub) {
+            return None;
+        }
+
+        match generate_subscription_strm_files(settings, sub, target_dir, files) {
+            Ok(result) => {
+                let dir = result.output_dir.display().to_string();
+                info!(
+                    "订阅 {} 已生成 {} 个 STRM 文件到 {}",
+                    sub.title, result.generated_count, dir
+                );
+                Some(StrmGenerationReport {
+                    generated_count: result.generated_count,
+                    dir,
+                    error: None,
+                })
+            }
+            Err(e) => {
+                let error = format!("{}", e);
+                warn!("订阅 {} STRM 生成失败: {}", sub.title, error);
+                Some(StrmGenerationReport {
+                    generated_count: 0,
+                    dir: settings.strm_output_dir.clone(),
+                    error: Some(error),
+                })
+            }
+        }
     }
 
     /// 确定目标目录
@@ -875,14 +1009,19 @@ impl SubscriptionTransferService {
         file_names: &[String],
         target_dir: &str,
         sync_report: Option<&SyncDownloadReport>,
+        strm_report: Option<&StrmGenerationReport>,
     ) -> (String, String) {
         let target_dir_label = if target_dir.is_empty() {
             "根目录"
         } else {
             target_dir
         };
-        let message =
-            transfer_notification_message(file_names.len(), target_dir_label, sync_report);
+        let message = transfer_notification_message(
+            file_names.len(),
+            target_dir_label,
+            sync_report,
+            strm_report,
+        );
         let meta = std::collections::HashMap::from([
             (
                 "mode".to_string(),
@@ -1012,6 +1151,7 @@ mod tests {
             notify_only: false,
             sync_download_enabled: false,
             sync_download_dir: String::new(),
+            strm_enabled: false,
             enabled: true,
             completed: false,
             rules: TransferRules::default(),
@@ -1067,6 +1207,47 @@ mod tests {
         let target = determine_subscription_target_directory(&sub, &settings);
 
         assert_eq!(target, "/动画/孤独摇滚（2022）/Season 2");
+    }
+
+    #[test]
+    fn media_type_aria2_directory_prefers_category_dir() {
+        let settings = Settings {
+            aria2_movie_dir: "/downloads/movies".to_string(),
+            ..Default::default()
+        };
+        let sub = subscription("movie", 1);
+
+        assert_eq!(
+            media_type_aria2_directory(&sub, &settings),
+            "/downloads/movies"
+        );
+    }
+
+    #[test]
+    fn media_type_aria2_directory_uses_custom_category_dir() {
+        let settings = Settings {
+            custom_categories: vec![crate::models::settings::CustomCategory {
+                id: "doc".to_string(),
+                name: "纪录片".to_string(),
+                dir: "/纪录片".to_string(),
+                aria2_dir: "/downloads/docs".to_string(),
+            }],
+            ..Default::default()
+        };
+        let sub = subscription("custom_doc", 1);
+
+        assert_eq!(
+            media_type_aria2_directory(&sub, &settings),
+            "/downloads/docs"
+        );
+    }
+
+    #[test]
+    fn media_type_aria2_directory_returns_empty_without_category_dir() {
+        let settings = Settings::default();
+        let sub = subscription("series", 1);
+
+        assert_eq!(media_type_aria2_directory(&sub, &settings), "");
     }
 
     #[test]

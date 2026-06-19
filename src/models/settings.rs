@@ -97,9 +97,34 @@ pub struct Settings {
     #[serde(default)]
     pub aria2_secret: String,
 
-    /// Aria2 下载目录
+    /// Aria2 电影下载目录
     #[serde(default)]
-    pub aria2_dir: String,
+    pub aria2_movie_dir: String,
+
+    /// Aria2 连续剧下载目录
+    #[serde(default)]
+    pub aria2_series_dir: String,
+
+    /// Aria2 动画下载目录
+    #[serde(default)]
+    pub aria2_anime_dir: String,
+
+    // ===== STRM 配置 =====
+    /// 是否启用 STRM 文件生成
+    #[serde(default)]
+    pub strm_enabled: bool,
+
+    /// 本地 STRM 文件输出根目录
+    #[serde(default)]
+    pub strm_output_dir: String,
+
+    /// HTTPStrm 对外访问根地址
+    #[serde(default)]
+    pub strm_public_base_url: String,
+
+    /// HTTPStrm 访问 Token
+    #[serde(default = "default_strm_access_token")]
+    pub strm_access_token: String,
 
     // ===== NAS 同步配置 =====
     /// NAS 同步是否启用
@@ -182,8 +207,12 @@ pub struct Settings {
 pub struct CustomCategory {
     #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub name: String,
+    #[serde(default)]
     pub dir: String,
+    #[serde(default)]
+    pub aria2_dir: String,
 }
 
 // 默认值函数
@@ -227,6 +256,10 @@ fn default_tmdb_language() -> String {
     "zh-CN".to_string()
 }
 
+fn default_strm_access_token() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -252,7 +285,13 @@ impl Default for Settings {
             auto_download_new_subscription_items: false,
             aria2_rpc_url: String::new(),
             aria2_secret: String::new(),
-            aria2_dir: String::new(),
+            aria2_movie_dir: String::new(),
+            aria2_series_dir: String::new(),
+            aria2_anime_dir: String::new(),
+            strm_enabled: false,
+            strm_output_dir: String::new(),
+            strm_public_base_url: String::new(),
+            strm_access_token: default_strm_access_token(),
             nas_sync_enabled: false,
             nas_sync_source: String::new(),
             nas_sync_target: String::new(),

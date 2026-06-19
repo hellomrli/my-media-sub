@@ -5,6 +5,7 @@ pub mod notifications;
 pub mod push;
 pub mod search;
 pub mod settings;
+pub mod strm;
 pub mod subscriptions;
 pub mod transfer;
 pub mod update;
@@ -47,7 +48,7 @@ async fn basic_auth(
     req: Request<Body>,
     next: Next,
 ) -> Response {
-    if req.uri().path() == "/health" {
+    if req.uri().path() == "/health" || req.uri().path().starts_with("/strm/") {
         return next.run(req).await;
     }
 
@@ -123,6 +124,7 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
         ))
         .merge(notifications::routes(context.notification_store.clone()))
         .merge(drive::routes(settings_store.clone()))
+        .merge(strm::routes(settings_store.clone()))
         .merge(transfer::routes(context.job_queue.clone()))
         .merge(update::routes())
         .merge(push::routes(
