@@ -296,6 +296,11 @@ async fn apply_update_inner() -> Result<UpdateApplyResponse> {
     set_update_progress(82, "locating", "正在查找新版本二进制");
     let new_binary = find_binary(&work_dir)
         .ok_or_else(|| AppError::Internal("升级包中未找到 my-media-sub 二进制".to_string()))?;
+    set_update_progress(86, "assets", "正在更新静态资源");
+    if let Some(static_dir) = find_static_dir(&work_dir) {
+        let target_static_dir = static_target_dir(&restart_plan, &current_exe);
+        replace_static_dir(&static_dir, &target_static_dir).await?;
+    }
     set_update_progress(90, "replacing", "正在备份并替换当前二进制");
     replace_binary(&new_binary, &current_exe, &backup_path).await?;
 
@@ -505,6 +510,100 @@ fn find_binary(root: &Path) -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn static_target_dir(restart_plan: &RestartPlan, current_exe: &Path) -> PathBuf {
+    restart_plan
+        .current_dir
+        .clone()
+        .or_else(|| current_exe.parent().map(Path::to_path_buf))
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("static")
+}
+
+fn find_static_dir(root: &Path) -> Option<PathBuf> {
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(path) = stack.pop() {
+        let entries = std::fs::read_dir(path).ok()?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            if path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name == "static")
+                .unwrap_or(false)
+                && path.join("index.html").is_file()
+            {
+                return Some(path);
+            }
+            stack.push(path);
+        }
+    }
+    None
+}
+
+async fn replace_static_dir(new_static_dir: &Path, target_static_dir: &Path) -> Result<()> {
+    let new_static_dir = new_static_dir.to_path_buf();
+    let target_static_dir = target_static_dir.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        replace_static_dir_blocking(&new_static_dir, &target_static_dir)
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("更新静态资源任务失败: {}", e)))?
+}
+
+fn replace_static_dir_blocking(new_static_dir: &Path, target_static_dir: &Path) -> Result<()> {
+    if !new_static_dir.is_dir() {
+        return Err(AppError::Internal("升级包中的 static 不是目录".to_string()));
+    }
+
+    let backup_dir = target_static_dir.with_file_name(format!(
+        "{}.bak-{}",
+        target_static_dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("static"),
+        Utc::now().format("%Y%m%d%H%M%S")
+    ));
+
+    if target_static_dir.exists() {
+        std::fs::rename(target_static_dir, &backup_dir)
+            .map_err(|e| AppError::Internal(format!("备份静态资源失败: {}", e)))?;
+    }
+
+    if let Err(error) = copy_dir_all(new_static_dir, target_static_dir) {
+        let _ = std::fs::remove_dir_all(target_static_dir);
+        if backup_dir.exists() {
+            let _ = std::fs::rename(&backup_dir, target_static_dir);
+        }
+        return Err(error);
+    }
+
+    Ok(())
+}
+
+fn copy_dir_all(source: &Path, target: &Path) -> Result<()> {
+    std::fs::create_dir_all(target)
+        .map_err(|e| AppError::Internal(format!("创建静态资源目录失败: {}", e)))?;
+
+    for entry in std::fs::read_dir(source)
+        .map_err(|e| AppError::Internal(format!("读取静态资源目录失败: {}", e)))?
+    {
+        let entry = entry.map_err(|e| AppError::Internal(format!("读取静态资源项失败: {}", e)))?;
+        let source_path = entry.path();
+        let target_path = target.join(entry.file_name());
+        if source_path.is_dir() {
+            copy_dir_all(&source_path, &target_path)?;
+        } else {
+            std::fs::copy(&source_path, &target_path)
+                .map_err(|e| AppError::Internal(format!("复制静态资源失败: {}", e)))?;
+        }
+    }
+
+    Ok(())
 }
 
 fn normalize_version(value: &str) -> String {
