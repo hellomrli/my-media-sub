@@ -743,10 +743,12 @@ mod tests {
 
     #[test]
     fn test_enabled_channels() {
-        let mut settings = Settings::default();
-        settings.wecom_bot_url = "https://test".to_string();
-        settings.telegram_bot_token = "token".to_string();
-        settings.telegram_chat_id = "123".to_string();
+        let settings = Settings {
+            wecom_bot_url: "https://test".to_string(),
+            telegram_bot_token: "token".to_string(),
+            telegram_chat_id: "123".to_string(),
+            ..Default::default()
+        };
 
         let service = PushService::new(settings);
         let channels = service.enabled_channels();
@@ -815,9 +817,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_event_respects_global_switch() {
-        let mut settings = Settings::default();
-        settings.push_on_update = false;
-        settings.wecom_bot_url = "https://test".to_string();
+        let settings = Settings {
+            push_on_update: false,
+            wecom_bot_url: "https://test".to_string(),
+            ..Default::default()
+        };
 
         let service = PushService::new(settings);
         let results = service

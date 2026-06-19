@@ -51,6 +51,14 @@ function app() {
     currentSearchResult: null,  // 当前操作的搜索结果
     metadataSearching: false,
     metadataResults: [],
+    showManualMetadataDialog: false,
+    manualMetadataSubscriptionId: '',
+    manualMetadataSubscriptionTitle: '',
+    manualMetadataQuery: '',
+    manualMetadataMediaType: 'series',
+    manualMetadataSearching: false,
+    manualMetadataApplying: false,
+    manualMetadataResults: [],
     renamePreviewLoading: false,
     renamePreview: null,
     renamePreviewError: '',
@@ -70,6 +78,8 @@ function app() {
       custom_dir: false,
       custom_rename: false,
       notify_only: false,
+      sync_download_enabled: false,
+      sync_download_dir: '',
       metadata: null,
       include_keywords_text: '',
       exclude_keywords_text: '预告, 花絮, 解说, 彩蛋, trailer, preview',
@@ -124,6 +134,7 @@ function app() {
     // 在线更新
     updateInfo: null,
     updateLoading: false,
+    updateApplying: false,
     updateError: '',
 
     // 转存相关
@@ -145,7 +156,7 @@ function app() {
       wxpusher_app_token: '', wxpusher_uids: '', gotify_url: '', gotify_token: '', pushplus_token: '',
       subscription_check_interval_minutes: 60, subscription_scheduler_enabled: false, pansou_api_url: '', pansou_api_url_configured: false, check_links: true,
       probe_quark_files: true, filter_bad_links: true, push_silent: false,
-      auto_download_new_subscription_items: false, nas_sync_enabled: false, nas_sync_source: '', nas_sync_target: ''
+      auto_download_new_subscription_items: false
     },
 
     get unreadNotifications() {
@@ -387,6 +398,8 @@ function app() {
         custom_dir: false,
         custom_rename: false,
         notify_only: false,
+        sync_download_enabled: false,
+        sync_download_dir: '',
         metadata: null,
         include_keywords_text: '',
         exclude_keywords_text: this.defaultExcludeKeywords(),
@@ -443,6 +456,8 @@ function app() {
         custom_dir: false,
         custom_rename: false,
         notify_only: false,
+        sync_download_enabled: false,
+        sync_download_dir: '',
         metadata: null,
         include_keywords_text: '',
         exclude_keywords_text: this.defaultExcludeKeywords(),
@@ -488,6 +503,8 @@ function app() {
         custom_dir: !!rules.target_dir,
         custom_rename: !!rules.rename_template,
         notify_only: !!sub.notify_only,
+        sync_download_enabled: !!sub.sync_download_enabled,
+        sync_download_dir: sub.sync_download_dir || '',
         metadata: sub.metadata || null,
         include_keywords_text: (rules.include_keywords || []).join(', '),
         exclude_keywords_text: (rules.exclude_keywords || []).join(', ') || this.defaultExcludeKeywords(),
@@ -1010,6 +1027,8 @@ function app() {
             target_fid: '0',
             rename_template: rules.rename_template,
             notify_only: this.newSubscription.notify_only,
+            sync_download_enabled: !!this.newSubscription.sync_download_enabled,
+            sync_download_dir: this.newSubscription.sync_download_dir,
             metadata: this.newSubscription.metadata,
             rules
           })
@@ -1049,6 +1068,8 @@ function app() {
             season: this.normalizeSeason(this.newSubscription.season),
             start_episode_number: this.subscriptionStartEpisodePayload(),
             notify_only: this.newSubscription.notify_only,
+            sync_download_enabled: !!this.newSubscription.sync_download_enabled,
+            sync_download_dir: this.newSubscription.sync_download_dir,
             keep_progress_on_source_change: !!this.newSubscription.keep_progress_on_source_change,
             continue_from_current_episode: !!this.newSubscription.continue_from_current_episode,
             metadata: this.newSubscription.metadata,
@@ -1284,6 +1305,83 @@ function app() {
       } catch (error) {
         console.error('提交刮削任务失败:', error);
         this.showNotification('error', '提交刮削任务失败');
+      }
+    },
+
+    openManualMetadataScrape(sub) {
+      if (!this.metadataSearchAvailable()) {
+        this.showNotification('error', '请先在系统设置中配置 TMDB');
+        return;
+      }
+      this.manualMetadataSubscriptionId = sub.id;
+      this.manualMetadataSubscriptionTitle = this.subscriptionDisplayTitle(sub);
+      this.manualMetadataQuery = (sub.metadata && sub.metadata.title) || sub.title || '';
+      this.manualMetadataMediaType = sub.media_type || 'series';
+      this.manualMetadataResults = [];
+      this.showManualMetadataDialog = true;
+      this.searchManualMetadata();
+    },
+
+    closeManualMetadataDialog() {
+      this.showManualMetadataDialog = false;
+      this.manualMetadataSubscriptionId = '';
+      this.manualMetadataSubscriptionTitle = '';
+      this.manualMetadataQuery = '';
+      this.manualMetadataResults = [];
+    },
+
+    async searchManualMetadata() {
+      const query = this.manualMetadataQuery.trim();
+      if (!query) {
+        this.showNotification('warning', '请输入元数据搜索关键词');
+        return;
+      }
+      this.manualMetadataSearching = true;
+      try {
+        const params = new URLSearchParams({
+          query,
+          media_type: this.manualMetadataMediaType || 'series'
+        });
+        const response = await fetch(`/api/metadata/search?${params.toString()}`);
+        const data = await response.json();
+        if (response.ok) {
+          this.manualMetadataResults = data.data || [];
+          if (this.manualMetadataResults.length === 0) {
+            this.showNotification('warning', '未匹配到媒体元数据');
+          }
+        } else {
+          this.showNotification('error', data.message || '元数据搜索失败');
+        }
+      } catch (error) {
+        console.error('元数据搜索失败:', error);
+        this.showNotification('error', '元数据搜索失败');
+      } finally {
+        this.manualMetadataSearching = false;
+      }
+    },
+
+    async applyManualMetadata(item) {
+      if (!this.manualMetadataSubscriptionId || !item) return;
+      this.manualMetadataApplying = true;
+      try {
+        const response = await fetch(`/api/subscriptions/${this.manualMetadataSubscriptionId}`, {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({metadata: item})
+        });
+        const result = await response.json().catch(() => ({}));
+        if (response.ok && result.data) {
+          this.showNotification('success', '已应用媒体元数据');
+          this.closeManualMetadataDialog();
+          await this.loadSubscriptions();
+        } else {
+          this.showNotification('error', result.message || '应用元数据失败');
+        }
+      } catch (error) {
+        console.error('应用元数据失败:', error);
+        this.showNotification('error', '应用元数据失败');
+      } finally {
+        this.manualMetadataApplying = false;
       }
     },
 
@@ -1862,6 +1960,33 @@ function app() {
         if (!silent) this.showNotification('error', this.updateError);
       } finally {
         this.updateLoading = false;
+      }
+    },
+
+    async applyUpdate() {
+      if (!this.updateInfo || !this.updateInfo.update_available) {
+        this.showNotification('info', '当前已是最新版本');
+        return;
+      }
+      if (!confirm('确认升级？系统会下载最新 Release，并只替换当前运行的 my-media-sub 二进制文件。')) return;
+      this.updateApplying = true;
+      this.updateError = '';
+      try {
+        const response = await fetch('/api/update/apply', {method: 'POST'});
+        const result = await response.json().catch(() => ({}));
+        if (response.ok && result.data) {
+          this.showNotification('success', result.data.message || '升级完成，重启后生效');
+          this.updateInfo.current_version = result.data.new_version || this.updateInfo.current_version;
+          this.updateInfo.update_available = false;
+        } else {
+          this.updateError = result.message || result.error || '升级失败';
+          this.showNotification('error', this.updateError);
+        }
+      } catch (error) {
+        this.updateError = '升级失败: ' + error.message;
+        this.showNotification('error', this.updateError);
+      } finally {
+        this.updateApplying = false;
       }
     },
 

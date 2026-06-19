@@ -119,31 +119,34 @@ fn env_non_empty(key: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+const SETTINGS_ENV_KEYS: &[&str] = &[
+    "APP_USERNAME",
+    "SERVER_USERNAME",
+    "APP_PASSWORD",
+    "SERVER_PASSWORD",
+    "QUARK_COOKIE",
+    "WECOM_BOT_URL",
+    "WXPUSHER_APP_TOKEN",
+    "WXPUSHER_UIDS",
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_CHAT_ID",
+    "BARK_URL",
+    "GOTIFY_URL",
+    "GOTIFY_TOKEN",
+    "PUSHPLUS_TOKEN",
+    "SERVERCHAN_KEY",
+    "ARIA2_RPC_URL",
+    "ARIA2_SECRET",
+    "ARIA2_DIR",
+    "TMDB_API_KEY",
+    "TMDB_LANGUAGE",
+    "PANSOU_API_URL",
+];
+
 async fn apply_env_overrides(settings_store: &SettingsStore) -> Result<()> {
-    if ![
-        "APP_USERNAME",
-        "SERVER_USERNAME",
-        "APP_PASSWORD",
-        "SERVER_PASSWORD",
-        "QUARK_COOKIE",
-        "WECOM_BOT_URL",
-        "WXPUSHER_APP_TOKEN",
-        "WXPUSHER_UIDS",
-        "TELEGRAM_BOT_TOKEN",
-        "TELEGRAM_CHAT_ID",
-        "BARK_URL",
-        "GOTIFY_URL",
-        "GOTIFY_TOKEN",
-        "PUSHPLUS_TOKEN",
-        "SERVERCHAN_KEY",
-        "ARIA2_RPC_URL",
-        "ARIA2_SECRET",
-        "ARIA2_DIR",
-        "TMDB_API_KEY",
-        "TMDB_LANGUAGE",
-    ]
-    .iter()
-    .any(|key| env_non_empty(key).is_some())
+    if !SETTINGS_ENV_KEYS
+        .iter()
+        .any(|key| env_non_empty(key).is_some())
     {
         return Ok(());
     }
@@ -215,4 +218,84 @@ async fn apply_env_overrides(settings_store: &SettingsStore) -> Result<()> {
         .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::OnceLock;
+
+    use tokio::sync::Mutex;
+
+    use super::*;
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn preserve_env() -> Vec<(&'static str, Option<String>)> {
+        SETTINGS_ENV_KEYS
+            .iter()
+            .map(|key| {
+                let previous = std::env::var(key).ok();
+                std::env::remove_var(key);
+                (*key, previous)
+            })
+            .collect()
+    }
+
+    fn restore_env(previous: Vec<(&'static str, Option<String>)>) {
+        for (key, value) in previous {
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn apply_env_overrides_applies_non_empty_values() {
+        let _guard = env_lock().lock().await;
+        let previous = preserve_env();
+        std::env::set_var("APP_USERNAME", "env-user");
+        std::env::set_var("APP_PASSWORD", "env-password");
+
+        let path = std::env::temp_dir().join(format!(
+            "my_media_sub_settings_env_override_{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let store = SettingsStore::new(&path);
+        store.load().await.unwrap();
+
+        apply_env_overrides(&store).await.unwrap();
+
+        let settings = store.get().await;
+        assert_eq!(settings.app_username, "env-user");
+        assert_eq!(settings.app_password, "env-password");
+
+        restore_env(previous);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn apply_env_overrides_applies_pansou_api_url_by_itself() {
+        let _guard = env_lock().lock().await;
+        let previous = preserve_env();
+        std::env::set_var("PANSOU_API_URL", "https://example.test");
+
+        let path = std::env::temp_dir().join(format!(
+            "my_media_sub_settings_pansou_env_override_{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let store = SettingsStore::new(&path);
+        store.load().await.unwrap();
+
+        apply_env_overrides(&store).await.unwrap();
+
+        let settings = store.get().await;
+        assert_eq!(settings.pansou_api_url, "https://example.test");
+
+        restore_env(previous);
+        let _ = std::fs::remove_file(path);
+    }
 }

@@ -168,6 +168,14 @@ pub struct Subscription {
     #[serde(default)]
     pub notify_only: bool,
 
+    /// 自动转存后同步提交到 Aria2 下载
+    #[serde(default)]
+    pub sync_download_enabled: bool,
+
+    /// Aria2 同步下载目录；为空时使用全局 Aria2 下载目录
+    #[serde(default)]
+    pub sync_download_dir: String,
+
     /// 是否启用
     #[serde(default = "default_true")]
     pub enabled: bool,
@@ -267,6 +275,8 @@ mod tests {
             last_probe: None,
             last_plan_summary: "".to_string(),
             notify_only: false,
+            sync_download_enabled: false,
+            sync_download_dir: String::new(),
             enabled: true,
             completed: false,
             rules: TransferRules::default(),
@@ -307,7 +317,7 @@ mod tests {
         assert_eq!(sub.season, 1); // 默认值：第 1 季
         assert_eq!(sub.start_episode_number, None); // 默认值：不限制起始集数
         assert_eq!(sub.cloud_type, "quark"); // 默认值
-        assert_eq!(sub.enabled, true); // 默认值
+        assert!(sub.enabled); // 默认值
         assert_eq!(sub.status, "active"); // 默认值
         assert!(sub.metadata.is_none());
     }

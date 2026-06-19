@@ -49,6 +49,10 @@ pub struct CreateSubscriptionRequest {
     #[serde(default)]
     pub notify_only: bool,
     #[serde(default)]
+    pub sync_download_enabled: bool,
+    #[serde(default)]
+    pub sync_download_dir: String,
+    #[serde(default)]
     pub metadata: Option<MediaMetadata>,
     #[serde(default)]
     pub rules: Option<TransferRules>,
@@ -75,6 +79,10 @@ pub struct UpdateSubscriptionRequest {
     pub enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notify_only: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_download_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_download_dir: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keep_progress_on_source_change: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -264,6 +272,10 @@ fn preview_subscription(req: &RenamePreviewRequest, base: Option<&Subscription>)
         last_probe: base.and_then(|sub| sub.last_probe.clone()),
         last_plan_summary: String::new(),
         notify_only: base.map(|sub| sub.notify_only).unwrap_or(false),
+        sync_download_enabled: base.map(|sub| sub.sync_download_enabled).unwrap_or(false),
+        sync_download_dir: base
+            .map(|sub| sub.sync_download_dir.clone())
+            .unwrap_or_default(),
         enabled: true,
         completed: false,
         rules,
@@ -433,6 +445,8 @@ async fn create_subscription(
         last_probe: None,
         last_plan_summary: String::new(),
         notify_only: req.notify_only,
+        sync_download_enabled: req.sync_download_enabled,
+        sync_download_dir: req.sync_download_dir,
         enabled: true,
         completed: false,
         rules,
@@ -498,6 +512,12 @@ async fn update_subscription(
             }
             if let Some(notify_only) = req.notify_only {
                 sub.notify_only = notify_only;
+            }
+            if let Some(sync_download_enabled) = req.sync_download_enabled {
+                sub.sync_download_enabled = sync_download_enabled;
+            }
+            if let Some(sync_download_dir) = req.sync_download_dir {
+                sub.sync_download_dir = sync_download_dir;
             }
             if let Some(total_episode_number) = req.total_episode_number {
                 sub.total_episode_number = total_episode_number;

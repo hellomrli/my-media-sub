@@ -681,6 +681,8 @@ mod tests {
             last_probe: None,
             last_plan_summary: String::new(),
             notify_only: false,
+            sync_download_enabled: false,
+            sync_download_dir: String::new(),
             enabled: true,
             completed: false,
             rules: crate::models::rules::TransferRules::default(),
@@ -1012,6 +1014,8 @@ mod tests {
             last_probe: None,
             last_plan_summary: String::new(),
             notify_only: false,
+            sync_download_enabled: false,
+            sync_download_dir: String::new(),
             enabled: true,
             completed: false,
             rules: crate::models::rules::TransferRules {
