@@ -63,6 +63,9 @@ fn public_settings(settings: crate::models::Settings) -> Result<serde_json::Valu
             "supported_cloud_types".to_string(),
             serde_json::json!(SUPPORTED_CLOUD_TYPES),
         );
+        obj.remove("nas_sync_enabled");
+        obj.remove("nas_sync_source");
+        obj.remove("nas_sync_target");
     }
 
     Ok(value)
@@ -210,21 +213,6 @@ async fn update_settings(
                     "aria2_dir" => {
                         if let Some(s) = string_value(&value) {
                             settings.aria2_dir = s;
-                        }
-                    }
-                    "nas_sync_enabled" => {
-                        if let Some(b) = value.as_bool() {
-                            settings.nas_sync_enabled = b;
-                        }
-                    }
-                    "nas_sync_source" => {
-                        if let Some(s) = string_value(&value) {
-                            settings.nas_sync_source = s;
-                        }
-                    }
-                    "nas_sync_target" => {
-                        if let Some(s) = string_value(&value) {
-                            settings.nas_sync_target = s;
                         }
                     }
                     "wecom_bot_url" => {

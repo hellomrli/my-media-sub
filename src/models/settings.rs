@@ -284,7 +284,7 @@ mod tests {
         let settings = Settings::default();
         assert_eq!(settings.app_username, "admin");
         assert_eq!(settings.cloud_types, vec!["quark"]);
-        assert_eq!(settings.check_links, true);
+        assert!(settings.check_links);
         assert_eq!(settings.metadata_provider, "tmdb");
         assert_eq!(settings.tmdb_language, "zh-CN");
     }
@@ -311,6 +311,6 @@ mod tests {
         assert_eq!(settings.app_username, "test");
         assert_eq!(settings.quark_cookie, "test_cookie");
         assert_eq!(settings.app_password, "change-me"); // 默认值
-        assert_eq!(settings.check_links, true); // 默认值
+        assert!(settings.check_links); // 默认值
     }
 }

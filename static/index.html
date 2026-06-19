@@ -499,6 +499,7 @@
                       <span x-show="sub.media_type !== 'movie'" class="chip" x-text="subscriptionSeasonLabel(sub)"></span>
                       <span x-show="sub.media_type !== 'movie'" class="chip" x-text="subscriptionProgressLabel(sub)"></span>
                       <span x-show="subscriptionStartEpisodeLabel(sub)" class="chip" x-text="subscriptionStartEpisodeLabel(sub)"></span>
+                      <span x-show="sub.sync_download_enabled" class="chip" x-text="'同步下载 ' + (sub.sync_download_dir || settings.aria2_dir || 'Aria2 默认目录')"></span>
                       <span class="chip" x-text="'最后检查 ' + formatTime(sub.last_checked_at)"></span>
                     </div>
 
@@ -513,7 +514,8 @@
                       <button @click="checkSubscription(sub.id)" class="btn-primary px-3 py-2 rounded transition-colors text-sm">立即检查</button>
                       <button @click="openEditSubscriptionDialog(sub)" class="btn-secondary px-3 py-2 rounded transition-colors text-sm">编辑</button>
                       <button @click="renameExistingFiles(sub.id)" class="btn-secondary px-3 py-2 rounded transition-colors text-sm">修复命名</button>
-                      <button @click="scrapeSubscriptionMetadata(sub.id)" class="btn-secondary px-3 py-2 rounded transition-colors text-sm">刮削元数据</button>
+                      <button @click="scrapeSubscriptionMetadata(sub.id)" class="btn-secondary px-3 py-2 rounded transition-colors text-sm">自动刮削</button>
+                      <button @click="openManualMetadataScrape(sub)" class="btn-secondary px-3 py-2 rounded transition-colors text-sm">手动刮削</button>
                       <button @click="deleteSubscription(sub.id)" class="btn-danger px-3 py-2 rounded transition-colors text-sm">删除</button>
                     </div>
                   </div>
@@ -866,15 +868,6 @@
                 <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.auto_download_new_subscription_items" class="rounded" />自动下载新订阅项</label>
               </div>
 
-              <div class="app-panel-soft p-4 space-y-4">
-                <h3 class="section-title">NAS 同步</h3>
-                <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.nas_sync_enabled" class="rounded" />启用 NAS 同步</label>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label class="field-label">源目录</label><input type="text" x-model="settings.nas_sync_source" placeholder="/downloads" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-                  <div><label class="field-label">目标目录</label><input type="text" x-model="settings.nas_sync_target" placeholder="/volume1/media" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-                </div>
-              </div>
-
               <div class="flex justify-end gap-3 pt-4 border-t border-dark-border">
                 <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
@@ -931,71 +924,37 @@
                     <h3 class="section-title">版本检查</h3>
                     <p class="text-sm text-gray-500 mt-1" x-text="updateInfo ? '检查时间 ' + formatUpdateTime(updateInfo.checked_at) : '尚未检查'"></p>
                   </div>
-                  <button @click="checkUpdate()" :disabled="updateLoading" class="btn-primary px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
-                    <span x-show="!updateLoading">检查更新</span>
-                    <span x-show="updateLoading">检查中</span>
-                  </button>
+                  <div class="flex flex-col sm:flex-row gap-2">
+                    <button @click="checkUpdate()" :disabled="updateLoading || updateApplying" class="btn-secondary px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
+                      <span x-show="!updateLoading">检查更新</span>
+                      <span x-show="updateLoading">检查中</span>
+                    </button>
+                    <button @click="applyUpdate()" :disabled="!updateInfo || !updateInfo.update_available || updateApplying" class="btn-primary px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
+                      <span x-show="!updateApplying">立即升级</span>
+                      <span x-show="updateApplying">升级中</span>
+                    </button>
+                  </div>
                 </div>
 
                 <div x-show="updateError" class="text-sm text-red-300 break-all" x-text="updateError"></div>
 
                 <div x-show="updateInfo" class="space-y-4">
-                  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <div class="app-panel-soft p-4 space-y-3">
-                      <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                        <div class="min-w-0">
-                          <div class="text-sm font-medium text-white break-words" x-text="updateInfo ? updateInfo.release_name : '-'"></div>
-                          <div class="text-xs text-gray-500 mt-1" x-text="updateInfo ? '发布时间 ' + formatUpdateTime(updateInfo.published_at) : '-'"></div>
-                        </div>
-                        <a x-show="updateInfo && updateInfo.release_url" :href="updateInfo.release_url" target="_blank" rel="noopener noreferrer" class="btn-secondary px-3 py-2 rounded text-xs text-center whitespace-nowrap">打开 Release</a>
+                  <div class="app-panel-soft p-4 space-y-3">
+                    <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div class="min-w-0">
+                        <h3 class="section-title">当前版本改动</h3>
+                        <div class="text-sm text-white mt-2 break-words" x-text="updateInfo ? updateInfo.release_name : '-'"></div>
+                        <div class="text-xs text-gray-500 mt-1" x-text="updateInfo ? '发布时间 ' + formatUpdateTime(updateInfo.published_at) : '-'"></div>
                       </div>
-                      <pre x-show="updateInfo && updateInfo.release_notes" class="max-h-48 overflow-y-auto whitespace-pre-wrap text-xs text-gray-400 leading-5" x-text="updateInfo ? updateInfo.release_notes : ''"></pre>
+                      <a x-show="updateInfo && updateInfo.release_url" :href="updateInfo.release_url" target="_blank" rel="noopener noreferrer" class="btn-secondary px-3 py-2 rounded text-xs text-center whitespace-nowrap">打开 Release</a>
                     </div>
-
-                    <div class="app-panel-soft p-4 space-y-3">
-                      <h3 class="section-title">Release 文件</h3>
-                      <div class="space-y-2">
-                        <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                          <div>
-                            <div class="text-sm text-gray-300">Linux x86_64</div>
-                            <div class="text-xs text-gray-500" x-text="assetSizeLabel(updateInfo && updateInfo.linux_x86_64_asset)"></div>
-                          </div>
-                          <a x-show="updateInfo && updateInfo.linux_x86_64_asset" :href="updateInfo.linux_x86_64_asset && updateInfo.linux_x86_64_asset.download_url" target="_blank" rel="noopener noreferrer" class="btn-secondary px-3 py-2 rounded text-xs text-center">下载</a>
-                        </div>
-                        <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                          <div>
-                            <div class="text-sm text-gray-300">SHA256</div>
-                            <div class="text-xs text-gray-500" x-text="assetSizeLabel(updateInfo && updateInfo.checksum_asset)"></div>
-                          </div>
-                          <a x-show="updateInfo && updateInfo.checksum_asset" :href="updateInfo.checksum_asset && updateInfo.checksum_asset.download_url" target="_blank" rel="noopener noreferrer" class="btn-secondary px-3 py-2 rounded text-xs text-center">下载</a>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="app-panel-soft p-4 space-y-4">
-                    <h3 class="section-title">Docker 更新</h3>
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                      <div class="bg-dark-bg border border-dark-border rounded-lg p-3">
-                        <div class="text-xs text-gray-500 mb-2">Docker Compose</div>
-                        <div class="flex gap-2 items-center">
-                          <code class="flex-1 text-sm text-gray-200 break-all" x-text="updateInfo ? updateInfo.docker_compose_command : '-'"></code>
-                          <button @click="copyText(updateInfo && updateInfo.docker_compose_command)" class="btn-secondary px-3 py-2 rounded text-xs">复制</button>
-                        </div>
-                      </div>
-                      <div class="bg-dark-bg border border-dark-border rounded-lg p-3">
-                        <div class="text-xs text-gray-500 mb-2">版本镜像</div>
-                        <div class="flex gap-2 items-center">
-                          <code class="flex-1 text-sm text-gray-200 break-all" x-text="updateInfo ? 'docker pull ' + updateInfo.docker_version_image : '-'"></code>
-                          <button @click="copyText(updateInfo ? 'docker pull ' + updateInfo.docker_version_image : '')" class="btn-secondary px-3 py-2 rounded text-xs">复制</button>
-                        </div>
-                      </div>
-                    </div>
+                    <pre x-show="updateInfo && updateInfo.release_notes" class="max-h-64 overflow-y-auto whitespace-pre-wrap text-xs text-gray-400 leading-5" x-text="updateInfo ? updateInfo.release_notes : ''"></pre>
+                    <div x-show="updateInfo && !updateInfo.release_notes" class="text-sm text-gray-500">暂无版本说明</div>
                   </div>
 
                   <div class="app-panel-soft p-4">
-                    <h3 class="section-title">二进制部署</h3>
-                    <p class="text-sm text-gray-400 mt-2">下载压缩包和 SHA256 文件，校验后停止服务，替换 my-media-sub 二进制与 static 目录，再重启服务。</p>
+                    <h3 class="section-title">升级方式</h3>
+                    <p class="text-sm text-gray-400 mt-2">升级只替换当前运行环境中的 my-media-sub 二进制文件。Docker 部署时也只替换容器内二进制文件，不拉取镜像、不替换 static 目录。替换完成后需要重启服务生效。</p>
                   </div>
                 </div>
               </div>
@@ -1067,6 +1026,57 @@
       </div>
     </div>
   </div>
+
+  <!-- 手动元数据刮削对话框 -->
+  <div x-show="showManualMetadataDialog" @click.self="closeManualMetadataDialog()" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel p-6 max-w-3xl w-full max-h-[88vh] overflow-y-auto" @click.stop>
+          <div class="flex flex-col sm:flex-row gap-3 sm:items-start sm:justify-between mb-5">
+            <div>
+              <h3 class="text-xl font-bold text-white">手动刮削元数据</h3>
+              <p class="text-sm text-gray-500 mt-1" x-text="manualMetadataSubscriptionTitle"></p>
+            </div>
+            <button @click="closeManualMetadataDialog()" class="btn-secondary px-3 py-2 rounded text-sm">关闭</button>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-4">
+            <div class="sm:col-span-2">
+              <label class="field-label">搜索关键词</label>
+              <input type="text" x-model="manualMetadataQuery" @keydown.enter.prevent="searchManualMetadata()" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+            </div>
+            <div>
+              <label class="field-label">媒体类型</label>
+              <select x-model="manualMetadataMediaType" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white">
+                <option value="movie">电影</option>
+                <option value="series">连续剧</option>
+                <option value="anime">动画</option>
+              </select>
+            </div>
+            <div class="flex items-end">
+              <button @click="searchManualMetadata()" :disabled="manualMetadataSearching" class="btn-primary w-full px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
+                <span x-show="!manualMetadataSearching">搜索</span>
+                <span x-show="manualMetadataSearching">搜索中</span>
+              </button>
+            </div>
+          </div>
+
+          <div x-show="manualMetadataResults.length === 0 && !manualMetadataSearching" class="empty-state app-panel-soft">暂无候选结果</div>
+          <div x-show="manualMetadataResults.length > 0" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <template x-for="item in manualMetadataResults" :key="'manual-' + item.provider + '-' + item.provider_id">
+              <div class="border border-dark-border bg-dark-bg rounded-lg p-3 min-h-28">
+                <div class="flex gap-3">
+                  <img x-show="item.poster_url" :src="item.poster_url" class="w-14 h-20 object-cover rounded border border-dark-border shrink-0" alt="" />
+                  <div class="min-w-0 flex-1">
+                    <div class="text-sm text-white font-medium break-words" x-text="item.title"></div>
+                    <div class="text-xs text-gray-500 mt-1" x-text="metadataSubtitle(item)"></div>
+                    <div class="text-xs text-gray-400 mt-2 line-clamp-3" x-text="item.overview || '暂无简介'"></div>
+                  </div>
+                </div>
+                <button @click="applyManualMetadata(item)" :disabled="manualMetadataApplying" class="btn-primary w-full mt-3 px-3 py-2 rounded text-sm disabled:opacity-50">应用这个结果</button>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
 
   <!-- 订阅配置对话框 -->
   <div x-show="showSubscriptionDialog" @click.self="showSubscriptionDialog = false" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
@@ -1284,6 +1294,18 @@
             <input type="checkbox" x-model="newSubscription.notify_only" class="rounded" />
             <span>仅通知不自动转存（需要手动确认）</span>
           </label>
+
+          <div class="app-panel-soft p-4 space-y-3">
+            <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+              <input type="checkbox" x-model="newSubscription.sync_download_enabled" class="rounded" />
+              <span>转存后同步下载到 Aria2</span>
+            </label>
+            <div x-show="newSubscription.sync_download_enabled">
+              <label class="field-label">同步下载目录</label>
+              <input type="text" x-model="newSubscription.sync_download_dir" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="/downloads/剧集/Season 1" />
+              <p class="text-xs text-gray-500 mt-2">留空时使用系统设置中的 Aria2 下载目录。订阅检查发现更新并完成转存后，会提交重命名后的文件到 Aria2。</p>
+            </div>
+          </div>
         </div>
       </div>
 

@@ -6,6 +6,7 @@ use tracing::{info, warn};
 
 use crate::clients::quark::{QuarkFile, QuarkShareProbe};
 use crate::clients::quark_save::{NormalizedItem, QuarkSaveClient};
+use crate::clients::Aria2Client;
 use crate::error::{AppError, Result};
 use crate::models::rules::TransferRules;
 use crate::models::subscription::Subscription;
@@ -65,6 +66,19 @@ fn filter_rename_candidates(
             .collect(),
         _ => video_files,
     }
+}
+
+#[derive(Debug, Clone)]
+struct RenameResult {
+    renamed_count: usize,
+    files: Vec<NormalizedItem>,
+}
+
+#[derive(Debug, Clone)]
+struct SyncDownloadReport {
+    submitted_count: usize,
+    dir: String,
+    error: Option<String>,
 }
 
 fn append_path(base: &str, segment: &str) -> String {
@@ -166,6 +180,72 @@ fn determine_subscription_target_directory(sub: &Subscription, settings: &Settin
     }
 
     target_dir
+}
+
+fn transfer_reason(target_dir: &str, sync_report: Option<&SyncDownloadReport>) -> String {
+    let target = if target_dir.trim().is_empty() {
+        "根目录"
+    } else {
+        target_dir
+    };
+    match sync_report {
+        Some(report) if report.submitted_count > 0 && report.error.is_none() => format!(
+            "已转存到 {}，已提交 {} 个 Aria2 同步下载任务到 {}",
+            target,
+            report.submitted_count,
+            sync_dir_label(&report.dir)
+        ),
+        Some(report) if report.submitted_count > 0 => format!(
+            "已转存到 {}，已提交 {} 个 Aria2 同步下载任务，部分失败: {}",
+            target,
+            report.submitted_count,
+            report.error.as_deref().unwrap_or("未知错误")
+        ),
+        Some(report) => format!(
+            "已转存到 {}，同步下载失败: {}",
+            target,
+            report.error.as_deref().unwrap_or("未知错误")
+        ),
+        None => format!("已转存到 {}", target),
+    }
+}
+
+fn sync_dir_label(dir: &str) -> &str {
+    if dir.trim().is_empty() {
+        "Aria2 默认目录"
+    } else {
+        dir
+    }
+}
+
+fn transfer_notification_message(
+    file_count: usize,
+    target_dir: &str,
+    sync_report: Option<&SyncDownloadReport>,
+) -> String {
+    match sync_report {
+        Some(report) if report.submitted_count > 0 && report.error.is_none() => format!(
+            "已转存 {} 个文件到 {}，并提交 {} 个 Aria2 下载任务到 {}",
+            file_count,
+            target_dir,
+            report.submitted_count,
+            sync_dir_label(&report.dir)
+        ),
+        Some(report) if report.submitted_count > 0 => format!(
+            "已转存 {} 个文件到 {}，已提交 {} 个 Aria2 下载任务，部分失败: {}",
+            file_count,
+            target_dir,
+            report.submitted_count,
+            report.error.as_deref().unwrap_or("未知错误")
+        ),
+        Some(report) => format!(
+            "已转存 {} 个文件到 {}，但同步下载失败: {}",
+            file_count,
+            target_dir,
+            report.error.as_deref().unwrap_or("未知错误")
+        ),
+        None => format!("已转存 {} 个文件到 {}", file_count, target_dir),
+    }
 }
 
 async fn wait_for_rename_candidates<C, Fut>(
@@ -425,29 +505,45 @@ impl SubscriptionTransferService {
             .save_share_files(&pwd_id, &stoken, &fid_list, &fid_token_list, &target_fid)
             .await?;
 
-        // 9. 如果设置了重命名规则，执行重命名
-        if has_rename_rules(&sub.rules) {
+        // 9. 等待转存文件落盘，并按规则重命名
+        let transferred_files = if has_rename_rules(&sub.rules) {
             info!("开始按订阅规则重命名文件");
             self.rename_transferred_files(&save_client, &target_fid, &sub, Some(new_file_names))
-                .await?;
-        }
+                .await?
+                .files
+        } else {
+            let expected_names = expected_video_names(new_file_names);
+            wait_for_rename_candidates(
+                || collect_video_files_recursive(&save_client, &target_fid),
+                Some(&expected_names),
+                30,
+                Duration::from_secs(2),
+            )
+            .await?
+        };
 
         // 10. 更新订阅的 transferred_files
         self.mark_files_as_transferred(&sub.id, new_file_names)
             .await?;
 
-        // 11. 发送转存成功通知
+        // 11. 如果订阅开启了同步下载，提交 Aria2 下载任务
+        let sync_report = self
+            .submit_sync_downloads(&save_client, &settings, &sub, &transferred_files)
+            .await;
+
+        // 12. 发送转存成功通知
         let (push_title, push_message) = self
-            .send_transfer_notification(&sub, new_file_names, &target_dir)
+            .send_transfer_notification(&sub, new_file_names, &target_dir, sync_report.as_ref())
             .await;
 
         info!("成功转存 {} 个文件", fid_list.len());
+        let reason = transfer_reason(&target_dir, sync_report.as_ref());
 
         Ok(TransferResult {
             subscription_id: sub.id.clone(),
             transferred_count: fid_list.len(),
             skipped: false,
-            reason: format!("已转存到 {}", target_dir),
+            reason,
             push_title: Some(push_title),
             push_message: Some(push_message),
         })
@@ -460,7 +556,7 @@ impl SubscriptionTransferService {
         target_fid: &str,
         sub: &Subscription,
         expected_file_names: Option<&[String]>,
-    ) -> Result<usize> {
+    ) -> Result<RenameResult> {
         use crate::services::detect_episode;
 
         info!("开始重命名文件，目标目录 fid: {}", target_fid);
@@ -483,12 +579,15 @@ impl SubscriptionTransferService {
         info!("找到 {} 个待重命名视频文件", rename_candidates.len());
 
         let mut renamed_count = 0;
+        let mut files = Vec::new();
 
         // 按订阅规则重命名目标目录下的视频文件。
         for video_file in &rename_candidates {
+            let mut final_file = video_file.clone();
             let episode_info = detect_episode(&video_file.file_name);
             if sub.rules.rename_template.contains("{}") && episode_info.episode.is_none() {
                 info!("无法从 {} 提取集数，跳过重命名", video_file.file_name);
+                files.push(final_file);
                 continue;
             }
 
@@ -500,12 +599,14 @@ impl SubscriptionTransferService {
             );
             if let Some(err) = rename_error {
                 warn!("生成重命名结果失败 {}: {}", video_file.file_name, err);
+                files.push(final_file);
                 continue;
             }
 
             // 如果新旧文件名相同，跳过
             if new_name == video_file.file_name {
                 info!("文件名已经匹配模板，跳过: {}", video_file.file_name);
+                files.push(final_file);
                 continue;
             }
 
@@ -522,13 +623,18 @@ impl SubscriptionTransferService {
             {
                 Ok(_) => {
                     renamed_count += 1;
+                    final_file.file_name = new_name.clone();
                     info!("重命名成功: {}", new_name);
                 }
                 Err(e) => warn!("重命名失败 {}: {}", video_file.file_name, e),
             }
+            files.push(final_file);
         }
 
-        Ok(renamed_count)
+        Ok(RenameResult {
+            renamed_count,
+            files,
+        })
     }
 
     /// 按订阅规则重命名目标目录中的现有视频文件。
@@ -558,6 +664,98 @@ impl SubscriptionTransferService {
         );
         self.rename_transferred_files(&save_client, &target_fid, &sub, None)
             .await
+            .map(|result| result.renamed_count)
+    }
+
+    async fn submit_sync_downloads(
+        &self,
+        save_client: &QuarkSaveClient,
+        settings: &Settings,
+        sub: &Subscription,
+        files: &[NormalizedItem],
+    ) -> Option<SyncDownloadReport> {
+        if !sub.sync_download_enabled {
+            return None;
+        }
+
+        let dir = sub.sync_download_dir.trim();
+        let dir = if dir.is_empty() {
+            settings.aria2_dir.trim()
+        } else {
+            dir
+        };
+
+        if settings.aria2_rpc_url.trim().is_empty() {
+            let error = "未配置 Aria2 RPC URL".to_string();
+            warn!("订阅 {} 同步下载跳过: {}", sub.title, error);
+            return Some(SyncDownloadReport {
+                submitted_count: 0,
+                dir: dir.to_string(),
+                error: Some(error),
+            });
+        }
+
+        let mut fids: Vec<String> = files
+            .iter()
+            .filter(|file| file.file && !file.fid.trim().is_empty())
+            .map(|file| file.fid.clone())
+            .collect();
+        fids.sort();
+        fids.dedup();
+
+        if fids.is_empty() {
+            let error = "没有可同步下载的视频文件".to_string();
+            warn!("订阅 {} 同步下载跳过: {}", sub.title, error);
+            return Some(SyncDownloadReport {
+                submitted_count: 0,
+                dir: dir.to_string(),
+                error: Some(error),
+            });
+        }
+
+        let aria2 = Aria2Client::new(
+            settings.aria2_rpc_url.clone(),
+            settings.aria2_secret.clone(),
+            dir.to_string(),
+        );
+
+        let download_infos = match save_client.download_infos(&fids).await {
+            Ok(infos) => infos,
+            Err(e) => {
+                let error = format!("获取夸克下载直链失败: {}", e);
+                warn!("订阅 {} 同步下载失败: {}", sub.title, error);
+                return Some(SyncDownloadReport {
+                    submitted_count: 0,
+                    dir: dir.to_string(),
+                    error: Some(error),
+                });
+            }
+        };
+
+        let mut submitted_count = 0usize;
+        let mut last_error = None;
+        for info in download_infos {
+            match aria2
+                .add_uri(&info.download_url, Some(&info.file_name), &info.headers)
+                .await
+            {
+                Ok(gid) => {
+                    submitted_count += 1;
+                    info!("已提交 Aria2 同步下载: {} ({})", info.file_name, gid);
+                }
+                Err(e) => {
+                    let error = format!("提交 {} 到 Aria2 失败: {}", info.file_name, e);
+                    warn!("订阅 {} 同步下载失败: {}", sub.title, error);
+                    last_error = Some(error);
+                }
+            }
+        }
+
+        Some(SyncDownloadReport {
+            submitted_count,
+            dir: dir.to_string(),
+            error: last_error,
+        })
     }
 
     /// 确定目标目录
@@ -594,21 +792,15 @@ impl SubscriptionTransferService {
         sub: &Subscription,
         file_names: &[String],
         target_dir: &str,
+        sync_report: Option<&SyncDownloadReport>,
     ) -> (String, String) {
-        let message = format!(
-            "已转存 {} 个文件到 {}",
-            file_names.len(),
-            if target_dir.is_empty() {
-                "根目录"
-            } else {
-                target_dir
-            }
-        );
         let target_dir_label = if target_dir.is_empty() {
             "根目录"
         } else {
             target_dir
         };
+        let message =
+            transfer_notification_message(file_names.len(), target_dir_label, sync_report);
         let meta = std::collections::HashMap::from([
             (
                 "mode".to_string(),
@@ -736,6 +928,8 @@ mod tests {
             last_probe: None,
             last_plan_summary: String::new(),
             notify_only: false,
+            sync_download_enabled: false,
+            sync_download_dir: String::new(),
             enabled: true,
             completed: false,
             rules: TransferRules::default(),
@@ -755,8 +949,10 @@ mod tests {
 
     #[test]
     fn determine_target_directory_uses_media_folder_and_season_for_series() {
-        let mut settings = Settings::default();
-        settings.quark_save_series_dir = "/连续剧".to_string();
+        let settings = Settings {
+            quark_save_series_dir: "/连续剧".to_string(),
+            ..Default::default()
+        };
         let sub = subscription("series", 1);
 
         let target = determine_subscription_target_directory(&sub, &settings);
@@ -766,8 +962,10 @@ mod tests {
 
     #[test]
     fn determine_target_directory_does_not_append_season_for_movie() {
-        let mut settings = Settings::default();
-        settings.quark_save_movie_dir = "/电影".to_string();
+        let settings = Settings {
+            quark_save_movie_dir: "/电影".to_string(),
+            ..Default::default()
+        };
         let sub = subscription("movie", 1);
 
         let target = determine_subscription_target_directory(&sub, &settings);
@@ -777,8 +975,10 @@ mod tests {
 
     #[test]
     fn determine_target_directory_keeps_existing_season_suffix() {
-        let mut settings = Settings::default();
-        settings.quark_save_anime_dir = "/动画".to_string();
+        let settings = Settings {
+            quark_save_anime_dir: "/动画".to_string(),
+            ..Default::default()
+        };
         let mut sub = subscription("anime", 2);
         sub.rules.target_dir = "/动画/孤独摇滚（2022）/Season 2".to_string();
 

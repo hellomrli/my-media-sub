@@ -4,7 +4,7 @@
 
 ## 当前版本
 
-- 版本：`0.7.15`
+- 版本：`0.8.0`
 - 后端：Rust + Axum + Tokio
 - 前端：静态 WebUI，入口为 `static/index.html`，交互逻辑在 `static/app.js`
 - 数据目录：默认 `./data`，可通过 `DATA_DIR` 修改
@@ -17,6 +17,7 @@
 - 一次性转存：搜索结果可直接转存到夸克网盘指定目录。
 - 订阅管理：创建订阅后可手动或定时检查更新，支持设置从第 X 集开始转存，订阅卡片展示刮削海报、名称、TMDB 评分、季度、集数进度和最后检查时间。
 - 自动转存：发现新文件后自动保存到规范目录；电影保存到 `片名（年份）`，连续剧和动画保存到 `剧名（年份）/Season X`。
+- 订阅同步下载：单个订阅可开启转存后同步下载，服务会在重命名完成后把文件提交到 Aria2 指定目录。
 - 智能重命名：按订阅模板、正则替换和变量识别 `S01E05`、`EP05`、`第05集` 等集数格式并重命名。
 - 重命名预览：创建或编辑订阅时可预览原文件名、目标文件名、识别集数和跳过原因。
 - 命名修复：订阅列表提供“修复命名”，可对已转存的现有视频重新按模板命名。
@@ -25,8 +26,8 @@
 - 下载任务：实时查看 Aria2 当前下载、排队和最近结束任务的文件详情、进度、速度和保存目录。
 - 通知中心：保存系统通知，支持已读和清空。
 - 推送渠道：企业微信、Telegram、WxPusher、Bark、Gotify、PushPlus、Server 酱，支持全量/单渠道测试，业务推送以持久化任务派发并记录脱敏失败原因和重试次数。
-- 设置管理：面向夸克网盘场景，支持运行时保存夸克 Cookie、推送配置、自定义订阅检查周期、NAS 同步、Aria2 等设置。
-- 在线更新：在设置页检查 GitHub Release 最新版本，展示 Release 文件、校验文件和 Docker 更新命令。
+- 设置管理：面向夸克网盘场景，支持运行时保存夸克 Cookie、推送配置、自定义订阅检查周期、Aria2 等设置。
+- 在线更新：在设置页检查 GitHub Release 最新版本，查看版本改动，并可直接下载 Release 包替换当前二进制文件。
 
 ## 快速开始
 
@@ -92,7 +93,7 @@ cargo run
 
 ## Aria2 下载说明
 
-“我的网盘”发送文件到 Aria2 时，服务端会通过夸克 PC 下载接口获取临时直链，并把夸克 Cookie 与下载接口返回的临时 Cookie 一起写入 Aria2 任务 Header。
+“我的网盘”发送文件到 Aria2 或订阅开启同步下载时，服务端会通过夸克 PC 下载接口获取临时直链，并把夸克 Cookie 与下载接口返回的临时 Cookie 一起写入 Aria2 任务 Header。
 
 如果下载失败并提示 `download file size limit[...]`、`require login [auth expired]` 或类似鉴权错误，优先在“系统设置”中更新夸克 Cookie 后重试，并确认 Aria2 所在机器可以访问夸克下载服务。
 
@@ -109,7 +110,25 @@ cargo run
 
 订阅自动转存需要同时满足三个条件：“自动下载新订阅项”已开启、夸克“启用自动转存”已开启、单个订阅没有勾选“仅通知不自动转存”。任一条件不满足时，订阅检查仍会记录新增文件并发送更新通知，但不会创建自动转存任务。
 
+创建或编辑订阅时可开启“转存后同步下载到 Aria2”，并指定同步下载目录。留空时使用系统设置中的 Aria2 下载目录；订阅检查发现更新并完成转存、重命名后，会把最终文件提交到 Aria2。
+
 高级设置中的 PanSou API URL 会按敏感配置处理：WebUI 只显示是否已配置，不回显真实地址；留空保存不会覆盖已有地址。修改 PanSou API URL 后需要重启服务才会切换搜索客户端。
+
+## 版本更新
+
+### 0.8.0
+
+- 新增订阅手动元数据刮削，可在候选结果中手动选择 TMDB 匹配项，避免自动刮削选错。
+- 新增订阅级 Aria2 同步下载，自动转存并重命名后可将最终文件提交到指定下载目录。
+- 设置页移除 NAS 同步配置，保留旧配置文件的兼容读取。
+- 在线更新页简化为版本状态、当前版本改动和一键升级；升级只替换当前运行环境中的 `my-media-sub` 二进制文件。
+- 修复 CI clippy 门禁问题，补充环境变量覆盖测试，支持 `PANSOU_API_URL` 独立覆盖。
+
+### 0.7.15
+
+- 引入 GitHub Release 在线更新检查，展示最新版本、Release 文件和部署信息。
+- 完善订阅、任务、推送和真实数据兼容性测试。
+- 拆分 WebUI 静态资源和发布工作流，支持 GitHub Actions 自动构建二进制包与 Docker 镜像。
 
 ## 保存目录规则
 
@@ -222,7 +241,8 @@ cargo run
 
 ### 在线更新
 
-- `GET /api/update/check`：检查 GitHub Release 最新版本、Release 文件和 Docker 镜像信息
+- `GET /api/update/check`：检查 GitHub Release 最新版本和版本改动
+- `POST /api/update/apply`：下载最新 Linux x86_64 Release 包，只替换当前运行环境中的 `my-media-sub` 二进制文件
 
 ## 开发
 
@@ -254,15 +274,15 @@ cargo test --locked
 node --check static/app.js
 ```
 
-确认通过后更新 `Cargo.toml` 和 README 中的版本号，提交到 `main`，再创建并推送版本标签：
+确认通过后更新 `Cargo.toml` 和 README 中的版本号，并把本次变更整理到 README 的“版本更新”对应新版本小节。提交到 `main` 后创建并推送版本标签：
 
 ```bash
-git tag v0.7.16
+git tag v0.8.0
 git push origin main
-git push origin v0.7.16
+git push origin v0.8.0
 ```
 
-`v*` 标签会触发 Release 工作流，自动编译 Linux x86_64 二进制包、打包 `static/` 和 README，并上传 `.tar.gz` 与 `.sha256` 到 GitHub Release。仓库不维护 `RELEASES.md`，版本说明由 GitHub Release 自动生成。
+`v*` 标签会触发 Release 工作流，自动编译 Linux x86_64 二进制包、打包 `static/` 和 README，并上传 `.tar.gz` 与 `.sha256` 到 GitHub Release。Docker 工作流会同时构建并推送 `latest`、版本号和 SHA 标签镜像。
 
 ## 项目结构
 
