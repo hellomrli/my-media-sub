@@ -5,11 +5,13 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::clients::aria2::{Aria2Task, Aria2Version};
 use crate::clients::{Aria2Client, NormalizedItem, QuarkSaveClient};
 use crate::error::{AppError, Result};
+use crate::models::Settings;
 use crate::store::SettingsStore;
 
 /// 网盘状态
@@ -85,6 +87,14 @@ pub struct Aria2TasksRequest {
     pub stopped_limit: u64,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct Aria2BrowseRequest {
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub media_type: String,
+}
+
 /// 通用操作响应
 #[derive(Serialize)]
 pub struct ActionResponse {
@@ -120,11 +130,25 @@ pub struct Aria2TasksResponse {
 }
 
 #[derive(Serialize)]
+pub struct Aria2DirectoryItem {
+    pub name: String,
+    pub path: String,
+}
+
+#[derive(Serialize)]
+pub struct Aria2BrowseResponse {
+    pub success: bool,
+    pub root: String,
+    pub current: String,
+    pub parent: Option<String>,
+    pub items: Vec<Aria2DirectoryItem>,
+}
+
+#[derive(Serialize)]
 pub struct Aria2TestResponse {
     pub success: bool,
     pub message: String,
     pub version: String,
-    pub default_dir: String,
     pub enabled_features: Vec<String>,
 }
 
@@ -336,11 +360,7 @@ async fn send_to_aria2(
     }
 
     let quark = QuarkSaveClient::new(settings.quark_cookie);
-    let aria2 = Aria2Client::new(
-        settings.aria2_rpc_url,
-        settings.aria2_secret,
-        settings.aria2_dir,
-    );
+    let aria2 = Aria2Client::new(settings.aria2_rpc_url, settings.aria2_secret, String::new());
     let download_infos = quark.download_infos(&fids).await?;
     let mut items = Vec::with_capacity(download_infos.len());
 
@@ -374,11 +394,7 @@ async fn list_aria2_tasks(
         return Err(AppError::Validation("未配置 Aria2 RPC URL".to_string()));
     }
 
-    let aria2 = Aria2Client::new(
-        settings.aria2_rpc_url,
-        settings.aria2_secret,
-        settings.aria2_dir,
-    );
+    let aria2 = Aria2Client::new(settings.aria2_rpc_url, settings.aria2_secret, String::new());
     let tasks = aria2.list_tasks(req.stopped_limit.clamp(1, 50)).await?;
 
     Ok(Json(Aria2TasksResponse {
@@ -397,9 +413,9 @@ async fn test_aria2(State(state): State<Arc<DriveState>>) -> Result<Json<Aria2Te
     }
 
     let aria2 = Aria2Client::new(
-        settings.aria2_rpc_url,
-        settings.aria2_secret,
-        settings.aria2_dir.clone(),
+        settings.aria2_rpc_url.clone(),
+        settings.aria2_secret.clone(),
+        String::new(),
     );
     let Aria2Version {
         version,
@@ -410,9 +426,100 @@ async fn test_aria2(State(state): State<Arc<DriveState>>) -> Result<Json<Aria2Te
         success: true,
         message: format!("Aria2 连接成功，版本 {}", version),
         version,
-        default_dir: settings.aria2_dir,
         enabled_features,
     }))
+}
+
+/// 浏览指定媒体类型 Aria2 下载目录下的文件夹。
+async fn browse_aria2_dir(
+    State(state): State<Arc<DriveState>>,
+    Query(req): Query<Aria2BrowseRequest>,
+) -> Result<Json<Aria2BrowseResponse>> {
+    let settings = state.settings_store.get().await;
+    let root = aria2_browse_root(&settings, req.media_type.trim());
+    if root.is_empty() {
+        return Err(AppError::Validation(
+            "未配置当前媒体类型的 Aria2 下载目录".to_string(),
+        ));
+    }
+
+    let root = canonical_dir(root)?;
+    let requested = if req.path.trim().is_empty() {
+        root.clone()
+    } else {
+        canonical_dir(req.path.trim())?
+    };
+    if !requested.starts_with(&root) {
+        return Err(AppError::Validation(
+            "只能浏览当前媒体类型 Aria2 下载目录下的路径".to_string(),
+        ));
+    }
+
+    let mut items = Vec::new();
+    for entry in std::fs::read_dir(&requested)
+        .map_err(|e| AppError::Internal(format!("读取目录失败: {}", e)))?
+    {
+        let entry = entry.map_err(|e| AppError::Internal(format!("读取目录项失败: {}", e)))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|e| AppError::Internal(format!("读取目录项类型失败: {}", e)))?;
+        if !file_type.is_dir() {
+            continue;
+        }
+
+        let path = entry.path();
+        let canonical = match path.canonicalize() {
+            Ok(path) if path.starts_with(&root) => path,
+            _ => continue,
+        };
+        items.push(Aria2DirectoryItem {
+            name: entry.file_name().to_string_lossy().into_owned(),
+            path: canonical.display().to_string(),
+        });
+    }
+    items.sort_by(|left, right| left.name.cmp(&right.name));
+
+    let parent = requested
+        .parent()
+        .filter(|parent| requested != root && parent.starts_with(&root))
+        .map(|parent| parent.display().to_string());
+
+    Ok(Json(Aria2BrowseResponse {
+        success: true,
+        root: root.display().to_string(),
+        current: requested.display().to_string(),
+        parent,
+        items,
+    }))
+}
+
+fn aria2_browse_root(settings: &Settings, media_type: &str) -> String {
+    match media_type {
+        "movie" => settings.aria2_movie_dir.trim().to_string(),
+        "series" => settings.aria2_series_dir.trim().to_string(),
+        "anime" => settings.aria2_anime_dir.trim().to_string(),
+        media_type if media_type.starts_with("custom_") => {
+            let id = media_type.trim_start_matches("custom_");
+            settings
+                .custom_categories
+                .iter()
+                .find(|category| category.id == id)
+                .map(|category| category.aria2_dir.trim().to_string())
+                .unwrap_or_default()
+        }
+        _ => String::new(),
+    }
+}
+
+fn canonical_dir(path: impl AsRef<Path>) -> Result<PathBuf> {
+    let path = path
+        .as_ref()
+        .canonicalize()
+        .map_err(|e| AppError::Validation(format!("目录不存在或不可访问: {}", e)))?;
+    if !path.is_dir() {
+        return Err(AppError::Validation("路径不是目录".to_string()));
+    }
+    Ok(path)
 }
 
 fn normalize_fids(fids: Vec<String>) -> Vec<String> {
@@ -469,6 +576,7 @@ pub fn routes(settings_store: Arc<SettingsStore>) -> Router {
         .route("/api/drive/aria2", post(send_to_aria2))
         .route("/api/drive/aria2/tasks", get(list_aria2_tasks))
         .route("/api/drive/aria2/test", get(test_aria2))
+        .route("/api/drive/aria2/browse", get(browse_aria2_dir))
         .route("/api/quark/test", post(test_quark))
         .with_state(state)
 }

@@ -4,13 +4,22 @@ use axum::{
     Json, Router,
 };
 use chrono::Utc;
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::Mutex;
+use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 
 use crate::error::{AppError, Result};
 
 const GITHUB_REPO: &str = "hellomrli/my-media-sub";
+
+static UPDATE_PROGRESS: Lazy<Mutex<UpdateProgressResponse>> =
+    Lazy::new(|| Mutex::new(UpdateProgressResponse::idle()));
 
 #[derive(Serialize)]
 struct Response<T> {
@@ -82,7 +91,42 @@ pub struct UpdateApplyResponse {
     pub binary_path: String,
     pub backup_path: String,
     pub restart_required: bool,
+    pub auto_restart_scheduled: bool,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UpdateProgressResponse {
+    pub running: bool,
+    pub percent: u8,
+    pub stage: String,
+    pub message: String,
+    pub downloaded_bytes: u64,
+    pub total_bytes: Option<u64>,
+    pub error: Option<String>,
+    pub updated_at: String,
+}
+
+impl UpdateProgressResponse {
+    fn idle() -> Self {
+        Self {
+            running: false,
+            percent: 0,
+            stage: "idle".to_string(),
+            message: "等待升级".to_string(),
+            downloaded_bytes: 0,
+            total_bytes: None,
+            error: None,
+            updated_at: Utc::now().to_rfc3339(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct RestartPlan {
+    executable: PathBuf,
+    args: Vec<OsString>,
+    current_dir: Option<PathBuf>,
 }
 
 async fn check_update() -> Result<impl IntoResponse> {
@@ -111,7 +155,119 @@ async fn check_update() -> Result<impl IntoResponse> {
 }
 
 async fn apply_update() -> Result<impl IntoResponse> {
+    if current_update_progress().running {
+        return Err(AppError::Validation("已有升级任务正在执行".to_string()));
+    }
+
+    begin_update_progress("正在检查最新版本");
+    match apply_update_inner().await {
+        Ok(response) => Ok(Json(Response::ok(response))),
+        Err(error) => {
+            fail_update_progress(error.to_string());
+            Err(error)
+        }
+    }
+}
+
+async fn update_progress() -> Result<impl IntoResponse> {
+    Ok(Json(Response::ok(current_update_progress())))
+}
+
+fn current_update_progress() -> UpdateProgressResponse {
+    UPDATE_PROGRESS
+        .lock()
+        .map(|progress| progress.clone())
+        .unwrap_or_else(|_| UpdateProgressResponse::idle())
+}
+
+fn begin_update_progress(message: impl Into<String>) {
+    if let Ok(mut progress) = UPDATE_PROGRESS.lock() {
+        *progress = UpdateProgressResponse {
+            running: true,
+            percent: 1,
+            stage: "starting".to_string(),
+            message: message.into(),
+            downloaded_bytes: 0,
+            total_bytes: None,
+            error: None,
+            updated_at: Utc::now().to_rfc3339(),
+        };
+    }
+}
+
+fn set_update_progress(percent: u8, stage: &str, message: impl Into<String>) {
+    if let Ok(mut progress) = UPDATE_PROGRESS.lock() {
+        progress.running = true;
+        progress.percent = percent.min(100);
+        progress.stage = stage.to_string();
+        progress.message = message.into();
+        progress.error = None;
+        progress.updated_at = Utc::now().to_rfc3339();
+    }
+}
+
+fn set_download_progress(downloaded_bytes: u64, total_bytes: Option<u64>) {
+    let percent = total_bytes
+        .filter(|total| *total > 0)
+        .map(|total| 10 + ((downloaded_bytes.saturating_mul(58) / total).min(58) as u8))
+        .unwrap_or(20);
+    let message = match total_bytes {
+        Some(total) if total > 0 => format!(
+            "正在下载升级包 {} / {}",
+            format_bytes(downloaded_bytes),
+            format_bytes(total)
+        ),
+        _ => format!("正在下载升级包 {}", format_bytes(downloaded_bytes)),
+    };
+
+    if let Ok(mut progress) = UPDATE_PROGRESS.lock() {
+        progress.running = true;
+        progress.percent = percent.min(68);
+        progress.stage = "download".to_string();
+        progress.message = message;
+        progress.downloaded_bytes = downloaded_bytes;
+        progress.total_bytes = total_bytes;
+        progress.error = None;
+        progress.updated_at = Utc::now().to_rfc3339();
+    }
+}
+
+fn finish_update_progress(message: impl Into<String>) {
+    if let Ok(mut progress) = UPDATE_PROGRESS.lock() {
+        progress.running = false;
+        progress.percent = 100;
+        progress.stage = "restarting".to_string();
+        progress.message = message.into();
+        progress.error = None;
+        progress.updated_at = Utc::now().to_rfc3339();
+    }
+}
+
+fn fail_update_progress(message: impl Into<String>) {
+    let message = message.into();
+    if let Ok(mut progress) = UPDATE_PROGRESS.lock() {
+        progress.running = false;
+        progress.stage = "failed".to_string();
+        progress.message = message.clone();
+        progress.error = Some(message);
+        progress.updated_at = Utc::now().to_rfc3339();
+    }
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut size = bytes as f64;
+    let mut unit = 0usize;
+    while size >= 1024.0 && unit < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit += 1;
+    }
+    format!("{:.2} {}", size, UNITS[unit])
+}
+
+async fn apply_update_inner() -> Result<UpdateApplyResponse> {
     let release = fetch_latest_release().await?;
+    set_update_progress(5, "checking", "正在校验版本信息");
     let current_version = env!("CARGO_PKG_VERSION").to_string();
     let latest_version = normalize_version(&release.tag_name);
     if !is_newer_version(&latest_version, &current_version) {
@@ -122,6 +278,7 @@ async fn apply_update() -> Result<impl IntoResponse> {
         .ok_or_else(|| AppError::NotFound("Release 中未找到 Linux x86_64 二进制包".to_string()))?;
     let current_exe = std::env::current_exe()
         .map_err(|e| AppError::Internal(format!("无法定位当前二进制: {}", e)))?;
+    let restart_plan = restart_plan(&current_exe);
     let backup_path = backup_path(&current_exe);
     let work_dir = std::env::temp_dir().join(format!(
         "my-media-sub-update-{}-{}",
@@ -133,23 +290,73 @@ async fn apply_update() -> Result<impl IntoResponse> {
         .map_err(|e| AppError::Internal(format!("创建升级临时目录失败: {}", e)))?;
 
     let archive_path = work_dir.join(&asset.name);
-    download_asset(&asset.browser_download_url, &archive_path).await?;
+    download_asset(&asset.browser_download_url, &archive_path, asset.size).await?;
+    set_update_progress(70, "extracting", "正在解压升级包");
     extract_archive(&archive_path, &work_dir).await?;
+    set_update_progress(82, "locating", "正在查找新版本二进制");
     let new_binary = find_binary(&work_dir)
         .ok_or_else(|| AppError::Internal("升级包中未找到 my-media-sub 二进制".to_string()))?;
+    set_update_progress(90, "replacing", "正在备份并替换当前二进制");
     replace_binary(&new_binary, &current_exe, &backup_path).await?;
 
+    set_update_progress(97, "cleanup", "正在清理升级临时文件");
     let _ = tokio::fs::remove_dir_all(&work_dir).await;
+    finish_update_progress("升级完成，服务将自动重启");
+    schedule_restart(restart_plan);
 
-    Ok(Json(Response::ok(UpdateApplyResponse {
+    Ok(UpdateApplyResponse {
         success: true,
         previous_version: current_version,
         new_version: latest_version,
         binary_path: current_exe.display().to_string(),
         backup_path: backup_path.display().to_string(),
-        restart_required: true,
-        message: "二进制已替换，重启服务后生效".to_string(),
-    })))
+        restart_required: false,
+        auto_restart_scheduled: true,
+        message: "二进制已替换，服务将自动重启".to_string(),
+    })
+}
+
+fn restart_plan(executable: &Path) -> RestartPlan {
+    RestartPlan {
+        executable: executable.to_path_buf(),
+        args: std::env::args_os().skip(1).collect(),
+        current_dir: std::env::current_dir().ok(),
+    }
+}
+
+fn schedule_restart(plan: RestartPlan) {
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        restart_process(plan);
+    });
+}
+
+#[cfg(unix)]
+fn restart_process(plan: RestartPlan) {
+    use std::os::unix::process::CommandExt;
+
+    tracing::info!("升级完成，正在自动重启服务");
+    let mut command = Command::new(&plan.executable);
+    command.args(&plan.args);
+    if let Some(current_dir) = plan.current_dir {
+        command.current_dir(current_dir);
+    }
+    let error = command.exec();
+    tracing::error!("自动重启服务失败: {}", error);
+}
+
+#[cfg(not(unix))]
+fn restart_process(plan: RestartPlan) {
+    tracing::info!("升级完成，正在自动重启服务");
+    let mut command = Command::new(&plan.executable);
+    command.args(&plan.args);
+    if let Some(current_dir) = plan.current_dir {
+        command.current_dir(current_dir);
+    }
+    match command.spawn() {
+        Ok(_) => std::process::exit(0),
+        Err(error) => tracing::error!("自动重启服务失败: {}", error),
+    }
 }
 
 async fn fetch_latest_release() -> Result<GithubRelease> {
@@ -176,17 +383,34 @@ fn detect_runtime() -> String {
     }
 }
 
-async fn download_asset(url: &str, path: &Path) -> Result<()> {
-    let response = reqwest::Client::new()
+async fn download_asset(url: &str, path: &Path, expected_size: u64) -> Result<()> {
+    set_update_progress(10, "download", "正在连接 Release 下载地址");
+    let mut response = reqwest::Client::new()
         .get(url)
         .header(reqwest::header::USER_AGENT, "my-media-sub-self-update")
         .send()
         .await?
         .error_for_status()?;
-    let bytes = response.bytes().await?;
-    tokio::fs::write(path, bytes)
+
+    let fallback_total_bytes = (expected_size > 0).then_some(expected_size);
+    let total_bytes = response.content_length().or(fallback_total_bytes);
+    let mut downloaded_bytes = 0u64;
+    let mut file = tokio::fs::File::create(path)
         .await
-        .map_err(|e| AppError::Internal(format!("写入升级包失败: {}", e)))
+        .map_err(|e| AppError::Internal(format!("创建升级包文件失败: {}", e)))?;
+
+    while let Some(chunk) = response.chunk().await? {
+        file.write_all(&chunk)
+            .await
+            .map_err(|e| AppError::Internal(format!("写入升级包失败: {}", e)))?;
+        downloaded_bytes += chunk.len() as u64;
+        set_download_progress(downloaded_bytes, total_bytes);
+    }
+    file.flush()
+        .await
+        .map_err(|e| AppError::Internal(format!("刷新升级包文件失败: {}", e)))?;
+    set_download_progress(downloaded_bytes, total_bytes);
+    Ok(())
 }
 
 async fn extract_archive(archive_path: &Path, output_dir: &Path) -> Result<()> {
@@ -338,6 +562,7 @@ fn version_parts(value: &str) -> Vec<u64> {
 pub fn routes() -> Router {
     Router::new()
         .route("/api/update/check", get(check_update))
+        .route("/api/update/progress", get(update_progress))
         .route("/api/update/apply", post(apply_update))
 }
 

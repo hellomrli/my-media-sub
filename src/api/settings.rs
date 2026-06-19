@@ -99,6 +99,7 @@ fn setting_secret(settings: &crate::models::Settings, key: &str) -> Option<Strin
         "app_password" => &settings.app_password,
         "aria2_secret" => &settings.aria2_secret,
         "quark_cookie" => &settings.quark_cookie,
+        "strm_access_token" => &settings.strm_access_token,
         "pansou_api_url" => &settings.pansou_api_url,
         "tmdb_api_key" => &settings.tmdb_api_key,
         "wecom_bot_url" => &settings.wecom_bot_url,
@@ -267,9 +268,39 @@ async fn update_settings(
                             settings.aria2_secret = s;
                         }
                     }
-                    "aria2_dir" => {
+                    "aria2_movie_dir" => {
                         if let Some(s) = string_value(&value) {
-                            settings.aria2_dir = s;
+                            settings.aria2_movie_dir = s;
+                        }
+                    }
+                    "aria2_series_dir" => {
+                        if let Some(s) = string_value(&value) {
+                            settings.aria2_series_dir = s;
+                        }
+                    }
+                    "aria2_anime_dir" => {
+                        if let Some(s) = string_value(&value) {
+                            settings.aria2_anime_dir = s;
+                        }
+                    }
+                    "strm_enabled" => {
+                        if let Some(b) = value.as_bool() {
+                            settings.strm_enabled = b;
+                        }
+                    }
+                    "strm_output_dir" => {
+                        if let Some(s) = string_value(&value) {
+                            settings.strm_output_dir = s;
+                        }
+                    }
+                    "strm_public_base_url" => {
+                        if let Some(s) = string_value(&value) {
+                            settings.strm_public_base_url = s;
+                        }
+                    }
+                    "strm_access_token" => {
+                        if let Some(s) = non_mask_secret(&value) {
+                            settings.strm_access_token = s;
                         }
                     }
                     "wecom_bot_url" => {

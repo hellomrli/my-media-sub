@@ -12,7 +12,7 @@
 
 ## 当前版本
 
-- 版本：`0.8.3`
+- 版本：`0.8.4`
 - 后端：Rust + Axum + Tokio
 - 前端：静态 WebUI，入口为 `static/index.html`，交互逻辑在 `static/app.js`
 - 数据目录：默认 `./data`，可通过 `DATA_DIR` 修改
@@ -30,6 +30,7 @@
 | 元数据 | TMDB 自动匹配、手动候选选择、批量刮削、海报/评分/年份/集数补全 |
 | 网盘管理 | 浏览夸克目录、新建文件夹、重命名、删除、批量删除、发送到 Aria2 |
 | 下载任务 | 查看 Aria2 活动、排队和最近结束任务，支持 RPC 连接测试 |
+| STRM | 订阅转存后生成本地 `.strm` 文件，提供带 Token 的 HTTPStrm 播放链接 |
 | 通知推送 | 企业微信、Telegram、WxPusher、Bark、Gotify、PushPlus、Server 酱 |
 | 系统维护 | Basic Auth、敏感配置星号显示、在线更新、Docker 镜像发布 |
 
@@ -90,7 +91,13 @@ cargo run
 | `TELEGRAM_CHAT_ID` | Telegram Chat ID | 空 |
 | `ARIA2_RPC_URL` | Aria2 JSON-RPC 地址 | 空 |
 | `ARIA2_SECRET` | Aria2 RPC Secret | 空 |
-| `ARIA2_DIR` | Aria2 默认下载目录 | 空 |
+| `ARIA2_MOVIE_DIR` | Aria2 电影下载目录，订阅未单独填写下载目录时使用 | 空 |
+| `ARIA2_SERIES_DIR` | Aria2 连续剧下载目录，订阅未单独填写下载目录时使用 | 空 |
+| `ARIA2_ANIME_DIR` | Aria2 动画下载目录，订阅未单独填写下载目录时使用 | 空 |
+| `STRM_ENABLED` | 是否启用 STRM 文件生成 | `false` |
+| `STRM_OUTPUT_DIR` | STRM 文件输出根目录，需挂载到媒体服务器可扫库的位置 | 空 |
+| `STRM_PUBLIC_BASE_URL` | HTTPStrm 对外访问地址，例如 `http://192.168.50.10:56001` | 空 |
+| `STRM_ACCESS_TOKEN` | HTTPStrm 访问 Token，留空会自动生成并保存 | 自动生成 |
 | `PANSOU_API_URL` | PanSou API 地址，WebUI 中会脱敏显示 | 内置默认 |
 | `TMDB_API_KEY` | TMDB API Key，用于元数据搜索和刮削 | 空 |
 | `TMDB_LANGUAGE` | TMDB 返回语言 | `zh-CN` |
@@ -99,14 +106,20 @@ cargo run
 
 “我的网盘”发送文件到 Aria2 或订阅开启同步下载时，服务端会通过夸克 PC 下载接口获取临时直链，并把夸克 Cookie 与下载接口返回的临时 Cookie 一起写入 Aria2 任务 Header。
 
-Aria2 RPC URL 可以填写完整地址，例如 `http://192.168.50.100:6800/jsonrpc`。如果只填写 `http://192.168.50.100:6800`，服务会自动补全 `/jsonrpc`。设置中的“默认下载目录”留空时，使用 Aria2 自身默认目录。
+Aria2 RPC URL 可以填写完整地址，例如 `http://192.168.50.100:6800/jsonrpc`。如果只填写 `http://192.168.50.100:6800`，服务会自动补全 `/jsonrpc`。订阅同步下载未单独填写下载目录时，会按媒体类型使用电影、连续剧、动画或自定义类别对应的 Aria2 目录；对应目录未配置时不向 Aria2 指定目录，由 Aria2 RPC 端自行决定保存位置。
 
 如果下载失败并提示 `download file size limit[...]`、`require login [auth expired]` 或类似鉴权错误，优先在“系统设置”中更新夸克 Cookie 后重试，并确认 Aria2 所在机器可以访问夸克下载服务。
+
+## STRM 与 HTTPStrm
+
+在“系统设置”中启用 STRM 后，配置本地输出目录和 HTTPStrm 访问地址；创建或编辑订阅时再开启“转存后生成 STRM 文件”。订阅转存并重命名完成后，会在输出目录下按夸克保存目录结构生成同名 `.strm` 文件，内容为本服务的 HTTP 链接。
+
+HTTPStrm 链接形如 `/strm/quark/{fid}/{file_name}?token=...`。媒体服务器访问该链接时，服务会用当前夸克 Cookie 实时换取临时下载地址并代理 Range 请求，因此客户端不需要持有夸克 Cookie。`/strm/` 路由不走 Basic Auth，访问控制依赖 STRM Token，请不要把 Token 暴露到不可信环境。
 
 ## 使用流程
 
 1. 登录 WebUI。
-2. 在“系统设置”中配置夸克 Cookie、保存目录、Aria2、推送渠道和自动检查周期。
+2. 在“系统设置”中配置夸克 Cookie、保存目录、Aria2、STRM、推送渠道和自动检查周期。
 3. 在“资源搜索”中搜索资源，可选择“转存”或“订阅”。
 4. 在“订阅管理”中检查订阅、编辑订阅规则、补全元数据或对已有文件执行“修复命名”。
 5. 在“我的网盘”中浏览、创建文件夹、重命名、删除文件，或将文件发送到 Aria2 下载。
@@ -116,11 +129,21 @@ Aria2 RPC URL 可以填写完整地址，例如 `http://192.168.50.100:6800/json
 
 订阅创建后的首次检查会直接提交本次新增文件的转存任务。后续定时或手动检查的自动转存需要同时满足三个条件：“自动下载新订阅项”已开启、夸克“启用自动转存”已开启、单个订阅没有勾选“仅通知不自动转存”。任一条件不满足时，订阅检查仍会记录新增文件并发送更新通知，但不会创建自动转存任务。
 
-创建或编辑订阅时可开启“转存后同步下载到 Aria2”，并指定同步下载目录。留空时使用系统设置中的 Aria2 默认下载目录；订阅检查发现更新并完成转存、重命名后，会把最终文件提交到 Aria2。
+创建或编辑订阅时可开启“同步用Aria2下载”，并指定同步下载目录。留空时按媒体类型使用系统设置中的 Aria2 分类目录，未配置分类目录时不指定目录；订阅检查发现更新并完成转存、重命名后，会把最终文件提交到 Aria2。
+
+创建或编辑订阅时可开启“转存后生成 STRM 文件”。已有订阅可在订阅卡片点击“生成 STRM”补齐当前目标目录中的视频文件。
 
 高级设置中的 PanSou API URL、夸克 Cookie 和推送 Token 会按敏感配置处理：WebUI 默认显示等长星号，点击显示按钮后才读取明文；保留星号保存不会覆盖已有真实配置。修改 PanSou API URL 后需要重启服务才会切换搜索客户端。
 
 ## 版本更新
+
+### 0.8.4
+
+- 新增 STRM/HTTPStrm：订阅转存后可生成 `.strm` 文件，并通过带 Token 的 HTTP 链接实时代理夸克文件播放，支持 Range 请求。
+- Aria2 下载目录改为按媒体类型配置电影、连续剧、动画和自定义分类目录；订阅表单支持填写下载地址并从 Aria2 目录浏览选择。
+- 订阅弹窗按功能拆分为“订阅内容”“重命名”“下载/STRM”三个标签页，TMDB Key 未配置时隐藏刮削匹配区域。
+- 在线更新升级完成后自动重启服务，并新增升级进度百分比、阶段文案和下载进度查询接口。
+- 清理设置页旧的夸克根目录和默认 Aria2 下载目录入口，README 与示例环境变量同步为当前配置项。
 
 ### 0.8.3
 
@@ -133,7 +156,7 @@ Aria2 RPC URL 可以填写完整地址，例如 `http://192.168.50.100:6800/json
 - 设置页敏感配置改为等长星号显示，支持点击按钮临时查看明文，并避免保存时用星号覆盖真实配置。
 - 浏览器后退键改为在 WebUI 内部页面间后退，避免直接离开应用。
 - 订阅创建时新增资源名称智能识别，自动去除年份、清晰度、字幕和全集等资源后缀，提升元数据刮削和目录命名准确度。
-- 新增 Aria2 连接测试按钮，自动兼容裸端口 RPC URL，并将 Aria2 下载目录命名为默认下载目录。
+- 新增 Aria2 连接测试按钮，并自动兼容裸端口 RPC URL。
 - 精简资源搜索高级筛选，移除重复的链接检测选项。
 - 订阅管理页只保留订阅卡片，检查结果移动到转存历史页。
 - 修复创建订阅后的首次检查没有触发转存的问题，首次检查会提交本次新增文件的转存任务。
@@ -149,7 +172,7 @@ Aria2 RPC URL 可以填写完整地址，例如 `http://192.168.50.100:6800/json
 - 新增订阅手动元数据刮削，可在候选结果中手动选择 TMDB 匹配项，避免自动刮削选错。
 - 新增订阅级 Aria2 同步下载，自动转存并重命名后可将最终文件提交到指定下载目录。
 - 设置页移除 NAS 同步配置，保留旧配置文件的兼容读取。
-- 在线更新页简化为版本状态、当前版本改动和一键升级；升级只替换当前运行环境中的 `my-media-sub` 二进制文件。
+- 在线更新页简化为版本状态、当前版本改动和一键升级；升级会替换当前运行环境中的 `my-media-sub` 二进制文件并自动重启服务。
 - 修复 CI clippy 门禁问题，补充环境变量覆盖测试，支持 `PANSOU_API_URL` 独立覆盖。
 
 ### 0.7.15
@@ -241,6 +264,7 @@ Aria2 RPC URL 可以填写完整地址，例如 `http://192.168.50.100:6800/json
 - `DELETE /api/subscriptions/{id}`
 - `POST /api/subscriptions/{id}/check`
 - `POST /api/subscriptions/{id}/rename-existing`
+- `POST /api/subscriptions/{id}/strm`：按订阅目标目录中的已有视频补齐 STRM 文件
 - `POST /api/subscriptions/{id}/metadata/scrape`：后台刮削单个订阅元数据
 - `POST /api/subscriptions/check`
 - `POST /api/subscriptions/metadata/scrape`：后台批量刮削订阅元数据
@@ -263,6 +287,10 @@ Aria2 RPC URL 可以填写完整地址，例如 `http://192.168.50.100:6800/json
 - `POST /api/drive/aria2`：获取夸克文件临时直链并提交到 Aria2
 - `GET /api/drive/aria2/tasks`：查询 Aria2 当前、排队和最近结束任务
 
+### HTTPStrm
+
+- `GET /strm/quark/{fid}/{file_name}?token={token}`：获取夸克文件的 HTTPStrm 播放/下载流，支持 Range 请求
+
 ### 推送
 
 - `POST /api/push/test`
@@ -270,7 +298,8 @@ Aria2 RPC URL 可以填写完整地址，例如 `http://192.168.50.100:6800/json
 ### 在线更新
 
 - `GET /api/update/check`：检查 GitHub Release 最新版本和版本改动
-- `POST /api/update/apply`：下载最新 Linux x86_64 Release 包，只替换当前运行环境中的 `my-media-sub` 二进制文件
+- `GET /api/update/progress`：查询当前在线升级进度、阶段和百分比
+- `POST /api/update/apply`：下载最新 Linux x86_64 Release 包，替换当前运行环境中的 `my-media-sub` 二进制文件并自动重启服务
 
 ## 开发
 

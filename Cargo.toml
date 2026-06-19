@@ -1,6 +1,6 @@
 [package]
 name = "my-media-sub"
-version = "0.8.3"
+version = "0.8.4"
 edition = "2021"
 authors = ["my-media-sub contributors"]
 description = "Media subscription and management system written in Rust"
@@ -17,7 +17,7 @@ tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 
 # HTTP client
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }

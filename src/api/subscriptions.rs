@@ -53,6 +53,8 @@ pub struct CreateSubscriptionRequest {
     #[serde(default)]
     pub sync_download_dir: String,
     #[serde(default)]
+    pub strm_enabled: bool,
+    #[serde(default)]
     pub metadata: Option<MediaMetadata>,
     #[serde(default)]
     pub rules: Option<TransferRules>,
@@ -83,6 +85,8 @@ pub struct UpdateSubscriptionRequest {
     pub sync_download_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_download_dir: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strm_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keep_progress_on_source_change: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -282,6 +286,7 @@ fn preview_subscription(req: &RenamePreviewRequest, base: Option<&Subscription>)
         sync_download_dir: base
             .map(|sub| sub.sync_download_dir.clone())
             .unwrap_or_default(),
+        strm_enabled: base.map(|sub| sub.strm_enabled).unwrap_or(false),
         enabled: true,
         completed: false,
         rules,
@@ -453,6 +458,7 @@ async fn create_subscription(
         notify_only: req.notify_only,
         sync_download_enabled: req.sync_download_enabled,
         sync_download_dir: req.sync_download_dir,
+        strm_enabled: req.strm_enabled,
         enabled: true,
         completed: false,
         rules,
@@ -524,6 +530,9 @@ async fn update_subscription(
             }
             if let Some(sync_download_dir) = req.sync_download_dir {
                 sub.sync_download_dir = sync_download_dir;
+            }
+            if let Some(strm_enabled) = req.strm_enabled {
+                sub.strm_enabled = strm_enabled;
             }
             if let Some(total_episode_number) = req.total_episode_number {
                 sub.total_episode_number = total_episode_number;
@@ -599,6 +608,24 @@ struct RenameExistingResponse {
     renamed_count: usize,
 }
 
+/// STRM 生成响应
+#[derive(Serialize)]
+struct GenerateStrmResponse {
+    subscription_id: String,
+    generated_count: usize,
+    skipped_count: usize,
+    output_dir: String,
+    files: Vec<GenerateStrmFile>,
+}
+
+#[derive(Serialize)]
+struct GenerateStrmFile {
+    fid: String,
+    file_name: String,
+    strm_path: String,
+    url: String,
+}
+
 /// 检查单个订阅
 async fn check_subscription(
     State(state): State<Arc<SubscriptionState>>,
@@ -639,6 +666,34 @@ async fn rename_existing_files(
     Ok(Json(Response::ok(RenameExistingResponse {
         subscription_id: id,
         renamed_count,
+    })))
+}
+
+/// 按订阅目标目录中的已有视频补齐 STRM 文件
+async fn generate_existing_strm_files(
+    State(state): State<Arc<SubscriptionState>>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse> {
+    let result = state
+        .transfer_service
+        .generate_existing_strm_files(&id)
+        .await?;
+
+    Ok(Json(Response::ok(GenerateStrmResponse {
+        subscription_id: id,
+        generated_count: result.generated_count,
+        skipped_count: result.skipped_count,
+        output_dir: result.output_dir.display().to_string(),
+        files: result
+            .files
+            .into_iter()
+            .map(|file| GenerateStrmFile {
+                fid: file.fid,
+                file_name: file.file_name,
+                strm_path: file.strm_path.display().to_string(),
+                url: file.url,
+            })
+            .collect(),
     })))
 }
 
@@ -789,6 +844,10 @@ pub fn routes(
         .route(
             "/api/subscriptions/{id}/rename-existing",
             post(rename_existing_files),
+        )
+        .route(
+            "/api/subscriptions/{id}/strm",
+            post(generate_existing_strm_files),
         )
         .route(
             "/api/subscriptions/{id}/metadata/scrape",

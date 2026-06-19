@@ -464,7 +464,8 @@
                       <span x-show="sub.media_type !== 'movie'" class="chip" x-text="subscriptionSeasonLabel(sub)"></span>
                       <span x-show="sub.media_type !== 'movie'" class="chip" x-text="subscriptionProgressLabel(sub)"></span>
                       <span x-show="subscriptionStartEpisodeLabel(sub)" class="chip" x-text="subscriptionStartEpisodeLabel(sub)"></span>
-                      <span x-show="sub.sync_download_enabled" class="chip" x-text="'同步下载 ' + (sub.sync_download_dir || settings.aria2_dir || 'Aria2 默认目录')"></span>
+                      <span x-show="sub.sync_download_enabled" class="chip" x-text="'Aria2下载 ' + (subscriptionAria2Dir(sub) || 'Aria2 自身目录')"></span>
+                      <span x-show="sub.strm_enabled" class="chip">STRM</span>
                       <span class="chip" x-text="'最后检查 ' + formatTime(sub.last_checked_at)"></span>
                     </div>
 
@@ -479,6 +480,7 @@
                       <button @click="checkSubscription(sub.id)" class="btn-primary px-3 py-2 rounded transition-colors text-sm">立即检查</button>
                       <button @click="openEditSubscriptionDialog(sub)" class="btn-secondary px-3 py-2 rounded transition-colors text-sm">编辑</button>
                       <button @click="renameExistingFiles(sub.id)" class="btn-secondary px-3 py-2 rounded transition-colors text-sm">修复命名</button>
+                      <button @click="generateSubscriptionStrm(sub.id)" class="btn-secondary px-3 py-2 rounded transition-colors text-sm">生成 STRM</button>
                       <button @click="scrapeSubscriptionMetadata(sub.id)" class="btn-secondary px-3 py-2 rounded transition-colors text-sm">自动刮削</button>
                       <button @click="openManualMetadataScrape(sub)" class="btn-secondary px-3 py-2 rounded transition-colors text-sm">手动刮削</button>
                       <button @click="deleteSubscription(sub.id)" class="btn-danger px-3 py-2 rounded transition-colors text-sm">删除</button>
@@ -734,7 +736,22 @@
                     </div>
                   </div>
                 </div>
-                <div><label class="field-label">默认下载目录</label><input type="text" x-model="settings.aria2_dir" placeholder="留空使用 Aria2 自身默认目录，例如 /downloads" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                <div class="space-y-4">
+                  <h4 class="text-sm font-medium text-gray-300">目录配置</h4>
+                  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div><label class="field-label">电影下载目录</label><input type="text" x-model="settings.aria2_movie_dir" placeholder="/downloads/电影" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                    <div><label class="field-label">连续剧下载目录</label><input type="text" x-model="settings.aria2_series_dir" placeholder="/downloads/连续剧" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                    <div><label class="field-label">动画下载目录</label><input type="text" x-model="settings.aria2_anime_dir" placeholder="/downloads/动画" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                  </div>
+                  <div class="space-y-3" x-show="settings.custom_categories && settings.custom_categories.length > 0">
+                    <template x-for="category in settings.custom_categories" :key="category.id">
+                      <div>
+                        <label class="field-label" x-text="(category.name || '自定义类别') + '下载目录'"></label>
+                        <input type="text" x-model="category.aria2_dir" placeholder="/downloads/自定义类别" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                      </div>
+                    </template>
+                  </div>
+                </div>
               </div>
 
               <div class="app-panel-soft p-4 space-y-4">
@@ -780,12 +797,50 @@
               </div>
 
               <div class="app-panel-soft p-4 space-y-4">
-                <h3 class="section-title">目录配置</h3>
-                <div><label class="field-label">根目录</label><input type="text" x-model="settings.quark_save_root" placeholder="/媒体" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                <div class="flex items-center justify-between gap-3">
+                  <h3 class="section-title">目录配置</h3>
+                  <button type="button" @click="addCustomCategory()" class="btn-secondary w-9 h-9 rounded-lg grid place-items-center transition-colors" title="添加自定义类别">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                  </button>
+                </div>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div><label class="field-label">电影目录</label><input type="text" x-model="settings.quark_save_movie_dir" placeholder="/电影" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
                   <div><label class="field-label">连续剧目录</label><input type="text" x-model="settings.quark_save_series_dir" placeholder="/连续剧" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
                   <div><label class="field-label">动画目录</label><input type="text" x-model="settings.quark_save_anime_dir" placeholder="/动画" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                </div>
+                <div class="space-y-3" x-show="settings.custom_categories && settings.custom_categories.length > 0">
+                  <template x-for="(category, index) in settings.custom_categories" :key="category.id">
+                    <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] gap-3 md:items-end">
+                      <div>
+                        <label class="field-label">类别名称</label>
+                        <input type="text" x-model="category.name" placeholder="纪录片" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                      </div>
+                      <div>
+                        <label class="field-label">目录</label>
+                        <input type="text" x-model="category.dir" placeholder="/纪录片" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                      </div>
+                      <button type="button" @click="removeCustomCategory(index)" class="btn-secondary h-10 px-3 rounded-lg grid place-items-center transition-colors" title="删除自定义类别">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 13h8l1-13" /></svg>
+                      </button>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">STRM 配置</h3>
+                <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.strm_enabled" class="rounded" />启用 STRM 文件生成</label>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div><label class="field-label">输出目录</label><input type="text" x-model="settings.strm_output_dir" placeholder="/media/strm" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                  <div><label class="field-label">HTTPStrm 访问地址</label><input type="text" x-model="settings.strm_public_base_url" placeholder="http://192.168.1.10:56001" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                </div>
+                <div>
+                  <label class="field-label">访问 Token</label>
+                  <div class="flex gap-2">
+                    <input type="text" x-model="settings.strm_access_token" @focus="prepareSecretInput('strm_access_token')" placeholder="留空自动生成" class="min-w-0 flex-1 px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                    <button type="button" @click="toggleSettingSecret('strm_access_token')" :disabled="secretToggleDisabled('strm_access_token')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('strm_access_token')"></button>
+                  </div>
+                  <p class="text-xs text-gray-500 mt-2">生成的 .strm 内容会指向本服务的 HTTPStrm 链接；媒体服务器需要能访问上面的地址。</p>
                 </div>
               </div>
 
@@ -1005,6 +1060,16 @@
 
                 <div x-show="updateError" class="text-sm text-red-300 break-all" x-text="updateError"></div>
 
+                <div x-show="updateApplying || updateProgress" x-cloak class="space-y-2">
+                  <div class="flex items-center justify-between gap-3 text-sm">
+                    <span class="text-gray-300 break-words" x-text="updateProgressMessage()"></span>
+                    <span class="font-semibold text-white tabular-nums whitespace-nowrap" x-text="updateProgressPercent() + '%'"></span>
+                  </div>
+                  <div class="h-2 rounded-full bg-dark-bg overflow-hidden border border-dark-border">
+                    <div class="h-full transition-all duration-300" :class="updateProgressBarClass()" :style="'width: ' + updateProgressPercent() + '%'"></div>
+                  </div>
+                </div>
+
                 <div x-show="updateInfo" class="space-y-4">
                   <div class="app-panel-soft p-4 space-y-3">
                     <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -1021,7 +1086,7 @@
 
                   <div class="app-panel-soft p-4">
                     <h3 class="section-title">升级方式</h3>
-                    <p class="text-sm text-gray-400 mt-2">升级只替换当前运行环境中的 my-media-sub 二进制文件。Docker 部署时也只替换容器内二进制文件，不拉取镜像、不替换 static 目录。替换完成后需要重启服务生效。</p>
+                    <p class="text-sm text-gray-400 mt-2">升级只替换当前运行环境中的 my-media-sub 二进制文件。Docker 部署时也只替换容器内二进制文件，不拉取镜像、不替换 static 目录。替换完成后服务会自动重启生效。</p>
                   </div>
                 </div>
               </div>
@@ -1054,10 +1119,9 @@
       <div class="mb-4">
         <label class="field-label">快速选择</label>
         <div class="flex flex-wrap gap-2">
-          <button @click="selectQuickDir('root')" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors">根目录</button>
-          <button @click="selectQuickDir('movie')" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors">电影</button>
-          <button @click="selectQuickDir('series')" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors">连续剧</button>
-          <button @click="selectQuickDir('anime')" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors">动画</button>
+          <template x-for="item in configuredDirectoryItems(true)" :key="item.type">
+            <button @click="selectQuickDir(item.type)" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors" x-text="item.name"></button>
+          </template>
         </div>
       </div>
 
@@ -1145,6 +1209,44 @@
         </div>
       </div>
 
+  <!-- Aria2 下载目录选择对话框 -->
+  <div x-show="showAria2DirDialog" @click.self="showAria2DirDialog = false" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[60]" style="display: none;">
+    <div class="app-panel p-6 max-w-2xl w-full max-h-[88vh] overflow-y-auto" @click.stop>
+      <div class="flex flex-col sm:flex-row gap-3 sm:items-start sm:justify-between mb-4">
+        <div>
+          <h3 class="text-xl font-bold text-white">选择 Aria2 下载目录</h3>
+          <p class="text-sm text-gray-500 mt-1" x-text="aria2DirRoot ? '浏览根目录 ' + aria2DirRoot : '从当前媒体类型的 Aria2 下载目录开始浏览'"></p>
+        </div>
+        <button @click="showAria2DirDialog = false" class="btn-secondary px-3 py-2 rounded text-sm">关闭</button>
+      </div>
+
+      <div class="mb-4 p-3 bg-dark-bg rounded-lg border border-dark-border">
+        <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+          <div class="min-w-0 text-sm text-gray-300 break-all" x-text="aria2DirCurrent || '-'"></div>
+          <button @click="aria2DirBack()" :disabled="!aria2DirParent || aria2DirLoading" class="btn-secondary px-3 py-2 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed">返回上级</button>
+        </div>
+      </div>
+
+      <div x-show="aria2DirError" class="mb-4 text-sm text-red-300 break-all" x-text="aria2DirError"></div>
+      <div x-show="aria2DirLoading" class="empty-state app-panel-soft mb-4">正在读取目录...</div>
+      <div x-show="!aria2DirLoading" class="max-h-80 overflow-y-auto mb-4 border border-dark-border rounded-lg">
+        <div x-show="aria2DirItems.length === 0" class="p-8 text-center text-gray-500">当前目录下没有文件夹</div>
+        <template x-for="item in aria2DirItems" :key="item.path">
+          <button @click="aria2DirEnter(item)" class="w-full flex items-center gap-3 p-3 hover:bg-dark-hover transition-colors text-left border-b border-dark-border last:border-b-0">
+            <svg class="w-5 h-5 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+            <span class="text-white flex-1 break-all" x-text="item.name"></span>
+            <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </button>
+        </template>
+      </div>
+
+      <div class="flex gap-3">
+        <button @click="showAria2DirDialog = false" class="btn-secondary flex-1 px-4 py-2 rounded-lg transition-colors">取消</button>
+        <button @click="selectAria2Dir()" :disabled="!aria2DirCurrent" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors disabled:opacity-50">选择当前目录</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 订阅配置对话框 -->
   <div x-show="showSubscriptionDialog" @click.self="showSubscriptionDialog = false" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
     <div class="app-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop>
@@ -1154,11 +1256,11 @@
       <div x-show="!subscriptionEditingId" class="mb-6">
         <label class="block text-sm font-medium text-gray-300 mb-3">订阅类型</label>
         <div class="grid grid-cols-2 gap-3">
-          <button @click="subscriptionMode = 'once'" :class="subscriptionMode === 'once' ? 'bg-blue-600/20 border-blue-500' : 'bg-dark-hover border-dark-border hover:border-gray-500'" class="p-4 rounded-lg border transition-all text-left">
+          <button @click="setSubscriptionMode('once')" :class="subscriptionMode === 'once' ? 'bg-blue-600/20 border-blue-500' : 'bg-dark-hover border-dark-border hover:border-gray-500'" class="p-4 rounded-lg border transition-all text-left">
             <div class="text-white font-semibold mb-1">仅转存一次</div>
             <div class="text-sm text-gray-400">立即转存到网盘，不创建订阅记录</div>
           </button>
-          <button @click="subscriptionMode = 'continuous'" :class="subscriptionMode === 'continuous' ? 'bg-blue-600/20 border-blue-500' : 'bg-dark-hover border-dark-border hover:border-gray-500'" class="p-4 rounded-lg border transition-all text-left">
+          <button @click="setSubscriptionMode('continuous')" :class="subscriptionMode === 'continuous' ? 'bg-blue-600/20 border-blue-500' : 'bg-dark-hover border-dark-border hover:border-gray-500'" class="p-4 rounded-lg border transition-all text-left">
             <div class="text-white font-semibold mb-1">持续追更</div>
             <div class="text-sm text-gray-400">创建订阅，定期检查并自动转存</div>
           </button>
@@ -1166,90 +1268,109 @@
       </div>
 
       <!-- 订阅配置 -->
+      <div class="mb-6">
+        <div class="border-b border-dark-border flex gap-2 overflow-x-auto">
+          <button @click="subscriptionDialogTab = 'content'" :class="subscriptionDialogTab === 'content' ? 'text-white border-blue-500' : 'text-gray-400 border-transparent hover:text-gray-200'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">订阅内容</button>
+          <button x-show="subscriptionMode === 'continuous' || subscriptionEditingId" @click="subscriptionDialogTab = 'rename'" :class="subscriptionDialogTab === 'rename' ? 'text-white border-blue-500' : 'text-gray-400 border-transparent hover:text-gray-200'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">重命名</button>
+          <button x-show="subscriptionMode === 'continuous' || subscriptionEditingId" @click="subscriptionDialogTab = 'download'" :class="subscriptionDialogTab === 'download' ? 'text-white border-blue-500' : 'text-gray-400 border-transparent hover:text-gray-200'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">下载/STRM</button>
+        </div>
+      </div>
+
       <div class="space-y-4 mb-6">
-        <div>
-          <label class="block text-sm font-medium text-gray-300 mb-2">订阅名称</label>
-          <input type="text" x-model="newSubscription.title" @input="updateSubscriptionDefaults()" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="例如：风起洛阳 第二季" />
-        </div>
+        <div x-show="subscriptionDialogTab === 'content'" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-2">订阅名称</label>
+            <input type="text" x-model="newSubscription.title" @input="updateSubscriptionDefaults()" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="例如：风起洛阳 第二季" />
+          </div>
 
-        <div>
-          <label class="block text-sm font-medium text-gray-300 mb-2">分享链接</label>
-          <input type="text" x-model="newSubscription.url" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="粘贴夸克分享链接" />
-        </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-2">分享链接</label>
+            <input type="text" x-model="newSubscription.url" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="粘贴夸克分享链接" />
+          </div>
 
-        <div>
-          <label class="block text-sm font-medium text-gray-300 mb-2">提取码</label>
-          <input type="text" x-model="newSubscription.password" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="没有可留空" />
-        </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-2">提取码</label>
+            <input type="text" x-model="newSubscription.password" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="没有可留空" />
+          </div>
 
-        <div x-show="subscriptionEditingId && subscriptionSourceChanged()" class="app-panel-soft p-4 space-y-3">
-          <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-            <div>
-              <div class="text-sm font-medium text-gray-300">更换资源处理</div>
-              <div class="text-xs text-gray-500" x-text="sourceChangeSummary()"></div>
+          <div x-show="subscriptionEditingId && subscriptionSourceChanged()" class="app-panel-soft p-4 space-y-3">
+            <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+              <div>
+                <div class="text-sm font-medium text-gray-300">更换资源处理</div>
+                <div class="text-xs text-gray-500" x-text="sourceChangeSummary()"></div>
+              </div>
+              <span class="chip">换源</span>
             </div>
-            <span class="chip">换源</span>
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
-              <input type="checkbox" x-model="newSubscription.keep_progress_on_source_change" class="rounded" />
-              <span>保留追更记录</span>
-            </label>
-            <label x-show="newSubscription.media_type !== 'movie' && newSubscription.keep_progress_on_source_change" class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
-              <input type="checkbox" x-model="newSubscription.continue_from_current_episode" class="rounded" />
-              <span>从当前进度下一集继续</span>
-            </label>
-          </div>
-        </div>
-
-        <div x-show="metadataSearchAvailable()" class="app-panel-soft p-3 space-y-3">
-          <div class="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
-            <div>
-              <div class="text-sm font-medium text-gray-300">媒体元数据</div>
-              <div class="text-xs text-gray-500" x-text="selectedMetadataLabel()"></div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                <input type="checkbox" x-model="newSubscription.keep_progress_on_source_change" class="rounded" />
+                <span>保留追更记录</span>
+              </label>
+              <label x-show="newSubscription.media_type !== 'movie' && newSubscription.keep_progress_on_source_change" class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                <input type="checkbox" x-model="newSubscription.continue_from_current_episode" class="rounded" />
+                <span>从当前进度下一集继续</span>
+              </label>
             </div>
-            <button @click="searchMetadataForSubscription()" :disabled="metadataSearching" class="btn-secondary px-3 py-2 rounded text-xs transition-colors disabled:opacity-50">匹配</button>
           </div>
-          <div x-show="metadataSearching" class="text-xs text-gray-500">正在匹配 TMDB...</div>
-          <div x-show="metadataResults.length > 0" class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <template x-for="item in metadataResults" :key="item.provider + '-' + item.provider_id">
-              <button @click="applyMetadata(item)" :class="isSelectedMetadata(item) ? 'border-blue-500 bg-blue-600/10' : 'border-dark-border bg-dark-bg hover:border-gray-500'" class="border rounded-lg p-2 text-left transition-colors min-h-20">
-                <div class="flex gap-3">
-                  <img x-show="item.poster_url" :src="item.poster_url" class="w-10 h-14 object-cover rounded border border-dark-border" alt="" />
-                  <div class="min-w-0">
-                    <div class="text-sm text-white font-medium truncate" x-text="item.title"></div>
-                    <div class="text-xs text-gray-500 mt-1" x-text="metadataSubtitle(item)"></div>
-                    <div class="text-xs text-gray-400 mt-1 line-clamp-2" x-text="item.overview || '暂无简介'"></div>
+
+          <div x-show="metadataSearchAvailable()" class="app-panel-soft p-3 space-y-3">
+            <div class="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
+              <div>
+                <div class="text-sm font-medium text-gray-300">媒体元数据</div>
+                <div class="text-xs text-gray-500" x-text="selectedMetadataLabel()"></div>
+              </div>
+              <button @click="searchMetadataForSubscription()" :disabled="metadataSearching" class="btn-secondary px-3 py-2 rounded text-xs transition-colors disabled:opacity-50">匹配</button>
+            </div>
+            <div x-show="metadataSearching" class="text-xs text-gray-500">正在匹配 TMDB...</div>
+            <div x-show="metadataResults.length > 0" class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <template x-for="item in metadataResults" :key="item.provider + '-' + item.provider_id">
+                <button @click="applyMetadata(item)" :class="isSelectedMetadata(item) ? 'border-blue-500 bg-blue-600/10' : 'border-dark-border bg-dark-bg hover:border-gray-500'" class="border rounded-lg p-2 text-left transition-colors min-h-20">
+                  <div class="flex gap-3">
+                    <img x-show="item.poster_url" :src="item.poster_url" class="w-10 h-14 object-cover rounded border border-dark-border" alt="" />
+                    <div class="min-w-0">
+                      <div class="text-sm text-white font-medium truncate" x-text="item.title"></div>
+                      <div class="text-xs text-gray-500 mt-1" x-text="metadataSubtitle(item)"></div>
+                      <div class="text-xs text-gray-400 mt-1 line-clamp-2" x-text="item.overview || '暂无简介'"></div>
+                    </div>
                   </div>
-                </div>
-              </button>
-            </template>
+                </button>
+              </template>
+            </div>
           </div>
-        </div>
 
-        <div>
-          <label class="block text-sm font-medium text-gray-300 mb-2">媒体类型</label>
-          <div class="grid grid-cols-3 gap-2">
-            <button @click="newSubscription.media_type = 'movie'; updateSubscriptionDefaults()" :class="newSubscription.media_type === 'movie' ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors">电影</button>
-            <button @click="newSubscription.media_type = 'series'; updateSubscriptionDefaults()" :class="newSubscription.media_type === 'series' ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors">连续剧</button>
-            <button @click="newSubscription.media_type = 'anime'; updateSubscriptionDefaults()" :class="newSubscription.media_type === 'anime' ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors">动画</button>
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-2">媒体类型</label>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <button @click="setSubscriptionMediaType('movie')" :class="newSubscription.media_type === 'movie' ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors">电影</button>
+              <button @click="setSubscriptionMediaType('series')" :class="newSubscription.media_type === 'series' ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors">连续剧</button>
+              <button @click="setSubscriptionMediaType('anime')" :class="newSubscription.media_type === 'anime' ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors">动画</button>
+              <template x-for="category in settings.custom_categories" :key="category.id">
+                <button @click="setSubscriptionMediaType(customCategoryMediaType(category))" :class="newSubscription.media_type === customCategoryMediaType(category) ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors truncate" x-text="category.name || '自定义类别'"></button>
+              </template>
+            </div>
           </div>
-        </div>
 
-        <div x-show="newSubscription.media_type !== 'movie'">
-          <label class="block text-sm font-medium text-gray-300 mb-2">季号</label>
-          <input type="number" min="1" x-model="newSubscription.season" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
-          <p class="text-xs text-gray-500 mt-1">默认第 1 季；填 2 会保存到 Season 2。</p>
-        </div>
-
-        <!-- 持续追更模式的额外选项 -->
-        <div x-show="subscriptionMode === 'continuous' || subscriptionEditingId" class="space-y-4">
           <div x-show="newSubscription.media_type !== 'movie'">
-            <label class="block text-sm font-medium text-gray-300 mb-2">从第几集开始转存</label>
-            <input type="number" min="1" x-model="newSubscription.start_episode_number" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="留空不限制，例如：13" />
-            <p class="text-xs text-gray-500 mt-1">低于该集数的新增文件会记为已知，但不会通知或自动转存。</p>
+            <label class="block text-sm font-medium text-gray-300 mb-2">季号</label>
+            <input type="number" min="1" x-model="newSubscription.season" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+            <p class="text-xs text-gray-500 mt-1">默认第 1 季；填 2 会保存到 Season 2。</p>
           </div>
 
+          <div x-show="subscriptionMode === 'continuous' || subscriptionEditingId" class="space-y-4">
+            <div x-show="newSubscription.media_type !== 'movie'">
+              <label class="block text-sm font-medium text-gray-300 mb-2">从第几集开始转存</label>
+              <input type="number" min="1" x-model="newSubscription.start_episode_number" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="留空不限制，例如：13" />
+              <p class="text-xs text-gray-500 mt-1">低于该集数的新增文件会记为已知，但不会通知或自动转存。</p>
+            </div>
+
+            <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+              <input type="checkbox" x-model="newSubscription.notify_only" class="rounded" />
+              <span>仅通知不自动转存（需要手动确认）</span>
+            </label>
+          </div>
+        </div>
+
+        <div x-show="subscriptionDialogTab === 'rename' && (subscriptionMode === 'continuous' || subscriptionEditingId)" class="space-y-4">
           <div>
             <label class="flex items-center justify-between text-sm font-medium text-gray-300 mb-2">
               <span>转存目录</span>
@@ -1291,30 +1412,12 @@
           <details class="app-panel-soft p-4" open>
             <summary class="cursor-pointer text-sm font-medium text-gray-300 hover:text-white">匹配过滤与高级重命名</summary>
             <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label class="field-label">包含关键词</label>
-                <input type="text" x-model="newSubscription.include_keywords_text" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="多个用逗号或换行分隔" />
-              </div>
-              <div>
-                <label class="field-label">排除关键词</label>
-                <input type="text" x-model="newSubscription.exclude_keywords_text" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="预告, 花絮, trailer" />
-              </div>
-              <div>
-                <label class="field-label">匹配正则</label>
-                <input type="text" x-model="newSubscription.match_regex" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：S01E\\d+|第\\d+集" />
-              </div>
-              <div>
-                <label class="field-label">完成集数</label>
-                <input type="number" min="1" x-model="newSubscription.finish_after_episode" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：12" />
-              </div>
-              <div>
-                <label class="field-label">重命名正则</label>
-                <input type="text" x-model="newSubscription.rename_regex" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：^\\d+\\." />
-              </div>
-              <div>
-                <label class="field-label">替换文本</label>
-                <input type="text" x-model="newSubscription.rename_replacement" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：S01E$0" />
-              </div>
+              <div><label class="field-label">包含关键词</label><input type="text" x-model="newSubscription.include_keywords_text" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="多个用逗号或换行分隔" /></div>
+              <div><label class="field-label">排除关键词</label><input type="text" x-model="newSubscription.exclude_keywords_text" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="预告, 花絮, trailer" /></div>
+              <div><label class="field-label">匹配正则</label><input type="text" x-model="newSubscription.match_regex" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：S01E\\d+|第\\d+集" /></div>
+              <div><label class="field-label">完成集数</label><input type="number" min="1" x-model="newSubscription.finish_after_episode" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：12" /></div>
+              <div><label class="field-label">重命名正则</label><input type="text" x-model="newSubscription.rename_regex" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：^\\d+\\." /></div>
+              <div><label class="field-label">替换文本</label><input type="text" x-model="newSubscription.rename_replacement" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：S01E$0" /></div>
             </div>
             <div class="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-3">
               <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="newSubscription.ignore_extensions" class="rounded" />忽略扩展名匹配</label>
@@ -1356,22 +1459,32 @@
               </template>
             </div>
           </div>
+        </div>
 
-          <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
-            <input type="checkbox" x-model="newSubscription.notify_only" class="rounded" />
-            <span>仅通知不自动转存（需要手动确认）</span>
-          </label>
-
+        <div x-show="subscriptionDialogTab === 'download' && (subscriptionMode === 'continuous' || subscriptionEditingId)" class="space-y-4">
           <div class="app-panel-soft p-4 space-y-3">
             <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
               <input type="checkbox" x-model="newSubscription.sync_download_enabled" class="rounded" />
-              <span>转存后同步下载到 Aria2</span>
+              <span>同步用Aria2下载</span>
             </label>
-            <div x-show="newSubscription.sync_download_enabled">
-              <label class="field-label">同步下载目录</label>
-              <input type="text" x-model="newSubscription.sync_download_dir" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="/downloads/剧集/Season 1" />
-              <p class="text-xs text-gray-500 mt-2">留空时使用系统设置中的 Aria2 默认下载目录。订阅检查发现更新并完成转存后，会提交重命名后的文件到 Aria2。</p>
+            <div x-show="newSubscription.sync_download_enabled" class="space-y-3">
+              <div>
+                <label class="field-label">下载地址</label>
+                <div class="flex gap-2">
+                  <input type="text" x-model="newSubscription.sync_download_dir" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" :placeholder="aria2DirForMediaType() || '/downloads/剧集/Season 1'" />
+                  <button type="button" @click="openAria2DirBrowser()" class="btn-secondary px-4 py-2 rounded-lg text-sm whitespace-nowrap">浏览</button>
+                </div>
+              </div>
+              <p class="text-xs text-gray-500">留空时按媒体类型使用系统设置中的 Aria2 下载目录；未配置时不指定目录，由 Aria2 自身决定。订阅检查发现更新并完成转存后，会提交重命名后的文件到 Aria2。</p>
             </div>
+          </div>
+
+          <div class="app-panel-soft p-4 space-y-3">
+            <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+              <input type="checkbox" x-model="newSubscription.strm_enabled" class="rounded" />
+              <span>转存后生成 STRM 文件</span>
+            </label>
+            <p class="text-xs text-gray-500">需要先在系统设置中启用 STRM 并配置输出目录与 HTTPStrm 访问地址。</p>
           </div>
         </div>
       </div>

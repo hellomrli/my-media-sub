@@ -8,6 +8,7 @@ pub const SECRET_KEYS: &[&str] = &[
     "app_password",
     "aria2_secret",
     "quark_cookie",
+    "strm_access_token",
     "pansou_api_url",
     "tmdb_api_key",
     "wecom_bot_url",
@@ -46,12 +47,33 @@ impl SettingsStore {
         }
         let content = std::fs::read_to_string(&self.path)
             .map_err(|e| AppError::Database(format!("读取设置文件失败: {}", e)))?;
+        let strm_token_missing = serde_json::from_str::<serde_json::Value>(&content)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("strm_access_token")
+                    .and_then(|token| token.as_str())
+                    .map(|token| token.trim().is_empty())
+            })
+            .unwrap_or(true);
+        let mut should_write = strm_token_missing;
+        let mut parsed_ok = false;
         // 容错：解析失败时保留默认值（与 Python 行为一致）
         match serde_json::from_str::<Settings>(&content) {
-            Ok(s) => *settings = s,
+            Ok(s) => {
+                *settings = s;
+                parsed_ok = true;
+            }
             Err(e) => {
                 tracing::warn!("设置文件解析失败，使用默认值: {}", e);
             }
+        }
+        if settings.strm_access_token.trim().is_empty() {
+            settings.strm_access_token = uuid::Uuid::new_v4().to_string();
+            should_write = true;
+        }
+        if should_write && parsed_ok {
+            self.write_to_disk(&settings).await?;
         }
         Ok(())
     }
@@ -93,6 +115,9 @@ impl SettingsStore {
             .retain(|t| SUPPORTED_CLOUD_TYPES.contains(&t.as_str()));
         if settings.cloud_types.is_empty() {
             settings.cloud_types = vec!["quark".to_string()];
+        }
+        if settings.strm_access_token.trim().is_empty() {
+            settings.strm_access_token = uuid::Uuid::new_v4().to_string();
         }
         let updated = settings.clone();
         self.write_to_disk(&updated).await?;

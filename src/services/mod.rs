@@ -2,6 +2,7 @@ pub mod episode;
 pub mod metadata;
 pub mod notification;
 pub mod push;
+pub mod strm;
 pub mod subscription_check;
 pub mod subscription_scheduler;
 pub mod subscription_transfer;

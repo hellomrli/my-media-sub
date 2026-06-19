@@ -37,6 +37,7 @@ function app() {
       'app_password',
       'aria2_secret',
       'quark_cookie',
+      'strm_access_token',
       'pansou_api_url',
       'tmdb_api_key',
       'wecom_bot_url',
@@ -63,6 +64,7 @@ function app() {
     lastCheckResult: null,
     showSubscriptionDialog: false,
     subscriptionMode: 'once',  // 'once' 或 'continuous'
+    subscriptionDialogTab: 'content',
     subscriptionEditingId: null,
     currentSearchResult: null,  // 当前操作的搜索结果
     metadataSearching: false,
@@ -96,6 +98,7 @@ function app() {
       notify_only: false,
       sync_download_enabled: false,
       sync_download_dir: '',
+      strm_enabled: false,
       metadata: null,
       include_keywords_text: '',
       exclude_keywords_text: '预告, 花絮, 解说, 彩蛋, trailer, preview',
@@ -152,6 +155,8 @@ function app() {
     updateLoading: false,
     updateApplying: false,
     updateError: '',
+    updateProgress: null,
+    updateProgressTimer: null,
 
     // 转存相关
     showTransferModal: false,
@@ -160,12 +165,22 @@ function app() {
     transferTargetPath: '根目录',
     transferBrowseItems: [],
     transferBrowseFidStack: [{fid: '0', name: '根目录'}],
+    showAria2DirDialog: false,
+    aria2DirItems: [],
+    aria2DirRoot: '',
+    aria2DirCurrent: '',
+    aria2DirParent: '',
+    aria2DirLoading: false,
+    aria2DirError: '',
 
     // 设置
     settings: {
       app_username: '', app_password: '', quark_cookie: '', quark_save_enabled: false, quark_save_root: '',
       quark_save_movie_dir: '', quark_save_series_dir: '', quark_save_anime_dir: '',
-      aria2_rpc_url: '', aria2_secret: '', aria2_dir: '',
+      custom_categories: [],
+      aria2_rpc_url: '', aria2_secret: '',
+      aria2_movie_dir: '', aria2_series_dir: '', aria2_anime_dir: '',
+      strm_enabled: false, strm_output_dir: '', strm_public_base_url: '', strm_access_token: '', strm_access_token_configured: false,
       cloud_types: ['quark'], push_on_update: false, push_on_failed: false, push_on_completed: false, push_on_save: false,
       metadata_provider: 'tmdb', tmdb_api_key: '', tmdb_language: 'zh-CN',
       wecom_bot_url: '', telegram_bot_token: '', telegram_chat_id: '', bark_url: '', serverchan_key: '',
@@ -332,8 +347,13 @@ function app() {
         this.stopDownloadsPolling();
       }
 
-      if (this.currentTab === 'settings' && this.currentSettingsTab === 'update' && !this.updateInfo && !this.updateLoading) {
-        this.checkUpdate(true);
+      if (this.currentTab === 'settings' && this.currentSettingsTab === 'update') {
+        if (!this.updateInfo && !this.updateLoading) this.checkUpdate(true);
+        this.loadUpdateProgress().then(progress => {
+          if (progress && progress.running && !this.updateProgressTimer) {
+            this.startUpdateProgressPolling();
+          }
+        });
       }
     },
 
@@ -472,9 +492,17 @@ function app() {
       return '预告, 花絮, 解说, 彩蛋, trailer, preview';
     },
 
+    setSubscriptionMode(mode) {
+      this.subscriptionMode = mode;
+      if (mode === 'once') {
+        this.subscriptionDialogTab = 'content';
+      }
+    },
+
     resetSubscriptionForm() {
       this.subscriptionEditingId = null;
       this.subscriptionMode = 'continuous';
+      this.subscriptionDialogTab = 'content';
       this.currentSearchResult = null;
       this.renamePreview = null;
       this.renamePreviewError = '';
@@ -496,6 +524,7 @@ function app() {
         notify_only: false,
         sync_download_enabled: false,
         sync_download_dir: '',
+        strm_enabled: false,
         metadata: null,
         include_keywords_text: '',
         exclude_keywords_text: this.defaultExcludeKeywords(),
@@ -604,6 +633,7 @@ function app() {
       this.currentSearchResult = result;
       this.subscriptionEditingId = null;
       this.subscriptionMode = mode;
+      this.subscriptionDialogTab = 'content';
       this.renamePreview = null;
       this.renamePreviewError = '';
       const sourceTitle = this.searchResultTitle(result);
@@ -625,6 +655,7 @@ function app() {
         notify_only: false,
         sync_download_enabled: false,
         sync_download_dir: '',
+        strm_enabled: false,
         metadata: null,
         include_keywords_text: '',
         exclude_keywords_text: this.defaultExcludeKeywords(),
@@ -651,6 +682,7 @@ function app() {
       const rules = sub.rules || {};
       this.subscriptionEditingId = sub.id;
       this.subscriptionMode = 'continuous';
+      this.subscriptionDialogTab = 'content';
       this.currentSearchResult = null;
       this.renamePreview = null;
       this.renamePreviewError = '';
@@ -672,6 +704,7 @@ function app() {
         notify_only: !!sub.notify_only,
         sync_download_enabled: !!sub.sync_download_enabled,
         sync_download_dir: sub.sync_download_dir || '',
+        strm_enabled: !!sub.strm_enabled,
         metadata: sub.metadata || null,
         include_keywords_text: (rules.include_keywords || []).join(', '),
         exclude_keywords_text: (rules.exclude_keywords || []).join(', ') || this.defaultExcludeKeywords(),
@@ -743,7 +776,70 @@ function app() {
 
     mediaTypeLabel(type) {
       const labels = {movie: '电影', series: '连续剧', anime: '动画'};
+      const custom = this.customCategoryByType(type);
+      if (custom) return custom.name || '自定义类别';
+      if (String(type || '').startsWith('custom_')) return '自定义类别';
       return labels[type] || type || '-';
+    },
+
+    customCategoryMediaType(category) {
+      return category && category.id ? `custom_${category.id}` : '';
+    },
+
+    customCategoryByType(type) {
+      if (!type || !String(type).startsWith('custom_')) return null;
+      const id = String(type).slice('custom_'.length);
+      return (this.settings.custom_categories || []).find(category => category.id === id) || null;
+    },
+
+    generateCustomCategoryId() {
+      if (window.crypto && window.crypto.randomUUID) {
+        return window.crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+      }
+      return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    },
+
+    normalizeCustomCategories() {
+      const usedIds = new Set();
+      this.settings.custom_categories = (Array.isArray(this.settings.custom_categories) ? this.settings.custom_categories : [])
+        .map(category => {
+          const item = category && typeof category === 'object' ? category : {};
+          let id = String(item.id || '').trim();
+          if (!id || usedIds.has(id)) id = this.generateCustomCategoryId();
+          usedIds.add(id);
+          return {
+            id,
+            name: String(item.name || ''),
+            dir: String(item.dir || ''),
+            aria2_dir: String(item.aria2_dir || '')
+          };
+        });
+    },
+
+    addCustomCategory() {
+      if (!Array.isArray(this.settings.custom_categories)) {
+        this.settings.custom_categories = [];
+      }
+      this.settings.custom_categories.push({
+        id: this.generateCustomCategoryId(),
+        name: '',
+        dir: '',
+        aria2_dir: ''
+      });
+    },
+
+    removeCustomCategory(index) {
+      if (!Array.isArray(this.settings.custom_categories)) return;
+      const removed = this.settings.custom_categories[index];
+      this.settings.custom_categories.splice(index, 1);
+      if (removed && this.newSubscription.media_type === this.customCategoryMediaType(removed)) {
+        this.setSubscriptionMediaType('series');
+      }
+    },
+
+    setSubscriptionMediaType(type) {
+      this.newSubscription.media_type = type || 'series';
+      this.updateSubscriptionDefaults();
     },
 
     cloudTypeLabel(type) {
@@ -915,11 +1011,49 @@ function app() {
     },
 
     targetBaseDir(type = this.newSubscription.media_type) {
+      const custom = this.customCategoryByType(type);
+      if (custom) return custom.dir || '';
       return {
         'movie': this.settings.quark_save_movie_dir || '/NAS/电影',
         'series': this.settings.quark_save_series_dir || '/NAS/连续剧',
         'anime': this.settings.quark_save_anime_dir || '/NAS/动画'
-      }[type] || '/NAS';
+      }[type] || '';
+    },
+
+    configuredDirectoryItems(includeRoot = false) {
+      const items = includeRoot ? [{type: 'root', path: '/', name: '根目录'}] : [];
+      items.push(
+        {type: 'movie', path: this.settings.quark_save_movie_dir || '/NAS/电影', name: '电影'},
+        {type: 'series', path: this.settings.quark_save_series_dir || '/NAS/连续剧', name: '连续剧'},
+        {type: 'anime', path: this.settings.quark_save_anime_dir || '/NAS/动画', name: '动画'}
+      );
+      for (const category of this.settings.custom_categories || []) {
+        items.push({
+          type: this.customCategoryMediaType(category),
+          path: category.dir || '',
+          name: category.name || '自定义类别'
+        });
+      }
+      return items;
+    },
+
+    configuredDirectoryByType(type, includeRoot = false) {
+      return this.configuredDirectoryItems(includeRoot).find(item => item.type === type) || null;
+    },
+
+    aria2DirForMediaType(type = this.newSubscription.media_type) {
+      const custom = this.customCategoryByType(type);
+      if (custom) return custom.aria2_dir || '';
+      return {
+        'movie': this.settings.aria2_movie_dir || '',
+        'series': this.settings.aria2_series_dir || '',
+        'anime': this.settings.aria2_anime_dir || ''
+      }[type] || '';
+    },
+
+    subscriptionAria2Dir(sub) {
+      if (!sub) return '';
+      return sub.sync_download_dir || this.aria2DirForMediaType(sub.media_type);
     },
 
     metadataYear() {
@@ -1085,13 +1219,7 @@ function app() {
 
     // 为订阅选择快速目录
     async selectQuickDirForSub(dirType) {
-      const dirMap = {
-        'movie': {path: this.settings.quark_save_movie_dir || '/NAS/电影', name: '电影'},
-        'series': {path: this.settings.quark_save_series_dir || '/NAS/连续剧', name: '连续剧'},
-        'anime': {path: this.settings.quark_save_anime_dir || '/NAS/动画', name: '动画'}
-      };
-
-      const selected = dirMap[dirType];
+      const selected = this.configuredDirectoryByType(dirType);
       if (!selected) return;
 
       try {
@@ -1117,6 +1245,62 @@ function app() {
       this.showTransferModal = true;
       this.transferingForSubscription = true;
       await this.loadTransferBrowse(this.transferTargetFid);
+    },
+
+    async openAria2DirBrowser() {
+      const root = String(this.aria2DirForMediaType() || '').trim().replace(/\/+$/, '');
+      if (!root) {
+        this.showNotification('warning', '请先在系统设置中配置当前媒体类型的 Aria2 下载目录');
+        return;
+      }
+
+      this.showAria2DirDialog = true;
+      this.aria2DirError = '';
+      const current = String(this.newSubscription.sync_download_dir || this.aria2DirForMediaType() || '').trim();
+      const startPath = current === root || current.startsWith(`${root}/`) ? current : '';
+      await this.loadAria2Dir(startPath);
+    },
+
+    async loadAria2Dir(path = '') {
+      this.aria2DirLoading = true;
+      this.aria2DirError = '';
+      try {
+        const params = new URLSearchParams();
+        params.set('media_type', this.newSubscription.media_type || 'series');
+        if (path) params.set('path', path);
+        const response = await fetch(`/api/drive/aria2/browse?${params.toString()}`);
+        const result = await response.json().catch(() => ({}));
+        if (response.ok && result.success) {
+          this.aria2DirItems = result.items || [];
+          this.aria2DirRoot = result.root || '';
+          this.aria2DirCurrent = result.current || '';
+          this.aria2DirParent = result.parent || '';
+        } else {
+          this.aria2DirItems = [];
+          this.aria2DirError = result.message || result.error || '读取 Aria2 下载目录失败';
+        }
+      } catch (error) {
+        console.error('读取 Aria2 下载目录失败:', error);
+        this.aria2DirError = '读取 Aria2 下载目录失败: ' + error.message;
+      } finally {
+        this.aria2DirLoading = false;
+      }
+    },
+
+    async aria2DirEnter(item) {
+      if (!item || !item.path) return;
+      await this.loadAria2Dir(item.path);
+    },
+
+    async aria2DirBack() {
+      if (!this.aria2DirParent) return;
+      await this.loadAria2Dir(this.aria2DirParent);
+    },
+
+    selectAria2Dir(path = this.aria2DirCurrent) {
+      if (!path) return;
+      this.newSubscription.sync_download_dir = path;
+      this.showAria2DirDialog = false;
     },
 
     // 确认订阅
@@ -1196,6 +1380,7 @@ function app() {
             notify_only: this.newSubscription.notify_only,
             sync_download_enabled: !!this.newSubscription.sync_download_enabled,
             sync_download_dir: this.newSubscription.sync_download_dir,
+            strm_enabled: !!this.newSubscription.strm_enabled,
             metadata: this.newSubscription.metadata,
             rules
           })
@@ -1237,6 +1422,7 @@ function app() {
             notify_only: this.newSubscription.notify_only,
             sync_download_enabled: !!this.newSubscription.sync_download_enabled,
             sync_download_dir: this.newSubscription.sync_download_dir,
+            strm_enabled: !!this.newSubscription.strm_enabled,
             keep_progress_on_source_change: !!this.newSubscription.keep_progress_on_source_change,
             continue_from_current_episode: !!this.newSubscription.continue_from_current_episode,
             metadata: this.newSubscription.metadata,
@@ -1346,14 +1532,7 @@ function app() {
     },
 
     async selectQuickDir(dirType) {
-      const dirMap = {
-        'root': {path: '/', name: '根目录'},
-        'movie': {path: this.settings.quark_save_movie_dir || '/NAS/电影', name: '电影'},
-        'series': {path: this.settings.quark_save_series_dir || '/NAS/连续剧', name: '连续剧'},
-        'anime': {path: this.settings.quark_save_anime_dir || '/NAS/动画', name: '动画'}
-      };
-
-      const selected = dirMap[dirType];
+      const selected = this.configuredDirectoryByType(dirType, true);
       if (!selected) return;
 
       // 如果是根目录，直接设置
@@ -1453,6 +1632,27 @@ function app() {
       } catch (error) {
         console.error('修复命名失败:', error);
         this.showNotification('error', '修复命名失败');
+      }
+    },
+
+    async generateSubscriptionStrm(id) {
+      try {
+        this.showNotification('info', '正在生成 STRM 文件...');
+        const response = await fetch(`/api/subscriptions/${id}/strm`, {
+          method: 'POST'
+        });
+        const result = await response.json().catch(() => ({}));
+
+        if (response.ok && result.data) {
+          const count = result.data.generated_count || 0;
+          const dir = result.data.output_dir || '';
+          this.showNotification('success', dir ? `已生成 ${count} 个 STRM 文件到 ${dir}` : `已生成 ${count} 个 STRM 文件`);
+        } else {
+          this.showNotification('error', result.message || result.error || '生成 STRM 失败');
+        }
+      } catch (error) {
+        console.error('生成 STRM 失败:', error);
+        this.showNotification('error', '生成 STRM 失败');
       }
     },
 
@@ -2138,26 +2338,126 @@ function app() {
         this.showNotification('info', '当前已是最新版本');
         return;
       }
-      if (!confirm('确认升级？系统会下载最新 Release，并只替换当前运行的 my-media-sub 二进制文件。')) return;
+      if (!confirm('确认升级？系统会下载最新 Release，替换当前运行的 my-media-sub 二进制文件，并在完成后自动重启服务。')) return;
       this.updateApplying = true;
       this.updateError = '';
+      this.setLocalUpdateProgress(1, '正在准备升级');
+      this.startUpdateProgressPolling();
       try {
         const response = await fetch('/api/update/apply', {method: 'POST'});
         const result = await response.json().catch(() => ({}));
+        await this.loadUpdateProgress();
         if (response.ok && result.data) {
-          this.showNotification('success', result.data.message || '升级完成，重启后生效');
+          this.setLocalUpdateProgress(100, result.data.message || '升级完成，服务将自动重启', 'restarting', false);
+          this.stopUpdateProgressPolling();
+          this.showNotification('success', result.data.message || '升级完成，服务将自动重启');
           this.updateInfo.current_version = result.data.new_version || this.updateInfo.current_version;
           this.updateInfo.update_available = false;
         } else {
           this.updateError = result.message || result.error || '升级失败';
+          this.markUpdateProgressFailed(this.updateError);
+          this.stopUpdateProgressPolling();
           this.showNotification('error', this.updateError);
         }
       } catch (error) {
-        this.updateError = '升级失败: ' + error.message;
-        this.showNotification('error', this.updateError);
+        await this.loadUpdateProgress();
+        if (this.updateProgress && !this.updateProgress.error && this.updateProgress.percent >= 90) {
+          this.setLocalUpdateProgress(100, '升级请求已断开，服务可能正在重启', 'restarting', false);
+          this.showNotification('info', '升级请求已断开，服务可能正在重启');
+        } else {
+          this.updateError = '升级失败: ' + error.message;
+          this.markUpdateProgressFailed(this.updateError);
+          this.showNotification('error', this.updateError);
+        }
+        this.stopUpdateProgressPolling();
       } finally {
         this.updateApplying = false;
+        if (!this.updateProgress || !this.updateProgress.running) {
+          this.stopUpdateProgressPolling();
+        }
       }
+    },
+
+    async loadUpdateProgress(silent = true) {
+      try {
+        const response = await fetch('/api/update/progress', {cache: 'no-store'});
+        const result = await response.json().catch(() => ({}));
+        if (response.ok && result.data) {
+          this.updateProgress = this.normalizeUpdateProgress(result.data);
+          if (this.updateProgress && !this.updateProgress.running) {
+            this.stopUpdateProgressPolling();
+          }
+          return this.updateProgress;
+        }
+        if (!silent) {
+          this.updateError = result.message || result.error || '读取升级进度失败';
+        }
+      } catch (error) {
+        if (!silent) {
+          this.updateError = '读取升级进度失败: ' + error.message;
+        }
+      }
+      return this.updateProgress;
+    },
+
+    normalizeUpdateProgress(progress) {
+      if (!progress) return null;
+      const percent = Math.max(0, Math.min(100, Number(progress.percent) || 0));
+      if (!progress.running && !progress.error && progress.stage === 'idle' && percent === 0) {
+        return null;
+      }
+      return {
+        ...progress,
+        percent,
+        downloaded_bytes: Number(progress.downloaded_bytes) || 0,
+        total_bytes: progress.total_bytes ? Number(progress.total_bytes) : null
+      };
+    },
+
+    startUpdateProgressPolling() {
+      this.stopUpdateProgressPolling();
+      this.loadUpdateProgress();
+      this.updateProgressTimer = setInterval(() => this.loadUpdateProgress(), 800);
+    },
+
+    stopUpdateProgressPolling() {
+      if (this.updateProgressTimer) {
+        clearInterval(this.updateProgressTimer);
+        this.updateProgressTimer = null;
+      }
+    },
+
+    setLocalUpdateProgress(percent, message, stage = 'starting', running = true, error = null) {
+      const current = this.updateProgress || {};
+      this.updateProgress = {
+        running,
+        percent: Math.max(0, Math.min(100, Number(percent) || 0)),
+        stage,
+        message,
+        downloaded_bytes: Number(current.downloaded_bytes) || 0,
+        total_bytes: current.total_bytes || null,
+        error,
+        updated_at: new Date().toISOString()
+      };
+    },
+
+    markUpdateProgressFailed(message) {
+      const currentPercent = this.updateProgress ? this.updateProgress.percent : 1;
+      this.setLocalUpdateProgress(currentPercent, message, 'failed', false, message);
+    },
+
+    updateProgressPercent() {
+      return this.updateProgress ? this.updateProgress.percent : 0;
+    },
+
+    updateProgressMessage() {
+      return this.updateProgress && this.updateProgress.message ? this.updateProgress.message : '正在准备升级';
+    },
+
+    updateProgressBarClass() {
+      if (this.updateProgress && this.updateProgress.error) return 'bg-red-500';
+      if (this.updateProgress && this.updateProgress.percent >= 100) return 'bg-green-500';
+      return 'bg-blue-500';
     },
 
     updateStatusLabel() {
@@ -2265,6 +2565,7 @@ function app() {
         } else {
           this.settings = {...this.settings, ...data};
         }
+        this.normalizeCustomCategories();
         this.resetSecretVisibility();
         console.log('设置已加载:', this.settings);
       } catch (error) {
@@ -2275,6 +2576,7 @@ function app() {
     async saveSettings() {
       try {
         this.sanitizeCheckInterval();
+        this.normalizeCustomCategories();
         const response = await fetch('/api/settings', {
           method: 'POST',  // 改为 POST
           headers: {'Content-Type': 'application/json'},
@@ -2284,6 +2586,7 @@ function app() {
           const data = await response.json();
           if (data.data) {
             this.settings = {...this.settings, ...data.data};
+            this.normalizeCustomCategories();
           }
           this.resetSecretVisibility();
           this.showNotification('success', '设置已保存');
@@ -2297,10 +2600,13 @@ function app() {
     async testQuark() {
       this.showNotification('info', '测试夸克连接中...');
       try {
+        const cookie = this.isMaskedSecret(this.settings.quark_cookie)
+          ? ''
+          : (this.settings.quark_cookie || '');
         const response = await fetch('/api/quark/test', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({cookie: this.settings.quark_cookie})
+          body: JSON.stringify({cookie})
         });
         const data = await response.json();
         if (response.ok && data.success) {
@@ -2325,8 +2631,7 @@ function app() {
         const response = await fetch('/api/drive/aria2/test');
         const data = await response.json().catch(() => ({}));
         if (response.ok && data.success) {
-          const dir = data.default_dir ? `，默认目录 ${data.default_dir}` : '';
-          this.showNotification('success', `${data.message || 'Aria2 连接成功'}${dir}`);
+          this.showNotification('success', data.message || 'Aria2 连接成功');
         } else {
           this.showNotification('error', data.message || data.error || 'Aria2 测试失败');
         }
