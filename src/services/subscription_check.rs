@@ -58,6 +58,16 @@ impl SubscriptionCheckService {
         subscription_id: &str,
         cookie: &str,
     ) -> Result<CheckResult> {
+        self.check_subscription_with_options(subscription_id, cookie, false)
+            .await
+    }
+
+    pub async fn check_subscription_with_options(
+        &self,
+        subscription_id: &str,
+        cookie: &str,
+        force_transfer: bool,
+    ) -> Result<CheckResult> {
         let sub = self
             .subscription_store
             .get(subscription_id)
@@ -128,13 +138,17 @@ impl SubscriptionCheckService {
 
         // 6. 自动转存：优先提交后台任务，保留同步转存作为回退路径。
         if !new_file_names.is_empty() {
-            if let Some(reason) = self.auto_transfer_disabled_reason(&sub).await {
+            if let Some(reason) = self
+                .auto_transfer_disabled_reason(&sub, force_transfer)
+                .await
+            {
                 info!("跳过订阅自动转存: {} ({})", sub.title, reason);
             } else if let Some(job_queue) = &self.job_queue {
                 match job_queue
                     .submit_subscription_transfer(SubscriptionTransferPayload {
                         subscription_id: sub.id.clone(),
                         file_names: new_file_names.clone(),
+                        force_transfer,
                     })
                     .await
                 {
@@ -143,7 +157,7 @@ impl SubscriptionCheckService {
                 }
             } else if let Some(transfer_service) = &self.transfer_service {
                 match transfer_service
-                    .auto_transfer_new_files(&sub.id, &new_file_names)
+                    .auto_transfer_new_files_with_options(&sub.id, &new_file_names, force_transfer)
                     .await
                 {
                     Ok(result) => {
@@ -183,13 +197,17 @@ impl SubscriptionCheckService {
         })
     }
 
-    async fn auto_transfer_disabled_reason(&self, sub: &Subscription) -> Option<&'static str> {
+    async fn auto_transfer_disabled_reason(
+        &self,
+        sub: &Subscription,
+        force_transfer: bool,
+    ) -> Option<&'static str> {
         if sub.notify_only {
             return Some("订阅设置为仅通知模式");
         }
 
         let settings = self.settings_store.get().await;
-        if !settings.auto_download_new_subscription_items {
+        if !force_transfer && !settings.auto_download_new_subscription_items {
             return Some("自动下载新订阅项未启用");
         }
         if !settings.quark_save_enabled {
@@ -835,8 +853,12 @@ mod tests {
         let mut sub = make_subscription();
 
         assert_eq!(
-            service.auto_transfer_disabled_reason(&sub).await,
+            service.auto_transfer_disabled_reason(&sub, false).await,
             Some("自动下载新订阅项未启用")
+        );
+        assert_eq!(
+            service.auto_transfer_disabled_reason(&sub, true).await,
+            Some("全局自动转存未启用")
         );
 
         service
@@ -848,7 +870,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            service.auto_transfer_disabled_reason(&sub).await,
+            service.auto_transfer_disabled_reason(&sub, false).await,
+            Some("全局自动转存未启用")
+        );
+        assert_eq!(
+            service.auto_transfer_disabled_reason(&sub, true).await,
             Some("全局自动转存未启用")
         );
 
@@ -859,11 +885,30 @@ mod tests {
             })
             .await
             .unwrap();
-        assert_eq!(service.auto_transfer_disabled_reason(&sub).await, None);
+        assert_eq!(
+            service.auto_transfer_disabled_reason(&sub, false).await,
+            None
+        );
+
+        service
+            .settings_store
+            .update(|settings| {
+                settings.auto_download_new_subscription_items = false;
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            service.auto_transfer_disabled_reason(&sub, false).await,
+            Some("自动下载新订阅项未启用")
+        );
+        assert_eq!(
+            service.auto_transfer_disabled_reason(&sub, true).await,
+            None
+        );
 
         sub.notify_only = true;
         assert_eq!(
-            service.auto_transfer_disabled_reason(&sub).await,
+            service.auto_transfer_disabled_reason(&sub, true).await,
             Some("订阅设置为仅通知模式")
         );
     }

@@ -140,6 +140,12 @@ pub struct RenamePreviewFile {
     pub is_dir: bool,
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct CheckSubscriptionRequest {
+    #[serde(default)]
+    pub force_transfer: bool,
+}
+
 #[derive(Serialize)]
 struct RenamePreviewResponse {
     summary: String,
@@ -597,6 +603,7 @@ struct RenameExistingResponse {
 async fn check_subscription(
     State(state): State<Arc<SubscriptionState>>,
     Path(id): Path<String>,
+    body: Option<Json<CheckSubscriptionRequest>>,
 ) -> Result<impl IntoResponse> {
     let settings = state.settings_store.get().await;
     let cookie = settings.quark_cookie;
@@ -605,7 +612,11 @@ async fn check_subscription(
         return Err(AppError::Validation("未配置夸克 Cookie".to_string()));
     }
 
-    let result = state.check_service.check_subscription(&id, &cookie).await?;
+    let force_transfer = body.map(|Json(req)| req.force_transfer).unwrap_or(false);
+    let result = state
+        .check_service
+        .check_subscription_with_options(&id, &cookie, force_transfer)
+        .await?;
 
     Ok(Json(Response::ok(CheckResponse {
         subscription_id: result.subscription_id,

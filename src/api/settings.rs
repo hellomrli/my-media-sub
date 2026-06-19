@@ -1,5 +1,5 @@
 use axum::{
-    extract::State,
+    extract::{Path, State},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
@@ -34,6 +34,12 @@ impl<T> Response<T> {
     }
 }
 
+#[derive(Serialize)]
+struct SecretFieldResponse {
+    key: String,
+    value: String,
+}
+
 /// 获取设置（公开视图，脱敏密钥）
 async fn get_settings(
     State(state): State<Arc<SettingsState>>,
@@ -56,7 +62,12 @@ fn public_settings(settings: crate::models::Settings) -> Result<serde_json::Valu
                 format!("{}_configured", key),
                 serde_json::Value::Bool(configured),
             );
-            obj.insert((*key).to_string(), serde_json::Value::String(String::new()));
+            let masked = obj
+                .get(*key)
+                .and_then(|v| v.as_str())
+                .map(mask_secret)
+                .unwrap_or_default();
+            obj.insert((*key).to_string(), serde_json::Value::String(masked));
         }
 
         obj.insert(
@@ -69,6 +80,52 @@ fn public_settings(settings: crate::models::Settings) -> Result<serde_json::Valu
     }
 
     Ok(value)
+}
+
+fn mask_secret(value: &str) -> String {
+    "*".repeat(value.chars().count())
+}
+
+fn is_secret_mask(value: &str) -> bool {
+    !value.is_empty() && value.chars().all(|ch| ch == '*')
+}
+
+fn non_mask_secret(value: &serde_json::Value) -> Option<String> {
+    non_empty_string(value).filter(|s| !is_secret_mask(s))
+}
+
+fn setting_secret(settings: &crate::models::Settings, key: &str) -> Option<String> {
+    let value = match key {
+        "app_password" => &settings.app_password,
+        "aria2_secret" => &settings.aria2_secret,
+        "quark_cookie" => &settings.quark_cookie,
+        "pansou_api_url" => &settings.pansou_api_url,
+        "tmdb_api_key" => &settings.tmdb_api_key,
+        "wecom_bot_url" => &settings.wecom_bot_url,
+        "bark_url" => &settings.bark_url,
+        "wxpusher_app_token" => &settings.wxpusher_app_token,
+        "telegram_bot_token" => &settings.telegram_bot_token,
+        "gotify_token" => &settings.gotify_token,
+        "pushplus_token" => &settings.pushplus_token,
+        "serverchan_key" => &settings.serverchan_key,
+        _ => return None,
+    };
+    Some(value.clone())
+}
+
+async fn get_setting_secret(
+    State(state): State<Arc<SettingsState>>,
+    Path(key): Path<String>,
+) -> Result<Json<Response<SecretFieldResponse>>> {
+    if !SECRET_KEYS.contains(&key.as_str()) {
+        return Err(crate::error::AppError::NotFound(
+            "设置字段不存在".to_string(),
+        ));
+    }
+
+    let settings = state.store.get().await;
+    let value = setting_secret(&settings, &key).unwrap_or_default();
+    Ok(Json(Response::ok(SecretFieldResponse { key, value })))
 }
 
 fn non_empty_string(value: &serde_json::Value) -> Option<String> {
@@ -102,7 +159,7 @@ async fn update_settings(
                         }
                     }
                     "app_password" => {
-                        if let Some(s) = non_empty_string(&value) {
+                        if let Some(s) = non_mask_secret(&value) {
                             settings.app_password = s;
                         }
                     }
@@ -122,7 +179,7 @@ async fn update_settings(
                         }
                     }
                     "pansou_api_url" => {
-                        if let Some(s) = non_empty_string(&value) {
+                        if let Some(s) = non_mask_secret(&value) {
                             settings.pansou_api_url = s;
                         }
                     }
@@ -132,7 +189,7 @@ async fn update_settings(
                         }
                     }
                     "tmdb_api_key" => {
-                        if let Some(s) = non_empty_string(&value) {
+                        if let Some(s) = non_mask_secret(&value) {
                             settings.tmdb_api_key = s;
                         }
                     }
@@ -165,7 +222,7 @@ async fn update_settings(
                         }
                     }
                     "quark_cookie" => {
-                        if let Some(s) = non_empty_string(&value) {
+                        if let Some(s) = non_mask_secret(&value) {
                             settings.quark_cookie = s;
                         }
                     }
@@ -206,7 +263,7 @@ async fn update_settings(
                         }
                     }
                     "aria2_secret" => {
-                        if let Some(s) = non_empty_string(&value) {
+                        if let Some(s) = non_mask_secret(&value) {
                             settings.aria2_secret = s;
                         }
                     }
@@ -216,12 +273,12 @@ async fn update_settings(
                         }
                     }
                     "wecom_bot_url" => {
-                        if let Some(s) = value.as_str() {
+                        if let Some(s) = non_mask_secret(&value) {
                             settings.wecom_bot_url = s.to_string();
                         }
                     }
                     "wxpusher_app_token" => {
-                        if let Some(s) = non_empty_string(&value) {
+                        if let Some(s) = non_mask_secret(&value) {
                             settings.wxpusher_app_token = s;
                         }
                     }
@@ -231,7 +288,7 @@ async fn update_settings(
                         }
                     }
                     "telegram_bot_token" => {
-                        if let Some(s) = non_empty_string(&value) {
+                        if let Some(s) = non_mask_secret(&value) {
                             settings.telegram_bot_token = s;
                         }
                     }
@@ -241,7 +298,7 @@ async fn update_settings(
                         }
                     }
                     "bark_url" => {
-                        if let Some(s) = string_value(&value) {
+                        if let Some(s) = non_mask_secret(&value) {
                             settings.bark_url = s;
                         }
                     }
@@ -251,17 +308,17 @@ async fn update_settings(
                         }
                     }
                     "gotify_token" => {
-                        if let Some(s) = non_empty_string(&value) {
+                        if let Some(s) = non_mask_secret(&value) {
                             settings.gotify_token = s;
                         }
                     }
                     "pushplus_token" => {
-                        if let Some(s) = non_empty_string(&value) {
+                        if let Some(s) = non_mask_secret(&value) {
                             settings.pushplus_token = s;
                         }
                     }
                     "serverchan_key" => {
-                        if let Some(s) = non_empty_string(&value) {
+                        if let Some(s) = non_mask_secret(&value) {
                             settings.serverchan_key = s;
                         }
                     }
@@ -314,5 +371,6 @@ pub fn routes(store: Arc<SettingsStore>, scheduler: Arc<SubscriptionScheduler>) 
     Router::new()
         .route("/api/settings", get(get_settings))
         .route("/api/settings", post(update_settings))
+        .route("/api/settings/secret/{key}", get(get_setting_secret))
         .with_state(state)
 }

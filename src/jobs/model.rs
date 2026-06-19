@@ -53,6 +53,8 @@ pub struct ManualTransferPayload {
 pub struct SubscriptionTransferPayload {
     pub subscription_id: String,
     pub file_names: Vec<String>,
+    #[serde(default)]
+    pub force_transfer: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

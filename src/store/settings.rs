@@ -10,6 +10,8 @@ pub const SECRET_KEYS: &[&str] = &[
     "quark_cookie",
     "pansou_api_url",
     "tmdb_api_key",
+    "wecom_bot_url",
+    "bark_url",
     "wxpusher_app_token",
     "telegram_bot_token",
     "gotify_token",

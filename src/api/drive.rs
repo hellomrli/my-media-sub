@@ -7,7 +7,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::clients::aria2::Aria2Task;
+use crate::clients::aria2::{Aria2Task, Aria2Version};
 use crate::clients::{Aria2Client, NormalizedItem, QuarkSaveClient};
 use crate::error::{AppError, Result};
 use crate::store::SettingsStore;
@@ -117,6 +117,15 @@ pub struct Aria2TasksResponse {
     pub active: Vec<Aria2Task>,
     pub waiting: Vec<Aria2Task>,
     pub stopped: Vec<Aria2Task>,
+}
+
+#[derive(Serialize)]
+pub struct Aria2TestResponse {
+    pub success: bool,
+    pub message: String,
+    pub version: String,
+    pub default_dir: String,
+    pub enabled_features: Vec<String>,
 }
 
 /// 测试夸克连接
@@ -380,6 +389,32 @@ async fn list_aria2_tasks(
     }))
 }
 
+/// 测试 Aria2 RPC 连接
+async fn test_aria2(State(state): State<Arc<DriveState>>) -> Result<Json<Aria2TestResponse>> {
+    let settings = state.settings_store.get().await;
+    if settings.aria2_rpc_url.trim().is_empty() {
+        return Err(AppError::Validation("未配置 Aria2 RPC URL".to_string()));
+    }
+
+    let aria2 = Aria2Client::new(
+        settings.aria2_rpc_url,
+        settings.aria2_secret,
+        settings.aria2_dir.clone(),
+    );
+    let Aria2Version {
+        version,
+        enabled_features,
+    } = aria2.get_version().await?;
+
+    Ok(Json(Aria2TestResponse {
+        success: true,
+        message: format!("Aria2 连接成功，版本 {}", version),
+        version,
+        default_dir: settings.aria2_dir,
+        enabled_features,
+    }))
+}
+
 fn normalize_fids(fids: Vec<String>) -> Vec<String> {
     let mut fids: Vec<String> = fids
         .into_iter()
@@ -433,6 +468,7 @@ pub fn routes(settings_store: Arc<SettingsStore>) -> Router {
         .route("/api/drive/rename", post(rename_item))
         .route("/api/drive/aria2", post(send_to_aria2))
         .route("/api/drive/aria2/tasks", get(list_aria2_tasks))
+        .route("/api/drive/aria2/test", get(test_aria2))
         .route("/api/quark/test", post(test_quark))
         .with_state(state)
 }

@@ -58,12 +58,31 @@ jobs:
           echo "archive=${DIST}.tar.gz" >> "$GITHUB_ENV"
           echo "checksum=${DIST}.tar.gz.sha256" >> "$GITHUB_ENV"
 
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.tag }}"
+          fi
+          VERSION="${VERSION#v}"
+          awk -v version="$VERSION" '
+            $0 == "### " version {capture=1; next}
+            capture && /^### / {exit}
+            capture {print}
+          ' README.md | sed '/^[[:space:]]*$/d' > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "README.md 中没有找到版本 ${VERSION} 的更新内容" >&2
+            exit 1
+          fi
+
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           name: ${{ github.event.inputs.tag || github.ref_name }}
-          generate_release_notes: true
+          body_path: release-notes.md
           make_latest: true
           files: |
             ${{ env.archive }}
