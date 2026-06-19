@@ -12,7 +12,7 @@
 
 ## 当前版本
 
-- 版本：`0.8.2`
+- 版本：`0.8.3`
 - 后端：Rust + Axum + Tokio
 - 前端：静态 WebUI，入口为 `static/index.html`，交互逻辑在 `static/app.js`
 - 数据目录：默认 `./data`，可通过 `DATA_DIR` 修改
@@ -121,6 +121,12 @@ Aria2 RPC URL 可以填写完整地址，例如 `http://192.168.50.100:6800/json
 高级设置中的 PanSou API URL、夸克 Cookie 和推送 Token 会按敏感配置处理：WebUI 默认显示等长星号，点击显示按钮后才读取明文；保留星号保存不会覆盖已有真实配置。修改 PanSou API URL 后需要重启服务才会切换搜索客户端。
 
 ## 版本更新
+
+### 0.8.3
+
+- 美化 README 项目说明、功能分组和使用流程，让部署、配置、订阅和 Aria2 同步下载说明更清晰。
+- 清理历史 GitHub Release 正文，改为使用 README 中对应版本的更新内容，移除自动生成的比较链接。
+- 修复 Release 工作流提取版本说明时可能带入后续 README 章节的问题。
 
 ### 0.8.2
 
