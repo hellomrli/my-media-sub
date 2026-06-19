@@ -162,12 +162,16 @@ async fn apply_env_overrides(settings_store: &SettingsStore) -> Result<()> {
             if let Some(value) =
                 env_non_empty("APP_USERNAME").or_else(|| env_non_empty("SERVER_USERNAME"))
             {
-                settings.app_username = value;
+                if should_apply_username_env_override(&settings.app_username) {
+                    settings.app_username = value;
+                }
             }
             if let Some(value) =
                 env_non_empty("APP_PASSWORD").or_else(|| env_non_empty("SERVER_PASSWORD"))
             {
-                settings.app_password = value;
+                if should_apply_password_env_override(&settings.app_password) {
+                    settings.app_password = value;
+                }
             }
             if let Some(value) = env_non_empty("QUARK_COOKIE") {
                 settings.quark_cookie = value;
@@ -244,6 +248,16 @@ async fn apply_env_overrides(settings_store: &SettingsStore) -> Result<()> {
     Ok(())
 }
 
+fn should_apply_username_env_override(current: &str) -> bool {
+    let current = current.trim();
+    current.is_empty() || current == "admin"
+}
+
+fn should_apply_password_env_override(current: &str) -> bool {
+    let current = current.trim();
+    current.is_empty() || current == "change-me"
+}
+
 fn parse_bool_env(value: &str) -> bool {
     matches!(
         value.trim().to_ascii_lowercase().as_str(),
@@ -303,6 +317,37 @@ mod tests {
         let settings = store.get().await;
         assert_eq!(settings.app_username, "env-user");
         assert_eq!(settings.app_password, "env-password");
+
+        restore_env(previous);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn apply_env_overrides_does_not_reset_custom_auth() {
+        let _guard = env_lock().lock().await;
+        let previous = preserve_env();
+        std::env::set_var("APP_USERNAME", "env-user");
+        std::env::set_var("APP_PASSWORD", "env-password");
+
+        let path = std::env::temp_dir().join(format!(
+            "my_media_sub_settings_auth_preserve_{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let store = SettingsStore::new(&path);
+        store.load().await.unwrap();
+        store
+            .update(|settings| {
+                settings.app_username = "saved-user".to_string();
+                settings.app_password = "saved-password".to_string();
+            })
+            .await
+            .unwrap();
+
+        apply_env_overrides(&store).await.unwrap();
+
+        let settings = store.get().await;
+        assert_eq!(settings.app_username, "saved-user");
+        assert_eq!(settings.app_password, "saved-password");
 
         restore_env(previous);
         let _ = std::fs::remove_file(path);
