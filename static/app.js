@@ -1037,8 +1037,8 @@ function app() {
         const result = await response.json();
 
         if (response.ok && result.data) {
-          // 订阅创建成功后立即检查并转存
-          this.showNotification('success', '订阅创建成功，正在检查并转存...');
+          // 订阅创建成功后立即检查；是否转存由自动化设置决定。
+          this.showNotification('success', '订阅创建成功，正在检查更新...');
           this.showSubscriptionDialog = false;
 
           const subId = result.data.id;

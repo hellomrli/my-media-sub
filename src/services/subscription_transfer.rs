@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
@@ -79,6 +79,45 @@ struct SyncDownloadReport {
     submitted_count: usize,
     dir: String,
     error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ShareTransferFile {
+    fid: String,
+    share_fid_token: String,
+    name: String,
+}
+
+fn raw_share_name(item: &std::collections::HashMap<String, serde_json::Value>) -> String {
+    item.get("file_name")
+        .or_else(|| item.get("name"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+fn raw_share_fid(item: &std::collections::HashMap<String, serde_json::Value>) -> String {
+    item.get("fid")
+        .or_else(|| item.get("file_id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+fn raw_share_token(item: &std::collections::HashMap<String, serde_json::Value>) -> String {
+    item.get("share_fid_token")
+        .or_else(|| item.get("file_token"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+fn raw_share_is_dir(item: &std::collections::HashMap<String, serde_json::Value>) -> bool {
+    item.get("dir").and_then(|v| v.as_bool()).unwrap_or(false)
+        || (item.get("file").and_then(|v| v.as_bool()) == Some(false))
+        || (item.get("file_type").and_then(|v| v.as_i64()) == Some(0)
+            && !item.contains_key("format_type")
+            && item.get("size").and_then(|v| v.as_i64()).unwrap_or(0) == 0)
 }
 
 fn append_path(base: &str, segment: &str) -> String {
@@ -296,6 +335,61 @@ where
     Ok(rename_candidates)
 }
 
+async fn collect_share_transfer_files(
+    probe: &QuarkShareProbe,
+    pwd_id: &str,
+    stoken: &str,
+    file_names: &[String],
+) -> Result<Vec<ShareTransferFile>> {
+    let expected_names: HashSet<String> = expected_video_names(file_names);
+    if expected_names.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut result = Vec::new();
+    let mut queue = VecDeque::from(["0".to_string()]);
+    let mut visited_dirs = HashSet::new();
+
+    while let Some(parent_fid) = queue.pop_front() {
+        if !visited_dirs.insert(parent_fid.clone()) {
+            continue;
+        }
+
+        let (items, err) = probe.list_share_files(pwd_id, stoken, &parent_fid).await?;
+        if let Some(err_msg) = err {
+            return Err(AppError::Http(format!("获取文件列表失败: {}", err_msg)));
+        }
+
+        for item in items {
+            let fid = raw_share_fid(&item);
+            let name = raw_share_name(&item);
+            if raw_share_is_dir(&item) {
+                if !fid.is_empty() {
+                    queue.push_back(fid);
+                }
+                continue;
+            }
+
+            if !expected_names.contains(&name) {
+                continue;
+            }
+
+            let share_fid_token = raw_share_token(&item);
+            if !fid.is_empty() && !share_fid_token.is_empty() {
+                result.push(ShareTransferFile {
+                    fid,
+                    share_fid_token,
+                    name,
+                });
+            }
+        }
+    }
+
+    result.sort_by(|left, right| left.name.cmp(&right.name));
+    result.dedup_by(|left, right| left.name == right.name && left.fid == right.fid);
+    Ok(result)
+}
+
 /// 订阅自动转存服务
 pub struct SubscriptionTransferService {
     subscription_store: Arc<SubscriptionStore>,
@@ -456,42 +550,19 @@ impl SubscriptionTransferService {
 
         let stoken = stoken.ok_or_else(|| AppError::Http("未能获取分享 token".to_string()))?;
 
-        // 6. 重新列出文件获取最新 token
-        let (fresh_files, err) = probe.list_share_files(&pwd_id, &stoken, "0").await?;
-        if let Some(err_msg) = err {
-            return Err(AppError::Http(format!("获取文件列表失败: {}", err_msg)));
-        }
-
-        // 7. 收集 fid 和 share_fid_token
-        let mut fid_list = Vec::new();
-        let mut fid_token_list = Vec::new();
-
-        for item in &fresh_files {
-            let fid = item
-                .get("fid")
-                .or_else(|| item.get("file_id"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let name = item
-                .get("file_name")
-                .or_else(|| item.get("name"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let share_fid_token = item
-                .get("share_fid_token")
-                .or_else(|| item.get("file_token"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-
-            // 只转存新文件
-            if !fid.is_empty()
-                && !share_fid_token.is_empty()
-                && new_file_names.contains(&name.to_string())
-            {
-                fid_list.push(fid.to_string());
-                fid_token_list.push(share_fid_token.to_string());
-            }
-        }
+        // 6. 递归收集本次新增的视频文件。不要直接转存父目录，否则会在目标
+        // 目录下多出一层原始分享目录，导致重命名和 Aria2 同步路径不符合预期。
+        let transfer_files =
+            collect_share_transfer_files(&probe, &pwd_id, &stoken, new_file_names).await?;
+        let transfer_file_names: Vec<String> = transfer_files
+            .iter()
+            .map(|file| file.name.clone())
+            .collect();
+        let fid_list: Vec<String> = transfer_files.iter().map(|file| file.fid.clone()).collect();
+        let fid_token_list: Vec<String> = transfer_files
+            .iter()
+            .map(|file| file.share_fid_token.clone())
+            .collect();
 
         if fid_list.is_empty() {
             return Err(AppError::Validation(
@@ -508,11 +579,16 @@ impl SubscriptionTransferService {
         // 9. 等待转存文件落盘，并按规则重命名
         let transferred_files = if has_rename_rules(&sub.rules) {
             info!("开始按订阅规则重命名文件");
-            self.rename_transferred_files(&save_client, &target_fid, &sub, Some(new_file_names))
-                .await?
-                .files
+            self.rename_transferred_files(
+                &save_client,
+                &target_fid,
+                &sub,
+                Some(&transfer_file_names),
+            )
+            .await?
+            .files
         } else {
-            let expected_names = expected_video_names(new_file_names);
+            let expected_names = expected_video_names(&transfer_file_names);
             wait_for_rename_candidates(
                 || collect_video_files_recursive(&save_client, &target_fid),
                 Some(&expected_names),
@@ -523,7 +599,7 @@ impl SubscriptionTransferService {
         };
 
         // 10. 更新订阅的 transferred_files
-        self.mark_files_as_transferred(&sub.id, new_file_names)
+        self.mark_files_as_transferred(&sub.id, &transfer_file_names)
             .await?;
 
         // 11. 如果订阅开启了同步下载，提交 Aria2 下载任务
@@ -533,7 +609,12 @@ impl SubscriptionTransferService {
 
         // 12. 发送转存成功通知
         let (push_title, push_message) = self
-            .send_transfer_notification(&sub, new_file_names, &target_dir, sync_report.as_ref())
+            .send_transfer_notification(
+                &sub,
+                &transfer_file_names,
+                &target_dir,
+                sync_report.as_ref(),
+            )
             .await;
 
         info!("成功转存 {} 个文件", fid_list.len());
