@@ -33,6 +33,22 @@ function app() {
       {id: 'pushplus', name: 'PushPlus'},
       {id: 'serverchan', name: 'Server 酱'}
     ],
+    sensitiveSettingKeys: [
+      'app_password',
+      'aria2_secret',
+      'quark_cookie',
+      'pansou_api_url',
+      'tmdb_api_key',
+      'wecom_bot_url',
+      'bark_url',
+      'wxpusher_app_token',
+      'telegram_bot_token',
+      'gotify_token',
+      'pushplus_token',
+      'serverchan_key'
+    ],
+    revealedSecrets: {},
+    secretLoading: {},
 
     // 搜索
     searchQuery: '',
@@ -40,7 +56,7 @@ function app() {
     searchResults: [],
     searchHistory: [],
     cloudTypes: ['夸克'],
-    searchOptions: {checkLinks: false, probeFiles: true, filterBad: true},
+    searchOptions: {probeFiles: true, filterBad: true},
 
     // 订阅
     subscriptions: [],
@@ -236,28 +252,108 @@ function app() {
 
     async init() {
       console.log('应用初始化...');
+      this.initNavigation();
       await this.loadSubscriptions();
       await this.loadNotifications();
       await this.loadJobs();
       await this.loadSettings();
       this.setupJobEvents();
       this.loadSearchHistory();
+      this.runCurrentTabEffects();
     },
 
-    selectTab(tabId) {
-      this.currentTab = tabId;
-      if (tabId === 'downloads') {
+    initNavigation() {
+      this.applyRouteFromUrl({runEffects: false});
+      this.replaceRouteState();
+      window.addEventListener('popstate', event => {
+        if (event.state && event.state.appRoute) {
+          this.applyRouteState(event.state, {runEffects: true});
+        } else {
+          this.applyRouteFromUrl({runEffects: true});
+        }
+      });
+    },
+
+    isValidTab(tabId) {
+      return this.tabs.some(tab => tab.id === tabId);
+    },
+
+    isValidSettingsTab(tabId) {
+      return this.settingsTabs.some(tab => tab.id === tabId);
+    },
+
+    routeUrl(tabId = this.currentTab, settingsTab = this.currentSettingsTab) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', this.isValidTab(tabId) ? tabId : 'search');
+      if (tabId === 'settings') {
+        url.searchParams.set('settings', this.isValidSettingsTab(settingsTab) ? settingsTab : 'basic');
+      } else {
+        url.searchParams.delete('settings');
+      }
+      return `${url.pathname}${url.search}${url.hash}`;
+    },
+
+    routeState(tabId = this.currentTab, settingsTab = this.currentSettingsTab) {
+      return {
+        appRoute: true,
+        tab: this.isValidTab(tabId) ? tabId : 'search',
+        settingsTab: this.isValidSettingsTab(settingsTab) ? settingsTab : 'basic'
+      };
+    },
+
+    pushRouteState() {
+      history.pushState(this.routeState(), '', this.routeUrl());
+    },
+
+    replaceRouteState() {
+      history.replaceState(this.routeState(), '', this.routeUrl());
+    },
+
+    applyRouteFromUrl(options = {}) {
+      const params = new URLSearchParams(window.location.search);
+      const tabId = this.isValidTab(params.get('tab')) ? params.get('tab') : 'search';
+      const settingsTab = this.isValidSettingsTab(params.get('settings')) ? params.get('settings') : 'basic';
+      this.applyRouteState({tab: tabId, settingsTab}, options);
+    },
+
+    applyRouteState(state, options = {}) {
+      this.currentTab = this.isValidTab(state.tab) ? state.tab : 'search';
+      this.currentSettingsTab = this.isValidSettingsTab(state.settingsTab) ? state.settingsTab : 'basic';
+      if (options.runEffects !== false) {
+        this.runCurrentTabEffects();
+      }
+    },
+
+    runCurrentTabEffects() {
+      if (this.currentTab === 'downloads') {
         this.loadDownloads();
         this.startDownloadsPolling();
       } else {
         this.stopDownloadsPolling();
       }
+
+      if (this.currentTab === 'settings' && this.currentSettingsTab === 'update' && !this.updateInfo && !this.updateLoading) {
+        this.checkUpdate(true);
+      }
     },
 
-    selectSettingsTab(tabId) {
+    selectTab(tabId, pushHistory = true) {
+      if (!this.isValidTab(tabId)) return;
+      const changed = this.currentTab !== tabId;
+      this.currentTab = tabId;
+      this.runCurrentTabEffects();
+      if (pushHistory && changed) {
+        this.pushRouteState();
+      }
+    },
+
+    selectSettingsTab(tabId, pushHistory = true) {
+      if (!this.isValidSettingsTab(tabId)) return;
+      const changed = this.currentSettingsTab !== tabId;
       this.currentSettingsTab = tabId;
-      if (tabId === 'update' && !this.updateInfo && !this.updateLoading) {
-        this.checkUpdate(true);
+      this.runCurrentTabEffects();
+      if (pushHistory && changed) {
+        this.pushRouteState();
       }
     },
 
@@ -289,7 +385,7 @@ function app() {
         let statusMsg = '搜索中';
         if (this.searchOptions.probeFiles) {
           statusMsg = '搜索中，正在嗅探文件列表...';
-        } else if (this.searchOptions.checkLinks || this.searchOptions.filterBad) {
+        } else if (this.searchOptions.filterBad) {
           statusMsg = '搜索中，正在检测链接有效性...';
         }
         this.showNotification('info', statusMsg);
@@ -300,7 +396,7 @@ function app() {
           body: JSON.stringify({
             keyword: this.searchQuery,
             limit: 50,
-            check_links: this.searchOptions.checkLinks || this.searchOptions.filterBad,
+            check_links: this.searchOptions.filterBad,
             probe_files: this.searchOptions.probeFiles,
             filter_bad: this.searchOptions.filterBad,
             max_files: 50
@@ -428,6 +524,76 @@ function app() {
       return files.filter(file => !file.is_dir).map(file => file.name).join('\n');
     },
 
+    searchResultTitle(result) {
+      return String(
+        (result && (result.note || result.title || result.name || result.file_name || result.url)) || ''
+      ).trim();
+    },
+
+    stripResourceTags(value) {
+      let title = String(value || '').replace(/\s+/g, ' ').trim();
+      const tagPattern = /\s*(?:\[[^\]]*\]|【[^】]*】|（[^）]*）|\([^)]*\))\s*$/;
+      const metadataPattern = /^(?:\d{4}|20\d{2}|19\d{2}|.*(?:\d{3,4}p|4k|8k|hdr|dv|web-?dl|bluray|bdrip|hdtv|x26[45]|hevc|aac|flac|内封|内嵌|简繁|简中|繁中|中字|字幕|双语|多语|全\s*\d+\s*集|全集|完结|更新|第\s*\d+\s*集).*)$/i;
+
+      let changed = true;
+      while (changed) {
+        changed = false;
+        title = title.replace(tagPattern, (match) => {
+          const content = match.replace(/^[\s\[【（(]+|[\]】）)\s]+$/g, '').trim();
+          if (!content || metadataPattern.test(content)) {
+            changed = true;
+            return '';
+          }
+          return match;
+        }).trim();
+      }
+
+      return title;
+    },
+
+    trimBilingualResourceTitle(value) {
+      let title = String(value || '').trim();
+      if (!title) return title;
+
+      const kanaIndex = title.search(/[\u3040-\u30ff]/);
+      if (kanaIndex > 0 && /[\u4e00-\u9fff]/.test(title.slice(0, kanaIndex))) {
+        title = title.slice(0, kanaIndex).replace(/[\s·・,，/|:：\-–—_]+$/g, '').trim();
+      }
+
+      const separatedParts = title
+        .split(/\s+[|/／]\s+|\s+[|/／]\s*|\s*[|/／]\s+/)
+        .map(part => part.trim())
+        .filter(Boolean);
+      if (separatedParts.length > 1 && /[\u4e00-\u9fff]/.test(separatedParts[0])) {
+        title = separatedParts[0];
+      }
+
+      return title;
+    },
+
+    trimResourceSuffixes(value) {
+      return String(value || '')
+        .replace(/\s+(?:S\d{1,2}|Season\s*\d+|第[一二三四五六七八九十\d]+季)$/i, '')
+        .replace(/\s+(?:\d{3,4}p|4k|8k|web-?dl|bluray|bdrip|hdtv|x26[45]|hevc|aac)$/i, '')
+        .replace(/[\s._-]+$/g, '')
+        .trim();
+    },
+
+    inferSubscriptionTitle(rawTitle) {
+      const original = String(rawTitle || '').trim();
+      if (!original || /^https?:\/\//i.test(original)) return original;
+
+      let title = original
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      title = this.stripResourceTags(title);
+      title = this.trimBilingualResourceTitle(title);
+      title = this.trimResourceSuffixes(title);
+
+      return title || original;
+    },
+
     // 打开订阅对话框（支持立即转存或连续订阅）
     openSubscriptionDialog(result, mode = 'once') {
       if (!this.settings.quark_cookie && !this.settings.quark_cookie_configured) {
@@ -440,8 +606,9 @@ function app() {
       this.subscriptionMode = mode;
       this.renamePreview = null;
       this.renamePreviewError = '';
+      const sourceTitle = this.searchResultTitle(result);
       this.newSubscription = {
-        title: result.note || result.url,
+        title: this.inferSubscriptionTitle(sourceTitle),
         url: result.url,
         password: result.password || '',
         original_url: result.url,
@@ -1043,7 +1210,7 @@ function app() {
 
           const subId = result.data.id;
           // 立即触发检查
-          await this.checkSubscription(subId);
+          await this.checkSubscription(subId, {forceTransfer: true});
           await this.loadSubscriptions();
         } else {
           this.showNotification('error', result.message || '创建订阅失败');
@@ -1239,11 +1406,13 @@ function app() {
       }
     },
 
-    async checkSubscription(id) {
+    async checkSubscription(id, options = {}) {
       try {
         this.showNotification('info', '正在检查订阅...');
         const response = await fetch(`/api/subscriptions/${id}/check`, {
-          method: 'POST'
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({force_transfer: !!options.forceTransfer})
         });
         const data = await response.json();
 
@@ -1256,6 +1425,7 @@ function app() {
             this.showNotification('info', '无更新');
           }
           await this.loadSubscriptions();
+          await this.loadJobs();
           await this.loadNotifications();
         } else {
           this.showNotification('error', data.message || '检查失败');
@@ -2023,6 +2193,68 @@ function app() {
       }
     },
 
+    isMaskedSecret(value) {
+      return typeof value === 'string' && value.length > 0 && /^\*+$/.test(value);
+    },
+
+    secretVisible(key) {
+      return !!this.revealedSecrets[key];
+    },
+
+    secretConfigured(key) {
+      return !!this.settings[`${key}_configured`];
+    },
+
+    secretToggleDisabled(key) {
+      return !!this.secretLoading[key] || (!this.secretVisible(key) && !this.secretConfigured(key));
+    },
+
+    secretButtonLabel(key) {
+      if (this.secretLoading[key]) return '读取中';
+      return this.secretVisible(key) ? '隐藏' : '显示';
+    },
+
+    resetSecretVisibility() {
+      const next = {};
+      for (const key of this.sensitiveSettingKeys) {
+        next[key] = false;
+      }
+      this.revealedSecrets = next;
+    },
+
+    prepareSecretInput(key) {
+      if (!this.secretVisible(key) && this.isMaskedSecret(this.settings[key])) {
+        this.settings[key] = '';
+      }
+    },
+
+    async toggleSettingSecret(key) {
+      if (this.secretVisible(key)) {
+        const value = this.settings[key] || '';
+        this.settings[key] = value ? '*'.repeat([...value].length) : '';
+        this.revealedSecrets[key] = false;
+        return;
+      }
+
+      if (!this.secretConfigured(key)) return;
+      this.secretLoading[key] = true;
+      try {
+        const response = await fetch(`/api/settings/secret/${encodeURIComponent(key)}`);
+        const result = await response.json().catch(() => ({}));
+        if (response.ok && result.data) {
+          this.settings[key] = result.data.value || '';
+          this.revealedSecrets[key] = true;
+        } else {
+          this.showNotification('error', result.message || result.error || '读取明文失败');
+        }
+      } catch (error) {
+        console.error('读取明文失败:', error);
+        this.showNotification('error', '读取明文失败');
+      } finally {
+        this.secretLoading[key] = false;
+      }
+    },
+
     async loadSettings() {
       try {
         const response = await fetch('/api/settings');
@@ -2033,6 +2265,7 @@ function app() {
         } else {
           this.settings = {...this.settings, ...data};
         }
+        this.resetSecretVisibility();
         console.log('设置已加载:', this.settings);
       } catch (error) {
         console.error('加载设置失败:', error);
@@ -2052,6 +2285,7 @@ function app() {
           if (data.data) {
             this.settings = {...this.settings, ...data.data};
           }
+          this.resetSecretVisibility();
           this.showNotification('success', '设置已保存');
         }
       } catch (error) {
@@ -2077,6 +2311,28 @@ function app() {
       } catch (error) {
         console.error('测试失败:', error);
         this.showNotification('error', '连接失败，请检查配置');
+      }
+    },
+
+    async testAria2() {
+      if (!this.settings.aria2_rpc_url.trim()) {
+        this.showNotification('warning', '请先填写 Aria2 RPC URL');
+        return;
+      }
+
+      this.showNotification('info', '测试 Aria2 连接中...');
+      try {
+        const response = await fetch('/api/drive/aria2/test');
+        const data = await response.json().catch(() => ({}));
+        if (response.ok && data.success) {
+          const dir = data.default_dir ? `，默认目录 ${data.default_dir}` : '';
+          this.showNotification('success', `${data.message || 'Aria2 连接成功'}${dir}`);
+        } else {
+          this.showNotification('error', data.message || data.error || 'Aria2 测试失败');
+        }
+      } catch (error) {
+        console.error('Aria2 测试失败:', error);
+        this.showNotification('error', 'Aria2 测试失败: ' + error.message);
       }
     },
 

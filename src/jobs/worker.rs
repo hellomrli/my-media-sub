@@ -457,7 +457,11 @@ impl JobWorker {
         self.update_running(job_id, 35, "正在执行订阅转存").await?;
         match self
             .transfer_service
-            .auto_transfer_new_files(&payload.subscription_id, &payload.file_names)
+            .auto_transfer_new_files_with_options(
+                &payload.subscription_id,
+                &payload.file_names,
+                payload.force_transfer,
+            )
             .await
         {
             Ok(result) => {

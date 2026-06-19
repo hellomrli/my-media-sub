@@ -30,6 +30,13 @@ pub struct Aria2TaskList {
     pub stopped: Vec<Aria2Task>,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Aria2Version {
+    pub version: String,
+    #[serde(default, rename = "enabledFeatures")]
+    pub enabled_features: Vec<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct Aria2Task {
     pub gid: String,
@@ -116,8 +123,9 @@ impl Aria2Client {
             .timeout(Duration::from_secs(20))
             .build()
             .unwrap();
+        let rpc_url = rpc_url.into();
         Self {
-            rpc_url: rpc_url.into(),
+            rpc_url: normalize_rpc_url(&rpc_url),
             secret: secret.into(),
             dir: dir.into(),
             client,
@@ -178,6 +186,14 @@ impl Aria2Client {
         })
     }
 
+    pub async fn get_version(&self) -> Result<Aria2Version> {
+        if self.rpc_url.trim().is_empty() {
+            return Err(AppError::Validation("未配置 Aria2 RPC URL".to_string()));
+        }
+
+        self.call_rpc("aria2.getVersion", Vec::new()).await
+    }
+
     async fn call_rpc<T>(&self, method: &str, params: Vec<Value>) -> Result<T>
     where
         T: DeserializeOwned,
@@ -200,6 +216,17 @@ impl Aria2Client {
             .await
             .map_err(|e| AppError::Http(format!("请求 Aria2 失败: {}", e)))?;
 
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            let detail = body.trim();
+            return Err(AppError::Http(if detail.is_empty() {
+                format!("Aria2 HTTP 状态异常: {}", status)
+            } else {
+                format!("Aria2 HTTP 状态异常: {} {}", status, detail)
+            }));
+        }
+
         let data: Aria2Response<T> = response
             .json()
             .await
@@ -214,6 +241,22 @@ impl Aria2Client {
 
         Ok(data.result)
     }
+}
+
+fn normalize_rpc_url(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    if let Ok(mut url) = reqwest::Url::parse(trimmed) {
+        if url.path().is_empty() || url.path() == "/" {
+            url.set_path("jsonrpc");
+            return url.to_string();
+        }
+    }
+
+    trimmed.to_string()
 }
 
 fn build_add_uri_payload(
@@ -416,6 +459,22 @@ mod tests {
         assert_eq!(payload["method"], json!("aria2.tellActive"));
         assert_eq!(payload["params"][0], json!("token:secret"));
         assert_eq!(payload["params"][1][0], json!("gid"));
+    }
+
+    #[test]
+    fn test_normalize_rpc_url_adds_jsonrpc_to_root() {
+        assert_eq!(
+            normalize_rpc_url("http://192.168.50.100:6800"),
+            "http://192.168.50.100:6800/jsonrpc"
+        );
+        assert_eq!(
+            normalize_rpc_url("http://192.168.50.100:6800/"),
+            "http://192.168.50.100:6800/jsonrpc"
+        );
+        assert_eq!(
+            normalize_rpc_url("http://192.168.50.100:6800/jsonrpc"),
+            "http://192.168.50.100:6800/jsonrpc"
+        );
     }
 
     #[test]

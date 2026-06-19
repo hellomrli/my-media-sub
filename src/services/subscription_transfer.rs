@@ -412,10 +412,11 @@ impl SubscriptionTransferService {
 
     /// 自动转存订阅的新文件
     /// 在 check_subscription 发现新文件后调用
-    pub async fn auto_transfer_new_files(
+    pub async fn auto_transfer_new_files_with_options(
         &self,
         subscription_id: &str,
         new_file_names: &[String],
+        force_transfer: bool,
     ) -> Result<TransferResult> {
         let sub = self
             .subscription_store
@@ -437,7 +438,7 @@ impl SubscriptionTransferService {
 
         let settings = self.settings_store.get().await;
 
-        if !settings.auto_download_new_subscription_items {
+        if !force_transfer && !settings.auto_download_new_subscription_items {
             return Ok(TransferResult {
                 subscription_id: sub.id.clone(),
                 transferred_count: 0,
@@ -1132,7 +1133,7 @@ mod tests {
 
         let service = SubscriptionTransferService::new(subscriptions, settings, notifications);
         let result = service
-            .auto_transfer_new_files("sub", &["Episode.01.mkv".to_string()])
+            .auto_transfer_new_files_with_options("sub", &["Episode.01.mkv".to_string()], false)
             .await
             .unwrap();
 
