@@ -226,94 +226,173 @@
 
         <!-- 网盘管理页面 -->
         <div x-show="currentTab === 'drive'" class="space-y-4">
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div class="stat-tile p-4">
-              <div class="text-xs text-gray-500">当前目录</div>
-              <div class="mt-2 text-sm font-medium text-white truncate" x-text="driveCurrentPath || '/'"></div>
-            </div>
-            <div class="stat-tile p-4">
-              <div class="text-xs text-gray-500">项目数量</div>
-              <div class="mt-2 text-2xl font-semibold text-white" x-text="filteredDriveItems.length"></div>
-            </div>
-            <div class="stat-tile p-4">
-              <div class="text-xs text-gray-500">已选择</div>
-              <div class="mt-2 text-2xl font-semibold text-white" x-text="driveSelectedItems.length"></div>
-            </div>
-          </div>
-
-          <div class="app-panel overflow-hidden">
-            <!-- 工具栏 -->
-            <div class="p-4 border-b border-dark-border flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-              <div class="flex flex-wrap gap-2">
-                <button @click="driveGoBack()" :disabled="driveCurrentPath === '/'" class="btn-secondary px-3 py-2 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm transition-colors">
-                  ← 返回上级
-                </button>
-                <button @click="loadDrive()" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors">
-                  刷新
-                </button>
+          <div class="app-panel p-4 space-y-4">
+            <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2 text-sm text-gray-400">
+                  <template x-for="crumb in driveBreadcrumbs" :key="crumb.fid + '-' + crumb.index">
+                    <button @click="driveOpenBreadcrumb(crumb.index)" class="max-w-[10rem] truncate hover:text-white" :class="crumb.index === driveBreadcrumbs.length - 1 ? 'text-white font-medium' : 'text-gray-400'" x-text="crumb.label"></button>
+                  </template>
+                </div>
+                <div class="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                  <span x-text="driveError || (driveLastLoadedAt ? '更新时间 ' + new Date(driveLastLoadedAt).toLocaleTimeString() : '等待加载')"></span>
+                  <span x-show="driveRefreshing" class="text-blue-300">刷新中</span>
+                </div>
               </div>
               <div class="flex flex-wrap gap-2">
-                <button @click="showNewFolderModal = true" class="btn-primary px-4 py-2 rounded-lg text-sm transition-colors">
-                  新建文件夹
+                <button @click="driveGoBack()" :disabled="driveFidStack.length <= 1 || driveLoading" class="btn-secondary px-3 py-2 disabled:opacity-50 rounded-lg text-sm transition-colors">
+                  返回上级
                 </button>
+                <button @click="loadDrive(true)" :disabled="driveLoading || driveRefreshing" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
+                  <span x-show="!driveRefreshing">刷新</span>
+                  <span x-show="driveRefreshing">刷新中</span>
+                </button>
+                <button @click="showNewFolderModal = true" class="btn-primary px-4 py-2 rounded-lg text-sm transition-colors">新建文件夹</button>
                 <button @click="toggleSelectMode()" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors">
                   <span x-text="driveSelectMode ? '取消选择' : '选择'"></span>
                 </button>
               </div>
             </div>
 
-            <!-- 路径导航 -->
-            <div class="px-4 py-3 border-b border-dark-border flex flex-col md:flex-row gap-3 md:items-center md:justify-between bg-black/10">
-              <div class="min-w-0 flex items-center gap-2 text-sm">
-                <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
-                <span class="text-gray-300 truncate" x-text="driveCurrentPath || '根目录'"></span>
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div class="stat-tile p-3">
+                <div class="text-xs text-gray-500">文件夹</div>
+                <div class="mt-1 text-xl font-semibold text-white" x-text="driveStats.folders"></div>
               </div>
-              <div class="flex flex-wrap gap-3">
-                <select x-model="driveSortBy" @change="sortDriveItems()" class="px-2 py-1 bg-dark-hover border border-dark-border rounded text-sm text-gray-300">
-                  <option value="name">按名称</option>
-                  <option value="size">按大小</option>
-                  <option value="time">按时间</option>
-                </select>
-                <select x-model="driveFilterType" @change="filterDriveItems()" class="px-2 py-1 bg-dark-hover border border-dark-border rounded text-sm text-gray-300">
-                  <option value="all">全部</option>
-                  <option value="folder">文件夹</option>
-                  <option value="video">视频</option>
-                  <option value="other">其他</option>
-                </select>
+              <div class="stat-tile p-3">
+                <div class="text-xs text-gray-500">文件</div>
+                <div class="mt-1 text-xl font-semibold text-white" x-text="driveStats.files"></div>
+              </div>
+              <div class="stat-tile p-3">
+                <div class="text-xs text-gray-500">视频</div>
+                <div class="mt-1 text-xl font-semibold text-white" x-text="driveStats.videos"></div>
+              </div>
+              <div class="stat-tile p-3">
+                <div class="text-xs text-gray-500">总大小</div>
+                <div class="mt-1 text-lg font-semibold text-white" x-text="formatSize(driveStats.totalSize)"></div>
               </div>
             </div>
 
-            <!-- 文件列表 -->
-            <div class="divide-y divide-dark-border">
-              <template x-for="item in filteredDriveItems" :key="item.fid">
-                <div class="px-4 py-3 hover:bg-dark-hover transition-colors flex items-center gap-4">
-                  <input x-show="driveSelectMode" type="checkbox" :value="item.fid" x-model="driveSelectedItems" class="rounded" />
-                  <div @click="driveItemClick(item)" class="flex-1 flex items-center gap-3 cursor-pointer">
-                    <svg x-show="item.file" class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
-                    <svg x-show="!item.file" class="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
-                    <div class="flex-1">
-                      <p class="text-white font-medium break-all" x-text="item.file_name"></p>
-                      <p class="text-xs text-gray-500" x-text="formatSize(item.size)"></p>
+            <div class="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(260px,1fr)_auto_auto] xl:items-center">
+              <div class="relative">
+                <input x-model.debounce.150ms="driveSearchQuery" class="w-full px-4 py-2 pl-10 bg-dark-hover border border-dark-border rounded-lg text-white" placeholder="搜索当前目录" />
+                <svg class="w-4 h-4 absolute left-3 top-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button @click="driveFilterType = 'all'" :class="driveFilterType === 'all' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">全部</button>
+                <button @click="driveFilterType = 'folder'" :class="driveFilterType === 'folder' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">文件夹</button>
+                <button @click="driveFilterType = 'video'" :class="driveFilterType === 'video' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">视频</button>
+                <button @click="driveFilterType = 'other'" :class="driveFilterType === 'other' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">其他</button>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <select x-model="driveSortBy" class="px-3 py-2 bg-dark-hover border border-dark-border rounded-lg text-sm text-gray-300">
+                  <option value="name">名称</option>
+                  <option value="size">大小</option>
+                  <option value="time">时间</option>
+                </select>
+                <button @click="driveSortDirection = driveSortDirection === 'asc' ? 'desc' : 'asc'" class="btn-secondary px-3 py-2 rounded-lg text-sm" x-text="driveSortDirection === 'asc' ? '升序' : '降序'"></button>
+                <button @click="driveViewMode = 'list'" :class="driveViewMode === 'list' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">列表</button>
+                <button @click="driveViewMode = 'grid'" :class="driveViewMode === 'grid' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">网格</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="app-panel overflow-hidden">
+            <div class="px-4 py-3 border-b border-dark-border flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between bg-black/10">
+              <label class="flex items-center gap-3 text-sm text-gray-300 cursor-pointer">
+                <input type="checkbox" :checked="driveAllVisibleSelected()" @change="toggleVisibleDriveSelection()" class="rounded" />
+                <span>选择当前列表</span>
+              </label>
+              <div class="flex flex-wrap items-center gap-3 text-sm text-gray-400">
+                <span>显示 <span class="text-white" x-text="visibleDriveItems.length"></span> / <span x-text="filteredDriveItems.length"></span>，共 <span x-text="driveItems.length"></span></span>
+                <span x-show="driveSelectedItems.length > 0">已选择 <span class="text-white" x-text="driveSelectedItems.length"></span> 项，其中 <span class="text-white" x-text="selectedDriveFileCount"></span> 个文件</span>
+              </div>
+            </div>
+
+            <div x-show="driveLoading" class="divide-y divide-dark-border">
+              <template x-for="idx in 6" :key="idx">
+                <div class="px-4 py-4 flex items-center gap-4">
+                  <div class="w-10 h-10 rounded-lg bg-dark-hover animate-pulse"></div>
+                  <div class="flex-1 space-y-2">
+                    <div class="h-4 w-2/3 bg-dark-hover rounded animate-pulse"></div>
+                    <div class="h-3 w-1/3 bg-dark-hover rounded animate-pulse"></div>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <div x-show="!driveLoading && filteredDriveItems.length > 0 && driveViewMode === 'list'" class="overflow-x-auto">
+              <div class="min-w-[760px] divide-y divide-dark-border">
+                <div class="grid grid-cols-[44px_minmax(260px,1fr)_120px_120px_180px] gap-3 px-4 py-2 text-xs text-gray-500">
+                  <div></div>
+                  <button @click="setDriveSort('name')" class="text-left hover:text-white">名称</button>
+                  <button @click="setDriveSort('size')" class="text-left hover:text-white">大小</button>
+                  <button @click="setDriveSort('time')" class="text-left hover:text-white">修改时间</button>
+                  <div class="text-right">操作</div>
+                </div>
+                <template x-for="item in visibleDriveItems" :key="item.fid">
+                  <div class="grid grid-cols-[44px_minmax(260px,1fr)_120px_120px_180px] gap-3 px-4 py-3 items-center hover:bg-dark-hover transition-colors">
+                    <input type="checkbox" :checked="isDriveItemSelected(item)" @change="toggleDriveItemSelection(item)" class="rounded" />
+                    <button @click="driveItemClick(item)" class="min-w-0 flex items-center gap-3 text-left">
+                      <span :class="driveItemIconClass(item)" class="w-10 h-10 rounded-lg border flex items-center justify-center shrink-0">
+                        <svg x-show="!item.file" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                        <svg x-show="item.file" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                      </span>
+                      <span class="min-w-0">
+                        <span class="block text-white font-medium truncate" x-text="item.file_name"></span>
+                        <span class="block text-xs text-gray-500" x-text="driveItemTypeLabel(item)"></span>
+                      </span>
+                    </button>
+                    <div class="text-sm text-gray-400" x-text="item.file ? formatSize(item.size) : '-'"></div>
+                    <div class="text-xs text-gray-500 truncate" x-text="driveUpdatedLabel(item)"></div>
+                    <div class="flex justify-end gap-2">
+                      <button x-show="item.file" @click="sendDriveItemToAria2(item)" :disabled="driveActionLoading === 'aria2'" class="btn-secondary px-2 py-1 text-xs rounded disabled:opacity-50">Aria2</button>
+                      <button @click="renameDriveItem(item)" :disabled="driveActionLoading === 'rename:' + item.fid" class="btn-secondary px-2 py-1 text-xs rounded disabled:opacity-50">重命名</button>
+                      <button @click="deleteDriveItem(item)" :disabled="driveActionLoading === 'delete:' + item.fid" class="btn-danger px-2 py-1 text-xs rounded disabled:opacity-50">删除</button>
                     </div>
                   </div>
-                  <div class="flex gap-2 flex-shrink-0">
-                    <button x-show="item.file" @click="sendDriveItemToAria2(item)" class="btn-secondary px-2 py-1 text-xs rounded">Aria2</button>
+                </template>
+              </div>
+            </div>
+
+            <div x-show="!driveLoading && filteredDriveItems.length > 0 && driveViewMode === 'grid'" class="p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+              <template x-for="item in visibleDriveItems" :key="item.fid">
+                <div class="border border-dark-border rounded-lg p-3 hover:bg-dark-hover transition-colors">
+                  <div class="flex items-start gap-3">
+                    <input type="checkbox" :checked="isDriveItemSelected(item)" @change="toggleDriveItemSelection(item)" class="rounded mt-2" />
+                    <button @click="driveItemClick(item)" class="min-w-0 flex-1 text-left">
+                      <div :class="driveItemIconClass(item)" class="w-12 h-12 rounded-lg border flex items-center justify-center mb-3">
+                        <svg x-show="!item.file" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                        <svg x-show="item.file" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                      </div>
+                      <div class="text-white font-medium line-clamp-2 break-all" x-text="item.file_name"></div>
+                      <div class="mt-2 text-xs text-gray-500" x-text="driveItemTypeLabel(item) + ' · ' + (item.file ? formatSize(item.size) : '-')"></div>
+                    </button>
+                  </div>
+                  <div class="mt-3 flex flex-wrap gap-2">
+                    <button x-show="item.file" @click="sendDriveItemToAria2(item)" :disabled="driveActionLoading === 'aria2'" class="btn-secondary px-2 py-1 text-xs rounded disabled:opacity-50">Aria2</button>
                     <button @click="renameDriveItem(item)" class="btn-secondary px-2 py-1 text-xs rounded">重命名</button>
                     <button @click="deleteDriveItem(item)" class="btn-danger px-2 py-1 text-xs rounded">删除</button>
                   </div>
                 </div>
               </template>
-              <div x-show="driveItems.length === 0" class="empty-state">
-                <p>文件夹为空或未配置夸克 Cookie</p>
-              </div>
             </div>
 
-            <!-- 批量操作栏 -->
-            <div x-show="driveSelectMode && driveSelectedItems.length > 0" class="p-4 border-t border-dark-border flex items-center justify-between bg-dark-hover">
+            <div x-show="!driveLoading && driveItems.length === 0" class="empty-state">
+              <p x-text="driveError || '文件夹为空或未配置夸克 Cookie'"></p>
+            </div>
+            <div x-show="!driveLoading && driveItems.length > 0 && filteredDriveItems.length === 0" class="empty-state">
+              <p>当前筛选没有匹配项目</p>
+            </div>
+            <div x-show="!driveLoading && hasMoreDriveItems" class="p-4 border-t border-dark-border text-center">
+              <button @click="showMoreDriveItems()" class="btn-secondary px-4 py-2 rounded-lg text-sm">显示更多</button>
+            </div>
+
+            <div x-show="driveSelectedItems.length > 0" class="p-4 border-t border-dark-border flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between bg-dark-hover">
               <span class="text-sm text-gray-300">已选择 <span x-text="driveSelectedItems.length"></span> 项</span>
-              <div class="flex gap-2">
-                <button @click="sendSelectedDriveItemsToAria2()" class="btn-secondary px-4 py-2 rounded-lg text-sm">发送到 Aria2</button>
-                <button @click="batchDeleteDrive()" class="btn-danger px-4 py-2 rounded-lg text-sm">批量删除</button>
+              <div class="flex flex-wrap gap-2">
+                <button @click="sendSelectedDriveItemsToAria2()" :disabled="selectedDriveFileCount === 0 || driveActionLoading === 'aria2'" class="btn-secondary px-4 py-2 rounded-lg text-sm disabled:opacity-50">发送到 Aria2</button>
+                <button @click="batchDeleteDrive()" :disabled="driveActionLoading === 'batch-delete'" class="btn-danger px-4 py-2 rounded-lg text-sm disabled:opacity-50">批量删除</button>
               </div>
             </div>
           </div>
@@ -351,6 +430,14 @@
                   <input type="checkbox" x-model="downloadsAutoRefresh" @change="downloadsAutoRefresh ? startDownloadsPolling() : stopDownloadsPolling()" class="rounded" />
                   <span>实时刷新</span>
                 </label>
+                <button @click="controlAllDownloads('pause')" :disabled="downloadsBulkAction || !hasRunningDownloadTasks()" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
+                  <span x-show="downloadsBulkAction !== 'pause'">全部暂停</span>
+                  <span x-show="downloadsBulkAction === 'pause'">暂停中</span>
+                </button>
+                <button @click="controlAllDownloads('stop')" :disabled="downloadsBulkAction || !hasRunningDownloadTasks()" class="btn-danger px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
+                  <span x-show="downloadsBulkAction !== 'stop'">全部停止</span>
+                  <span x-show="downloadsBulkAction === 'stop'">停止中</span>
+                </button>
                 <button @click="loadDownloads()" :disabled="downloadsLoading" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
                   <span x-show="!downloadsLoading">刷新</span>
                   <span x-show="downloadsLoading">刷新中</span>
@@ -378,6 +465,12 @@
                     <div class="lg:w-40 lg:text-right">
                       <div class="text-2xl font-semibold text-white" x-text="formatPercent(task.progress)"></div>
                       <div class="text-xs text-gray-500 mt-1" x-text="task.connections + ' 连接'"></div>
+                      <div class="mt-3 flex flex-wrap gap-2 lg:justify-end">
+                        <button x-show="canPauseDownloadTask(task)" @click="controlDownloadTask(task, 'pause')" :disabled="downloadTaskActionLoading(task)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">暂停</button>
+                        <button x-show="canResumeDownloadTask(task)" @click="controlDownloadTask(task, 'resume')" :disabled="downloadTaskActionLoading(task)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">继续</button>
+                        <button x-show="canStopDownloadTask(task)" @click="controlDownloadTask(task, 'stop')" :disabled="downloadTaskActionLoading(task)" class="btn-danger px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">停止</button>
+                        <button @click="controlDownloadTask(task, 'delete')" :disabled="downloadTaskActionLoading(task)" class="btn-danger px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">删除</button>
+                      </div>
                     </div>
                   </div>
 
@@ -429,9 +522,10 @@
               <p class="text-sm text-gray-500 mt-1">按状态、进度和最近检查时间快速扫描。</p>
             </div>
             <div class="flex flex-col sm:flex-row gap-2">
-              <button @click="scrapeAllSubscriptionMetadata()" class="btn-secondary px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5h16M7 12h10M10 19h4" /></svg>
-                批量刮削
+              <button @click="checkAllSubscriptions()" :disabled="checkingAllSubscriptions" class="btn-secondary px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0019 5M19 5h-5M5 19h5" /></svg>
+                <span x-show="!checkingAllSubscriptions">批量检查</span>
+                <span x-show="checkingAllSubscriptions">检查中</span>
               </button>
               <button @click="openBlankSubscriptionDialog()" class="btn-primary px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
@@ -439,8 +533,18 @@
               </button>
             </div>
           </div>
+          <div class="app-panel-soft p-2">
+            <div class="grid grid-cols-3 gap-2">
+              <template x-for="tab in subscriptionStatusTabs" :key="tab.id">
+                <button @click="subscriptionStatusTab = tab.id" :class="subscriptionStatusTab === tab.id ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm transition-colors">
+                  <span x-text="tab.name"></span>
+                  <span class="ml-1 tabular-nums" x-text="subscriptionStatusCount(tab.id)"></span>
+                </button>
+              </template>
+            </div>
+          </div>
           <div class="grid grid-cols-1 gap-4">
-            <template x-for="sub in subscriptions" :key="sub.id">
+            <template x-for="sub in filteredSubscriptions" :key="sub.id">
               <div class="app-panel p-4 sm:p-5 hover:border-blue-500 transition-colors">
                 <div class="flex gap-3 sm:gap-4">
                   <div class="w-20 sm:w-28 shrink-0">
@@ -455,7 +559,7 @@
                         <h4 class="text-white font-semibold text-lg leading-6 break-words" x-text="subscriptionDisplayTitle(sub)"></h4>
                         <div class="text-sm text-gray-500 mt-1 break-words" x-show="subscriptionSourceLabel(sub)" x-text="subscriptionSourceLabel(sub)"></div>
                       </div>
-                      <span :class="subscriptionStatusClass(sub.status)" class="px-2.5 py-1 rounded text-xs font-medium shrink-0 self-start" x-text="subscriptionStatusLabel(sub.status)"></span>
+                      <span :class="subscriptionStatusClass(sub)" class="text-sm font-semibold shrink-0 self-start lg:text-right" x-text="subscriptionStatusLabel(sub)"></span>
                     </div>
 
                     <div class="flex flex-wrap gap-2">
@@ -491,6 +595,7 @@
             </template>
           </div>
           <div x-show="subscriptions.length === 0" class="app-panel empty-state">暂无订阅</div>
+          <div x-show="subscriptions.length > 0 && filteredSubscriptions.length === 0" class="app-panel empty-state" x-text="'暂无' + subscriptionStatusLabel(subscriptionStatusTab) + '订阅'"></div>
         </div>
 
         <!-- 转存历史页面 -->
@@ -859,6 +964,7 @@
                   <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.push_on_failed" class="rounded" />订阅失效</label>
                   <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.push_on_completed" class="rounded" />订阅完结</label>
                   <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.push_on_save" class="rounded" />转存完成</label>
+                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.push_on_download_completed" class="rounded" />下载完成</label>
                   <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.push_silent" class="rounded" />静默推送</label>
                 </div>
               </div>

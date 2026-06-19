@@ -3,7 +3,7 @@ use reqwest::header::SET_COOKIE;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 const QUARK_API_BASE: &str = "https://drive.quark.cn/1/clouddrive";
@@ -207,15 +207,44 @@ impl QuarkSaveClient {
 
     /// 列出目录内容
     pub async fn list_dir(&self, parent_fid: &str) -> Result<Vec<NormalizedItem>> {
+        const PAGE_SIZE: usize = 200;
+        const MAX_PAGES: usize = 50;
+
+        let mut items = Vec::new();
+        let mut seen = HashSet::new();
+        for page in 1..=MAX_PAGES {
+            let page_items = self.list_dir_page(parent_fid, page, PAGE_SIZE).await?;
+            let count = page_items.len();
+            for item in page_items {
+                if seen.insert(item.fid.clone()) {
+                    items.push(item);
+                }
+            }
+
+            if count < PAGE_SIZE {
+                break;
+            }
+        }
+
+        Ok(items)
+    }
+
+    async fn list_dir_page(
+        &self,
+        parent_fid: &str,
+        page: usize,
+        page_size: usize,
+    ) -> Result<Vec<NormalizedItem>> {
+        let page = page.to_string();
+        let page_size = page_size.to_string();
         let data = self
             .get(
                 "/file/sort",
                 &[
                     ("pdir_fid", parent_fid),
-                    ("_page", "1"),
-                    ("_size", "200"),
+                    ("_page", page.as_str()),
+                    ("_size", page_size.as_str()),
                     ("_fetch_total", "1"),
-                    ("fetch_all_file", "1"),
                     ("fetch_risk_file_name", "1"),
                     ("_sort", "file_type:asc,file_name:asc"),
                 ],

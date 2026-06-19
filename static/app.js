@@ -62,7 +62,14 @@ function app() {
     // 订阅
     subscriptions: [],
     lastCheckResult: null,
+    checkingAllSubscriptions: false,
     showSubscriptionDialog: false,
+    subscriptionStatusTab: 'active',
+    subscriptionStatusTabs: [
+      {id: 'active', name: '追更中'},
+      {id: 'invalid', name: '已失效'},
+      {id: 'completed', name: '已完结'}
+    ],
     subscriptionMode: 'once',  // 'once' 或 'continuous'
     subscriptionDialogTab: 'content',
     subscriptionEditingId: null,
@@ -134,10 +141,19 @@ function app() {
     driveCurrentPath: '/',
     driveCurrentFid: '0',  // 当前目录的 fid
     driveFidStack: [{fid: '0', name: '根目录'}],  // 导航栈
+    driveLoading: false,
+    driveRefreshing: false,
+    driveError: '',
+    driveLastLoadedAt: null,
     driveSelectMode: false,
     driveSelectedItems: [],
     driveSortBy: 'name',
+    driveSortDirection: 'asc',
     driveFilterType: 'all',
+    driveSearchQuery: '',
+    driveViewMode: 'list',
+    driveVisibleLimit: 200,
+    driveActionLoading: '',
     showNewFolderModal: false,
     newFolderName: '',
 
@@ -149,6 +165,8 @@ function app() {
     downloadsUpdatedAt: null,
     downloadsAutoRefresh: true,
     downloadsPoller: null,
+    downloadsBulkAction: '',
+    downloadTaskActions: {},
 
     // 在线更新
     updateInfo: null,
@@ -181,7 +199,7 @@ function app() {
       aria2_rpc_url: '', aria2_secret: '',
       aria2_movie_dir: '', aria2_series_dir: '', aria2_anime_dir: '',
       strm_enabled: false, strm_output_dir: '', strm_public_base_url: '', strm_access_token: '', strm_access_token_configured: false,
-      cloud_types: ['quark'], push_on_update: false, push_on_failed: false, push_on_completed: false, push_on_save: false,
+      cloud_types: ['quark'], push_on_update: false, push_on_failed: false, push_on_completed: false, push_on_save: false, push_on_download_completed: false,
       metadata_provider: 'tmdb', tmdb_api_key: '', tmdb_language: 'zh-CN',
       wecom_bot_url: '', telegram_bot_token: '', telegram_chat_id: '', bark_url: '', serverchan_key: '',
       wxpusher_app_token: '', wxpusher_uids: '', gotify_url: '', gotify_token: '', pushplus_token: '',
@@ -237,15 +255,69 @@ function app() {
     },
 
     get filteredDriveItems() {
-      let items = this.driveItems;
+      let items = [...this.driveItems];
+      const query = this.driveSearchQuery.trim().toLowerCase();
+      if (query) {
+        items = items.filter(item => (item.file_name || '').toLowerCase().includes(query));
+      }
       if (this.driveFilterType !== 'all') {
         items = items.filter(item => {
           if (this.driveFilterType === 'folder') return !item.file;
-          if (this.driveFilterType === 'video') return item.file && /\.(mp4|mkv|avi|mov)$/i.test(item.file_name);
+          if (this.driveFilterType === 'video') return this.isDriveVideo(item);
+          if (this.driveFilterType === 'other') return item.file && !this.isDriveVideo(item);
           return item.file;
         });
       }
+      const direction = this.driveSortDirection === 'desc' ? -1 : 1;
+      items.sort((a, b) => {
+        if (!a.file && b.file) return -1;
+        if (a.file && !b.file) return 1;
+        let value = 0;
+        if (this.driveSortBy === 'size') {
+          value = Number(a.size || 0) - Number(b.size || 0);
+        } else if (this.driveSortBy === 'time') {
+          value = this.driveTimestamp(a.updated_at) - this.driveTimestamp(b.updated_at);
+        } else {
+          value = (a.file_name || '').localeCompare(b.file_name || '', 'zh-CN', {numeric: true, sensitivity: 'base'});
+        }
+        return value * direction;
+      });
       return items;
+    },
+
+    get driveBreadcrumbs() {
+      return this.driveFidStack.map((item, index) => ({
+        ...item,
+        index,
+        label: index === 0 ? '根目录' : item.name
+      }));
+    },
+
+    get visibleDriveItems() {
+      return this.filteredDriveItems.slice(0, this.driveVisibleLimit);
+    },
+
+    get hasMoreDriveItems() {
+      return this.filteredDriveItems.length > this.visibleDriveItems.length;
+    },
+
+    get driveStats() {
+      const folders = this.driveItems.filter(item => !item.file).length;
+      const files = this.driveItems.length - folders;
+      const videos = this.driveItems.filter(item => this.isDriveVideo(item)).length;
+      const totalSize = this.driveItems
+        .filter(item => item.file)
+        .reduce((sum, item) => sum + Number(item.size || 0), 0);
+      return {folders, files, videos, totalSize};
+    },
+
+    get selectedDriveItems() {
+      const selected = new Set(this.driveSelectedItems);
+      return this.driveItems.filter(item => selected.has(item.fid));
+    },
+
+    get selectedDriveFileCount() {
+      return this.selectedDriveItems.filter(item => item.file).length;
     },
 
     get allDownloadTasks() {
@@ -254,6 +326,10 @@ function app() {
         ...(this.downloads.waiting || []),
         ...(this.downloads.stopped || [])
       ];
+    },
+
+    get filteredSubscriptions() {
+      return this.subscriptions.filter(sub => this.subscriptionStatusKey(sub) === this.subscriptionStatusTab);
     },
 
     get downloadStats() {
@@ -905,16 +981,31 @@ function app() {
       return 'text-gray-300';
     },
 
-    subscriptionStatusLabel(status) {
-      const labels = {active: '追更中', completed: '已完结', invalid: '失效'};
-      return labels[status] || status || '-';
+    subscriptionStatusKey(subOrStatus) {
+      if (subOrStatus && typeof subOrStatus === 'object') {
+        if (subOrStatus.status === 'invalid' || subOrStatus.invalid_since) return 'invalid';
+        if (subOrStatus.status === 'completed' || subOrStatus.completed) return 'completed';
+        return 'active';
+      }
+      if (subOrStatus === 'invalid' || subOrStatus === 'completed') return subOrStatus;
+      return 'active';
     },
 
-    subscriptionStatusClass(status) {
-      if (status === 'active') return 'bg-green-600/20 text-green-300';
-      if (status === 'completed') return 'bg-gray-600/20 text-gray-300';
-      if (status === 'invalid') return 'bg-red-600/20 text-red-300';
-      return 'bg-blue-600/20 text-blue-300';
+    subscriptionStatusLabel(subOrStatus) {
+      const labels = {active: '追更中', completed: '已完结', invalid: '已失效'};
+      return labels[this.subscriptionStatusKey(subOrStatus)] || '-';
+    },
+
+    subscriptionStatusClass(subOrStatus) {
+      const status = this.subscriptionStatusKey(subOrStatus);
+      if (status === 'active') return 'text-green-300';
+      if (status === 'completed') return 'text-yellow-300';
+      if (status === 'invalid') return 'text-gray-400';
+      return 'text-gray-300';
+    },
+
+    subscriptionStatusCount(status) {
+      return this.subscriptions.filter(sub => this.subscriptionStatusKey(sub) === status).length;
     },
 
     setCheckInterval(minutes) {
@@ -1615,6 +1706,40 @@ function app() {
       }
     },
 
+    async checkAllSubscriptions() {
+      this.checkingAllSubscriptions = true;
+      try {
+        this.showNotification('info', '正在批量检查订阅...');
+        const response = await fetch('/api/subscriptions/check', {method: 'POST'});
+        const result = await response.json().catch(() => ({}));
+
+        if (response.ok && result.data) {
+          const results = result.data || [];
+          const newFileCount = results.reduce((sum, item) => sum + ((item.new_files || []).length), 0);
+          const invalidCount = results.filter(item => item.became_invalid).length;
+          const completedCount = results.filter(item => item.became_completed).length;
+          if (newFileCount > 0) {
+            this.showNotification('success', `批量检查完成，发现 ${newFileCount} 个新文件`);
+          } else {
+            this.showNotification('info', '批量检查完成，暂无更新');
+          }
+          if (invalidCount > 0 || completedCount > 0) {
+            this.showNotification('info', `状态变化：${invalidCount} 个失效，${completedCount} 个完结`);
+          }
+          await this.loadSubscriptions();
+          await this.loadJobs();
+          await this.loadNotifications();
+        } else {
+          this.showNotification('error', result.message || result.error || '批量检查失败');
+        }
+      } catch (error) {
+        console.error('批量检查订阅失败:', error);
+        this.showNotification('error', '批量检查失败: ' + error.message);
+      } finally {
+        this.checkingAllSubscriptions = false;
+      }
+    },
+
     async renameExistingFiles(id) {
       try {
         this.showNotification('info', '正在按订阅模板修复命名...');
@@ -1835,6 +1960,7 @@ function app() {
         subscription_invalid: '订阅失效',
         subscription_completed: '订阅完结',
         subscription_transferred: '自动转存',
+        download_completed: '下载完成',
         subscription_transfer_failed: '转存失败',
         manual_transfer_succeeded: '手动转存',
         manual_transfer_failed: '转存失败',
@@ -2023,34 +2149,77 @@ function app() {
     },
 
     // ===== 网盘 =====
-    async loadDrive() {
+    async loadDrive(forceRefresh = false) {
+      if (this.driveLoading || this.driveRefreshing) return;
+      const hadItems = this.driveItems.length > 0;
+      this.driveLoading = !hadItems;
+      this.driveRefreshing = hadItems;
+      this.driveError = '';
       try {
-        const response = await fetch(`/api/drive?fid=${this.driveCurrentFid}`);
-        const data = await response.json();
-        this.driveItems = data.list || [];
+        const params = new URLSearchParams({fid: this.driveCurrentFid});
+        if (forceRefresh) params.set('refresh', 'true');
+        const response = await fetch(`/api/drive?${params.toString()}`);
+        const data = await response.json().catch(() => ({}));
+        if (response.ok) {
+          this.driveItems = data.list || [];
+          this.driveLastLoadedAt = Date.now();
+          this.driveVisibleLimit = 200;
+          const visibleFids = new Set(this.driveItems.map(item => item.fid));
+          this.driveSelectedItems = this.driveSelectedItems.filter(fid => visibleFids.has(fid));
+        } else {
+          this.driveError = data.message || data.error || '加载网盘失败';
+          this.driveItems = [];
+        }
       } catch (error) {
         console.error('加载网盘失败:', error);
+        this.driveError = '加载网盘失败: ' + error.message;
         this.driveItems = [];
+      } finally {
+        this.driveLoading = false;
+        this.driveRefreshing = false;
       }
     },
 
-    driveGoBack() {
+    updateDriveCurrentPath() {
+      if (this.driveFidStack.length <= 1) {
+        this.driveCurrentPath = '/';
+        return;
+      }
+      this.driveCurrentPath = this.driveFidStack.slice(1).map(d => d.name).join(' / ');
+    },
+
+    async driveGoBack() {
       if (this.driveFidStack.length > 1) {
         this.driveFidStack.pop();
         const parent = this.driveFidStack[this.driveFidStack.length - 1];
         this.driveCurrentFid = parent.fid;
-        this.driveCurrentPath = this.driveFidStack.map(d => d.name).join('/') || '/';
-        this.loadDrive();
+        this.updateDriveCurrentPath();
+        this.driveSelectedItems = [];
+        await this.loadDrive();
       }
     },
 
-    driveItemClick(item) {
+    async driveOpenBreadcrumb(index) {
+      if (index < 0 || index >= this.driveFidStack.length) return;
+      this.driveFidStack = this.driveFidStack.slice(0, index + 1);
+      const current = this.driveFidStack[this.driveFidStack.length - 1];
+      this.driveCurrentFid = current.fid;
+      this.updateDriveCurrentPath();
+      this.driveSelectedItems = [];
+      await this.loadDrive();
+    },
+
+    async driveItemClick(item) {
+      if (this.driveSelectMode) {
+        this.toggleDriveItemSelection(item);
+        return;
+      }
       if (!item.file) {
-        // 进入子目录
         this.driveFidStack.push({fid: item.fid, name: item.file_name});
         this.driveCurrentFid = item.fid;
-        this.driveCurrentPath = this.driveFidStack.map(d => d.name).join('/');
-        this.loadDrive();
+        this.updateDriveCurrentPath();
+        this.driveSelectedItems = [];
+        await this.loadDrive();
       }
     },
 
@@ -2059,8 +2228,88 @@ function app() {
       if (!this.driveSelectMode) this.driveSelectedItems = [];
     },
 
+    toggleDriveItemSelection(item) {
+      if (!item || !item.fid) return;
+      if (this.driveSelectedItems.includes(item.fid)) {
+        this.driveSelectedItems = this.driveSelectedItems.filter(fid => fid !== item.fid);
+      } else {
+        this.driveSelectedItems = [...this.driveSelectedItems, item.fid];
+      }
+    },
+
+    isDriveItemSelected(item) {
+      return item && this.driveSelectedItems.includes(item.fid);
+    },
+
+    driveAllVisibleSelected() {
+      const visible = this.visibleDriveItems;
+      return visible.length > 0 && visible.every(item => this.driveSelectedItems.includes(item.fid));
+    },
+
+    toggleVisibleDriveSelection() {
+      const visibleFids = this.visibleDriveItems.map(item => item.fid);
+      if (visibleFids.length === 0) return;
+      if (this.driveAllVisibleSelected()) {
+        const visible = new Set(visibleFids);
+        this.driveSelectedItems = this.driveSelectedItems.filter(fid => !visible.has(fid));
+      } else {
+        this.driveSelectedItems = [...new Set([...this.driveSelectedItems, ...visibleFids])];
+      }
+      this.driveSelectMode = this.driveSelectedItems.length > 0;
+    },
+
+    setDriveSort(sortBy) {
+      if (this.driveSortBy === sortBy) {
+        this.driveSortDirection = this.driveSortDirection === 'asc' ? 'desc' : 'asc';
+      } else {
+        this.driveSortBy = sortBy;
+        this.driveSortDirection = sortBy === 'name' ? 'asc' : 'desc';
+      }
+      this.driveVisibleLimit = 200;
+    },
+
+    showMoreDriveItems() {
+      this.driveVisibleLimit += 200;
+    },
+
+    driveTimestamp(value) {
+      if (!value) return 0;
+      const parsed = Date.parse(value);
+      return Number.isNaN(parsed) ? 0 : parsed;
+    },
+
+    driveUpdatedLabel(item) {
+      const timestamp = this.driveTimestamp(item && item.updated_at);
+      if (!timestamp) return '-';
+      return new Date(timestamp).toLocaleString();
+    },
+
+    driveFileExtension(item) {
+      const name = (item && item.file_name) || '';
+      const match = name.match(/\.([^.]+)$/);
+      return match ? match[1].toUpperCase() : 'FILE';
+    },
+
+    isDriveVideo(item) {
+      return !!(item && item.file && /\.(mp4|mkv|avi|mov|ts|m4v|wmv|flv|rmvb|webm)$/i.test(item.file_name || ''));
+    },
+
+    driveItemTypeLabel(item) {
+      if (!item) return '-';
+      if (!item.file) return '文件夹';
+      if (this.isDriveVideo(item)) return '视频';
+      return this.driveFileExtension(item);
+    },
+
+    driveItemIconClass(item) {
+      if (!item || !item.file) return 'bg-amber-500/15 text-amber-300 border-amber-500/20';
+      if (this.isDriveVideo(item)) return 'bg-green-500/15 text-green-300 border-green-500/20';
+      return 'bg-blue-500/15 text-blue-300 border-blue-500/20';
+    },
+
     async createFolder() {
       if (!this.newFolderName.trim()) return;
+      this.driveActionLoading = 'mkdir';
       try {
         const response = await fetch('/api/drive/mkdir', {
           method: 'POST',
@@ -2071,15 +2320,22 @@ function app() {
           this.showNotification('success', '创建成功');
           this.showNewFolderModal = false;
           this.newFolderName = '';
-          await this.loadDrive();
+          await this.loadDrive(true);
+        } else {
+          const data = await response.json().catch(() => ({}));
+          this.showNotification('error', data.message || data.error || '创建失败');
         }
       } catch (error) {
         console.error('创建失败:', error);
+        this.showNotification('error', '创建失败: ' + error.message);
+      } finally {
+        this.driveActionLoading = '';
       }
     },
 
     async deleteDriveItem(item) {
       if (!confirm(`确定删除 ${item.file_name}？`)) return;
+      this.driveActionLoading = `delete:${item.fid}`;
       try {
         const response = await fetch('/api/drive/delete', {
           method: 'POST',
@@ -2088,16 +2344,24 @@ function app() {
         });
         if (response.ok) {
           this.showNotification('success', '已删除');
-          await this.loadDrive();
+          this.driveSelectedItems = this.driveSelectedItems.filter(fid => fid !== item.fid);
+          await this.loadDrive(true);
+        } else {
+          const data = await response.json().catch(() => ({}));
+          this.showNotification('error', data.message || data.error || '删除失败');
         }
       } catch (error) {
         console.error('删除失败:', error);
+        this.showNotification('error', '删除失败: ' + error.message);
+      } finally {
+        this.driveActionLoading = '';
       }
     },
 
     async renameDriveItem(item) {
       const newName = prompt('新名称:', item.file_name);
       if (!newName || newName === item.file_name) return;
+      this.driveActionLoading = `rename:${item.fid}`;
       try {
         const response = await fetch('/api/drive/rename', {
           method: 'POST',
@@ -2111,8 +2375,7 @@ function app() {
         if (response.ok) {
           const data = await response.json();
           this.showNotification('success', data.message || '重命名成功');
-          await new Promise(resolve => setTimeout(resolve, 800));
-          await this.loadDrive();
+          await this.loadDrive(true);
         } else {
           const data = await response.json().catch(() => ({}));
           this.showNotification('error', data.message || data.error || '重命名失败');
@@ -2120,6 +2383,8 @@ function app() {
       } catch (error) {
         console.error('重命名失败:', error);
         this.showNotification('error', '重命名失败: ' + error.message);
+      } finally {
+        this.driveActionLoading = '';
       }
     },
 
@@ -2129,8 +2394,8 @@ function app() {
     },
 
     async sendSelectedDriveItemsToAria2() {
-      const selectedFiles = this.driveItems
-        .filter(item => item.file && this.driveSelectedItems.includes(item.fid))
+      const selectedFiles = this.selectedDriveItems
+        .filter(item => item.file)
         .map(item => item.fid);
       if (selectedFiles.length === 0) {
         this.showNotification('warning', '请选择要发送到 Aria2 的文件');
@@ -2140,6 +2405,7 @@ function app() {
     },
 
     async submitDriveFidsToAria2(fids) {
+      this.driveActionLoading = 'aria2';
       try {
         const response = await fetch('/api/drive/aria2', {
           method: 'POST',
@@ -2156,6 +2422,8 @@ function app() {
       } catch (error) {
         console.error('提交 Aria2 失败:', error);
         this.showNotification('error', '提交 Aria2 失败: ' + error.message);
+      } finally {
+        this.driveActionLoading = '';
       }
     },
 
@@ -2185,6 +2453,80 @@ function app() {
         this.downloadsLoading = false;
         this.downloadsRefreshing = false;
       }
+    },
+
+    async controlAllDownloads(action) {
+      const labels = {
+        pause: '暂停全部下载任务',
+        stop: '停止全部下载任务'
+      };
+      if (action === 'stop' && !confirm('确定停止全部活动和排队中的 Aria2 下载任务？')) return;
+      this.downloadsBulkAction = action;
+      try {
+        const response = await fetch(`/api/drive/aria2/tasks/${action}-all`, {method: 'POST'});
+        const data = await response.json().catch(() => ({}));
+        if (response.ok) {
+          this.showNotification('success', data.message || `${labels[action] || '操作'}成功`);
+          await this.loadDownloads(true);
+        } else {
+          this.showNotification('error', data.message || data.error || `${labels[action] || '操作'}失败`);
+        }
+      } catch (error) {
+        this.showNotification('error', `${labels[action] || '操作'}失败: ${error.message}`);
+      } finally {
+        this.downloadsBulkAction = '';
+      }
+    },
+
+    async controlDownloadTask(task, action) {
+      if (!task || !task.gid) return;
+      const labels = {
+        pause: '暂停下载任务',
+        resume: '继续下载任务',
+        stop: '停止下载任务',
+        delete: '删除下载任务记录'
+      };
+      if (action === 'stop' && !confirm(`确定停止下载任务 ${task.file_name || task.gid}？`)) return;
+      if (action === 'delete' && !confirm(`确定删除下载任务记录 ${task.file_name || task.gid}？`)) return;
+
+      this.downloadTaskActions = {...this.downloadTaskActions, [task.gid]: action};
+      try {
+        const response = await fetch(`/api/drive/aria2/tasks/${encodeURIComponent(task.gid)}/${action}`, {method: 'POST'});
+        const data = await response.json().catch(() => ({}));
+        if (response.ok) {
+          this.showNotification('success', data.message || `${labels[action] || '操作'}成功`);
+          await this.loadDownloads(true);
+        } else {
+          this.showNotification('error', data.message || data.error || `${labels[action] || '操作'}失败`);
+        }
+      } catch (error) {
+        this.showNotification('error', `${labels[action] || '操作'}失败: ${error.message}`);
+      } finally {
+        const next = {...this.downloadTaskActions};
+        delete next[task.gid];
+        this.downloadTaskActions = next;
+      }
+    },
+
+    hasRunningDownloadTasks() {
+      return [...(this.downloads.active || []), ...(this.downloads.waiting || [])]
+        .some(task => ['active', 'waiting', 'paused'].includes(task.status));
+    },
+
+    downloadTaskActionLoading(task) {
+      return task && task.gid ? this.downloadTaskActions[task.gid] || '' : '';
+    },
+
+    canPauseDownloadTask(task) {
+      return task && ['active', 'waiting'].includes(task.status);
+    },
+
+    canResumeDownloadTask(task) {
+      return task && task.status === 'paused';
+    },
+
+    canStopDownloadTask(task) {
+      return task && ['active', 'waiting', 'paused'].includes(task.status);
     },
 
     startDownloadsPolling() {
@@ -2249,22 +2591,7 @@ function app() {
     },
 
     sortDriveItems() {
-      const items = [...this.driveItems];
-      items.sort((a, b) => {
-        // 文件夹优先
-        if (!a.file && b.file) return -1;
-        if (a.file && !b.file) return 1;
-
-        if (this.driveSortBy === 'name') {
-          return a.file_name.localeCompare(b.file_name, 'zh-CN');
-        } else if (this.driveSortBy === 'size') {
-          return (b.size || 0) - (a.size || 0);
-        } else if (this.driveSortBy === 'time') {
-          return (b.updated_at || 0) - (a.updated_at || 0);
-        }
-        return 0;
-      });
-      this.driveItems = items;
+      // 列表排序由 filteredDriveItems 统一派生。
     },
 
     filterDriveItems() {
@@ -2275,22 +2602,28 @@ function app() {
       if (this.driveSelectedItems.length === 0) return;
       if (!confirm(`确定删除选中的 ${this.driveSelectedItems.length} 个项目？`)) return;
 
+      this.driveActionLoading = 'batch-delete';
       try {
-        const promises = this.driveSelectedItems.map(fid =>
-          fetch('/api/drive/delete', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({fids: [fid]})
-          })
-        );
-        await Promise.all(promises);
-        this.showNotification('success', `已删除 ${this.driveSelectedItems.length} 项`);
-        this.driveSelectedItems = [];
-        this.driveSelectMode = false;
-        await this.loadDrive();
+        const fids = [...this.driveSelectedItems];
+        const response = await fetch('/api/drive/delete', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({fids})
+        });
+        const data = await response.json().catch(() => ({}));
+        if (response.ok) {
+          this.showNotification('success', data.message || `已删除 ${fids.length} 项`);
+          this.driveSelectedItems = [];
+          this.driveSelectMode = false;
+          await this.loadDrive(true);
+        } else {
+          this.showNotification('error', data.message || data.error || '批量删除失败');
+        }
       } catch (error) {
         console.error('批量删除失败:', error);
-        this.showNotification('error', '批量删除失败');
+        this.showNotification('error', '批量删除失败: ' + error.message);
+      } finally {
+        this.driveActionLoading = '';
       }
     },
 

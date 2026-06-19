@@ -8,15 +8,25 @@ pub const VIDEO_EXTS: &[&str] = &[
     ".mkv", ".mp4", ".avi", ".ts", ".mov", ".wmv", ".flv", ".m4v", ".rmvb", ".webm",
 ];
 
-/// 集数提取正则模式（与 Python 一致）
-static EPISODE_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+struct EpisodePattern {
+    regex: Regex,
+}
+
+/// 集数提取正则模式。明确格式优先，裸数字只作为兜底并过滤年份/清晰度。
+static EPISODE_PATTERNS: Lazy<Vec<EpisodePattern>> = Lazy::new(|| {
     vec![
-        Regex::new(r"(?i)S(?P<season>\d{1,2})E(?P<episode>\d{1,4})").unwrap(),
-        Regex::new(r"(?i)EP?\s*(?P<episode>\d{1,4})").unwrap(),
-        Regex::new(r"第\s*(?P<episode>\d{1,4})\s*[集话期]").unwrap(),
-        Regex::new(r"(?i)[\[\[【第_\-\s\.](?P<episode>\d{1,4})[\]\]】_\-\s\.]").unwrap(),
-        Regex::new(r"(?i)(?P<episode>\d{1,4})\.(mkv|mp4|avi|ts|mov|wmv|flv|m4v|rmvb|webm)$")
-            .unwrap(),
+        EpisodePattern {
+            regex: Regex::new(r"(?i)S(?P<season>\d{1,2})[._\-\s]*E(?P<episode>\d{1,4})").unwrap(),
+        },
+        EpisodePattern {
+            regex: Regex::new(r"(?i)(?:^|[^\p{L}\d])EP?[._\-\s]*(?P<episode>\d{1,4})").unwrap(),
+        },
+        EpisodePattern {
+            regex: Regex::new(r"第\s*(?P<episode>\d{1,4})\s*[集话話期]").unwrap(),
+        },
+        EpisodePattern {
+            regex: Regex::new(r"[\[【]\s*(?P<episode>\d{1,4})\s*[\]】]").unwrap(),
+        },
     ]
 });
 
@@ -25,6 +35,38 @@ static EPISODE_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
 pub struct EpisodeInfo {
     pub episode: Option<i32>,
     pub season: Option<i32>,
+}
+
+fn is_likely_explicit_episode_number(episode: i32) -> bool {
+    episode > 0
+}
+
+fn is_likely_numeric_fallback_episode(episode: i32) -> bool {
+    if episode <= 0 {
+        return false;
+    }
+    if (1900..=2099).contains(&episode) {
+        return false;
+    }
+    !matches!(episode, 480 | 720 | 1080 | 2160 | 4320)
+}
+
+fn numeric_fallback_episode(name: &str) -> Option<i32> {
+    let stem = std::path::Path::new(name)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or(name);
+
+    stem.split(|ch: char| {
+        ch.is_whitespace()
+            || matches!(
+                ch,
+                '.' | '_' | '-' | '[' | ']' | '(' | ')' | '【' | '】' | '（' | '）'
+            )
+    })
+    .filter(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+    .filter_map(|part| part.parse::<i32>().ok())
+    .find(|episode| is_likely_numeric_fallback_episode(*episode))
 }
 
 /// 是否是视频文件
@@ -36,19 +78,31 @@ pub fn is_video_name(name: &str) -> bool {
 /// 从文件名提取集数和季度
 pub fn detect_episode(name: &str) -> EpisodeInfo {
     for pattern in EPISODE_PATTERNS.iter() {
-        if let Some(caps) = pattern.captures(name) {
+        for caps in pattern.regex.captures_iter(name) {
             let episode = caps
                 .name("episode")
                 .and_then(|m| m.as_str().parse::<i32>().ok());
             let season = caps
                 .name("season")
                 .and_then(|m| m.as_str().parse::<i32>().ok());
+            let season = if season == Some(0) { None } else { season };
 
-            return EpisodeInfo {
-                episode,
-                season: if season == Some(0) { None } else { season },
-            };
+            if !episode
+                .map(is_likely_explicit_episode_number)
+                .unwrap_or(false)
+            {
+                continue;
+            }
+
+            return EpisodeInfo { episode, season };
         }
+    }
+
+    if let Some(episode) = numeric_fallback_episode(name) {
+        return EpisodeInfo {
+            episode: Some(episode),
+            season: None,
+        };
     }
 
     EpisodeInfo {
@@ -131,6 +185,13 @@ mod tests {
     }
 
     #[test]
+    fn test_detect_episode_s01e144_with_metadata() {
+        let info = detect_episode("S01E144.2025.2160p.WEB-DL.HQ.H265.30fps.10bit.AAC.mp4");
+        assert_eq!(info.episode, Some(144));
+        assert_eq!(info.season, Some(1));
+    }
+
+    #[test]
     fn test_detect_episode_chinese() {
         let info = detect_episode("某动画 第12集.mkv");
         assert_eq!(info.episode, Some(12));
@@ -147,6 +208,31 @@ mod tests {
     fn test_detect_episode_number_only() {
         let info = detect_episode("03.mkv");
         assert_eq!(info.episode, Some(3));
+    }
+
+    #[test]
+    fn test_detect_episode_number_with_quality_tag() {
+        let info = detect_episode("129 4K.mp4");
+        assert_eq!(info.episode, Some(129));
+    }
+
+    #[test]
+    fn test_detect_episode_number_with_duplicate_suffix() {
+        let info = detect_episode("23(1).mp4");
+        assert_eq!(info.episode, Some(23));
+    }
+
+    #[test]
+    fn test_detect_episode_skips_year_number() {
+        let info = detect_episode("Movie.2024.mkv");
+        assert_eq!(info.episode, None);
+        assert_eq!(info.season, None);
+    }
+
+    #[test]
+    fn test_detect_episode_skips_year_before_episode() {
+        let info = detect_episode("Show.2025.129.4K.mp4");
+        assert_eq!(info.episode, Some(129));
     }
 
     #[test]

@@ -11,9 +11,13 @@ use crate::error::{AppError, Result};
 use crate::models::rules::TransferRules;
 use crate::models::subscription::Subscription;
 use crate::models::Settings;
-use crate::services::notification::add_notification;
+use crate::services::notification::{add_notification, dispatch_push_event};
+use crate::services::push::{PushEvent, PushLevel};
 use crate::services::strm::{
     generate_subscription_strm_files, strm_generation_enabled, StrmGenerationResult,
+};
+use crate::services::subscription_progress::{
+    completion_target_episode, should_mark_completed_from_transferred_files,
 };
 use crate::services::transfer_rule::apply_rename;
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
@@ -82,6 +86,13 @@ struct SyncDownloadReport {
     submitted_count: usize,
     dir: String,
     error: Option<String>,
+    items: Vec<SyncDownloadItem>,
+}
+
+#[derive(Debug, Clone)]
+struct SyncDownloadItem {
+    gid: String,
+    file_name: String,
 }
 
 #[derive(Debug, Clone)]
@@ -302,6 +313,13 @@ fn sync_dir_label(dir: &str) -> &str {
     } else {
         dir
     }
+}
+
+fn now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
 }
 
 fn transfer_notification_message(
@@ -670,6 +688,10 @@ impl SubscriptionTransferService {
             .submit_sync_downloads(&save_client, &settings, &sub, &transferred_files)
             .await;
 
+        if self.complete_if_transferred_target_reached(&sub.id).await? {
+            info!("订阅 {} 已达到完结集数并标记为完结", sub.title);
+        }
+
         // 12. 如果订阅开启了 STRM，生成 HTTPStrm 文件
         let strm_report = self
             .generate_strm_files(&settings, &sub, &target_dir, &transferred_files)
@@ -872,6 +894,7 @@ impl SubscriptionTransferService {
                 submitted_count: 0,
                 dir: dir.clone(),
                 error: Some(error),
+                items: vec![],
             });
         }
 
@@ -890,6 +913,7 @@ impl SubscriptionTransferService {
                 submitted_count: 0,
                 dir: dir.clone(),
                 error: Some(error),
+                items: vec![],
             });
         }
 
@@ -908,12 +932,14 @@ impl SubscriptionTransferService {
                     submitted_count: 0,
                     dir: dir.clone(),
                     error: Some(error),
+                    items: vec![],
                 });
             }
         };
 
         let mut submitted_count = 0usize;
         let mut last_error = None;
+        let mut items = Vec::new();
         for info in download_infos {
             match aria2
                 .add_uri(&info.download_url, Some(&info.file_name), &info.headers)
@@ -922,6 +948,10 @@ impl SubscriptionTransferService {
                 Ok(gid) => {
                     submitted_count += 1;
                     info!("已提交 Aria2 同步下载: {} ({})", info.file_name, gid);
+                    items.push(SyncDownloadItem {
+                        gid,
+                        file_name: info.file_name,
+                    });
                 }
                 Err(e) => {
                     let error = format!("提交 {} 到 Aria2 失败: {}", info.file_name, e);
@@ -935,6 +965,7 @@ impl SubscriptionTransferService {
             submitted_count,
             dir,
             error: last_error,
+            items,
         })
     }
 
@@ -1002,6 +1033,76 @@ impl SubscriptionTransferService {
         Ok(())
     }
 
+    async fn complete_if_transferred_target_reached(&self, subscription_id: &str) -> Result<bool> {
+        let sub = self
+            .subscription_store
+            .get(subscription_id)
+            .await
+            .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?;
+
+        if sub.sync_download_enabled || !should_mark_completed_from_transferred_files(&sub, &[]) {
+            return Ok(false);
+        }
+
+        let now = now();
+        let updated = self
+            .subscription_store
+            .update(subscription_id, |sub| {
+                if sub.completed {
+                    return;
+                }
+                sub.completed = true;
+                sub.status = "completed".to_string();
+                sub.invalid_since = None;
+                sub.last_error = String::new();
+                if sub.total_episode_number.is_none() {
+                    sub.total_episode_number = sub.rules.finish_after_episode;
+                }
+                sub.updated_at = now;
+            })
+            .await?
+            .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?;
+
+        if !sub.completed && updated.completed {
+            self.send_completed_notification(&updated).await;
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
+    async fn send_completed_notification(&self, sub: &Subscription) {
+        let total = completion_target_episode(sub).unwrap_or(sub.current_episode_number);
+        let title = format!("订阅已完结: {}", sub.title);
+        let message = if total > 0 && sub.sync_download_enabled {
+            format!("已转存并提交下载到第 {} 集", total)
+        } else if total > 0 {
+            format!("已转存到第 {} 集", total)
+        } else {
+            "订阅已标记为完结".to_string()
+        };
+
+        let _ = add_notification(
+            &self.notification_store,
+            "success",
+            "subscription_completed",
+            title.clone(),
+            message.clone(),
+            std::collections::HashMap::new(),
+        )
+        .await;
+        dispatch_push_event(
+            self.settings_store.clone(),
+            self.notification_store.clone(),
+            None,
+            PushEvent::SubscriptionCompleted,
+            title,
+            message,
+            PushLevel::Success,
+        )
+        .await;
+    }
+
     /// 发送转存通知
     async fn send_transfer_notification(
         &self,
@@ -1022,7 +1123,7 @@ impl SubscriptionTransferService {
             sync_report,
             strm_report,
         );
-        let meta = std::collections::HashMap::from([
+        let mut meta = std::collections::HashMap::from([
             (
                 "mode".to_string(),
                 serde_json::Value::String("auto".to_string()),
@@ -1054,6 +1155,27 @@ impl SubscriptionTransferService {
                 ),
             ),
         ]);
+        if let Some(report) = sync_report {
+            meta.insert(
+                "sync_download_dir".to_string(),
+                serde_json::Value::String(report.dir.clone()),
+            );
+            meta.insert(
+                "sync_downloads".to_string(),
+                serde_json::Value::Array(
+                    report
+                        .items
+                        .iter()
+                        .map(|item| {
+                            serde_json::json!({
+                                "gid": item.gid,
+                                "file_name": item.file_name,
+                            })
+                        })
+                        .collect(),
+                ),
+            );
+        }
 
         let title = format!("订阅自动转存: {}", sub.title);
         let _ = add_notification(
