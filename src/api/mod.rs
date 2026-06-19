@@ -123,7 +123,12 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
             context.job_queue.clone(),
         ))
         .merge(notifications::routes(context.notification_store.clone()))
-        .merge(drive::routes(settings_store.clone()))
+        .merge(drive::routes(
+            settings_store.clone(),
+            context.subscription_store.clone(),
+            context.notification_store.clone(),
+            context.job_queue.clone(),
+        ))
         .merge(strm::routes(settings_store.clone()))
         .merge(transfer::routes(context.job_queue.clone()))
         .merge(update::routes())

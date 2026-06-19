@@ -194,6 +194,42 @@ impl Aria2Client {
         self.call_rpc("aria2.getVersion", Vec::new()).await
     }
 
+    pub async fn pause(&self, gid: &str) -> Result<String> {
+        self.call_gid_rpc("aria2.pause", gid).await
+    }
+
+    pub async fn unpause(&self, gid: &str) -> Result<String> {
+        self.call_gid_rpc("aria2.unpause", gid).await
+    }
+
+    pub async fn force_remove(&self, gid: &str) -> Result<String> {
+        self.call_gid_rpc("aria2.forceRemove", gid).await
+    }
+
+    pub async fn remove_download_result(&self, gid: &str) -> Result<String> {
+        self.call_gid_rpc("aria2.removeDownloadResult", gid).await
+    }
+
+    pub async fn pause_all(&self) -> Result<String> {
+        if self.rpc_url.trim().is_empty() {
+            return Err(AppError::Validation("未配置 Aria2 RPC URL".to_string()));
+        }
+
+        self.call_rpc("aria2.pauseAll", Vec::new()).await
+    }
+
+    async fn call_gid_rpc(&self, method: &str, gid: &str) -> Result<String> {
+        if self.rpc_url.trim().is_empty() {
+            return Err(AppError::Validation("未配置 Aria2 RPC URL".to_string()));
+        }
+        let gid = gid.trim();
+        if gid.is_empty() {
+            return Err(AppError::Validation("Aria2 任务 GID 为空".to_string()));
+        }
+
+        self.call_rpc(method, vec![json!(gid)]).await
+    }
+
     async fn call_rpc<T>(&self, method: &str, params: Vec<Value>) -> Result<T>
     where
         T: DeserializeOwned,

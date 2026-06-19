@@ -9,6 +9,10 @@ use crate::jobs::{JobQueue, SubscriptionTransferPayload};
 use crate::models::subscription::{CheckHistoryItem, ProbeFile, ProbeResult, Subscription};
 use crate::services::notification::{add_notification, dispatch_push_event};
 use crate::services::push::{PushEvent, PushLevel};
+use crate::services::subscription_progress::{
+    completion_target_episode, should_mark_completed_from_known_episodes,
+    should_mark_completed_from_transferred_files,
+};
 use crate::services::SubscriptionTransferService;
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
@@ -108,7 +112,13 @@ impl SubscriptionCheckService {
         // 3. 解析集数
         let new_episodes = self.parse_episodes(&new_file_names);
         let details = self.build_check_details(&sub, &probe_result.files);
-        let became_completed = should_mark_completed(&sub, &new_episodes);
+        let became_completed = if sub.notify_only {
+            should_mark_completed_from_known_episodes(&sub, &new_episodes)
+        } else if sub.sync_download_enabled {
+            false
+        } else {
+            should_mark_completed_from_transferred_files(&sub, &[])
+        };
 
         // 4. 更新订阅状态
         let summary = if new_file_names.is_empty() {
@@ -522,11 +532,7 @@ impl SubscriptionCheckService {
 
     /// 发送完结通知
     async fn send_completed_notification(&self, sub: &Subscription) {
-        let total = sub
-            .rules
-            .finish_after_episode
-            .or(sub.total_episode_number)
-            .unwrap_or(sub.current_episode_number);
+        let total = completion_target_episode(sub).unwrap_or(sub.current_episode_number);
         let title = format!("订阅已完结: {}", sub.title);
         let message = if total > 0 {
             format!("已达到完结集数：第 {} 集", total)
@@ -610,52 +616,10 @@ pub struct CheckDetailItem {
     pub reason: String,
 }
 
-fn should_mark_completed(sub: &Subscription, new_episodes: &[i32]) -> bool {
-    if sub.completed {
-        return false;
-    }
-
-    let Some(target_episode) = sub.rules.finish_after_episode else {
-        return false;
-    };
-
-    sub.known_episodes
-        .iter()
-        .chain(new_episodes.iter())
-        .copied()
-        .max()
-        .map(|episode| episode >= target_episode)
-        .unwrap_or(false)
-}
-
 /// 从文件名提取集数
 /// 支持常见格式: E01, EP01, 第01集, [01], S01E01 等
 fn extract_episode_number(filename: &str) -> Option<i32> {
-    use regex::Regex;
-
-    // 常见集数匹配模式
-    let patterns = [
-        r"[Ee]([0-9]{1,3})",               // E01, e01
-        r"[Ee][Pp]\.?\s*([0-9]{1,3})",     // EP01, ep 01
-        r"第\s*([0-9]{1,3})\s*[集话話]",   // 第01集
-        r"\[([0-9]{1,3})\]",               // [01]
-        r"[Ss][0-9]{1,2}[Ee]([0-9]{1,3})", // S01E01
-        r"(?i)(?:^|[^\d])([0-9]{1,3})\.(mkv|mp4|avi|ts|mov|wmv|flv|m4v|rmvb|webm)$", // 03.mkv
-    ];
-
-    for pattern in &patterns {
-        if let Ok(re) = Regex::new(pattern) {
-            if let Some(caps) = re.captures(filename) {
-                if let Some(num_str) = caps.get(1) {
-                    if let Ok(num) = num_str.as_str().parse::<i32>() {
-                        return Some(num);
-                    }
-                }
-            }
-        }
-    }
-
-    None
+    crate::services::episode::detect_episode(filename).episode
 }
 
 #[cfg(test)]
@@ -745,6 +709,12 @@ mod tests {
         assert_eq!(extract_episode_number("[01][1080p].mkv"), Some(1));
         assert_eq!(extract_episode_number("EP 03.mkv"), Some(3));
         assert_eq!(extract_episode_number("03.mkv"), Some(3));
+        assert_eq!(extract_episode_number("129 4K.mp4"), Some(129));
+        assert_eq!(extract_episode_number("23(1).mp4"), Some(23));
+        assert_eq!(
+            extract_episode_number("S01E144.2025.2160p.WEB-DL.HQ.H265.30fps.10bit.AAC.mp4"),
+            Some(144)
+        );
         assert_eq!(extract_episode_number("Movie.2024.mkv"), None);
     }
 
@@ -1083,10 +1053,10 @@ mod tests {
             known_episodes: vec![1, 2, 11],
         };
 
-        assert!(should_mark_completed(&sub, &[12]));
-        assert!(!should_mark_completed(&sub, &[10]));
+        assert!(should_mark_completed_from_known_episodes(&sub, &[12]));
+        assert!(!should_mark_completed_from_known_episodes(&sub, &[10]));
 
         sub.completed = true;
-        assert!(!should_mark_completed(&sub, &[12]));
+        assert!(!should_mark_completed_from_known_episodes(&sub, &[12]));
     }
 }

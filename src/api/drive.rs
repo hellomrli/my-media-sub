@@ -1,29 +1,56 @@
 use axum::{
-    extract::{Query, State},
+    extract::{Path as AxumPath, Query, State},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::RwLock;
+use tracing::warn;
 
 use crate::clients::aria2::{Aria2Task, Aria2Version};
 use crate::clients::{Aria2Client, NormalizedItem, QuarkSaveClient};
 use crate::error::{AppError, Result};
-use crate::models::Settings;
-use crate::store::SettingsStore;
+use crate::jobs::JobQueue;
+use crate::models::{Notification, Settings, Subscription};
+use crate::services::notification::{add_notification, dispatch_push_event};
+use crate::services::push::{PushEvent, PushLevel};
+use crate::services::subscription_progress::{
+    completion_target_episode, should_mark_completed_from_file_names,
+};
+use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
 /// 网盘状态
 pub struct DriveState {
     pub settings_store: Arc<SettingsStore>,
+    pub subscription_store: Arc<SubscriptionStore>,
+    pub notification_store: Arc<NotificationStore>,
+    pub job_queue: Arc<JobQueue>,
+    pub drive_cache: RwLock<HashMap<String, CachedDriveList>>,
+    pub notified_completed_downloads: RwLock<HashSet<String>>,
 }
+
+#[derive(Clone)]
+pub struct CachedDriveList {
+    pub created_at: Instant,
+    pub items: Vec<NormalizedItem>,
+}
+
+const DRIVE_CACHE_TTL: Duration = Duration::from_secs(20);
 
 /// 列出目录请求
 #[derive(Debug, Deserialize)]
 pub struct ListRequest {
     pub path: Option<String>,
     pub fid: Option<String>,
+    #[serde(default)]
+    pub refresh: bool,
 }
 
 /// 查找路径请求
@@ -130,6 +157,15 @@ pub struct Aria2TasksResponse {
 }
 
 #[derive(Serialize)]
+pub struct Aria2TaskActionResponse {
+    pub success: bool,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gid: Option<String>,
+    pub affected_count: usize,
+}
+
+#[derive(Serialize)]
 pub struct Aria2DirectoryItem {
     pub name: String,
     pub path: String,
@@ -181,8 +217,6 @@ async fn list_drive(
         return Ok(Json(ListResponse { list: vec![] }));
     }
 
-    let client = QuarkSaveClient::new(cookie);
-
     // 优先使用 fid，如果没有则使用 path
     let fid = if let Some(f) = req.fid {
         f
@@ -195,10 +229,18 @@ async fn list_drive(
             "0".to_string()
         }
     };
+    let cache_key = drive_cache_key(&cookie, &fid);
+    if !req.refresh {
+        if let Some(items) = cached_drive_items(&state, &cache_key).await {
+            return Ok(Json(ListResponse { list: items }));
+        }
+    }
+
+    let client = QuarkSaveClient::new(cookie);
 
     match client.list_dir(&fid).await {
         Ok(items) => {
-            // items 已经是 Vec<NormalizedItem>，直接返回
+            cache_drive_items(&state, cache_key, items.clone()).await;
             Ok(Json(ListResponse { list: items }))
         }
         Err(e) => {
@@ -206,6 +248,36 @@ async fn list_drive(
             Ok(Json(ListResponse { list: vec![] }))
         }
     }
+}
+
+async fn cached_drive_items(state: &DriveState, key: &str) -> Option<Vec<NormalizedItem>> {
+    let cache = state.drive_cache.read().await;
+    let cached = cache.get(key)?;
+    if cached.created_at.elapsed() > DRIVE_CACHE_TTL {
+        return None;
+    }
+    Some(cached.items.clone())
+}
+
+async fn cache_drive_items(state: &DriveState, key: String, items: Vec<NormalizedItem>) {
+    let mut cache = state.drive_cache.write().await;
+    cache.insert(
+        key,
+        CachedDriveList {
+            created_at: Instant::now(),
+            items,
+        },
+    );
+}
+
+async fn clear_drive_cache(state: &DriveState) {
+    state.drive_cache.write().await.clear();
+}
+
+fn drive_cache_key(cookie: &str, fid: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    cookie.hash(&mut hasher);
+    format!("{}:{}", hasher.finish(), fid.trim())
 }
 
 /// 测试夸克连接
@@ -271,6 +343,7 @@ async fn mkdir(
     };
 
     let fid = client.create_dir(&parent_fid, name).await?;
+    clear_drive_cache(&state).await;
     Ok(Json(ActionResponse {
         success: true,
         message: Some("创建成功".to_string()),
@@ -297,6 +370,7 @@ async fn delete_items(
 
     let client = drive_client(&state).await?;
     client.delete_items(&fids).await?;
+    clear_drive_cache(&state).await;
     Ok(Json(ActionResponse {
         success: true,
         message: Some(format!("已删除 {} 项", fids.len())),
@@ -330,6 +404,7 @@ async fn rename_item(
             },
         )
         .await?;
+    clear_drive_cache(&state).await;
     Ok(Json(ActionResponse {
         success: true,
         message: Some("重命名成功".to_string()),
@@ -389,13 +464,9 @@ async fn list_aria2_tasks(
     State(state): State<Arc<DriveState>>,
     Query(req): Query<Aria2TasksRequest>,
 ) -> Result<Json<Aria2TasksResponse>> {
-    let settings = state.settings_store.get().await;
-    if settings.aria2_rpc_url.trim().is_empty() {
-        return Err(AppError::Validation("未配置 Aria2 RPC URL".to_string()));
-    }
-
-    let aria2 = Aria2Client::new(settings.aria2_rpc_url, settings.aria2_secret, String::new());
+    let aria2 = aria2_client(&state.settings_store.get().await)?;
     let tasks = aria2.list_tasks(req.stopped_limit.clamp(1, 50)).await?;
+    notify_completed_downloads(&state, &tasks.stopped).await;
 
     Ok(Json(Aria2TasksResponse {
         success: true,
@@ -405,18 +476,402 @@ async fn list_aria2_tasks(
     }))
 }
 
-/// 测试 Aria2 RPC 连接
-async fn test_aria2(State(state): State<Arc<DriveState>>) -> Result<Json<Aria2TestResponse>> {
-    let settings = state.settings_store.get().await;
+async fn notify_completed_downloads(state: &DriveState, tasks: &[Aria2Task]) {
+    let history = state.notification_store.list(true).await;
+    let known_gids = state.notified_completed_downloads.read().await.clone();
+    let pending_gids = tasks
+        .iter()
+        .filter(|task| task.status == "complete")
+        .filter(|task| !task.gid.trim().is_empty())
+        .filter(|task| !known_gids.contains(task.gid.trim()))
+        .filter(|task| {
+            !history.iter().any(|notification| {
+                notification.event == "download_completed"
+                    && notification.meta.get("gid").and_then(Value::as_str)
+                        == Some(task.gid.as_str())
+            })
+        })
+        .map(|task| task.gid.clone())
+        .collect::<Vec<_>>();
+
+    if pending_gids.is_empty() {
+        return;
+    }
+
+    let mut inserted_gids = Vec::new();
+    {
+        let mut known = state.notified_completed_downloads.write().await;
+        for gid in pending_gids {
+            if known.insert(gid.clone()) {
+                inserted_gids.push(gid);
+            }
+        }
+    }
+
+    for gid in inserted_gids {
+        if let Some(task) = tasks.iter().find(|task| task.gid == gid) {
+            if let Err(e) = notify_completed_download(state, task).await {
+                warn!("记录 Aria2 下载完成通知失败 {}: {}", task.gid, e);
+            }
+        }
+    }
+}
+
+async fn notify_completed_download(state: &DriveState, task: &Aria2Task) -> Result<()> {
+    let file_name = if task.file_name.trim().is_empty() {
+        task.gid.as_str()
+    } else {
+        task.file_name.trim()
+    };
+    let title = format!("下载完成: {}", file_name);
+    let mut parts = vec![format!("文件：{}", file_name)];
+    if !task.dir.trim().is_empty() {
+        parts.push(format!("目录：{}", task.dir.trim()));
+    }
+    if task.total_length > 0 {
+        parts.push(format!("大小：{}", format_bytes(task.total_length)));
+    }
+    let message = parts.join("\n");
+    let meta: HashMap<String, Value> = HashMap::from([
+        ("gid".to_string(), json!(task.gid)),
+        ("file_name".to_string(), json!(task.file_name)),
+        ("dir".to_string(), json!(task.dir)),
+        ("total_length".to_string(), json!(task.total_length)),
+        ("completed_length".to_string(), json!(task.completed_length)),
+    ]);
+
+    add_notification(
+        &state.notification_store,
+        "success",
+        PushEvent::DownloadCompleted.as_str(),
+        title.clone(),
+        message.clone(),
+        meta,
+    )
+    .await?;
+    dispatch_push_event(
+        state.settings_store.clone(),
+        state.notification_store.clone(),
+        Some(state.job_queue.clone()),
+        PushEvent::DownloadCompleted,
+        title,
+        message,
+        PushLevel::Success,
+    )
+    .await;
+
+    if let Err(e) = complete_subscription_for_download(state, task).await {
+        warn!("根据下载完成更新订阅状态失败 {}: {}", task.gid, e);
+    }
+
+    Ok(())
+}
+
+async fn complete_subscription_for_download(state: &DriveState, task: &Aria2Task) -> Result<()> {
+    let history = state.notification_store.list(true).await;
+    let gid = task.gid.trim();
+    if gid.is_empty() {
+        return Ok(());
+    }
+
+    let completed_gids = download_completed_gids(&history, gid);
+    let Some(subscription_id) = subscription_id_for_download_gid(&history, gid) else {
+        return Ok(());
+    };
+    let Some(sub) = state.subscription_store.get(&subscription_id).await else {
+        return Ok(());
+    };
+    if sub.completed || !sub.sync_download_enabled {
+        return Ok(());
+    }
+
+    let completed_files =
+        completed_subscription_download_files(&history, &subscription_id, &completed_gids);
+    if !should_mark_completed_from_file_names(&sub, &completed_files) {
+        return Ok(());
+    }
+
+    mark_subscription_completed_after_download(state, &sub, &completed_files).await?;
+    Ok(())
+}
+
+async fn mark_subscription_completed_after_download(
+    state: &DriveState,
+    sub: &Subscription,
+    completed_files: &[String],
+) -> Result<bool> {
+    let target_episode = completion_target_episode(sub);
+    let now = now_ts();
+    let updated = state
+        .subscription_store
+        .update(&sub.id, |sub| {
+            if sub.completed {
+                return;
+            }
+            sub.completed = true;
+            sub.status = "completed".to_string();
+            sub.invalid_since = None;
+            sub.last_error = String::new();
+            if let Some(target_episode) = target_episode {
+                sub.current_episode_number = sub.current_episode_number.max(target_episode);
+            }
+            if sub.total_episode_number.is_none() {
+                sub.total_episode_number = sub.rules.finish_after_episode;
+            }
+            sub.updated_at = now;
+        })
+        .await?
+        .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?;
+
+    if sub.completed || !updated.completed {
+        return Ok(false);
+    }
+
+    let total = completion_target_episode(&updated).unwrap_or(updated.current_episode_number);
+    let title = format!("订阅已完结: {}", updated.title);
+    let message = if total > 0 {
+        format!("已下载到第 {} 集", total)
+    } else {
+        "订阅已标记为完结".to_string()
+    };
+    let meta: HashMap<String, Value> = HashMap::from([
+        ("subscription_id".to_string(), json!(updated.id)),
+        ("subscription_title".to_string(), json!(updated.title)),
+        (
+            "completed_download_files".to_string(),
+            json!(completed_files),
+        ),
+    ]);
+
+    add_notification(
+        &state.notification_store,
+        "success",
+        PushEvent::SubscriptionCompleted.as_str(),
+        title.clone(),
+        message.clone(),
+        meta,
+    )
+    .await?;
+    dispatch_push_event(
+        state.settings_store.clone(),
+        state.notification_store.clone(),
+        Some(state.job_queue.clone()),
+        PushEvent::SubscriptionCompleted,
+        title,
+        message,
+        PushLevel::Success,
+    )
+    .await;
+
+    Ok(true)
+}
+
+fn subscription_id_for_download_gid(history: &[Notification], gid: &str) -> Option<String> {
+    history
+        .iter()
+        .filter(|notification| notification.event == "subscription_transferred")
+        .find_map(|notification| {
+            let downloads = notification.meta.get("sync_downloads")?.as_array()?;
+            let matched = downloads
+                .iter()
+                .any(|item| item.get("gid").and_then(Value::as_str) == Some(gid));
+            if !matched {
+                return None;
+            }
+            notification
+                .meta
+                .get("subscription_id")
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+        })
+}
+
+fn download_completed_gids(history: &[Notification], current_gid: &str) -> HashSet<String> {
+    let mut gids = history
+        .iter()
+        .filter(|notification| notification.event == "download_completed")
+        .filter_map(|notification| notification.meta.get("gid").and_then(Value::as_str))
+        .map(ToString::to_string)
+        .collect::<HashSet<_>>();
+    gids.insert(current_gid.to_string());
+    gids
+}
+
+fn completed_subscription_download_files(
+    history: &[Notification],
+    subscription_id: &str,
+    completed_gids: &HashSet<String>,
+) -> Vec<String> {
+    let mut files = history
+        .iter()
+        .filter(|notification| notification.event == "subscription_transferred")
+        .filter(|notification| {
+            notification
+                .meta
+                .get("subscription_id")
+                .and_then(Value::as_str)
+                == Some(subscription_id)
+        })
+        .filter_map(|notification| notification.meta.get("sync_downloads")?.as_array())
+        .flat_map(|downloads| downloads.iter())
+        .filter(|item| {
+            item.get("gid")
+                .and_then(Value::as_str)
+                .map(|gid| completed_gids.contains(gid))
+                .unwrap_or(false)
+        })
+        .filter_map(|item| item.get("file_name").and_then(Value::as_str))
+        .filter(|file_name| !file_name.trim().is_empty())
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    files.sort();
+    files.dedup();
+    files
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut size = bytes as f64;
+    let mut unit = 0usize;
+    while size >= 1024.0 && unit < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit += 1;
+    }
+
+    if unit == 0 {
+        format!("{} {}", bytes, UNITS[unit])
+    } else {
+        format!("{:.2} {}", size, UNITS[unit])
+    }
+}
+
+fn now_ts() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+}
+
+fn aria2_client(settings: &Settings) -> Result<Aria2Client> {
     if settings.aria2_rpc_url.trim().is_empty() {
         return Err(AppError::Validation("未配置 Aria2 RPC URL".to_string()));
     }
 
-    let aria2 = Aria2Client::new(
+    Ok(Aria2Client::new(
         settings.aria2_rpc_url.clone(),
         settings.aria2_secret.clone(),
         String::new(),
-    );
+    ))
+}
+
+async fn pause_aria2_task(
+    State(state): State<Arc<DriveState>>,
+    AxumPath(gid): AxumPath<String>,
+) -> Result<Json<Aria2TaskActionResponse>> {
+    let aria2 = aria2_client(&state.settings_store.get().await)?;
+    let gid = aria2.pause(&gid).await?;
+    Ok(Json(Aria2TaskActionResponse {
+        success: true,
+        message: "已暂停下载任务".to_string(),
+        gid: Some(gid),
+        affected_count: 1,
+    }))
+}
+
+async fn resume_aria2_task(
+    State(state): State<Arc<DriveState>>,
+    AxumPath(gid): AxumPath<String>,
+) -> Result<Json<Aria2TaskActionResponse>> {
+    let aria2 = aria2_client(&state.settings_store.get().await)?;
+    let gid = aria2.unpause(&gid).await?;
+    Ok(Json(Aria2TaskActionResponse {
+        success: true,
+        message: "已继续下载任务".to_string(),
+        gid: Some(gid),
+        affected_count: 1,
+    }))
+}
+
+async fn stop_aria2_task(
+    State(state): State<Arc<DriveState>>,
+    AxumPath(gid): AxumPath<String>,
+) -> Result<Json<Aria2TaskActionResponse>> {
+    let aria2 = aria2_client(&state.settings_store.get().await)?;
+    let gid = aria2.force_remove(&gid).await?;
+    Ok(Json(Aria2TaskActionResponse {
+        success: true,
+        message: "已停止下载任务".to_string(),
+        gid: Some(gid),
+        affected_count: 1,
+    }))
+}
+
+async fn delete_aria2_task(
+    State(state): State<Arc<DriveState>>,
+    AxumPath(gid): AxumPath<String>,
+) -> Result<Json<Aria2TaskActionResponse>> {
+    let aria2 = aria2_client(&state.settings_store.get().await)?;
+    let gid = gid.trim().to_string();
+    if gid.is_empty() {
+        return Err(AppError::Validation("Aria2 任务 GID 为空".to_string()));
+    }
+
+    if aria2.remove_download_result(&gid).await.is_err() {
+        aria2.force_remove(&gid).await?;
+        let _ = aria2.remove_download_result(&gid).await;
+    }
+
+    Ok(Json(Aria2TaskActionResponse {
+        success: true,
+        message: "已删除下载任务记录".to_string(),
+        gid: Some(gid),
+        affected_count: 1,
+    }))
+}
+
+async fn pause_all_aria2_tasks(
+    State(state): State<Arc<DriveState>>,
+) -> Result<Json<Aria2TaskActionResponse>> {
+    let aria2 = aria2_client(&state.settings_store.get().await)?;
+    aria2.pause_all().await?;
+    Ok(Json(Aria2TaskActionResponse {
+        success: true,
+        message: "已暂停全部下载任务".to_string(),
+        gid: None,
+        affected_count: 0,
+    }))
+}
+
+async fn stop_all_aria2_tasks(
+    State(state): State<Arc<DriveState>>,
+) -> Result<Json<Aria2TaskActionResponse>> {
+    let aria2 = aria2_client(&state.settings_store.get().await)?;
+    let tasks = aria2.list_tasks(1).await?;
+    let gids: Vec<String> = tasks
+        .active
+        .into_iter()
+        .chain(tasks.waiting)
+        .map(|task| task.gid)
+        .filter(|gid| !gid.trim().is_empty())
+        .collect();
+
+    let mut affected_count = 0usize;
+    for gid in gids {
+        aria2.force_remove(&gid).await?;
+        affected_count += 1;
+    }
+
+    Ok(Json(Aria2TaskActionResponse {
+        success: true,
+        message: format!("已停止 {} 个下载任务", affected_count),
+        gid: None,
+        affected_count,
+    }))
+}
+
+/// 测试 Aria2 RPC 连接
+async fn test_aria2(State(state): State<Arc<DriveState>>) -> Result<Json<Aria2TestResponse>> {
+    let aria2 = aria2_client(&state.settings_store.get().await)?;
     let Aria2Version {
         version,
         enabled_features,
@@ -552,7 +1007,10 @@ async fn find_path(
 
     // 使用 ensure_dir_path 查找或创建路径
     match client.ensure_dir_path(&req.path).await {
-        Ok(fid) => Ok(Json(FindPathResponse { fid, found: true })),
+        Ok(fid) => {
+            clear_drive_cache(&state).await;
+            Ok(Json(FindPathResponse { fid, found: true }))
+        }
         Err(e) => {
             tracing::warn!("查找路径 {} 失败: {}", req.path, e);
             Ok(Json(FindPathResponse {
@@ -564,8 +1022,20 @@ async fn find_path(
 }
 
 /// 创建网盘路由
-pub fn routes(settings_store: Arc<SettingsStore>) -> Router {
-    let state = Arc::new(DriveState { settings_store });
+pub fn routes(
+    settings_store: Arc<SettingsStore>,
+    subscription_store: Arc<SubscriptionStore>,
+    notification_store: Arc<NotificationStore>,
+    job_queue: Arc<JobQueue>,
+) -> Router {
+    let state = Arc::new(DriveState {
+        settings_store,
+        subscription_store,
+        notification_store,
+        job_queue,
+        drive_cache: RwLock::new(HashMap::new()),
+        notified_completed_downloads: RwLock::new(HashSet::new()),
+    });
 
     Router::new()
         .route("/api/drive", get(list_drive))
@@ -575,6 +1045,24 @@ pub fn routes(settings_store: Arc<SettingsStore>) -> Router {
         .route("/api/drive/rename", post(rename_item))
         .route("/api/drive/aria2", post(send_to_aria2))
         .route("/api/drive/aria2/tasks", get(list_aria2_tasks))
+        .route(
+            "/api/drive/aria2/tasks/pause-all",
+            post(pause_all_aria2_tasks),
+        )
+        .route(
+            "/api/drive/aria2/tasks/stop-all",
+            post(stop_all_aria2_tasks),
+        )
+        .route("/api/drive/aria2/tasks/{gid}/pause", post(pause_aria2_task))
+        .route(
+            "/api/drive/aria2/tasks/{gid}/resume",
+            post(resume_aria2_task),
+        )
+        .route("/api/drive/aria2/tasks/{gid}/stop", post(stop_aria2_task))
+        .route(
+            "/api/drive/aria2/tasks/{gid}/delete",
+            post(delete_aria2_task),
+        )
         .route("/api/drive/aria2/test", get(test_aria2))
         .route("/api/drive/aria2/browse", get(browse_aria2_dir))
         .route("/api/quark/test", post(test_quark))
@@ -588,10 +1076,79 @@ fn default_stopped_limit() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::Notification;
 
     #[test]
     fn test_normalize_fids_trims_and_dedups() {
         let fids = normalize_fids(vec![" a ".to_string(), "".to_string(), "a".to_string()]);
         assert_eq!(fids, vec!["a".to_string()]);
+    }
+
+    #[test]
+    fn test_format_bytes() {
+        assert_eq!(format_bytes(512), "512 B");
+        assert_eq!(format_bytes(1024), "1.00 KB");
+        assert_eq!(format_bytes(1024 * 1024), "1.00 MB");
+    }
+
+    #[test]
+    fn test_subscription_download_lookup_from_notifications() {
+        let notifications = vec![Notification {
+            id: "n1".to_string(),
+            level: "success".to_string(),
+            event: "subscription_transferred".to_string(),
+            title: "转存".to_string(),
+            message: String::new(),
+            meta: HashMap::from([
+                ("subscription_id".to_string(), json!("sub1")),
+                (
+                    "sync_downloads".to_string(),
+                    json!([
+                        {"gid": "gid-1", "file_name": "Show.S01E11.mkv"},
+                        {"gid": "gid-2", "file_name": "Show.S01E12.mkv"}
+                    ]),
+                ),
+            ]),
+            read: false,
+            created_at: 1,
+        }];
+
+        assert_eq!(
+            subscription_id_for_download_gid(&notifications, "gid-2"),
+            Some("sub1".to_string())
+        );
+        assert_eq!(
+            subscription_id_for_download_gid(&notifications, "missing"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_completed_subscription_download_files() {
+        let notifications = vec![Notification {
+            id: "n1".to_string(),
+            level: "success".to_string(),
+            event: "subscription_transferred".to_string(),
+            title: "转存".to_string(),
+            message: String::new(),
+            meta: HashMap::from([
+                ("subscription_id".to_string(), json!("sub1")),
+                (
+                    "sync_downloads".to_string(),
+                    json!([
+                        {"gid": "gid-1", "file_name": "Show.S01E11.mkv"},
+                        {"gid": "gid-2", "file_name": "Show.S01E12.mkv"}
+                    ]),
+                ),
+            ]),
+            read: false,
+            created_at: 1,
+        }];
+        let completed = HashSet::from(["gid-2".to_string()]);
+
+        assert_eq!(
+            completed_subscription_download_files(&notifications, "sub1", &completed),
+            vec!["Show.S01E12.mkv".to_string()]
+        );
     }
 }

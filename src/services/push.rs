@@ -56,6 +56,7 @@ pub enum PushEvent {
     SubscriptionFailed,
     SubscriptionCompleted,
     TransferSaved,
+    DownloadCompleted,
 }
 
 impl PushEvent {
@@ -65,6 +66,7 @@ impl PushEvent {
             "subscription_failed" => Some(Self::SubscriptionFailed),
             "subscription_completed" => Some(Self::SubscriptionCompleted),
             "transfer_saved" => Some(Self::TransferSaved),
+            "download_completed" => Some(Self::DownloadCompleted),
             _ => None,
         }
     }
@@ -75,6 +77,7 @@ impl PushEvent {
             Self::SubscriptionFailed => "subscription_failed",
             Self::SubscriptionCompleted => "subscription_completed",
             Self::TransferSaved => "transfer_saved",
+            Self::DownloadCompleted => "download_completed",
         }
     }
 }
@@ -179,6 +182,7 @@ impl PushService {
             PushEvent::SubscriptionFailed => self.settings.push_on_failed,
             PushEvent::SubscriptionCompleted => self.settings.push_on_completed,
             PushEvent::TransferSaved => self.settings.push_on_save,
+            PushEvent::DownloadCompleted => self.settings.push_on_download_completed,
         }
     }
 

@@ -373,6 +373,11 @@ async fn update_settings(
                             settings.push_on_save = b;
                         }
                     }
+                    "push_on_download_completed" => {
+                        if let Some(b) = value.as_bool() {
+                            settings.push_on_download_completed = b;
+                        }
+                    }
                     "push_silent" => {
                         if let Some(b) = value.as_bool() {
                             settings.push_silent = b;

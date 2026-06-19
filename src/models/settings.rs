@@ -197,6 +197,10 @@ pub struct Settings {
     #[serde(default = "default_true")]
     pub push_on_save: bool,
 
+    /// 下载完成时推送
+    #[serde(default = "default_true")]
+    pub push_on_download_completed: bool,
+
     /// 静默推送
     #[serde(default)]
     pub push_silent: bool,
@@ -309,6 +313,7 @@ impl Default for Settings {
             push_on_failed: true,
             push_on_completed: true,
             push_on_save: true,
+            push_on_download_completed: true,
             push_silent: false,
         }
     }
@@ -326,6 +331,7 @@ mod tests {
         assert!(settings.check_links);
         assert_eq!(settings.metadata_provider, "tmdb");
         assert_eq!(settings.tmdb_language, "zh-CN");
+        assert!(settings.push_on_download_completed);
     }
 
     #[test]

@@ -197,6 +197,7 @@ async fn push_status(State(state): State<Arc<PushState>>) -> Result<Json<PushSta
         push_on_failed: settings.push_on_failed,
         push_on_completed: settings.push_on_completed,
         push_on_save: settings.push_on_save,
+        push_on_download_completed: settings.push_on_download_completed,
         push_silent: settings.push_silent,
     }))
 }
@@ -222,6 +223,7 @@ struct PushStatusResponse {
     push_on_failed: bool,
     push_on_completed: bool,
     push_on_save: bool,
+    push_on_download_completed: bool,
     push_silent: bool,
 }
 
