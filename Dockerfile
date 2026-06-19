@@ -1,7 +1,7 @@
 # 多阶段构建 Dockerfile for Rust 版本
 # Stage 1: 构建阶段
-# 使用 latest 确保获得最新稳定版 Rust
-FROM rust:latest AS builder
+# 与运行阶段的 bookworm glibc 保持一致，避免构建出的二进制依赖更新的 glibc。
+FROM rust:1-bookworm AS builder
 
 WORKDIR /app
 
