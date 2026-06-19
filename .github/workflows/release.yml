@@ -69,6 +69,7 @@ jobs:
           VERSION="${VERSION#v}"
           awk -v version="$VERSION" '
             $0 == "### " version {capture=1; next}
+            capture && /^## / {exit}
             capture && /^### / {exit}
             capture {print}
           ' README.md | sed '/^[[:space:]]*$/d' > release-notes.md
