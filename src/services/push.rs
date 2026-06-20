@@ -57,6 +57,7 @@ pub enum PushEvent {
     SubscriptionCompleted,
     TransferSaved,
     DownloadCompleted,
+    QuarkSignin,
 }
 
 impl PushEvent {
@@ -67,6 +68,7 @@ impl PushEvent {
             "subscription_completed" => Some(Self::SubscriptionCompleted),
             "transfer_saved" => Some(Self::TransferSaved),
             "download_completed" => Some(Self::DownloadCompleted),
+            "quark_signin" => Some(Self::QuarkSignin),
             _ => None,
         }
     }
@@ -78,6 +80,7 @@ impl PushEvent {
             Self::SubscriptionCompleted => "subscription_completed",
             Self::TransferSaved => "transfer_saved",
             Self::DownloadCompleted => "download_completed",
+            Self::QuarkSignin => "quark_signin",
         }
     }
 }
@@ -183,6 +186,7 @@ impl PushService {
             PushEvent::SubscriptionCompleted => self.settings.push_on_completed,
             PushEvent::TransferSaved => self.settings.push_on_save,
             PushEvent::DownloadCompleted => self.settings.push_on_download_completed,
+            PushEvent::QuarkSignin => self.settings.push_on_quark_signin,
         }
     }
 

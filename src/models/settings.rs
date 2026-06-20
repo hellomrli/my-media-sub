@@ -55,6 +55,14 @@ pub struct Settings {
     #[serde(default)]
     pub quark_save_enabled: bool,
 
+    /// 夸克自动签到是否启用
+    #[serde(default)]
+    pub quark_signin_enabled: bool,
+
+    /// 夸克自动签到小时（0-23）
+    #[serde(default = "default_quark_signin_hour")]
+    pub quark_signin_hour: i32,
+
     /// 夸克转存根目录
     #[serde(default)]
     pub quark_save_root: String,
@@ -201,6 +209,10 @@ pub struct Settings {
     #[serde(default = "default_true")]
     pub push_on_download_completed: bool,
 
+    /// 夸克签到成功时推送
+    #[serde(default = "default_true")]
+    pub push_on_quark_signin: bool,
+
     /// 静默推送
     #[serde(default)]
     pub push_silent: bool,
@@ -252,6 +264,10 @@ fn default_check_interval() -> i32 {
     60
 }
 
+fn default_quark_signin_hour() -> i32 {
+    8
+}
+
 fn default_metadata_provider() -> String {
     "tmdb".to_string()
 }
@@ -279,6 +295,8 @@ impl Default for Settings {
             tmdb_language: default_tmdb_language(),
             quark_cookie: String::new(),
             quark_save_enabled: false,
+            quark_signin_enabled: false,
+            quark_signin_hour: default_quark_signin_hour(),
             quark_save_root: String::new(),
             quark_save_movie_dir: default_movie_dir(),
             quark_save_series_dir: default_series_dir(),
@@ -314,6 +332,7 @@ impl Default for Settings {
             push_on_completed: true,
             push_on_save: true,
             push_on_download_completed: true,
+            push_on_quark_signin: true,
             push_silent: false,
         }
     }
@@ -332,6 +351,8 @@ mod tests {
         assert_eq!(settings.metadata_provider, "tmdb");
         assert_eq!(settings.tmdb_language, "zh-CN");
         assert!(settings.push_on_download_completed);
+        assert!(settings.push_on_quark_signin);
+        assert_eq!(settings.quark_signin_hour, 8);
     }
 
     #[test]

@@ -8,6 +8,7 @@ use std::time::Duration;
 
 const QUARK_API_BASE: &str = "https://drive.quark.cn/1/clouddrive";
 const QUARK_PC_API_BASE: &str = "https://drive-pc.quark.cn/1/clouddrive";
+const QUARK_MOBILE_API_BASE: &str = "https://drive-m.quark.cn/1/clouddrive";
 const QUARK_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/3.14.2 Chrome/112.0.5615.165 Electron/24.1.3.8 Safari/537.36 Channel/pckk_other_ch";
 
 /// 夸克转存客户端
@@ -43,6 +44,36 @@ pub struct QuarkDownloadInfo {
     pub size: i64,
     pub download_url: String,
     pub headers: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct QuarkSigninResult {
+    pub signed: bool,
+    pub already_signed: bool,
+    pub daily_reward_bytes: i64,
+    pub total_capacity_bytes: i64,
+    pub sign_reward_bytes: i64,
+    pub member_type: String,
+    pub sign_progress: i64,
+    pub sign_target: i64,
+}
+
+#[derive(Debug, Clone)]
+struct QuarkMobileParams {
+    kps: String,
+    sign: String,
+    vcode: String,
+}
+
+#[derive(Debug, Clone)]
+struct QuarkGrowthInfo {
+    total_capacity_bytes: i64,
+    sign_reward_bytes: i64,
+    member_type: String,
+    sign_daily: bool,
+    sign_daily_reward_bytes: i64,
+    sign_progress: i64,
+    sign_target: i64,
 }
 
 impl QuarkSaveClient {
@@ -201,6 +232,126 @@ impl QuarkSaveClient {
                 .map(ToString::to_string),
         );
         cookies.join("; ")
+    }
+
+    fn mobile_params(&self) -> Option<QuarkMobileParams> {
+        let kps = cookie_value(&self.cookie, "kps")?.replace("%25", "%");
+        let sign = cookie_value(&self.cookie, "sign")?.replace("%25", "%");
+        let vcode = cookie_value(&self.cookie, "vcode")?.replace("%25", "%");
+        Some(QuarkMobileParams { kps, sign, vcode })
+    }
+
+    async fn mobile_get(&self, path: &str, params: &QuarkMobileParams) -> Result<ApiResponse> {
+        let url = format!("{}{}", QUARK_MOBILE_API_BASE, path);
+        let client = Client::builder()
+            .timeout(Duration::from_secs(20))
+            .build()
+            .unwrap();
+
+        client
+            .get(&url)
+            .query(&[
+                ("pr", "ucpro"),
+                ("fr", "android"),
+                ("kps", params.kps.as_str()),
+                ("sign", params.sign.as_str()),
+                ("vcode", params.vcode.as_str()),
+            ])
+            .header("content-type", "application/json")
+            .send()
+            .await
+            .map_err(|e| AppError::Http(format!("夸克移动端 GET 请求失败: {}", e)))?
+            .json()
+            .await
+            .map_err(|e| AppError::Http(format!("解析夸克移动端响应失败: {}", e)))
+    }
+
+    async fn mobile_post(
+        &self,
+        path: &str,
+        params: &QuarkMobileParams,
+        payload: &Value,
+    ) -> Result<ApiResponse> {
+        let url = format!("{}{}", QUARK_MOBILE_API_BASE, path);
+        let client = Client::builder()
+            .timeout(Duration::from_secs(20))
+            .build()
+            .unwrap();
+
+        client
+            .post(&url)
+            .query(&[
+                ("pr", "ucpro"),
+                ("fr", "android"),
+                ("kps", params.kps.as_str()),
+                ("sign", params.sign.as_str()),
+                ("vcode", params.vcode.as_str()),
+            ])
+            .header("content-type", "application/json")
+            .json(payload)
+            .send()
+            .await
+            .map_err(|e| AppError::Http(format!("夸克移动端 POST 请求失败: {}", e)))?
+            .json()
+            .await
+            .map_err(|e| AppError::Http(format!("解析夸克移动端响应失败: {}", e)))
+    }
+
+    pub async fn signin(&self) -> Result<QuarkSigninResult> {
+        let params = self.mobile_params().ok_or_else(|| {
+            AppError::Validation("夸克 Cookie 缺少移动端签到参数 kps/sign/vcode".to_string())
+        })?;
+
+        let data = self.mobile_get("/capacity/growth/info", &params).await?;
+        if let Some(err) = Self::api_error(&data) {
+            return Err(AppError::Http(err));
+        }
+        let info = data
+            .data
+            .as_ref()
+            .and_then(parse_growth_info)
+            .ok_or_else(|| AppError::Http("读取夸克签到进度失败".to_string()))?;
+
+        if info.sign_daily {
+            return Ok(QuarkSigninResult {
+                signed: false,
+                already_signed: true,
+                daily_reward_bytes: info.sign_daily_reward_bytes,
+                total_capacity_bytes: info.total_capacity_bytes,
+                sign_reward_bytes: info.sign_reward_bytes,
+                member_type: info.member_type,
+                sign_progress: info.sign_progress,
+                sign_target: info.sign_target,
+            });
+        }
+
+        let signed = self
+            .mobile_post(
+                "/capacity/growth/sign",
+                &params,
+                &serde_json::json!({"sign_cyclic": true}),
+            )
+            .await?;
+        if let Some(err) = Self::api_error(&signed) {
+            return Err(AppError::Http(err));
+        }
+        let daily_reward_bytes = signed
+            .data
+            .as_ref()
+            .and_then(|data| data.get("sign_daily_reward"))
+            .and_then(value_as_i64)
+            .unwrap_or(info.sign_daily_reward_bytes);
+
+        Ok(QuarkSigninResult {
+            signed: true,
+            already_signed: false,
+            daily_reward_bytes,
+            total_capacity_bytes: info.total_capacity_bytes,
+            sign_reward_bytes: info.sign_reward_bytes,
+            member_type: info.member_type,
+            sign_progress: info.sign_progress + 1,
+            sign_target: info.sign_target,
+        })
     }
 
     // ── 目录管理 ──────────────────────────────────────────
@@ -591,6 +742,60 @@ impl Default for QuarkSaveClient {
     }
 }
 
+fn cookie_value(cookie: &str, key: &str) -> Option<String> {
+    cookie.split([';', '&']).find_map(|part| {
+        let (name, value) = part.trim().split_once('=')?;
+        if name.trim() == key {
+            Some(value.trim().to_string())
+        } else {
+            None
+        }
+    })
+}
+
+fn parse_growth_info(data: &Value) -> Option<QuarkGrowthInfo> {
+    let cap_sign = data.get("cap_sign")?;
+    let cap_composition = data.get("cap_composition");
+    Some(QuarkGrowthInfo {
+        total_capacity_bytes: data
+            .get("total_capacity")
+            .and_then(value_as_i64)
+            .unwrap_or(0),
+        sign_reward_bytes: cap_composition
+            .and_then(|value| value.get("sign_reward"))
+            .and_then(value_as_i64)
+            .unwrap_or(0),
+        member_type: data
+            .get("member_type")
+            .and_then(|value| value.as_str())
+            .unwrap_or("NORMAL")
+            .to_string(),
+        sign_daily: cap_sign
+            .get("sign_daily")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false),
+        sign_daily_reward_bytes: cap_sign
+            .get("sign_daily_reward")
+            .and_then(value_as_i64)
+            .unwrap_or(0),
+        sign_progress: cap_sign
+            .get("sign_progress")
+            .and_then(value_as_i64)
+            .unwrap_or(0),
+        sign_target: cap_sign
+            .get("sign_target")
+            .and_then(value_as_i64)
+            .unwrap_or(0),
+    })
+}
+
+fn value_as_i64(value: &Value) -> Option<i64> {
+    value
+        .as_i64()
+        .or_else(|| value.as_u64().and_then(|value| i64::try_from(value).ok()))
+        .or_else(|| value.as_f64().map(|value| value as i64))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -658,5 +863,39 @@ mod tests {
         assert!(headers
             .iter()
             .any(|header| header == "Cookie: k=v; base=1; __puus=temp"));
+    }
+
+    #[test]
+    fn test_mobile_params_extracts_required_cookie_values() {
+        let client = QuarkSaveClient::new("foo=1; kps=abc; sign=a%252Bb; vcode=xyz;");
+        let params = client.mobile_params().unwrap();
+
+        assert_eq!(params.kps, "abc");
+        assert_eq!(params.sign, "a%2Bb");
+        assert_eq!(params.vcode, "xyz");
+    }
+
+    #[test]
+    fn test_parse_growth_info() {
+        let data = serde_json::json!({
+            "member_type": "SUPER_VIP",
+            "total_capacity": 1024,
+            "cap_composition": {"sign_reward": 512},
+            "cap_sign": {
+                "sign_daily": true,
+                "sign_daily_reward": 1048576,
+                "sign_progress": 3,
+                "sign_target": 7
+            }
+        });
+
+        let info = parse_growth_info(&data).unwrap();
+        assert_eq!(info.member_type, "SUPER_VIP");
+        assert_eq!(info.total_capacity_bytes, 1024);
+        assert_eq!(info.sign_reward_bytes, 512);
+        assert!(info.sign_daily);
+        assert_eq!(info.sign_daily_reward_bytes, 1048576);
+        assert_eq!(info.sign_progress, 3);
+        assert_eq!(info.sign_target, 7);
     }
 }

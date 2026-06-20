@@ -15,15 +15,17 @@ use tokio::sync::RwLock;
 use tracing::warn;
 
 use crate::clients::aria2::{Aria2Task, Aria2Version};
-use crate::clients::{Aria2Client, NormalizedItem, QuarkSaveClient};
+use crate::clients::{Aria2Client, NormalizedItem, QuarkSaveClient, QuarkSigninResult};
 use crate::error::{AppError, Result};
 use crate::jobs::JobQueue;
 use crate::models::{Notification, Settings, Subscription};
 use crate::services::notification::{add_notification, dispatch_push_event};
 use crate::services::push::{PushEvent, PushLevel};
+use crate::services::quark_signin::signin_message;
 use crate::services::subscription_progress::{
     completion_target_episode, should_mark_completed_from_file_names,
 };
+use crate::services::QuarkSigninService;
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
 /// 网盘状态
@@ -32,6 +34,7 @@ pub struct DriveState {
     pub subscription_store: Arc<SubscriptionStore>,
     pub notification_store: Arc<NotificationStore>,
     pub job_queue: Arc<JobQueue>,
+    pub quark_signin_service: Arc<QuarkSigninService>,
     pub drive_cache: RwLock<HashMap<String, CachedDriveList>>,
     pub notified_completed_downloads: RwLock<HashSet<String>>,
 }
@@ -205,6 +208,13 @@ pub struct TestResponse {
     pub error: Option<String>,
 }
 
+#[derive(Serialize)]
+pub struct QuarkSigninResponse {
+    pub success: bool,
+    pub message: String,
+    pub result: QuarkSigninResult,
+}
+
 /// 列出目录
 async fn list_drive(
     State(state): State<Arc<DriveState>>,
@@ -313,6 +323,16 @@ async fn test_quark(
             error: Some(format!("连接失败: {}", e)),
         })),
     }
+}
+
+async fn quark_signin(State(state): State<Arc<DriveState>>) -> Result<Json<QuarkSigninResponse>> {
+    let result = state.quark_signin_service.signin().await?;
+    let message = signin_message(&result);
+    Ok(Json(QuarkSigninResponse {
+        success: true,
+        message,
+        result,
+    }))
 }
 
 async fn drive_client(state: &DriveState) -> Result<QuarkSaveClient> {
@@ -1027,12 +1047,14 @@ pub fn routes(
     subscription_store: Arc<SubscriptionStore>,
     notification_store: Arc<NotificationStore>,
     job_queue: Arc<JobQueue>,
+    quark_signin_service: Arc<QuarkSigninService>,
 ) -> Router {
     let state = Arc::new(DriveState {
         settings_store,
         subscription_store,
         notification_store,
         job_queue,
+        quark_signin_service,
         drive_cache: RwLock::new(HashMap::new()),
         notified_completed_downloads: RwLock::new(HashSet::new()),
     });
@@ -1066,6 +1088,7 @@ pub fn routes(
         .route("/api/drive/aria2/test", get(test_aria2))
         .route("/api/drive/aria2/browse", get(browse_aria2_dir))
         .route("/api/quark/test", post(test_quark))
+        .route("/api/quark/signin", post(quark_signin))
         .with_state(state)
 }
 

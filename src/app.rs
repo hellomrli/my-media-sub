@@ -5,7 +5,8 @@ use crate::config::Config;
 use crate::error::Result;
 use crate::jobs::{JobQueue, JobStore};
 use crate::services::{
-    MetadataService, SubscriptionCheckService, SubscriptionScheduler, SubscriptionTransferService,
+    MetadataService, QuarkSigninScheduler, QuarkSigninService, SubscriptionCheckService,
+    SubscriptionScheduler, SubscriptionTransferService,
 };
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
@@ -24,6 +25,8 @@ pub struct AppContext {
     pub transfer_service: Arc<SubscriptionTransferService>,
     pub check_service: Arc<SubscriptionCheckService>,
     pub scheduler: Arc<SubscriptionScheduler>,
+    pub quark_signin_service: Arc<QuarkSigninService>,
+    pub quark_signin_scheduler: Arc<QuarkSigninScheduler>,
 }
 
 impl AppContext {
@@ -90,6 +93,14 @@ impl AppContext {
         let scheduler = Arc::new(
             SubscriptionScheduler::new(check_service.clone(), settings_store.clone()).await?,
         );
+        let quark_signin_service = Arc::new(QuarkSigninService::new(
+            settings_store.clone(),
+            notification_store.clone(),
+            Some(job_queue.clone()),
+        ));
+        let quark_signin_scheduler = Arc::new(
+            QuarkSigninScheduler::new(quark_signin_service.clone(), settings_store.clone()).await?,
+        );
 
         Ok(Arc::new(Self {
             subscription_store,
@@ -102,11 +113,14 @@ impl AppContext {
             transfer_service,
             check_service,
             scheduler,
+            quark_signin_service,
+            quark_signin_scheduler,
         }))
     }
 
     pub async fn start_background_services(&self) -> Result<()> {
         self.scheduler.start().await?;
+        self.quark_signin_scheduler.start().await?;
         tracing::info!("✅ Services initialized");
         Ok(())
     }
@@ -125,6 +139,8 @@ const SETTINGS_ENV_KEYS: &[&str] = &[
     "APP_PASSWORD",
     "SERVER_PASSWORD",
     "QUARK_COOKIE",
+    "QUARK_SIGNIN_ENABLED",
+    "QUARK_SIGNIN_HOUR",
     "WECOM_BOT_URL",
     "WXPUSHER_APP_TOKEN",
     "WXPUSHER_UIDS",
@@ -175,6 +191,14 @@ async fn apply_env_overrides(settings_store: &SettingsStore) -> Result<()> {
             }
             if let Some(value) = env_non_empty("QUARK_COOKIE") {
                 settings.quark_cookie = value;
+            }
+            if let Some(value) = env_non_empty("QUARK_SIGNIN_ENABLED") {
+                settings.quark_signin_enabled = parse_bool_env(&value);
+            }
+            if let Some(value) = env_non_empty("QUARK_SIGNIN_HOUR") {
+                if let Ok(hour) = value.parse::<i32>() {
+                    settings.quark_signin_hour = hour.clamp(0, 23);
+                }
             }
             if let Some(value) = env_non_empty("WECOM_BOT_URL") {
                 settings.wecom_bot_url = value;
@@ -298,6 +322,17 @@ mod tests {
         }
     }
 
+    async fn temp_settings_store(prefix: &str) -> (SettingsStore, std::path::PathBuf) {
+        let path = std::env::temp_dir().join(format!(
+            "my_media_sub_settings_{}_{}.json",
+            prefix,
+            uuid::Uuid::new_v4()
+        ));
+        let store = SettingsStore::new(&path);
+        store.load().await.unwrap();
+        (store, path)
+    }
+
     #[tokio::test]
     async fn apply_env_overrides_applies_non_empty_values() {
         let _guard = env_lock().lock().await;
@@ -305,12 +340,7 @@ mod tests {
         std::env::set_var("APP_USERNAME", "env-user");
         std::env::set_var("APP_PASSWORD", "env-password");
 
-        let path = std::env::temp_dir().join(format!(
-            "my_media_sub_settings_env_override_{}.json",
-            uuid::Uuid::new_v4()
-        ));
-        let store = SettingsStore::new(&path);
-        store.load().await.unwrap();
+        let (store, path) = temp_settings_store("env_override").await;
 
         apply_env_overrides(&store).await.unwrap();
 
@@ -329,12 +359,7 @@ mod tests {
         std::env::set_var("APP_USERNAME", "env-user");
         std::env::set_var("APP_PASSWORD", "env-password");
 
-        let path = std::env::temp_dir().join(format!(
-            "my_media_sub_settings_auth_preserve_{}.json",
-            uuid::Uuid::new_v4()
-        ));
-        let store = SettingsStore::new(&path);
-        store.load().await.unwrap();
+        let (store, path) = temp_settings_store("auth_preserve").await;
         store
             .update(|settings| {
                 settings.app_username = "saved-user".to_string();
@@ -354,17 +379,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn apply_env_overrides_applies_server_auth_aliases() {
+        let _guard = env_lock().lock().await;
+        let previous = preserve_env();
+        std::env::set_var("SERVER_USERNAME", "server-user");
+        std::env::set_var("SERVER_PASSWORD", "server-password");
+
+        let (store, path) = temp_settings_store("server_auth_alias").await;
+
+        apply_env_overrides(&store).await.unwrap();
+
+        let settings = store.get().await;
+        assert_eq!(settings.app_username, "server-user");
+        assert_eq!(settings.app_password, "server-password");
+
+        restore_env(previous);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn apply_env_overrides_prefers_app_auth_over_server_aliases() {
+        let _guard = env_lock().lock().await;
+        let previous = preserve_env();
+        std::env::set_var("APP_USERNAME", "app-user");
+        std::env::set_var("APP_PASSWORD", "app-password");
+        std::env::set_var("SERVER_USERNAME", "server-user");
+        std::env::set_var("SERVER_PASSWORD", "server-password");
+
+        let (store, path) = temp_settings_store("auth_alias_precedence").await;
+
+        apply_env_overrides(&store).await.unwrap();
+
+        let settings = store.get().await;
+        assert_eq!(settings.app_username, "app-user");
+        assert_eq!(settings.app_password, "app-password");
+
+        restore_env(previous);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
     async fn apply_env_overrides_applies_pansou_api_url_by_itself() {
         let _guard = env_lock().lock().await;
         let previous = preserve_env();
         std::env::set_var("PANSOU_API_URL", "https://example.test");
 
-        let path = std::env::temp_dir().join(format!(
-            "my_media_sub_settings_pansou_env_override_{}.json",
-            uuid::Uuid::new_v4()
-        ));
-        let store = SettingsStore::new(&path);
-        store.load().await.unwrap();
+        let (store, path) = temp_settings_store("pansou_env_override").await;
 
         apply_env_overrides(&store).await.unwrap();
 
