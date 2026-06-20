@@ -6,4 +6,4 @@ pub mod quark_save;
 pub use aria2::Aria2Client;
 pub use pansou::PanSouClient;
 pub use quark::QuarkShareProbe;
-pub use quark_save::{NormalizedItem, QuarkSaveClient};
+pub use quark_save::{NormalizedItem, QuarkSaveClient, QuarkSigninResult};

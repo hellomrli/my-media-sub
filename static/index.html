@@ -902,6 +902,27 @@
               </div>
 
               <div class="app-panel-soft p-4 space-y-4">
+                <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <h3 class="section-title">自动签到</h3>
+                  <button type="button" @click="runQuarkSignin()" :disabled="quarkSigninLoading" class="btn-secondary px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+                    <span x-show="!quarkSigninLoading">立即签到</span>
+                    <span x-show="quarkSigninLoading">签到中...</span>
+                  </button>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.quark_signin_enabled" class="rounded" />启用每日自动签到</label>
+                  <div>
+                    <label class="field-label">执行时间</label>
+                    <div class="flex items-center gap-2">
+                      <input type="number" x-model.number="settings.quark_signin_hour" min="0" max="23" step="1" @change="sanitizeQuarkSigninHour()" class="w-28 px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                      <span class="text-sm text-gray-400">:00</span>
+                    </div>
+                  </div>
+                </div>
+                <p class="text-xs text-gray-500">签到依赖 Cookie 中的移动端参数 kps、sign、vcode；签到成功后会写入通知中心并按推送设置发送通知。</p>
+              </div>
+
+              <div class="app-panel-soft p-4 space-y-4">
                 <div class="flex items-center justify-between gap-3">
                   <h3 class="section-title">目录配置</h3>
                   <button type="button" @click="addCustomCategory()" class="btn-secondary w-9 h-9 rounded-lg grid place-items-center transition-colors" title="添加自定义类别">
@@ -965,6 +986,7 @@
                   <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.push_on_completed" class="rounded" />订阅完结</label>
                   <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.push_on_save" class="rounded" />转存完成</label>
                   <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.push_on_download_completed" class="rounded" />下载完成</label>
+                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.push_on_quark_signin" class="rounded" />夸克签到</label>
                   <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.push_silent" class="rounded" />静默推送</label>
                 </div>
               </div>

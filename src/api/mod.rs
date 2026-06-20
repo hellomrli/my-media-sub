@@ -109,6 +109,7 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
         .merge(settings::routes(
             settings_store.clone(),
             context.scheduler.clone(),
+            context.quark_signin_scheduler.clone(),
         ))
         .merge(search::routes(
             context.pansou_client.clone(),
@@ -128,6 +129,7 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
             context.subscription_store.clone(),
             context.notification_store.clone(),
             context.job_queue.clone(),
+            context.quark_signin_service.clone(),
         ))
         .merge(strm::routes(settings_store.clone()))
         .merge(transfer::routes(context.job_queue.clone()))

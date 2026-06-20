@@ -190,16 +190,18 @@ function app() {
     aria2DirParent: '',
     aria2DirLoading: false,
     aria2DirError: '',
+    quarkSigninLoading: false,
 
     // 设置
     settings: {
       app_username: '', app_password: '', quark_cookie: '', quark_save_enabled: false, quark_save_root: '',
+      quark_signin_enabled: false, quark_signin_hour: 8,
       quark_save_movie_dir: '', quark_save_series_dir: '', quark_save_anime_dir: '',
       custom_categories: [],
       aria2_rpc_url: '', aria2_secret: '',
       aria2_movie_dir: '', aria2_series_dir: '', aria2_anime_dir: '',
       strm_enabled: false, strm_output_dir: '', strm_public_base_url: '', strm_access_token: '', strm_access_token_configured: false,
-      cloud_types: ['quark'], push_on_update: false, push_on_failed: false, push_on_completed: false, push_on_save: false, push_on_download_completed: false,
+      cloud_types: ['quark'], push_on_update: false, push_on_failed: false, push_on_completed: false, push_on_save: false, push_on_download_completed: false, push_on_quark_signin: false,
       metadata_provider: 'tmdb', tmdb_api_key: '', tmdb_language: 'zh-CN',
       wecom_bot_url: '', telegram_bot_token: '', telegram_chat_id: '', bark_url: '', serverchan_key: '',
       wxpusher_app_token: '', wxpusher_uids: '', gotify_url: '', gotify_token: '', pushplus_token: '',
@@ -1015,6 +1017,11 @@ function app() {
     sanitizeCheckInterval() {
       const minutes = Number(this.settings.subscription_check_interval_minutes);
       this.settings.subscription_check_interval_minutes = Math.max(5, Math.floor(Number.isFinite(minutes) ? minutes : 60));
+    },
+
+    sanitizeQuarkSigninHour() {
+      const hour = Number(this.settings.quark_signin_hour);
+      this.settings.quark_signin_hour = Math.min(23, Math.max(0, Math.floor(Number.isFinite(hour) ? hour : 8)));
     },
 
     checkIntervalLabel(minutes) {
@@ -1961,6 +1968,7 @@ function app() {
         subscription_completed: '订阅完结',
         subscription_transferred: '自动转存',
         download_completed: '下载完成',
+        quark_signin: '夸克签到',
         subscription_transfer_failed: '转存失败',
         manual_transfer_succeeded: '手动转存',
         manual_transfer_failed: '转存失败',
@@ -2909,6 +2917,7 @@ function app() {
     async saveSettings() {
       try {
         this.sanitizeCheckInterval();
+        this.sanitizeQuarkSigninHour();
         this.normalizeCustomCategories();
         const response = await fetch('/api/settings', {
           method: 'POST',  // 改为 POST
@@ -2927,6 +2936,29 @@ function app() {
       } catch (error) {
         console.error('保存失败:', error);
         this.showNotification('error', '保存失败');
+      }
+    },
+
+    async runQuarkSignin() {
+      if (!this.settings.quark_cookie && !this.settings.quark_cookie_configured) {
+        this.showNotification('error', '请先在设置中配置夸克 Cookie');
+        return;
+      }
+      this.quarkSigninLoading = true;
+      try {
+        const response = await fetch('/api/quark/signin', {method: 'POST'});
+        const data = await response.json().catch(() => ({}));
+        if (response.ok && data.success) {
+          this.showNotification('success', data.message || '夸克签到成功');
+          await this.loadNotifications();
+        } else {
+          this.showNotification('error', data.message || data.error || '夸克签到失败');
+        }
+      } catch (error) {
+        console.error('夸克签到失败:', error);
+        this.showNotification('error', '夸克签到失败: ' + error.message);
+      } finally {
+        this.quarkSigninLoading = false;
       }
     },
 

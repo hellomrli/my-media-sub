@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use crate::error::Result;
 use crate::models::CustomCategory;
-use crate::services::SubscriptionScheduler;
+use crate::services::{QuarkSigninScheduler, SubscriptionScheduler};
 use crate::store::{
     settings::{SECRET_KEYS, SUPPORTED_CLOUD_TYPES},
     SettingsStore,
@@ -19,6 +19,7 @@ use crate::store::{
 pub struct SettingsState {
     pub store: Arc<SettingsStore>,
     pub scheduler: Arc<SubscriptionScheduler>,
+    pub quark_signin_scheduler: Arc<QuarkSigninScheduler>,
 }
 
 /// 通用响应
@@ -232,6 +233,16 @@ async fn update_settings(
                             settings.quark_save_enabled = b;
                         }
                     }
+                    "quark_signin_enabled" => {
+                        if let Some(b) = value.as_bool() {
+                            settings.quark_signin_enabled = b;
+                        }
+                    }
+                    "quark_signin_hour" => {
+                        if let Some(n) = value.as_i64() {
+                            settings.quark_signin_hour = (n as i32).clamp(0, 23);
+                        }
+                    }
                     "quark_save_root" => {
                         if let Some(s) = string_value(&value) {
                             settings.quark_save_root = s;
@@ -378,6 +389,11 @@ async fn update_settings(
                             settings.push_on_download_completed = b;
                         }
                     }
+                    "push_on_quark_signin" => {
+                        if let Some(b) = value.as_bool() {
+                            settings.push_on_quark_signin = b;
+                        }
+                    }
                     "push_silent" => {
                         if let Some(b) = value.as_bool() {
                             settings.push_silent = b;
@@ -396,13 +412,27 @@ async fn update_settings(
     {
         state.scheduler.reload().await?;
     }
+    if previous.quark_signin_enabled != updated.quark_signin_enabled
+        || previous.quark_signin_hour != updated.quark_signin_hour
+        || previous.quark_cookie != updated.quark_cookie
+    {
+        state.quark_signin_scheduler.reload().await?;
+    }
 
     Ok(Json(Response::ok(public_settings(updated)?)))
 }
 
 /// 创建设置路由
-pub fn routes(store: Arc<SettingsStore>, scheduler: Arc<SubscriptionScheduler>) -> Router {
-    let state = Arc::new(SettingsState { store, scheduler });
+pub fn routes(
+    store: Arc<SettingsStore>,
+    scheduler: Arc<SubscriptionScheduler>,
+    quark_signin_scheduler: Arc<QuarkSigninScheduler>,
+) -> Router {
+    let state = Arc::new(SettingsState {
+        store,
+        scheduler,
+        quark_signin_scheduler,
+    });
 
     Router::new()
         .route("/api/settings", get(get_settings))
