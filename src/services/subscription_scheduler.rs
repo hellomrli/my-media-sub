@@ -4,14 +4,19 @@ use tokio_cron_scheduler::{Job, JobScheduler};
 use tracing::{error, info};
 
 use crate::error::Result;
-use crate::services::SubscriptionCheckService;
-use crate::store::SettingsStore;
+use crate::jobs::JobQueue;
+use crate::services::notification::dispatch_push_event;
+use crate::services::push::{PushEvent, PushLevel};
+use crate::services::{subscription_check::CheckResult, SubscriptionCheckService};
+use crate::store::{NotificationStore, SettingsStore};
 
 /// 订阅调度服务
 pub struct SubscriptionScheduler {
     scheduler: JobScheduler,
     check_service: Arc<SubscriptionCheckService>,
     settings_store: Arc<SettingsStore>,
+    notification_store: Arc<NotificationStore>,
+    job_queue: Option<Arc<JobQueue>>,
     job_id: Arc<RwLock<Option<uuid::Uuid>>>,
 }
 
@@ -20,6 +25,8 @@ impl SubscriptionScheduler {
     pub async fn new(
         check_service: Arc<SubscriptionCheckService>,
         settings_store: Arc<SettingsStore>,
+        notification_store: Arc<NotificationStore>,
+        job_queue: Option<Arc<JobQueue>>,
     ) -> Result<Self> {
         let scheduler = JobScheduler::new().await?;
 
@@ -27,6 +34,8 @@ impl SubscriptionScheduler {
             scheduler,
             check_service,
             settings_store,
+            notification_store,
+            job_queue,
             job_id: Arc::new(RwLock::new(None)),
         })
     }
@@ -50,6 +59,8 @@ impl SubscriptionScheduler {
         // 创建新任务
         let check_service = self.check_service.clone();
         let settings_store = self.settings_store.clone();
+        let notification_store = self.notification_store.clone();
+        let job_queue = self.job_queue.clone();
 
         // 构建 cron 表达式: 每 N 分钟运行一次
         let cron_expr = format!("0 */{} * * * *", interval_minutes);
@@ -58,6 +69,8 @@ impl SubscriptionScheduler {
         let job = Job::new_async(cron_expr.as_str(), move |_uuid, _l| {
             let check_service = check_service.clone();
             let settings_store = settings_store.clone();
+            let notification_store = notification_store.clone();
+            let job_queue = job_queue.clone();
 
             Box::pin(async move {
                 info!("⏰ 定时检查订阅");
@@ -85,6 +98,13 @@ impl SubscriptionScheduler {
                                 updated.len()
                             );
                         }
+                        dispatch_subscription_check_summary(
+                            settings_store.clone(),
+                            notification_store.clone(),
+                            job_queue.clone(),
+                            &results,
+                        )
+                        .await;
                     }
                     Err(e) => {
                         error!("订阅检查失败: {}", e);
@@ -154,5 +174,155 @@ impl SubscriptionScheduler {
         );
 
         Ok(())
+    }
+}
+
+async fn dispatch_subscription_check_summary(
+    settings_store: Arc<SettingsStore>,
+    notification_store: Arc<NotificationStore>,
+    job_queue: Option<Arc<JobQueue>>,
+    results: &[CheckResult],
+) {
+    let message = subscription_check_summary_message(results);
+    let level = if results.iter().any(|result| !result.new_files.is_empty()) {
+        PushLevel::Success
+    } else {
+        PushLevel::Info
+    };
+
+    dispatch_push_event(
+        settings_store,
+        notification_store,
+        job_queue,
+        PushEvent::SubscriptionUpdated,
+        "订阅自动检查完成",
+        message,
+        level,
+    )
+    .await;
+}
+
+fn subscription_check_summary_message(results: &[CheckResult]) -> String {
+    let updated: Vec<&CheckResult> = results
+        .iter()
+        .filter(|result| !result.new_files.is_empty())
+        .collect();
+    let unchanged: Vec<&CheckResult> = results
+        .iter()
+        .filter(|result| {
+            result.new_files.is_empty() && !result.became_invalid && !result.became_completed
+        })
+        .collect();
+    let invalid: Vec<&CheckResult> = results
+        .iter()
+        .filter(|result| result.became_invalid)
+        .collect();
+    let completed: Vec<&CheckResult> = results
+        .iter()
+        .filter(|result| result.became_completed)
+        .collect();
+
+    let mut lines = vec![format!(
+        "本次检查 {} 个订阅，{} 个有更新，{} 个无更新。",
+        results.len(),
+        updated.len(),
+        unchanged.len()
+    )];
+
+    append_subscription_section(&mut lines, "有更新", &updated, |result| {
+        format!(
+            "{}：{} 个新文件{}",
+            result.subscription_title,
+            result.new_files.len(),
+            file_preview_suffix(&result.new_files)
+        )
+    });
+    append_subscription_section(&mut lines, "无更新", &unchanged, |result| {
+        result.subscription_title.clone()
+    });
+    append_subscription_section(&mut lines, "已失效", &invalid, |result| {
+        format!("{}：{}", result.subscription_title, result.summary)
+    });
+    append_subscription_section(&mut lines, "已完结", &completed, |result| {
+        result.subscription_title.clone()
+    });
+
+    lines.join("\n")
+}
+
+fn append_subscription_section<F>(
+    lines: &mut Vec<String>,
+    title: &str,
+    items: &[&CheckResult],
+    format_item: F,
+) where
+    F: Fn(&CheckResult) -> String,
+{
+    if items.is_empty() {
+        return;
+    }
+
+    lines.push(format!(
+        "{}：{}",
+        title,
+        format_limited_items(items, format_item)
+    ));
+}
+
+fn format_limited_items<F>(items: &[&CheckResult], format_item: F) -> String
+where
+    F: Fn(&CheckResult) -> String,
+{
+    let mut values: Vec<String> = items
+        .iter()
+        .take(10)
+        .map(|item| format_item(item))
+        .collect();
+    if items.len() > 10 {
+        values.push(format!("另 {} 个", items.len() - 10));
+    }
+    values.join("、")
+}
+
+fn file_preview_suffix(files: &[String]) -> String {
+    if files.is_empty() {
+        return String::new();
+    }
+
+    let mut preview: Vec<String> = files.iter().take(3).cloned().collect();
+    if files.len() > 3 {
+        preview.push(format!("另 {} 个", files.len() - 3));
+    }
+    format!("（{}）", preview.join("、"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::services::subscription_check::CheckDetails;
+
+    fn check_result(title: &str, new_files: Vec<&str>) -> CheckResult {
+        CheckResult {
+            subscription_id: title.to_string(),
+            subscription_title: title.to_string(),
+            new_files: new_files.into_iter().map(ToString::to_string).collect(),
+            new_episodes: vec![],
+            details: CheckDetails::default(),
+            became_invalid: false,
+            became_completed: false,
+            summary: "无更新".to_string(),
+        }
+    }
+
+    #[test]
+    fn summary_message_lists_updated_and_unchanged_subscriptions() {
+        let message = subscription_check_summary_message(&[
+            check_result("庆余年", vec!["S02E01.mkv", "S02E02.mkv"]),
+            check_result("孤独摇滚", vec![]),
+        ]);
+
+        assert!(message.contains("本次检查 2 个订阅，1 个有更新，1 个无更新。"));
+        assert!(message.contains("有更新：庆余年：2 个新文件"));
+        assert!(message.contains("无更新：孤独摇滚"));
     }
 }

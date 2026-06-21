@@ -96,6 +96,7 @@ impl SubscriptionCheckService {
                 .await?;
             return Ok(CheckResult {
                 subscription_id: sub.id.clone(),
+                subscription_title: sub.title.clone(),
                 new_files: vec![],
                 new_episodes: vec![],
                 details: CheckDetails::default(),
@@ -198,6 +199,7 @@ impl SubscriptionCheckService {
 
         Ok(CheckResult {
             subscription_id: sub.id.clone(),
+            subscription_title: sub.title.clone(),
             new_files: new_file_names,
             new_episodes,
             details,
@@ -590,6 +592,7 @@ fn mock_probe_result(url: &str) -> Result<Option<ProbeResult>> {
 #[derive(Debug, Clone)]
 pub struct CheckResult {
     pub subscription_id: String,
+    pub subscription_title: String,
     pub new_files: Vec<String>,
     pub new_episodes: Vec<i32>,
     pub details: CheckDetails,

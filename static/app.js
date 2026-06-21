@@ -37,6 +37,7 @@ function app() {
       'app_password',
       'aria2_secret',
       'quark_cookie',
+      'quark_signin_cookie',
       'strm_access_token',
       'pansou_api_url',
       'tmdb_api_key',
@@ -195,6 +196,7 @@ function app() {
     // 设置
     settings: {
       app_username: '', app_password: '', quark_cookie: '', quark_save_enabled: false, quark_save_root: '',
+      quark_signin_cookie: '', quark_signin_cookie_configured: false,
       quark_signin_enabled: false, quark_signin_hour: 8,
       quark_save_movie_dir: '', quark_save_series_dir: '', quark_save_anime_dir: '',
       custom_categories: [],

@@ -100,6 +100,7 @@ fn setting_secret(settings: &crate::models::Settings, key: &str) -> Option<Strin
         "app_password" => &settings.app_password,
         "aria2_secret" => &settings.aria2_secret,
         "quark_cookie" => &settings.quark_cookie,
+        "quark_signin_cookie" => &settings.quark_signin_cookie,
         "strm_access_token" => &settings.strm_access_token,
         "pansou_api_url" => &settings.pansou_api_url,
         "tmdb_api_key" => &settings.tmdb_api_key,
@@ -226,6 +227,11 @@ async fn update_settings(
                     "quark_cookie" => {
                         if let Some(s) = non_mask_secret(&value) {
                             settings.quark_cookie = s;
+                        }
+                    }
+                    "quark_signin_cookie" => {
+                        if let Some(s) = non_mask_secret(&value) {
+                            settings.quark_signin_cookie = s;
                         }
                     }
                     "quark_save_enabled" => {

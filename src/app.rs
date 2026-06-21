@@ -91,7 +91,13 @@ impl AppContext {
         );
 
         let scheduler = Arc::new(
-            SubscriptionScheduler::new(check_service.clone(), settings_store.clone()).await?,
+            SubscriptionScheduler::new(
+                check_service.clone(),
+                settings_store.clone(),
+                notification_store.clone(),
+                Some(job_queue.clone()),
+            )
+            .await?,
         );
         let quark_signin_service = Arc::new(QuarkSigninService::new(
             settings_store.clone(),
@@ -139,6 +145,7 @@ const SETTINGS_ENV_KEYS: &[&str] = &[
     "APP_PASSWORD",
     "SERVER_PASSWORD",
     "QUARK_COOKIE",
+    "QUARK_SIGNIN_COOKIE",
     "QUARK_SIGNIN_ENABLED",
     "QUARK_SIGNIN_HOUR",
     "WECOM_BOT_URL",
@@ -191,6 +198,9 @@ async fn apply_env_overrides(settings_store: &SettingsStore) -> Result<()> {
             }
             if let Some(value) = env_non_empty("QUARK_COOKIE") {
                 settings.quark_cookie = value;
+            }
+            if let Some(value) = env_non_empty("QUARK_SIGNIN_COOKIE") {
+                settings.quark_signin_cookie = value;
             }
             if let Some(value) = env_non_empty("QUARK_SIGNIN_ENABLED") {
                 settings.quark_signin_enabled = parse_bool_env(&value);
@@ -339,6 +349,7 @@ mod tests {
         let previous = preserve_env();
         std::env::set_var("APP_USERNAME", "env-user");
         std::env::set_var("APP_PASSWORD", "env-password");
+        std::env::set_var("QUARK_SIGNIN_COOKIE", "signin-cookie");
 
         let (store, path) = temp_settings_store("env_override").await;
 
@@ -347,6 +358,7 @@ mod tests {
         let settings = store.get().await;
         assert_eq!(settings.app_username, "env-user");
         assert_eq!(settings.app_password, "env-password");
+        assert_eq!(settings.quark_signin_cookie, "signin-cookie");
 
         restore_env(previous);
         let _ = std::fs::remove_file(path);
