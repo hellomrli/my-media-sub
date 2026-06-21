@@ -910,6 +910,13 @@
                   </button>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div class="md:col-span-2">
+                    <label class="field-label">签到 Cookie</label>
+                    <div class="flex gap-2">
+                      <input type="text" x-model="settings.quark_signin_cookie" @focus="prepareSecretInput('quark_signin_cookie')" placeholder="粘贴移动端 Cookie，留空使用上方夸克 Cookie" class="min-w-0 flex-1 px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                      <button type="button" @click="toggleSettingSecret('quark_signin_cookie')" :disabled="secretToggleDisabled('quark_signin_cookie')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('quark_signin_cookie')"></button>
+                    </div>
+                  </div>
                   <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.quark_signin_enabled" class="rounded" />启用每日自动签到</label>
                   <div>
                     <label class="field-label">执行时间</label>
@@ -919,7 +926,7 @@
                     </div>
                   </div>
                 </div>
-                <p class="text-xs text-gray-500">签到依赖 Cookie 中的移动端参数 kps、sign、vcode；签到成功后会写入通知中心并按推送设置发送通知。</p>
+                <p class="text-xs text-gray-500">签到依赖移动端 Cookie 中的 kps、sign、vcode；签到 Cookie 留空时使用上方夸克 Cookie。</p>
               </div>
 
               <div class="app-panel-soft p-4 space-y-4">

@@ -34,9 +34,12 @@ impl QuarkSigninService {
 
     pub async fn signin(&self) -> Result<QuarkSigninResult> {
         let settings = self.settings_store.get().await;
-        let cookie = settings.quark_cookie.trim().to_string();
+        let mut cookie = settings.quark_signin_cookie.trim().to_string();
         if cookie.is_empty() {
-            return Err(AppError::Validation("未配置夸克 Cookie".to_string()));
+            cookie = settings.quark_cookie.trim().to_string();
+        }
+        if cookie.is_empty() {
+            return Err(AppError::Validation("未配置夸克签到 Cookie".to_string()));
         }
 
         let result = QuarkSaveClient::new(cookie).signin().await?;
@@ -45,6 +48,19 @@ impl QuarkSigninService {
             self.dispatch_success_push(&result).await;
         }
         Ok(result)
+    }
+
+    pub async fn signin_with_failure_notice(&self) -> Result<QuarkSigninResult> {
+        match self.signin().await {
+            Ok(result) => Ok(result),
+            Err(err) => {
+                if let Err(record_err) = self.record_failure(&err).await {
+                    error!("记录夸克签到失败通知失败: {}", record_err);
+                }
+                self.dispatch_failure_push(&err).await;
+                Err(err)
+            }
+        }
     }
 
     async fn record_success(&self, result: &QuarkSigninResult) -> Result<()> {
@@ -84,6 +100,20 @@ impl QuarkSigninService {
         Ok(())
     }
 
+    async fn record_failure(&self, err: &AppError) -> Result<()> {
+        let message = signin_failure_message(err);
+        add_notification(
+            &self.notification_store,
+            "error",
+            PushEvent::QuarkSignin.as_str(),
+            "夸克签到失败",
+            &message,
+            HashMap::from([("error".to_string(), json!(message))]),
+        )
+        .await?;
+        Ok(())
+    }
+
     async fn dispatch_success_push(&self, result: &QuarkSigninResult) {
         dispatch_push_event(
             self.settings_store.clone(),
@@ -93,6 +123,19 @@ impl QuarkSigninService {
             "夸克签到成功",
             signin_message(result),
             PushLevel::Success,
+        )
+        .await;
+    }
+
+    async fn dispatch_failure_push(&self, err: &AppError) {
+        dispatch_push_event(
+            self.settings_store.clone(),
+            self.notification_store.clone(),
+            self.job_queue.clone(),
+            PushEvent::QuarkSignin,
+            "夸克签到失败",
+            signin_failure_message(err),
+            PushLevel::Error,
         )
         .await;
     }
@@ -136,7 +179,7 @@ impl QuarkSigninScheduler {
             let service = service.clone();
             Box::pin(async move {
                 info!("定时执行夸克签到");
-                match service.signin().await {
+                match service.signin_with_failure_notice().await {
                     Ok(result) => {
                         if result.signed {
                             info!("夸克签到成功: {}", signin_message(&result));
@@ -193,6 +236,10 @@ pub fn signin_message(result: &QuarkSigninResult) -> String {
     )
 }
 
+pub fn signin_failure_message(err: &AppError) -> String {
+    format!("夸克签到失败：{}", err)
+}
+
 fn normalize_hour(hour: i32) -> i32 {
     hour.clamp(0, 23)
 }
@@ -225,6 +272,9 @@ fn format_bytes(size: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+
+    use crate::store::{NotificationStore, SettingsStore};
 
     #[test]
     fn test_normalize_hour() {
@@ -249,5 +299,43 @@ mod tests {
         assert!(message.contains("今日签到 +5.00 MB"));
         assert!(message.contains("连签进度 2/7"));
         assert!(message.contains("SVIP 总空间 1.00 GB"));
+    }
+
+    #[test]
+    fn test_signin_failure_message() {
+        let message =
+            signin_failure_message(&AppError::Validation("未配置夸克签到 Cookie".to_string()));
+        assert_eq!(
+            message,
+            "夸克签到失败：Validation error: 未配置夸克签到 Cookie"
+        );
+    }
+
+    #[tokio::test]
+    async fn signin_with_failure_notice_records_notification() {
+        let base = std::env::temp_dir().join(format!(
+            "my_media_sub_signin_failure_{}",
+            uuid::Uuid::new_v4()
+        ));
+        let settings_path = base.join("settings.json");
+        let notifications_path = base.join("notifications.json");
+
+        let settings_store = Arc::new(SettingsStore::new(&settings_path));
+        settings_store.load().await.unwrap();
+        let notification_store = Arc::new(NotificationStore::new(&notifications_path));
+        notification_store.load().await.unwrap();
+        let service = QuarkSigninService::new(settings_store, notification_store.clone(), None);
+
+        let err = service.signin_with_failure_notice().await.unwrap_err();
+        assert!(matches!(err, AppError::Validation(_)));
+
+        let notifications = notification_store.list(true).await;
+        assert_eq!(notifications.len(), 1);
+        assert_eq!(notifications[0].level, "error");
+        assert_eq!(notifications[0].event, PushEvent::QuarkSignin.as_str());
+        assert_eq!(notifications[0].title, "夸克签到失败");
+        assert!(notifications[0].message.contains("未配置夸克签到 Cookie"));
+
+        let _ = std::fs::remove_dir_all(base);
     }
 }

@@ -8,6 +8,7 @@ pub const SECRET_KEYS: &[&str] = &[
     "app_password",
     "aria2_secret",
     "quark_cookie",
+    "quark_signin_cookie",
     "strm_access_token",
     "pansou_api_url",
     "tmdb_api_key",

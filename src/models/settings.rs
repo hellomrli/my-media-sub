@@ -51,6 +51,10 @@ pub struct Settings {
     #[serde(default)]
     pub quark_cookie: String,
 
+    /// 夸克签到 Cookie（可使用移动端 Cookie；留空时回退到 quark_cookie）
+    #[serde(default)]
+    pub quark_signin_cookie: String,
+
     /// 夸克转存是否启用
     #[serde(default)]
     pub quark_save_enabled: bool,
@@ -294,6 +298,7 @@ impl Default for Settings {
             tmdb_api_key: String::new(),
             tmdb_language: default_tmdb_language(),
             quark_cookie: String::new(),
+            quark_signin_cookie: String::new(),
             quark_save_enabled: false,
             quark_signin_enabled: false,
             quark_signin_hour: default_quark_signin_hour(),
@@ -350,6 +355,7 @@ mod tests {
         assert!(settings.check_links);
         assert_eq!(settings.metadata_provider, "tmdb");
         assert_eq!(settings.tmdb_language, "zh-CN");
+        assert!(settings.quark_signin_cookie.is_empty());
         assert!(settings.push_on_download_completed);
         assert!(settings.push_on_quark_signin);
         assert_eq!(settings.quark_signin_hour, 8);
