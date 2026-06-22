@@ -5,6 +5,7 @@ use tracing::{error, info};
 
 use crate::error::Result;
 use crate::jobs::JobQueue;
+use crate::models::settings::normalize_check_interval_minutes;
 use crate::services::notification::dispatch_push_event;
 use crate::services::push::{PushEvent, PushLevel};
 use crate::services::{subscription_check::CheckResult, SubscriptionCheckService};
@@ -180,7 +181,7 @@ impl SubscriptionScheduler {
 }
 
 fn normalize_interval_minutes(minutes: i32) -> u64 {
-    minutes.max(5) as u64
+    normalize_check_interval_minutes(i64::from(minutes)) as u64
 }
 
 async fn dispatch_subscription_check_summary(
