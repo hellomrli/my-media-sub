@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tokio::sync::RwLock;
 use tokio_cron_scheduler::{Job, JobScheduler};
 use tracing::{error, info};
@@ -46,7 +46,8 @@ impl SubscriptionScheduler {
 
         let settings = self.settings_store.get().await;
         let enabled = settings.subscription_scheduler_enabled;
-        let interval_minutes = settings.subscription_check_interval_minutes;
+        let interval_minutes =
+            normalize_interval_minutes(settings.subscription_check_interval_minutes);
 
         if !enabled {
             info!("订阅调度器未启用");
@@ -62,56 +63,57 @@ impl SubscriptionScheduler {
         let notification_store = self.notification_store.clone();
         let job_queue = self.job_queue.clone();
 
-        // 构建 cron 表达式: 每 N 分钟运行一次
-        let cron_expr = format!("0 */{} * * * *", interval_minutes);
         info!("订阅检查周期: 每 {} 分钟", interval_minutes);
 
-        let job = Job::new_async(cron_expr.as_str(), move |_uuid, _l| {
-            let check_service = check_service.clone();
-            let settings_store = settings_store.clone();
-            let notification_store = notification_store.clone();
-            let job_queue = job_queue.clone();
+        let job = Job::new_repeated_async(
+            Duration::from_secs(interval_minutes * 60),
+            move |_uuid, _l| {
+                let check_service = check_service.clone();
+                let settings_store = settings_store.clone();
+                let notification_store = notification_store.clone();
+                let job_queue = job_queue.clone();
 
-            Box::pin(async move {
-                info!("⏰ 定时检查订阅");
+                Box::pin(async move {
+                    info!("⏰ 定时检查订阅");
 
-                let settings = settings_store.get().await;
-                let cookie = settings.quark_cookie.clone();
+                    let settings = settings_store.get().await;
+                    let cookie = settings.quark_cookie.clone();
 
-                if cookie.is_empty() {
-                    error!("未配置夸克 Cookie，跳过订阅检查");
-                    return;
-                }
+                    if cookie.is_empty() {
+                        error!("未配置夸克 Cookie，跳过订阅检查");
+                        return;
+                    }
 
-                match check_service.check_all_subscriptions(&cookie).await {
-                    Ok(results) => {
-                        let total = results.len();
-                        let updated: Vec<_> =
-                            results.iter().filter(|r| !r.new_files.is_empty()).collect();
+                    match check_service.check_all_subscriptions(&cookie).await {
+                        Ok(results) => {
+                            let total = results.len();
+                            let updated: Vec<_> =
+                                results.iter().filter(|r| !r.new_files.is_empty()).collect();
 
-                        if updated.is_empty() {
-                            info!("✅ 检查完成，共 {} 个订阅，无更新", total);
-                        } else {
-                            info!(
-                                "✅ 检查完成，共 {} 个订阅，{} 个有更新",
-                                total,
-                                updated.len()
-                            );
+                            if updated.is_empty() {
+                                info!("✅ 检查完成，共 {} 个订阅，无更新", total);
+                            } else {
+                                info!(
+                                    "✅ 检查完成，共 {} 个订阅，{} 个有更新",
+                                    total,
+                                    updated.len()
+                                );
+                            }
+                            dispatch_subscription_check_summary(
+                                settings_store.clone(),
+                                notification_store.clone(),
+                                job_queue.clone(),
+                                &results,
+                            )
+                            .await;
                         }
-                        dispatch_subscription_check_summary(
-                            settings_store.clone(),
-                            notification_store.clone(),
-                            job_queue.clone(),
-                            &results,
-                        )
-                        .await;
+                        Err(e) => {
+                            error!("订阅检查失败: {}", e);
+                        }
                     }
-                    Err(e) => {
-                        error!("订阅检查失败: {}", e);
-                    }
-                }
-            })
-        })?;
+                })
+            },
+        )?;
 
         let job_uuid = self.scheduler.add(job).await?;
         *self.job_id.write().await = Some(job_uuid);
@@ -175,6 +177,10 @@ impl SubscriptionScheduler {
 
         Ok(())
     }
+}
+
+fn normalize_interval_minutes(minutes: i32) -> u64 {
+    minutes.max(5) as u64
 }
 
 async fn dispatch_subscription_check_summary(
@@ -312,6 +318,14 @@ mod tests {
             became_completed: false,
             summary: "无更新".to_string(),
         }
+    }
+
+    #[test]
+    fn normalizes_interval_minutes_for_scheduler() {
+        assert_eq!(normalize_interval_minutes(-1), 5);
+        assert_eq!(normalize_interval_minutes(0), 5);
+        assert_eq!(normalize_interval_minutes(60), 60);
+        assert_eq!(normalize_interval_minutes(720), 720);
     }
 
     #[test]
