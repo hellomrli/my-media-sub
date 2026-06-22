@@ -20,6 +20,7 @@ const GITHUB_REPO: &str = "hellomrli/my-media-sub";
 
 static UPDATE_PROGRESS: Lazy<Mutex<UpdateProgressResponse>> =
     Lazy::new(|| Mutex::new(UpdateProgressResponse::idle()));
+static PENDING_RESTART: Lazy<Mutex<Option<RestartPlan>>> = Lazy::new(|| Mutex::new(None));
 
 #[derive(Serialize)]
 struct Response<T> {
@@ -92,6 +93,13 @@ pub struct UpdateApplyResponse {
     pub backup_path: String,
     pub restart_required: bool,
     pub auto_restart_scheduled: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UpdateRestartResponse {
+    pub success: bool,
+    pub restart_scheduled: bool,
     pub message: String,
 }
 
@@ -173,6 +181,23 @@ async fn update_progress() -> Result<impl IntoResponse> {
     Ok(Json(Response::ok(current_update_progress())))
 }
 
+async fn restart_update() -> Result<impl IntoResponse> {
+    let plan = PENDING_RESTART
+        .lock()
+        .map_err(|_| AppError::Internal("读取重启计划失败".to_string()))?
+        .take()
+        .ok_or_else(|| AppError::Validation("当前没有待重启的升级任务".to_string()))?;
+
+    finish_update_progress("服务正在重启，请稍后刷新页面", "restarting");
+    schedule_restart(plan);
+
+    Ok(Json(Response::ok(UpdateRestartResponse {
+        success: true,
+        restart_scheduled: true,
+        message: "服务正在重启，请稍后刷新页面".to_string(),
+    })))
+}
+
 fn current_update_progress() -> UpdateProgressResponse {
     UPDATE_PROGRESS
         .lock()
@@ -232,11 +257,11 @@ fn set_download_progress(downloaded_bytes: u64, total_bytes: Option<u64>) {
     }
 }
 
-fn finish_update_progress(message: impl Into<String>) {
+fn finish_update_progress(message: impl Into<String>, stage: &str) {
     if let Ok(mut progress) = UPDATE_PROGRESS.lock() {
         progress.running = false;
         progress.percent = 100;
-        progress.stage = "restarting".to_string();
+        progress.stage = stage.to_string();
         progress.message = message.into();
         progress.error = None;
         progress.updated_at = Utc::now().to_rfc3339();
@@ -306,8 +331,8 @@ async fn apply_update_inner() -> Result<UpdateApplyResponse> {
 
     set_update_progress(97, "cleanup", "正在清理升级临时文件");
     let _ = tokio::fs::remove_dir_all(&work_dir).await;
-    finish_update_progress("升级完成，服务将自动重启");
-    schedule_restart(restart_plan);
+    store_pending_restart(restart_plan)?;
+    finish_update_progress("升级完成，请点击按钮重启服务并刷新页面", "restart_required");
 
     Ok(UpdateApplyResponse {
         success: true,
@@ -315,10 +340,18 @@ async fn apply_update_inner() -> Result<UpdateApplyResponse> {
         new_version: latest_version,
         binary_path: current_exe.display().to_string(),
         backup_path: backup_path.display().to_string(),
-        restart_required: false,
-        auto_restart_scheduled: true,
-        message: "二进制已替换，服务将自动重启".to_string(),
+        restart_required: true,
+        auto_restart_scheduled: false,
+        message: "二进制已替换，请重启服务后生效".to_string(),
     })
+}
+
+fn store_pending_restart(plan: RestartPlan) -> Result<()> {
+    let mut pending = PENDING_RESTART
+        .lock()
+        .map_err(|_| AppError::Internal("保存重启计划失败".to_string()))?;
+    *pending = Some(plan);
+    Ok(())
 }
 
 fn restart_plan(executable: &Path) -> RestartPlan {
@@ -663,6 +696,7 @@ pub fn routes() -> Router {
         .route("/api/update/check", get(check_update))
         .route("/api/update/progress", get(update_progress))
         .route("/api/update/apply", post(apply_update))
+        .route("/api/update/restart", post(restart_update))
 }
 
 #[cfg(test)]

@@ -177,6 +177,9 @@ function app() {
     updateError: '',
     updateProgress: null,
     updateProgressTimer: null,
+    showUpdateProgressDialog: false,
+    updateRestarting: false,
+    updateRestartError: '',
 
     // 转存相关
     showTransferModal: false,
@@ -433,6 +436,9 @@ function app() {
         this.loadUpdateProgress().then(progress => {
           if (progress && progress.running && !this.updateProgressTimer) {
             this.startUpdateProgressPolling();
+          }
+          if (progress && progress.stage === 'restart_required') {
+            this.showUpdateProgressDialog = true;
           }
         });
       }
@@ -2692,9 +2698,11 @@ function app() {
         this.showNotification('info', '当前已是最新版本');
         return;
       }
-      if (!confirm('确认升级？系统会下载最新 Release，替换当前运行的 my-media-sub 二进制文件，并在完成后自动重启服务。')) return;
       this.updateApplying = true;
       this.updateError = '';
+      this.updateRestartError = '';
+      this.updateRestarting = false;
+      this.showUpdateProgressDialog = true;
       this.setLocalUpdateProgress(1, '正在准备升级');
       this.startUpdateProgressPolling();
       try {
@@ -2702,9 +2710,15 @@ function app() {
         const result = await response.json().catch(() => ({}));
         await this.loadUpdateProgress();
         if (response.ok && result.data) {
-          this.setLocalUpdateProgress(100, result.data.message || '升级完成，服务将自动重启', 'restarting', false);
+          const restartRequired = Boolean(result.data.restart_required);
+          this.setLocalUpdateProgress(
+            100,
+            result.data.message || (restartRequired ? '升级完成，请重启服务后生效' : '升级完成'),
+            restartRequired ? 'restart_required' : 'completed',
+            false
+          );
           this.stopUpdateProgressPolling();
-          this.showNotification('success', result.data.message || '升级完成，服务将自动重启');
+          this.showNotification('success', result.data.message || '升级完成');
           this.updateInfo.current_version = result.data.new_version || this.updateInfo.current_version;
           this.updateInfo.update_available = false;
         } else {
@@ -2715,9 +2729,9 @@ function app() {
         }
       } catch (error) {
         await this.loadUpdateProgress();
-        if (this.updateProgress && !this.updateProgress.error && this.updateProgress.percent >= 90) {
-          this.setLocalUpdateProgress(100, '升级请求已断开，服务可能正在重启', 'restarting', false);
-          this.showNotification('info', '升级请求已断开，服务可能正在重启');
+        if (this.updateRestartRequired()) {
+          this.updateError = '';
+          this.showNotification('success', '升级完成，请重启服务后生效');
         } else {
           this.updateError = '升级失败: ' + error.message;
           this.markUpdateProgressFailed(this.updateError);
@@ -2732,12 +2746,69 @@ function app() {
       }
     },
 
+    async restartAfterUpdate() {
+      if (this.updateRestarting) return;
+      this.updateRestarting = true;
+      this.updateRestartError = '';
+      this.updateError = '';
+      this.showUpdateProgressDialog = true;
+      this.setLocalUpdateProgress(100, '正在请求服务重启', 'restarting', false);
+      try {
+        const response = await fetch('/api/update/restart', {method: 'POST'});
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(result.message || result.error || '请求重启失败');
+        }
+        this.setLocalUpdateProgress(100, result.data?.message || '服务正在重启，请稍后刷新页面', 'restarting', false);
+        await this.waitForServiceRestart();
+        window.location.reload();
+      } catch (error) {
+        if (error instanceof TypeError) {
+          try {
+            await this.waitForServiceRestart();
+            window.location.reload();
+            return;
+          } catch (pollError) {
+            this.updateRestartError = pollError.message;
+          }
+        } else {
+          this.updateRestartError = '重启失败: ' + error.message;
+        }
+        this.setLocalUpdateProgress(100, this.updateRestartError, 'restart_required', false, this.updateRestartError);
+        this.showNotification('error', this.updateRestartError);
+      } finally {
+        this.updateRestarting = false;
+      }
+    },
+
+    async waitForServiceRestart(timeoutMs = 60000) {
+      await this.sleep(2000);
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < timeoutMs) {
+        try {
+          const response = await fetch(`/health?restart=${Date.now()}`, {cache: 'no-store'});
+          if (response.ok) return true;
+        } catch (error) {
+          // The connection is expected to fail while the process is restarting.
+        }
+        await this.sleep(1000);
+      }
+      throw new Error('服务重启超时，请稍后手动刷新页面');
+    },
+
+    sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    },
+
     async loadUpdateProgress(silent = true) {
       try {
         const response = await fetch('/api/update/progress', {cache: 'no-store'});
         const result = await response.json().catch(() => ({}));
         if (response.ok && result.data) {
           this.updateProgress = this.normalizeUpdateProgress(result.data);
+          if (this.updateProgress && this.updateProgress.stage === 'restart_required') {
+            this.showUpdateProgressDialog = true;
+          }
           if (this.updateProgress && !this.updateProgress.running) {
             this.stopUpdateProgressPolling();
           }
@@ -2798,6 +2869,31 @@ function app() {
     markUpdateProgressFailed(message) {
       const currentPercent = this.updateProgress ? this.updateProgress.percent : 1;
       this.setLocalUpdateProgress(currentPercent, message, 'failed', false, message);
+    },
+
+    updateRestartRequired() {
+      return Boolean(this.updateProgress && this.updateProgress.stage === 'restart_required' && !this.updateProgress.error);
+    },
+
+    updateDialogBusy() {
+      return Boolean(this.updateApplying || this.updateRestarting || (this.updateProgress && this.updateProgress.running));
+    },
+
+    updateDialogCanClose() {
+      return !this.updateDialogBusy() && !this.updateRestartRequired();
+    },
+
+    closeUpdateProgressDialog() {
+      if (this.updateDialogCanClose()) {
+        this.showUpdateProgressDialog = false;
+      }
+    },
+
+    updateDialogTitle() {
+      if (this.updateRestarting || (this.updateProgress && this.updateProgress.stage === 'restarting')) return '服务重启中';
+      if (this.updateProgress && this.updateProgress.error) return '升级失败';
+      if (this.updateRestartRequired()) return '升级完成';
+      return '在线升级';
     },
 
     updateProgressPercent() {

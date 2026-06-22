@@ -125,8 +125,12 @@ impl AppContext {
     }
 
     pub async fn start_background_services(&self) -> Result<()> {
-        self.scheduler.start().await?;
-        self.quark_signin_scheduler.start().await?;
+        if let Err(err) = self.scheduler.start().await {
+            tracing::error!("启动订阅调度器失败: {}", err);
+        }
+        if let Err(err) = self.quark_signin_scheduler.start().await {
+            tracing::error!("启动夸克签到调度器失败: {}", err);
+        }
         tracing::info!("✅ Services initialized");
         Ok(())
     }
