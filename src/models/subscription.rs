@@ -79,6 +79,10 @@ pub struct ProbeFile {
     #[serde(default)]
     pub size: i64,
 
+    /// 更新时间/上传时间（原始网盘时间字段，可能为空）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+
     /// 文件 key
     #[serde(default)]
     pub file_key: String,

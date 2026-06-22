@@ -1,9 +1,12 @@
 #![allow(dead_code)]
 
 use crate::models::{Subscription, TransferRules};
-use crate::services::episode::{detect_episode, split_words};
+use crate::services::episode::{
+    detect_episode, episode_video_key, is_better_episode_duplicate_candidate, is_video_name,
+    normalize_duplicate_episode_strategy, split_words, EpisodeDuplicateCandidate,
+};
 use regex::Regex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 /// 转存计划
@@ -43,6 +46,8 @@ pub struct ProbeFile {
     pub name: String,
     pub fid: String,
     pub is_dir: bool,
+    pub size: i64,
+    pub updated_at: Option<String>,
 }
 
 /// 规范化规则（填充默认值）
@@ -69,12 +74,80 @@ fn display_name(name: &str, ignore_extensions: bool) -> String {
 }
 
 /// 状态键（用于去重）
-fn state_key(name: &str, episode: Option<i32>, ignore_extensions: bool) -> String {
+pub fn transfer_state_key(name: &str, episode: Option<i32>, ignore_extensions: bool) -> String {
+    if is_video_name(name) {
+        if let Some(ep) = episode {
+            return format!("ep:{}", ep);
+        }
+    }
+
     let comparable = display_name(name, ignore_extensions).to_lowercase();
-    if let Some(ep) = episode {
-        format!("ep:{}:{}", ep, comparable)
-    } else {
-        format!("name:{}", comparable)
+    format!("name:{}", comparable)
+}
+
+fn duplicate_episode_skip_reason(strategy: &str) -> String {
+    match normalize_duplicate_episode_strategy(strategy) {
+        "latest_upload" => "同集重复视频，已保留上传时间最新版本".to_string(),
+        "largest_size" => "同集重复视频，已保留文件最大版本".to_string(),
+        "first" => "同集重复视频，已保留最先出现版本".to_string(),
+        _ => "同集重复视频，已保留清晰度最高版本".to_string(),
+    }
+}
+
+fn duplicate_candidate<'a>(file: &'a ProbeFile, order: usize) -> EpisodeDuplicateCandidate<'a> {
+    EpisodeDuplicateCandidate {
+        name: &file.name,
+        size: file.size,
+        updated_at: file.updated_at.as_deref(),
+        order,
+    }
+}
+
+fn apply_duplicate_episode_strategy(
+    subscription: &Subscription,
+    rules: &TransferRules,
+    files: &[ProbeFile],
+    items: &mut [TransferItem],
+) {
+    if subscription.media_type == "movie" {
+        return;
+    }
+
+    let mut best_by_episode: HashMap<(i32, i32), usize> = HashMap::new();
+    for (index, item) in items.iter().enumerate() {
+        if item.action != "transfer" {
+            continue;
+        }
+        let Some(key) = episode_video_key(&item.source_name, subscription.season) else {
+            continue;
+        };
+
+        match best_by_episode.get(&key).copied() {
+            Some(current_index) => {
+                if is_better_episode_duplicate_candidate(
+                    duplicate_candidate(&files[index], index),
+                    duplicate_candidate(&files[current_index], current_index),
+                    &rules.duplicate_episode_strategy,
+                ) {
+                    best_by_episode.insert(key, index);
+                }
+            }
+            None => {
+                best_by_episode.insert(key, index);
+            }
+        }
+    }
+
+    let selected: HashSet<usize> = best_by_episode.values().copied().collect();
+    let skip_reason = duplicate_episode_skip_reason(&rules.duplicate_episode_strategy);
+    for (index, item) in items.iter_mut().enumerate() {
+        if item.action == "transfer"
+            && episode_video_key(&item.source_name, subscription.season).is_some()
+            && !selected.contains(&index)
+        {
+            item.action = "skip".to_string();
+            item.skip_reason = skip_reason.clone();
+        }
     }
 }
 
@@ -216,7 +289,6 @@ pub fn build_transfer_plan(
     let exclude_kw = split_words(&rules.exclude_keywords);
 
     let mut items: Vec<TransferItem> = Vec::new();
-    let mut matched_for_summary: Vec<(String, Option<i32>, String)> = Vec::new();
     let compile_error: Option<String> = if !rules.match_regex.is_empty() {
         Regex::new(&rules.match_regex).err().map(|e| e.to_string())
     } else {
@@ -232,7 +304,7 @@ pub fn build_transfer_plan(
         let name = &raw.name;
         let ep_info = detect_episode(name);
         let episode = ep_info.episode;
-        let key = state_key(name, episode, rules.ignore_extensions);
+        let key = transfer_state_key(name, episode, rules.ignore_extensions);
         let comparable = display_name(name, rules.ignore_extensions);
 
         let mut item = TransferItem {
@@ -295,7 +367,6 @@ pub fn build_transfer_plan(
                     item.skip_reason = "目标目录不存在且未开启自动新建".to_string();
                 } else {
                     item.action = "transfer".to_string();
-                    matched_for_summary.push((name.clone(), episode, key.clone()));
                 }
             }
         }
@@ -303,23 +374,17 @@ pub fn build_transfer_plan(
         items.push(item);
     }
 
+    apply_duplicate_episode_strategy(subscription, &rules, &files, &mut items);
+
     // only_latest 逻辑
     if rules.only_latest {
         let transfer_items: Vec<_> = items.iter().filter(|i| i.action == "transfer").collect();
         let episodes: Vec<i32> = transfer_items.iter().filter_map(|i| i.episode).collect();
         if let Some(&latest) = episodes.iter().max() {
-            matched_for_summary.clear();
             for item in &mut items {
                 if item.action == "transfer" && item.episode != Some(latest) {
                     item.action = "skip".to_string();
                     item.skip_reason = "only_latest 仅处理最新一集".to_string();
-                }
-                if item.action == "transfer" {
-                    matched_for_summary.push((
-                        item.source_name.clone(),
-                        item.episode,
-                        item.file_key.clone(),
-                    ));
                 }
             }
         }
@@ -416,6 +481,12 @@ pub fn summarize_rules(rules: Option<&TransferRules>) -> String {
     if rules.skip_existing_transferred {
         parts.push("跳过已转存".to_string());
     }
+    match normalize_duplicate_episode_strategy(&rules.duplicate_episode_strategy) {
+        "latest_upload" => parts.push("同集保留最新上传".to_string()),
+        "largest_size" => parts.push("同集保留最大文件".to_string()),
+        "first" => parts.push("同集保留最先出现".to_string()),
+        _ => {}
+    }
 
     if parts.is_empty() {
         "默认规则".to_string()
@@ -476,6 +547,8 @@ mod tests {
             name: name.to_string(),
             fid: "fid123".to_string(),
             is_dir: false,
+            size: 0,
+            updated_at: None,
         }
     }
 
@@ -510,6 +583,71 @@ mod tests {
         assert_eq!(plan.transfer_count, 1);
         assert_eq!(plan.transfers[0].source_name, "Show.S01E05.mkv");
         assert_eq!(plan.skipped[0].skip_reason, "低于起始转存集数：第 5 集");
+    }
+
+    #[test]
+    fn test_build_transfer_plan_skips_duplicate_episode_videos() {
+        let rules = TransferRules::default();
+        let sub = make_sub("Show", rules);
+        let files = vec![make_file("178.mkv"), make_file("178-4k.mkv")];
+
+        let plan = build_transfer_plan(&sub, Some(&files), None, None, None);
+
+        assert_eq!(plan.transfer_count, 1);
+        assert_eq!(plan.transfers[0].source_name, "178-4k.mkv");
+        assert_eq!(plan.skipped[0].source_name, "178.mkv");
+        assert_eq!(
+            plan.skipped[0].skip_reason,
+            "同集重复视频，已保留清晰度最高版本"
+        );
+    }
+
+    #[test]
+    fn test_build_transfer_plan_can_keep_latest_episode_variant() {
+        let rules = TransferRules {
+            duplicate_episode_strategy: "latest_upload".to_string(),
+            ..Default::default()
+        };
+        let sub = make_sub("Show", rules);
+        let files = vec![
+            ProbeFile {
+                name: "178-4k.mkv".to_string(),
+                fid: "fid-4k".to_string(),
+                is_dir: false,
+                size: 10,
+                updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+            },
+            ProbeFile {
+                name: "178.mkv".to_string(),
+                fid: "fid-new".to_string(),
+                is_dir: false,
+                size: 1,
+                updated_at: Some("2024-01-02T00:00:00Z".to_string()),
+            },
+        ];
+
+        let plan = build_transfer_plan(&sub, Some(&files), None, None, None);
+
+        assert_eq!(plan.transfer_count, 1);
+        assert_eq!(plan.transfers[0].source_name, "178.mkv");
+        assert_eq!(plan.skipped[0].source_name, "178-4k.mkv");
+        assert_eq!(
+            plan.skipped[0].skip_reason,
+            "同集重复视频，已保留上传时间最新版本"
+        );
+    }
+
+    #[test]
+    fn test_build_transfer_plan_skips_transferred_episode_variant() {
+        let rules = TransferRules::default();
+        let mut sub = make_sub("Show", rules);
+        sub.transferred_file_keys = vec!["ep:178".to_string()];
+        let files = vec![make_file("178-4k.mkv")];
+
+        let plan = build_transfer_plan(&sub, Some(&files), None, None, None);
+
+        assert_eq!(plan.transfer_count, 0);
+        assert_eq!(plan.skipped[0].skip_reason, "已转存记录中存在");
     }
 
     #[test]

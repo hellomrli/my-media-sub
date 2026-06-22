@@ -15,6 +15,10 @@ pub struct TransferRules {
     #[serde(default = "default_true")]
     pub skip_existing_transferred: bool,
 
+    /// 同一集出现多个视频时的保留策略：highest_quality / latest_upload / largest_size / first
+    #[serde(default = "default_duplicate_episode_strategy")]
+    pub duplicate_episode_strategy: String,
+
     /// 包含关键词
     #[serde(default)]
     pub include_keywords: Vec<String>,
@@ -72,6 +76,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_duplicate_episode_strategy() -> String {
+    "highest_quality".to_string()
+}
+
 fn default_excludes() -> Vec<String> {
     vec![
         "预告".to_string(),
@@ -93,6 +101,7 @@ impl Default for TransferRules {
             target_dir: String::new(),
             auto_create_target_dir: true,
             skip_existing_transferred: true,
+            duplicate_episode_strategy: default_duplicate_episode_strategy(),
             include_keywords: vec![],
             exclude_keywords: default_excludes(),
             match_regex: String::new(),

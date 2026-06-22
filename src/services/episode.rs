@@ -12,6 +12,14 @@ struct EpisodePattern {
     regex: Regex,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct EpisodeDuplicateCandidate<'a> {
+    pub name: &'a str,
+    pub size: i64,
+    pub updated_at: Option<&'a str>,
+    pub order: usize,
+}
+
 /// 集数提取正则模式。明确格式优先，裸数字只作为兜底并过滤年份/清晰度。
 static EPISODE_PATTERNS: Lazy<Vec<EpisodePattern>> = Lazy::new(|| {
     vec![
@@ -27,6 +35,35 @@ static EPISODE_PATTERNS: Lazy<Vec<EpisodePattern>> = Lazy::new(|| {
         EpisodePattern {
             regex: Regex::new(r"[\[【]\s*(?P<episode>\d{1,4})\s*[\]】]").unwrap(),
         },
+    ]
+});
+
+static QUALITY_PATTERNS: Lazy<Vec<(Regex, i64)>> = Lazy::new(|| {
+    vec![
+        (
+            Regex::new(r"(?i)(?:^|[^\p{L}\d])(?:8k|4320p)(?:$|[^\p{L}\d])").unwrap(),
+            4320,
+        ),
+        (
+            Regex::new(r"(?i)(?:^|[^\p{L}\d])(?:4k|2160p)(?:$|[^\p{L}\d])").unwrap(),
+            2160,
+        ),
+        (
+            Regex::new(r"(?i)(?:^|[^\p{L}\d])(?:2k|1440p)(?:$|[^\p{L}\d])").unwrap(),
+            1440,
+        ),
+        (
+            Regex::new(r"(?i)(?:^|[^\p{L}\d])1080p(?:$|[^\p{L}\d])").unwrap(),
+            1080,
+        ),
+        (
+            Regex::new(r"(?i)(?:^|[^\p{L}\d])720p(?:$|[^\p{L}\d])").unwrap(),
+            720,
+        ),
+        (
+            Regex::new(r"(?i)(?:^|[^\p{L}\d])480p(?:$|[^\p{L}\d])").unwrap(),
+            480,
+        ),
     ]
 });
 
@@ -73,6 +110,83 @@ fn numeric_fallback_episode(name: &str) -> Option<i32> {
 pub fn is_video_name(name: &str) -> bool {
     let lower = name.to_lowercase();
     VIDEO_EXTS.iter().any(|ext| lower.ends_with(ext))
+}
+
+/// 用于同一订阅内按季度和集数识别同集视频。
+pub fn episode_video_key(name: &str, default_season: i32) -> Option<(i32, i32)> {
+    if !is_video_name(name) {
+        return None;
+    }
+
+    let info = detect_episode(name);
+    let episode = info.episode?;
+    let season = info.season.unwrap_or(default_season).max(1);
+    Some((season, episode))
+}
+
+pub fn normalize_duplicate_episode_strategy(strategy: &str) -> &'static str {
+    match strategy.trim().to_ascii_lowercase().as_str() {
+        "latest_upload" | "latest_uploaded" | "latest_time" | "latest" | "newest" => {
+            "latest_upload"
+        }
+        "largest_size" | "size" | "biggest" => "largest_size",
+        "first" | "first_seen" => "first",
+        _ => "highest_quality",
+    }
+}
+
+pub fn episode_quality_score(name: &str) -> i64 {
+    QUALITY_PATTERNS
+        .iter()
+        .find_map(|(regex, score)| regex.is_match(name).then_some(*score))
+        .unwrap_or(0)
+}
+
+pub fn parse_file_time_score(value: Option<&str>) -> i64 {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return 0;
+    };
+
+    if let Ok(timestamp) = value.parse::<i64>() {
+        return if timestamp > 10_000_000_000 {
+            timestamp / 1000
+        } else {
+            timestamp
+        };
+    }
+
+    if let Ok(datetime) = chrono::DateTime::parse_from_rfc3339(value) {
+        return datetime.timestamp();
+    }
+
+    chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S")
+        .map(|datetime| datetime.and_utc().timestamp())
+        .unwrap_or(0)
+}
+
+fn duplicate_candidate_scores(
+    candidate: EpisodeDuplicateCandidate<'_>,
+    strategy: &str,
+) -> [i64; 4] {
+    let quality = episode_quality_score(candidate.name);
+    let time = parse_file_time_score(candidate.updated_at);
+    let size = candidate.size.max(0);
+    let first_order = -(candidate.order as i64);
+
+    match normalize_duplicate_episode_strategy(strategy) {
+        "latest_upload" => [time, quality, size, first_order],
+        "largest_size" => [size, quality, time, first_order],
+        "first" => [first_order, quality, size, time],
+        _ => [quality, size, time, first_order],
+    }
+}
+
+pub fn is_better_episode_duplicate_candidate(
+    candidate: EpisodeDuplicateCandidate<'_>,
+    current: EpisodeDuplicateCandidate<'_>,
+    strategy: &str,
+) -> bool {
+    duplicate_candidate_scores(candidate, strategy) > duplicate_candidate_scores(current, strategy)
 }
 
 /// 从文件名提取集数和季度
@@ -214,6 +328,57 @@ mod tests {
     fn test_detect_episode_number_with_quality_tag() {
         let info = detect_episode("129 4K.mp4");
         assert_eq!(info.episode, Some(129));
+    }
+
+    #[test]
+    fn test_episode_video_key_uses_numeric_fallback_and_default_season() {
+        assert_eq!(episode_video_key("178-4k.mkv", 1), Some((1, 178)));
+        assert_eq!(episode_video_key("Show.S02E178.mkv", 1), Some((2, 178)));
+        assert_eq!(episode_video_key("178.ass", 1), None);
+    }
+
+    #[test]
+    fn test_duplicate_episode_candidate_prefers_highest_quality_by_default() {
+        let current = EpisodeDuplicateCandidate {
+            name: "178.mkv",
+            size: 2,
+            updated_at: None,
+            order: 0,
+        };
+        let candidate = EpisodeDuplicateCandidate {
+            name: "178-4k.mkv",
+            size: 1,
+            updated_at: None,
+            order: 1,
+        };
+
+        assert!(is_better_episode_duplicate_candidate(
+            candidate,
+            current,
+            "highest_quality"
+        ));
+    }
+
+    #[test]
+    fn test_duplicate_episode_candidate_can_prefer_latest_upload() {
+        let current = EpisodeDuplicateCandidate {
+            name: "178-4k.mkv",
+            size: 2,
+            updated_at: Some("2024-01-01T00:00:00Z"),
+            order: 0,
+        };
+        let candidate = EpisodeDuplicateCandidate {
+            name: "178.mkv",
+            size: 1,
+            updated_at: Some("2024-01-02T00:00:00Z"),
+            order: 1,
+        };
+
+        assert!(is_better_episode_duplicate_candidate(
+            candidate,
+            current,
+            "latest_upload"
+        ));
     }
 
     #[test]

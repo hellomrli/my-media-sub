@@ -26,6 +26,8 @@ pub struct QuarkFile {
     pub is_dir: bool,
     pub size: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format_type: Option<i32>,
@@ -60,6 +62,33 @@ struct FileListResponse {
 #[derive(Deserialize)]
 struct FileListData {
     list: Option<Vec<HashMap<String, serde_json::Value>>>,
+}
+
+fn raw_time_field(item: &HashMap<String, serde_json::Value>) -> Option<String> {
+    [
+        "updated_at",
+        "created_at",
+        "update_time",
+        "updated_time",
+        "created_time",
+        "create_time",
+        "file_update_time",
+        "file_create_time",
+        "last_update_at",
+        "last_update_time",
+    ]
+    .iter()
+    .find_map(|key| {
+        item.get(*key).and_then(|value| {
+            value
+                .as_str()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+                .or_else(|| value.as_i64().map(|number| number.to_string()))
+                .or_else(|| value.as_u64().map(|number| number.to_string()))
+        })
+    })
 }
 
 impl QuarkShareProbe {
@@ -320,6 +349,7 @@ impl QuarkShareProbe {
                     .to_string(),
                 is_dir,
                 size: item.get("size").and_then(|v| v.as_i64()).unwrap_or(0),
+                updated_at: raw_time_field(&item),
                 category: item
                     .get("category")
                     .and_then(|v| v.as_str())
@@ -412,6 +442,7 @@ mod tests {
                 share_fid_token: "".to_string(),
                 is_dir: false,
                 size: 1000,
+                updated_at: None,
                 category: None,
                 format_type: None,
             },
@@ -421,6 +452,7 @@ mod tests {
                 share_fid_token: "".to_string(),
                 is_dir: false,
                 size: 2000,
+                updated_at: None,
                 category: None,
                 format_type: None,
             },
@@ -430,6 +462,7 @@ mod tests {
                 share_fid_token: "".to_string(),
                 is_dir: false,
                 size: 500,
+                updated_at: None,
                 category: None,
                 format_type: None,
             },
