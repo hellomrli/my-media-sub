@@ -8,7 +8,7 @@ use serde::Serialize;
 use std::sync::Arc;
 
 use crate::error::Result;
-use crate::models::CustomCategory;
+use crate::models::{settings::normalize_check_interval_minutes, CustomCategory};
 use crate::services::{QuarkSigninScheduler, SubscriptionScheduler};
 use crate::store::{
     settings::{SECRET_KEYS, SUPPORTED_CLOUD_TYPES},
@@ -203,7 +203,8 @@ async fn update_settings(
                     }
                     "subscription_check_interval_minutes" => {
                         if let Some(n) = value.as_i64() {
-                            settings.subscription_check_interval_minutes = n as i32;
+                            settings.subscription_check_interval_minutes =
+                                normalize_check_interval_minutes(n);
                         }
                     }
                     "subscription_scheduler_enabled" => {

@@ -1,5 +1,5 @@
 use crate::error::{AppError, Result};
-use crate::models::Settings;
+use crate::models::{settings::normalize_check_interval_minutes, Settings};
 use std::path::PathBuf;
 use tokio::sync::RwLock;
 
@@ -106,10 +106,9 @@ impl SettingsStore {
     {
         let mut settings = self.settings.write().await;
         updater(&mut settings);
-        // 校验：检查间隔最小 5 分钟
-        if settings.subscription_check_interval_minutes < 5 {
-            settings.subscription_check_interval_minutes = 5;
-        }
+        settings.subscription_check_interval_minutes = normalize_check_interval_minutes(i64::from(
+            settings.subscription_check_interval_minutes,
+        ));
         // 校验：cloud_types 只保留支持的类型，为空则默认 quark
         settings
             .cloud_types

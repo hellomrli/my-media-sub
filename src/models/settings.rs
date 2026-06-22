@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+pub const MIN_SUBSCRIPTION_CHECK_INTERVAL_MINUTES: i32 = 5;
+
 /// 应用设置（与 Python JSON 完全兼容）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
@@ -272,6 +274,13 @@ fn default_check_interval() -> i32 {
     60
 }
 
+pub fn normalize_check_interval_minutes(minutes: i64) -> i32 {
+    minutes.clamp(
+        MIN_SUBSCRIPTION_CHECK_INTERVAL_MINUTES as i64,
+        i32::MAX as i64,
+    ) as i32
+}
+
 fn default_quark_signin_hour() -> i32 {
     8
 }
@@ -365,6 +374,20 @@ mod tests {
         assert!(settings.push_on_quark_signin);
         assert_eq!(settings.quark_signin_hour, 8);
         assert!(settings.default_rename_template.is_empty());
+    }
+
+    #[test]
+    fn test_normalize_check_interval_minutes() {
+        assert_eq!(normalize_check_interval_minutes(-1), 5);
+        assert_eq!(normalize_check_interval_minutes(0), 5);
+        assert_eq!(normalize_check_interval_minutes(5), 5);
+        assert_eq!(normalize_check_interval_minutes(15), 15);
+        assert_eq!(normalize_check_interval_minutes(30), 30);
+        assert_eq!(normalize_check_interval_minutes(60), 60);
+        assert_eq!(normalize_check_interval_minutes(120), 120);
+        assert_eq!(normalize_check_interval_minutes(360), 360);
+        assert_eq!(normalize_check_interval_minutes(720), 720);
+        assert_eq!(normalize_check_interval_minutes(i64::MAX), i32::MAX);
     }
 
     #[test]
