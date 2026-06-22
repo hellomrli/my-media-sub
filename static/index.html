@@ -631,11 +631,12 @@
               </div>
               <button @click="lastCheckResult = null" class="btn-secondary px-3 py-2 rounded text-sm">关闭</button>
             </div>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
               <div class="stat-tile p-3"><div class="text-xs text-gray-500">扫描文件</div><div class="mt-1 text-xl font-semibold text-white" x-text="lastCheckMetric('scanned_count')"></div></div>
               <div class="stat-tile p-3"><div class="text-xs text-gray-500">新增</div><div class="mt-1 text-xl font-semibold text-green-300" x-text="lastCheckMetric('new_count')"></div></div>
               <div class="stat-tile p-3"><div class="text-xs text-gray-500">已知</div><div class="mt-1 text-xl font-semibold text-blue-300" x-text="lastCheckMetric('known_count')"></div></div>
               <div class="stat-tile p-3"><div class="text-xs text-gray-500">起始集跳过</div><div class="mt-1 text-xl font-semibold text-amber-300" x-text="lastCheckMetric('skipped_before_start_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-gray-500">同集跳过</div><div class="mt-1 text-xl font-semibold text-purple-300" x-text="lastCheckMetric('skipped_duplicate_episode_count')"></div></div>
             </div>
             <div x-show="checkDetailItems().length > 0" class="border border-dark-border rounded-lg overflow-hidden">
               <div class="grid grid-cols-12 gap-2 px-3 py-2 bg-dark-bg text-xs text-gray-500">
@@ -1122,6 +1123,15 @@
                 <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.auto_download_new_subscription_items" class="rounded" />自动下载新订阅项</label>
               </div>
 
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">重命名默认值</h3>
+                <div>
+                  <label class="field-label">默认重命名模板</label>
+                  <input type="text" x-model="settings.default_rename_template" placeholder="{title}.S{season}E{episode}" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                  <p class="text-xs text-gray-500 mt-2">留空时使用内置默认模板。支持变量：{}、{title}、{season}、{season_number}、{episode}、{episode_number}、{original}、{name}、{ext}。</p>
+                </div>
+              </div>
+
               <div class="flex justify-end gap-3 pt-4 border-t border-dark-border">
                 <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
@@ -1551,6 +1561,15 @@
               <div><label class="field-label">排除关键词</label><input type="text" x-model="newSubscription.exclude_keywords_text" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="预告, 花絮, trailer" /></div>
               <div><label class="field-label">匹配正则</label><input type="text" x-model="newSubscription.match_regex" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：S01E\\d+|第\\d+集" /></div>
               <div><label class="field-label">完成集数</label><input type="number" min="1" x-model="newSubscription.finish_after_episode" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：12" /></div>
+              <div>
+                <label class="field-label">同集保留策略</label>
+                <select x-model="newSubscription.duplicate_episode_strategy" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white">
+                  <option value="highest_quality">清晰度最高</option>
+                  <option value="latest_upload">上传时间最新</option>
+                  <option value="largest_size">文件最大</option>
+                  <option value="first">最先出现</option>
+                </select>
+              </div>
               <div><label class="field-label">重命名正则</label><input type="text" x-model="newSubscription.rename_regex" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：^\\d+\\." /></div>
               <div><label class="field-label">替换文本</label><input type="text" x-model="newSubscription.rename_replacement" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：S01E$0" /></div>
             </div>

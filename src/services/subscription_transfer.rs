@@ -19,7 +19,10 @@ use crate::services::strm::{
 use crate::services::subscription_progress::{
     completion_target_episode, should_mark_completed_from_transferred_files,
 };
-use crate::services::transfer_rule::apply_rename;
+use crate::services::transfer_rule::{apply_rename, transfer_state_key};
+use crate::services::{
+    episode::is_better_episode_duplicate_candidate, episode::EpisodeDuplicateCandidate,
+};
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
 /// 递归收集目录下所有视频文件（独立函数，使用 Box 解决递归问题）
@@ -55,6 +58,61 @@ fn expected_video_names(file_names: &[String]) -> HashSet<String> {
         .iter()
         .filter(|name| crate::services::is_video_name(name))
         .cloned()
+        .collect()
+}
+
+fn dedup_quark_episode_files<'a>(
+    sub: &Subscription,
+    files: Vec<&'a QuarkFile>,
+) -> Vec<&'a QuarkFile> {
+    if sub.media_type == "movie" {
+        return files;
+    }
+
+    let mut best_by_episode: std::collections::HashMap<(i32, i32), usize> =
+        std::collections::HashMap::new();
+    for (index, file) in files.iter().enumerate() {
+        let Some(key) = crate::services::episode::episode_video_key(&file.name, sub.season) else {
+            continue;
+        };
+
+        match best_by_episode.get(&key).copied() {
+            Some(current_index) => {
+                let current = files[current_index];
+                if is_better_episode_duplicate_candidate(
+                    EpisodeDuplicateCandidate {
+                        name: &file.name,
+                        size: file.size,
+                        updated_at: file.updated_at.as_deref(),
+                        order: index,
+                    },
+                    EpisodeDuplicateCandidate {
+                        name: &current.name,
+                        size: current.size,
+                        updated_at: current.updated_at.as_deref(),
+                        order: current_index,
+                    },
+                    &sub.rules.duplicate_episode_strategy,
+                ) {
+                    best_by_episode.insert(key, index);
+                }
+            }
+            None => {
+                best_by_episode.insert(key, index);
+            }
+        }
+    }
+
+    let selected: HashSet<usize> = best_by_episode.values().copied().collect();
+    files
+        .into_iter()
+        .enumerate()
+        .filter(|(index, file)| {
+            crate::services::episode::episode_video_key(&file.name, sub.season)
+                .map(|_| selected.contains(index))
+                .unwrap_or(true)
+        })
+        .map(|(_, file)| file)
         .collect()
 }
 
@@ -587,6 +645,11 @@ impl SubscriptionTransferService {
             .iter()
             .filter(|f| new_file_names.contains(&f.name))
             .collect();
+        let files_to_transfer = dedup_quark_episode_files(&sub, files_to_transfer);
+        let new_file_names: Vec<String> = files_to_transfer
+            .iter()
+            .map(|file| file.name.clone())
+            .collect();
 
         if files_to_transfer.is_empty() {
             return Ok(TransferResult {
@@ -634,7 +697,7 @@ impl SubscriptionTransferService {
         // 6. 递归收集本次新增的视频文件。不要直接转存父目录，否则会在目标
         // 目录下多出一层原始分享目录，导致重命名和 Aria2 同步路径不符合预期。
         let transfer_files =
-            collect_share_transfer_files(&probe, &pwd_id, &stoken, new_file_names).await?;
+            collect_share_transfer_files(&probe, &pwd_id, &stoken, &new_file_names).await?;
         let transfer_file_names: Vec<String> = transfer_files
             .iter()
             .map(|file| file.name.clone())
@@ -680,7 +743,7 @@ impl SubscriptionTransferService {
         };
 
         // 10. 更新订阅的 transferred_files
-        self.mark_files_as_transferred(&sub.id, &transfer_file_names)
+        self.mark_files_as_transferred(&sub, &transfer_file_names)
             .await?;
 
         // 11. 如果订阅开启了同步下载，提交 Aria2 下载任务
@@ -1013,14 +1076,27 @@ impl SubscriptionTransferService {
     /// 标记文件为已转存
     async fn mark_files_as_transferred(
         &self,
-        subscription_id: &str,
+        sub: &Subscription,
         file_names: &[String],
     ) -> Result<()> {
+        let file_keys: Vec<String> = file_names
+            .iter()
+            .map(|name| {
+                let episode = crate::services::detect_episode(name).episode;
+                transfer_state_key(name, episode, sub.rules.ignore_extensions)
+            })
+            .collect();
+
         self.subscription_store
-            .update(subscription_id, |sub| {
+            .update(&sub.id, |sub| {
                 for name in file_names {
                     if !sub.transferred_files.contains(name) {
                         sub.transferred_files.push(name.clone());
+                    }
+                }
+                for key in &file_keys {
+                    if !sub.transferred_file_keys.contains(key) {
+                        sub.transferred_file_keys.push(key.clone());
                     }
                 }
                 sub.updated_at = std::time::SystemTime::now()
@@ -1389,6 +1465,66 @@ mod tests {
     }
 
     #[test]
+    fn dedup_quark_episode_files_can_keep_latest_upload() {
+        let mut sub = subscription("series", 1);
+        sub.rules.duplicate_episode_strategy = "latest_upload".to_string();
+        let old_4k = QuarkFile {
+            name: "178-4k.mkv".to_string(),
+            fid: "fid-4k".to_string(),
+            share_fid_token: "token-4k".to_string(),
+            is_dir: false,
+            size: 10,
+            updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+            category: None,
+            format_type: None,
+        };
+        let latest = QuarkFile {
+            name: "178.mkv".to_string(),
+            fid: "fid-latest".to_string(),
+            share_fid_token: "token-latest".to_string(),
+            is_dir: false,
+            size: 1,
+            updated_at: Some("2024-01-02T00:00:00Z".to_string()),
+            category: None,
+            format_type: None,
+        };
+
+        let deduped = dedup_quark_episode_files(&sub, vec![&old_4k, &latest]);
+
+        assert_eq!(deduped.len(), 1);
+        assert_eq!(deduped[0].name, "178.mkv");
+    }
+
+    #[test]
+    fn dedup_quark_episode_files_keeps_movie_files() {
+        let sub = subscription("movie", 1);
+        let first = QuarkFile {
+            name: "178.mkv".to_string(),
+            fid: "fid-1".to_string(),
+            share_fid_token: "token-1".to_string(),
+            is_dir: false,
+            size: 1,
+            updated_at: None,
+            category: None,
+            format_type: None,
+        };
+        let second = QuarkFile {
+            name: "178-4k.mkv".to_string(),
+            fid: "fid-2".to_string(),
+            share_fid_token: "token-2".to_string(),
+            is_dir: false,
+            size: 2,
+            updated_at: None,
+            category: None,
+            format_type: None,
+        };
+
+        let deduped = dedup_quark_episode_files(&sub, vec![&first, &second]);
+
+        assert_eq!(deduped.len(), 2);
+    }
+
+    #[test]
     fn filter_rename_candidates_limits_auto_rename_to_expected_names() {
         let expected = expected_video_names(&[
             "Joy.of.Life.2019.S01.EP05.WEB-DL.4K.HEVC.AAC-LeagueWEB.mp4".to_string(),
@@ -1443,6 +1579,26 @@ mod tests {
         assert!(result.skipped);
         assert_eq!(result.transferred_count, 0);
         assert_eq!(result.reason, "自动下载新订阅项未启用");
+    }
+
+    #[tokio::test]
+    async fn mark_files_as_transferred_records_episode_keys() {
+        let subscriptions = Arc::new(SubscriptionStore::new(test_path("subscriptions")));
+        let settings = Arc::new(SettingsStore::new(test_path("settings")));
+        let notifications = Arc::new(NotificationStore::new(test_path("notifications")));
+        let sub = subscription("series", 1);
+        subscriptions.create(sub.clone()).await.unwrap();
+
+        let service =
+            SubscriptionTransferService::new(subscriptions.clone(), settings, notifications);
+        service
+            .mark_files_as_transferred(&sub, &["178-4k.mkv".to_string()])
+            .await
+            .unwrap();
+
+        let updated = subscriptions.get("sub").await.unwrap();
+        assert_eq!(updated.transferred_files, vec!["178-4k.mkv".to_string()]);
+        assert_eq!(updated.transferred_file_keys, vec!["ep:178".to_string()]);
     }
 
     #[tokio::test]

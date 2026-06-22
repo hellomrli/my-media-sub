@@ -1,5 +1,5 @@
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -7,6 +7,10 @@ use crate::clients::quark::QuarkShareProbe;
 use crate::error::{AppError, Result};
 use crate::jobs::{JobQueue, SubscriptionTransferPayload};
 use crate::models::subscription::{CheckHistoryItem, ProbeFile, ProbeResult, Subscription};
+use crate::services::episode::{
+    episode_video_key, is_better_episode_duplicate_candidate, normalize_duplicate_episode_strategy,
+    EpisodeDuplicateCandidate,
+};
 use crate::services::notification::{add_notification, dispatch_push_event};
 use crate::services::push::{PushEvent, PushLevel};
 use crate::services::subscription_progress::{
@@ -265,6 +269,7 @@ impl SubscriptionCheckService {
             .map(|f| ProbeFile {
                 name: f.name.clone(),
                 size: f.size,
+                updated_at: f.updated_at.clone(),
                 file_key: f.fid.clone(),
             })
             .collect();
@@ -279,14 +284,118 @@ impl SubscriptionCheckService {
 
     /// 找出新增文件
     fn find_new_files(&self, sub: &Subscription, files: &[ProbeFile]) -> Vec<ProbeFile> {
-        files
+        let eligible_indices: Vec<usize> = files
             .iter()
-            .filter(|f| {
-                !sub.known_file_keys.contains(&f.file_key)
-                    && !self.is_before_start_episode(sub, &f.name)
+            .enumerate()
+            .filter_map(|(index, file)| {
+                (!sub.known_file_keys.contains(&file.file_key)
+                    && !self.is_before_start_episode(sub, &file.name)
+                    && self.known_episode_video_reason(sub, file).is_none())
+                .then_some(index)
             })
-            .cloned()
+            .collect();
+        let selected_episode_videos =
+            self.selected_episode_video_indices(sub, files, &eligible_indices);
+
+        eligible_indices
+            .into_iter()
+            .filter(|index| {
+                self.keep_episode_video_index(sub, &files[*index], *index, &selected_episode_videos)
+            })
+            .map(|index| files[index].clone())
             .collect()
+    }
+
+    fn known_episode_video_reason(
+        &self,
+        sub: &Subscription,
+        file: &ProbeFile,
+    ) -> Option<&'static str> {
+        if sub.media_type == "movie" {
+            return None;
+        }
+
+        let key = episode_video_key(&file.name, sub.season)?;
+        let episode = key.1;
+        if sub.known_episodes.contains(&episode) {
+            return Some("同集已记录");
+        }
+
+        None
+    }
+
+    fn duplicate_episode_skip_reason(&self, sub: &Subscription) -> &'static str {
+        match normalize_duplicate_episode_strategy(&sub.rules.duplicate_episode_strategy) {
+            "latest_upload" => "同集重复视频，已保留上传时间最新版本",
+            "largest_size" => "同集重复视频，已保留文件最大版本",
+            "first" => "同集重复视频，已保留最先出现版本",
+            _ => "同集重复视频，已保留清晰度最高版本",
+        }
+    }
+
+    fn duplicate_candidate<'a>(
+        &self,
+        file: &'a ProbeFile,
+        order: usize,
+    ) -> EpisodeDuplicateCandidate<'a> {
+        EpisodeDuplicateCandidate {
+            name: &file.name,
+            size: file.size,
+            updated_at: file.updated_at.as_deref(),
+            order,
+        }
+    }
+
+    fn selected_episode_video_indices(
+        &self,
+        sub: &Subscription,
+        files: &[ProbeFile],
+        candidate_indices: &[usize],
+    ) -> HashSet<usize> {
+        if sub.media_type == "movie" {
+            return HashSet::new();
+        }
+
+        let mut best_by_episode: HashMap<(i32, i32), usize> = HashMap::new();
+        for &index in candidate_indices {
+            let file = &files[index];
+            let Some(key) = episode_video_key(&file.name, sub.season) else {
+                continue;
+            };
+
+            match best_by_episode.get(&key).copied() {
+                Some(current_index) => {
+                    if is_better_episode_duplicate_candidate(
+                        self.duplicate_candidate(file, index),
+                        self.duplicate_candidate(&files[current_index], current_index),
+                        &sub.rules.duplicate_episode_strategy,
+                    ) {
+                        best_by_episode.insert(key, index);
+                    }
+                }
+                None => {
+                    best_by_episode.insert(key, index);
+                }
+            }
+        }
+
+        best_by_episode.values().copied().collect()
+    }
+
+    fn keep_episode_video_index(
+        &self,
+        sub: &Subscription,
+        file: &ProbeFile,
+        index: usize,
+        selected_episode_videos: &HashSet<usize>,
+    ) -> bool {
+        if sub.media_type == "movie" {
+            return true;
+        }
+
+        episode_video_key(&file.name, sub.season)
+            .map(|_| selected_episode_videos.contains(&index))
+            .unwrap_or(true)
     }
 
     fn is_before_start_episode(&self, sub: &Subscription, file_name: &str) -> bool {
@@ -312,7 +421,20 @@ impl SubscriptionCheckService {
             ..Default::default()
         };
 
-        for file in files {
+        let detail_candidate_indices: Vec<usize> = files
+            .iter()
+            .enumerate()
+            .filter_map(|(index, file)| {
+                (!sub.known_file_keys.contains(&file.file_key)
+                    && !self.is_before_start_episode(sub, &file.name)
+                    && self.known_episode_video_reason(sub, file).is_none())
+                .then_some(index)
+            })
+            .collect();
+        let selected_episode_videos =
+            self.selected_episode_video_indices(sub, files, &detail_candidate_indices);
+
+        for (index, file) in files.iter().enumerate() {
             let episode = extract_episode_number(&file.name);
             let (action, reason) = if sub.known_file_keys.contains(&file.file_key) {
                 details.known_count += 1;
@@ -320,6 +442,12 @@ impl SubscriptionCheckService {
             } else if self.is_before_start_episode(sub, &file.name) {
                 details.skipped_before_start_count += 1;
                 ("skip", "低于起始转存集数")
+            } else if let Some(reason) = self.known_episode_video_reason(sub, file) {
+                details.skipped_duplicate_episode_count += 1;
+                ("skip", reason)
+            } else if !self.keep_episode_video_index(sub, file, index, &selected_episode_videos) {
+                details.skipped_duplicate_episode_count += 1;
+                ("skip", self.duplicate_episode_skip_reason(sub))
             } else {
                 details.new_count += 1;
                 ("new", "新增文件")
@@ -607,6 +735,7 @@ pub struct CheckDetails {
     pub new_count: usize,
     pub known_count: usize,
     pub skipped_before_start_count: usize,
+    pub skipped_duplicate_episode_count: usize,
     pub items: Vec<CheckDetailItem>,
 }
 
@@ -731,16 +860,19 @@ mod tests {
             ProbeFile {
                 name: "Show.S01E04.mkv".to_string(),
                 size: 1,
+                updated_at: None,
                 file_key: "old-ep".to_string(),
             },
             ProbeFile {
                 name: "Show.S01E05.mkv".to_string(),
                 size: 1,
+                updated_at: None,
                 file_key: "start-ep".to_string(),
             },
             ProbeFile {
                 name: "special.mkv".to_string(),
                 size: 1,
+                updated_at: None,
                 file_key: "special".to_string(),
             },
         ];
@@ -755,6 +887,51 @@ mod tests {
     }
 
     #[test]
+    fn test_find_new_files_dedups_episode_video_variants() {
+        let (service, _, _) = make_service();
+        let sub = make_subscription();
+        let files = vec![
+            ProbeFile {
+                name: "178.mkv".to_string(),
+                size: 1,
+                updated_at: None,
+                file_key: "ep178".to_string(),
+            },
+            ProbeFile {
+                name: "178-4k.mkv".to_string(),
+                size: 1,
+                updated_at: None,
+                file_key: "ep178-4k".to_string(),
+            },
+        ];
+
+        let new_names = service
+            .find_new_files(&sub, &files)
+            .into_iter()
+            .map(|file| file.name)
+            .collect::<Vec<_>>();
+
+        assert_eq!(new_names, vec!["178-4k.mkv"]);
+    }
+
+    #[test]
+    fn test_find_new_files_skips_known_episode_video_variant() {
+        let (service, _, _) = make_service();
+        let mut sub = make_subscription();
+        sub.known_episodes = vec![178];
+        let files = vec![ProbeFile {
+            name: "178-4k.mkv".to_string(),
+            size: 1,
+            updated_at: None,
+            file_key: "ep178-4k".to_string(),
+        }];
+
+        let new_files = service.find_new_files(&sub, &files);
+
+        assert!(new_files.is_empty());
+    }
+
+    #[test]
     fn test_build_check_details_classifies_probe_files() {
         let (service, _, _) = make_service();
         let mut sub = make_subscription();
@@ -764,16 +941,19 @@ mod tests {
             ProbeFile {
                 name: "Show.S01E03.mkv".to_string(),
                 size: 1,
+                updated_at: None,
                 file_key: "known-key".to_string(),
             },
             ProbeFile {
                 name: "Show.S01E04.mkv".to_string(),
                 size: 1,
+                updated_at: None,
                 file_key: "before-start".to_string(),
             },
             ProbeFile {
                 name: "Show.S01E05.mkv".to_string(),
                 size: 1,
+                updated_at: None,
                 file_key: "new-key".to_string(),
             },
         ];
@@ -787,6 +967,37 @@ mod tests {
         assert_eq!(details.items[0].action, "known");
         assert_eq!(details.items[1].action, "skip");
         assert_eq!(details.items[2].action, "new");
+    }
+
+    #[test]
+    fn test_build_check_details_marks_duplicate_episode_video() {
+        let (service, _, _) = make_service();
+        let sub = make_subscription();
+        let files = vec![
+            ProbeFile {
+                name: "178.mkv".to_string(),
+                size: 1,
+                updated_at: None,
+                file_key: "ep178".to_string(),
+            },
+            ProbeFile {
+                name: "178-4k.mkv".to_string(),
+                size: 1,
+                updated_at: None,
+                file_key: "ep178-4k".to_string(),
+            },
+        ];
+
+        let details = service.build_check_details(&sub, &files);
+
+        assert_eq!(details.new_count, 1);
+        assert_eq!(details.skipped_duplicate_episode_count, 1);
+        assert_eq!(details.items[0].action, "skip");
+        assert_eq!(
+            details.items[0].reason,
+            "同集重复视频，已保留清晰度最高版本"
+        );
+        assert_eq!(details.items[1].action, "new");
     }
 
     #[test]
@@ -904,11 +1115,13 @@ mod tests {
                 ProbeFile {
                     name: "Show.S01E01.mkv".to_string(),
                     size: 1,
+                    updated_at: None,
                     file_key: "old-key".to_string(),
                 },
                 ProbeFile {
                     name: "Show.S01E02.mkv".to_string(),
                     size: 1,
+                    updated_at: None,
                     file_key: "new-key".to_string(),
                 },
             ],
@@ -956,11 +1169,13 @@ mod tests {
                 ProbeFile {
                     name: "Show.S01E04.mkv".to_string(),
                     size: 1,
+                    updated_at: None,
                     file_key: "ep4-key".to_string(),
                 },
                 ProbeFile {
                     name: "Show.S01E05.mkv".to_string(),
                     size: 1,
+                    updated_at: None,
                     file_key: "ep5-key".to_string(),
                 },
             ],

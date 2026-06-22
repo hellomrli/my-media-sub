@@ -216,6 +216,11 @@ async fn update_settings(
                             settings.auto_download_new_subscription_items = b;
                         }
                     }
+                    "default_rename_template" => {
+                        if let Some(s) = string_value(&value) {
+                            settings.default_rename_template = s;
+                        }
+                    }
                     "cloud_types" => {
                         if let Some(arr) = value.as_array() {
                             settings.cloud_types = arr

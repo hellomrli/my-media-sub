@@ -116,6 +116,7 @@ function app() {
       rename_replacement: '',
       only_latest: false,
       skip_existing_transferred: true,
+      duplicate_episode_strategy: 'highest_quality',
       auto_create_target_dir: true,
       start_episode_number: '',
       keep_progress_on_source_change: true,
@@ -209,7 +210,7 @@ function app() {
       wxpusher_app_token: '', wxpusher_uids: '', gotify_url: '', gotify_token: '', pushplus_token: '',
       subscription_check_interval_minutes: 60, subscription_scheduler_enabled: false, pansou_api_url: '', pansou_api_url_configured: false, check_links: true,
       probe_quark_files: true, filter_bad_links: true, push_silent: false,
-      auto_download_new_subscription_items: false
+      auto_download_new_subscription_items: false, default_rename_template: ''
     },
 
     get unreadNotifications() {
@@ -614,6 +615,7 @@ function app() {
         rename_replacement: '',
         only_latest: false,
         skip_existing_transferred: true,
+        duplicate_episode_strategy: 'highest_quality',
         auto_create_target_dir: true,
         start_episode_number: '',
         keep_progress_on_source_change: true,
@@ -745,6 +747,7 @@ function app() {
         rename_replacement: '',
         only_latest: false,
         skip_existing_transferred: true,
+        duplicate_episode_strategy: 'highest_quality',
         auto_create_target_dir: true,
         start_episode_number: '',
         keep_progress_on_source_change: true,
@@ -794,6 +797,7 @@ function app() {
         rename_replacement: rules.rename_replacement || '',
         only_latest: !!rules.only_latest,
         skip_existing_transferred: rules.skip_existing_transferred !== false,
+        duplicate_episode_strategy: rules.duplicate_episode_strategy || 'highest_quality',
         auto_create_target_dir: rules.auto_create_target_dir !== false,
         start_episode_number: sub.start_episode_number || '',
         keep_progress_on_source_change: true,
@@ -1209,6 +1213,8 @@ function app() {
     getDefaultRenameTemplate() {
       const title = this.newSubscription.title || '未命名';
       if (this.newSubscription.media_type === 'movie') return title;
+      const configured = String(this.settings.default_rename_template || '').trim();
+      if (configured) return configured;
       const season = this.normalizeSeason(this.newSubscription.season);
       return `${title}.S${String(season).padStart(2, '0')}E{}`;
     },
@@ -1251,6 +1257,7 @@ function app() {
         rename_replacement: this.newSubscription.rename_replacement,
         rename_template: this.resolveSubscriptionRenameTemplate(),
         only_latest: !!this.newSubscription.only_latest,
+        duplicate_episode_strategy: this.newSubscription.duplicate_episode_strategy || 'highest_quality',
         notify_on_update: true,
         notify_on_invalid: true,
         check_interval_minutes: Number(this.settings.subscription_check_interval_minutes || 60),
@@ -1270,6 +1277,10 @@ function app() {
       if (rules.rename_regex) parts.push(`替换 ${rules.rename_regex}→${rules.rename_replacement || ''}`);
       if (rules.only_latest) parts.push('仅最新');
       if (rules.skip_existing_transferred !== false) parts.push('跳过已转存');
+      const duplicateStrategy = rules.duplicate_episode_strategy || 'highest_quality';
+      if (duplicateStrategy === 'latest_upload') parts.push('同集保留最新上传');
+      else if (duplicateStrategy === 'largest_size') parts.push('同集保留最大文件');
+      else if (duplicateStrategy === 'first') parts.push('同集保留最先出现');
       return parts.length ? parts.join('；') : '默认规则';
     },
 

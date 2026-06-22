@@ -100,6 +100,10 @@ pub struct Settings {
     #[serde(default)]
     pub auto_download_new_subscription_items: bool,
 
+    /// 连续剧/动画新订阅默认重命名模板；为空时使用内置默认模板
+    #[serde(default)]
+    pub default_rename_template: String,
+
     // ===== Aria2 配置 =====
     /// Aria2 RPC URL
     #[serde(default)]
@@ -310,6 +314,7 @@ impl Default for Settings {
             subscription_scheduler_enabled: false,
             subscription_check_interval_minutes: default_check_interval(),
             auto_download_new_subscription_items: false,
+            default_rename_template: String::new(),
             aria2_rpc_url: String::new(),
             aria2_secret: String::new(),
             aria2_movie_dir: String::new(),
@@ -359,6 +364,7 @@ mod tests {
         assert!(settings.push_on_download_completed);
         assert!(settings.push_on_quark_signin);
         assert_eq!(settings.quark_signin_hour, 8);
+        assert!(settings.default_rename_template.is_empty());
     }
 
     #[test]
