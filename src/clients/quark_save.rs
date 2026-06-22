@@ -1,6 +1,6 @@
 use crate::error::{AppError, Result};
 use reqwest::header::SET_COOKIE;
-use reqwest::Client;
+use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -235,9 +235,9 @@ impl QuarkSaveClient {
     }
 
     fn mobile_params(&self) -> Option<QuarkMobileParams> {
-        let kps = cookie_value(&self.cookie, "kps")?.replace("%25", "%");
-        let sign = cookie_value(&self.cookie, "sign")?.replace("%25", "%");
-        let vcode = cookie_value(&self.cookie, "vcode")?.replace("%25", "%");
+        let kps = mobile_param_value(&self.cookie, "kps")?;
+        let sign = mobile_param_value(&self.cookie, "sign")?;
+        let vcode = mobile_param_value(&self.cookie, "vcode")?;
         Some(QuarkMobileParams { kps, sign, vcode })
     }
 
@@ -753,6 +753,29 @@ fn cookie_value(cookie: &str, key: &str) -> Option<String> {
     })
 }
 
+fn mobile_param_value(input: &str, key: &str) -> Option<String> {
+    url_query_value(input.trim(), key)
+        .or_else(|| {
+            input.split(';').find_map(|part| {
+                let (name, value) = part.trim().split_once('=')?;
+                if name.trim() == "url" {
+                    url_query_value(value.trim(), key)
+                } else {
+                    None
+                }
+            })
+        })
+        .or_else(|| cookie_value(input, key))
+        .map(|value| value.replace("%25", "%"))
+        .filter(|value| !value.is_empty())
+}
+
+fn url_query_value(value: &str, key: &str) -> Option<String> {
+    let url = Url::parse(value).ok()?;
+    url.query_pairs()
+        .find_map(|(name, value)| (name == key).then(|| value.into_owned()))
+}
+
 fn parse_growth_info(data: &Value) -> Option<QuarkGrowthInfo> {
     let cap_sign = data.get("cap_sign")?;
     let cap_composition = data.get("cap_composition");
@@ -873,6 +896,27 @@ mod tests {
         assert_eq!(params.kps, "abc");
         assert_eq!(params.sign, "a%2Bb");
         assert_eq!(params.vcode, "xyz");
+    }
+
+    #[test]
+    fn test_mobile_params_extracts_required_url_values() {
+        let client = QuarkSaveClient::new(
+            "https://drive-m.quark.cn/1/clouddrive/act/growth/reward?kps=abc&sign=a%252Bb&vcode=xyz",
+        );
+        let params = client.mobile_params().unwrap();
+
+        assert_eq!(params.kps, "abc");
+        assert_eq!(params.sign, "a%2Bb");
+        assert_eq!(params.vcode, "xyz");
+
+        let client = QuarkSaveClient::new(
+            "user=张三; url=https://drive-m.quark.cn/1/clouddrive/act/growth/reward?kps=def&sign=sig&vcode=456;",
+        );
+        let params = client.mobile_params().unwrap();
+
+        assert_eq!(params.kps, "def");
+        assert_eq!(params.sign, "sig");
+        assert_eq!(params.vcode, "456");
     }
 
     #[test]
