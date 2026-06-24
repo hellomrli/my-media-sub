@@ -141,11 +141,6 @@ impl PanSouClient {
 
         Ok(results)
     }
-
-    /// 搜索夸克资源
-    pub async fn search_quark(&self, keyword: &str, limit: usize) -> Result<Vec<SearchResult>> {
-        self.search(keyword, &["quark".to_string()], limit).await
-    }
 }
 
 impl Default for PanSouClient {
@@ -183,7 +178,8 @@ mod tests {
     #[ignore] // 默认跳过，手动运行: cargo test -- --ignored
     async fn test_pansou_search_real() {
         let client = PanSouClient::new(None);
-        let results = client.search_quark("测试", 5).await.unwrap();
+        let cloud_types = vec!["quark".to_string()];
+        let results = client.search("测试", &cloud_types, 5).await.unwrap();
         println!("找到 {} 个结果", results.len());
         for (i, r) in results.iter().enumerate() {
             println!("  [{}] {} - {}", i + 1, r.note, r.url);

@@ -362,6 +362,24 @@ mod tests {
     }
 
     #[test]
+    fn test_detect_episode_real_world_numeric_variants() {
+        let cases = [
+            ("001v2.mp4", Some(1)),
+            ("第178话 重置版.mp4", Some(178)),
+            ("179 V2 1080p.mp4", Some(179)),
+            ("S01 - 178 重制版.mkv", Some(178)),
+            ("E178v2.mp4", Some(178)),
+            ("2024重置版.mp4", None),
+            ("2160p重置版.mp4", None),
+        ];
+
+        for (name, expected) in cases {
+            let info = detect_episode(name);
+            assert_eq!(info.episode, expected, "failed to parse {name}");
+        }
+    }
+
+    #[test]
     fn test_detect_episode_skips_quality_only_name() {
         let info = detect_episode("4K.mp4");
         assert_eq!(info.episode, None);

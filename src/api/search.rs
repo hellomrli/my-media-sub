@@ -8,7 +8,6 @@ use crate::store::SettingsStore;
 
 /// 搜索路由状态
 pub struct SearchState {
-    pub client: Arc<PanSouClient>,
     pub settings_store: Arc<SettingsStore>,
 }
 
@@ -58,11 +57,20 @@ async fn search(
     State(state): State<Arc<SearchState>>,
     Json(req): Json<SearchRequest>,
 ) -> Result<impl IntoResponse> {
-    let mut results = state.client.search_quark(&req.keyword, req.limit).await?;
+    let settings = state.settings_store.get().await;
+    let pansou_api_url = settings.pansou_api_url.trim().to_string();
+    let pansou_api_url = if pansou_api_url.is_empty() {
+        None
+    } else {
+        Some(pansou_api_url)
+    };
+    let pansou_client = PanSouClient::new(pansou_api_url);
+    let mut results = pansou_client
+        .search(&req.keyword, &settings.cloud_types, req.limit)
+        .await?;
 
     // 如果需要检测链接有效性或嗅探文件列表
     if req.check_links || req.probe_files {
-        let settings = state.settings_store.get().await;
         let quark_probe = QuarkShareProbe::new(settings.quark_cookie);
         let mut processed_results = Vec::new();
 
@@ -96,11 +104,8 @@ async fn search(
 }
 
 /// 创建搜索路由
-pub fn routes(client: Arc<PanSouClient>, settings_store: Arc<SettingsStore>) -> Router {
-    let state = Arc::new(SearchState {
-        client,
-        settings_store,
-    });
+pub fn routes(settings_store: Arc<SettingsStore>) -> Router {
+    let state = Arc::new(SearchState { settings_store });
 
     Router::new()
         .route("/api/search", post(search))
