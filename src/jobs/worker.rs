@@ -12,6 +12,7 @@ use crate::services::notification::add_notification;
 use crate::services::push::{
     record_push_message_report, PushEvent, PushLevel, PushRetryPolicy, PushService,
 };
+use crate::services::subscription_progress::reopen_completed_subscription_status;
 use crate::services::{MetadataService, SubscriptionTransferService};
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
@@ -386,6 +387,7 @@ impl JobWorker {
                 } else if sub.total_episode_number.is_none() {
                     sub.total_episode_number = sub.rules.finish_after_episode;
                 }
+                reopen_completed_subscription_status(sub);
                 sub.updated_at = now();
             })
             .await?
@@ -838,4 +840,156 @@ async fn save_with_probe(
         .await?;
 
     Ok(fid_list.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{
+        MediaMetadata, MediaMetadataSeason, MetadataProvider, Subscription, TransferRules,
+    };
+    use tokio::sync::mpsc;
+
+    fn test_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "my-media-sub-worker-{}-{}.json",
+            name,
+            uuid::Uuid::new_v4()
+        ))
+    }
+
+    fn test_subscription() -> Subscription {
+        Subscription {
+            id: "sub".to_string(),
+            title: "Show".to_string(),
+            source_title: String::new(),
+            media_type: "series".to_string(),
+            season: 1,
+            start_episode_number: None,
+            current_episode_number: 178,
+            total_episode_number: Some(178),
+            source_group: String::new(),
+            metadata: None,
+            cloud_type: "quark".to_string(),
+            url: "https://pan.quark.cn/s/test".to_string(),
+            password: String::new(),
+            known_files: vec![],
+            known_file_keys: vec![],
+            known_episodes: vec![177, 178],
+            transferred_files: vec![],
+            transferred_file_keys: vec![],
+            last_probe: None,
+            last_plan_summary: String::new(),
+            notify_only: false,
+            sync_download_enabled: false,
+            sync_download_dir: String::new(),
+            strm_enabled: false,
+            enabled: true,
+            completed: true,
+            rules: TransferRules::default(),
+            created_at: 1,
+            updated_at: 1,
+            last_checked_at: 1,
+            last_new_files: vec![],
+            last_new_episodes: vec![],
+            last_check_summary: String::new(),
+            check_history: vec![],
+            status: "completed".to_string(),
+            invalid_since: Some(1),
+            last_error: "completed".to_string(),
+            rule_summary: String::new(),
+        }
+    }
+
+    fn metadata_with_episode_count(count: i32) -> MediaMetadata {
+        MediaMetadata {
+            provider: MetadataProvider::Tmdb,
+            provider_id: "1".to_string(),
+            title: "Show".to_string(),
+            original_title: String::new(),
+            media_type: "series".to_string(),
+            overview: String::new(),
+            poster_url: None,
+            backdrop_url: None,
+            release_date: None,
+            vote_average: None,
+            number_of_episodes: Some(count),
+            number_of_seasons: Some(1),
+            seasons: vec![MediaMetadataSeason {
+                season_number: 1,
+                episode_count: Some(count),
+                name: "Season 1".to_string(),
+                air_date: None,
+                poster_url: None,
+            }],
+        }
+    }
+
+    fn make_worker(
+        subscription_store: Arc<SubscriptionStore>,
+    ) -> (
+        JobWorker,
+        std::path::PathBuf,
+        std::path::PathBuf,
+        std::path::PathBuf,
+    ) {
+        let settings_path = test_path("settings");
+        let notifications_path = test_path("notifications");
+        let jobs_path = test_path("jobs");
+        let settings_store = Arc::new(SettingsStore::new(&settings_path));
+        let notification_store = Arc::new(NotificationStore::new(&notifications_path));
+        let job_store = Arc::new(JobStore::new(&jobs_path));
+        let metadata_service = Arc::new(MetadataService::new());
+        let transfer_service = Arc::new(SubscriptionTransferService::new(
+            subscription_store.clone(),
+            settings_store.clone(),
+            notification_store.clone(),
+        ));
+        let (sender, receiver) = mpsc::channel(1);
+
+        (
+            JobWorker {
+                store: job_store,
+                sender,
+                settings_store,
+                subscription_store,
+                notification_store,
+                metadata_service,
+                transfer_service,
+                receiver,
+            },
+            settings_path,
+            notifications_path,
+            jobs_path,
+        )
+    }
+
+    #[tokio::test]
+    async fn apply_subscription_metadata_reopens_completed_subscription_when_total_increases() {
+        let subscriptions_path = test_path("subscriptions");
+        let subscription_store = Arc::new(SubscriptionStore::new(&subscriptions_path));
+        subscription_store
+            .create(test_subscription())
+            .await
+            .unwrap();
+
+        let (worker, settings_path, notifications_path, jobs_path) =
+            make_worker(subscription_store.clone());
+        worker
+            .apply_subscription_metadata("sub", metadata_with_episode_count(190))
+            .await
+            .unwrap();
+
+        let updated = subscription_store.get("sub").await.unwrap();
+        assert_eq!(updated.total_episode_number, Some(190));
+        assert!(!updated.completed);
+        assert_eq!(updated.status, "active");
+        assert_eq!(updated.invalid_since, None);
+        assert!(updated.last_error.is_empty());
+
+        let _ = std::fs::remove_file(subscriptions_path);
+        let _ = std::fs::remove_file(settings_path);
+        let _ = std::fs::remove_file(notifications_path);
+        let _ = std::fs::remove_file(jobs_path);
+    }
 }

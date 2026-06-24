@@ -21,7 +21,8 @@ use crate::services::subscription_progress::{
 };
 use crate::services::transfer_rule::{apply_rename, transfer_state_key};
 use crate::services::{
-    episode::is_better_episode_duplicate_candidate, episode::EpisodeDuplicateCandidate,
+    episode::episode_video_key, episode::is_better_episode_duplicate_candidate,
+    episode::EpisodeDuplicateCandidate,
 };
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
@@ -131,6 +132,42 @@ fn filter_rename_candidates(
             .collect(),
         _ => video_files,
     }
+}
+
+#[derive(Debug, Clone)]
+struct TransferMatchTargets {
+    names: HashSet<String>,
+    episode_keys: HashSet<(i32, i32)>,
+}
+
+impl TransferMatchTargets {
+    fn from_file_names(sub: &Subscription, file_names: &[String]) -> Self {
+        Self {
+            names: file_names.iter().cloned().collect(),
+            episode_keys: file_names
+                .iter()
+                .filter_map(|name| episode_video_key(name, sub.season))
+                .collect(),
+        }
+    }
+
+    fn matches_name(&self, sub: &Subscription, name: &str) -> bool {
+        self.names.contains(name)
+            || episode_video_key(name, sub.season)
+                .map(|key| self.episode_keys.contains(&key))
+                .unwrap_or(false)
+    }
+}
+
+fn filter_transfer_candidates_by_targets<'a>(
+    sub: &Subscription,
+    files: impl IntoIterator<Item = &'a QuarkFile>,
+    targets: &TransferMatchTargets,
+) -> Vec<&'a QuarkFile> {
+    files
+        .into_iter()
+        .filter(|file| targets.matches_name(sub, &file.name))
+        .collect()
 }
 
 #[derive(Debug, Clone)]
@@ -475,12 +512,12 @@ where
 
 async fn collect_share_transfer_files(
     probe: &QuarkShareProbe,
+    sub: &Subscription,
     pwd_id: &str,
     stoken: &str,
-    file_names: &[String],
+    targets: &TransferMatchTargets,
 ) -> Result<Vec<ShareTransferFile>> {
-    let expected_names: HashSet<String> = expected_video_names(file_names);
-    if expected_names.is_empty() {
+    if targets.names.is_empty() && targets.episode_keys.is_empty() {
         return Ok(Vec::new());
     }
 
@@ -508,7 +545,7 @@ async fn collect_share_transfer_files(
                 continue;
             }
 
-            if !expected_names.contains(&name) {
+            if !targets.matches_name(sub, &name) {
                 continue;
             }
 
@@ -639,12 +676,10 @@ impl SubscriptionTransferService {
             )));
         }
 
-        // 2. 筛选出新文件
-        let files_to_transfer: Vec<&QuarkFile> = share_info
-            .files
-            .iter()
-            .filter(|f| new_file_names.contains(&f.name))
-            .collect();
+        // 2. 筛选出待转存文件。分享方可能会改名，补转时按同集数兜底匹配。
+        let match_targets = TransferMatchTargets::from_file_names(&sub, new_file_names);
+        let files_to_transfer =
+            filter_transfer_candidates_by_targets(&sub, &share_info.files, &match_targets);
         let files_to_transfer = dedup_quark_episode_files(&sub, files_to_transfer);
         let new_file_names: Vec<String> = files_to_transfer
             .iter()
@@ -696,8 +731,9 @@ impl SubscriptionTransferService {
 
         // 6. 递归收集本次新增的视频文件。不要直接转存父目录，否则会在目标
         // 目录下多出一层原始分享目录，导致重命名和 Aria2 同步路径不符合预期。
+        let transfer_targets = TransferMatchTargets::from_file_names(&sub, &new_file_names);
         let transfer_files =
-            collect_share_transfer_files(&probe, &pwd_id, &stoken, &new_file_names).await?;
+            collect_share_transfer_files(&probe, &sub, &pwd_id, &stoken, &transfer_targets).await?;
         let transfer_file_names: Vec<String> = transfer_files
             .iter()
             .map(|file| file.name.clone())
@@ -1522,6 +1558,30 @@ mod tests {
         let deduped = dedup_quark_episode_files(&sub, vec![&first, &second]);
 
         assert_eq!(deduped.len(), 2);
+    }
+
+    #[test]
+    fn transfer_match_targets_match_renamed_same_episode_video() {
+        let sub = subscription("anime", 1);
+        let targets = TransferMatchTargets::from_file_names(
+            &sub,
+            &["S01E147.2025.2160p.WEB-DL.HQ.H265.30fps.10bit.AAC.mp4".to_string()],
+        );
+        let renamed = QuarkFile {
+            name: "147.mp4".to_string(),
+            fid: "fid-147".to_string(),
+            share_fid_token: "token-147".to_string(),
+            is_dir: false,
+            size: 1,
+            updated_at: None,
+            category: None,
+            format_type: None,
+        };
+
+        let matched = filter_transfer_candidates_by_targets(&sub, vec![&renamed], &targets);
+
+        assert_eq!(matched.len(), 1);
+        assert_eq!(matched[0].name, "147.mp4");
     }
 
     #[test]

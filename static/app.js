@@ -998,6 +998,9 @@ function app() {
     subscriptionStatusKey(subOrStatus) {
       if (subOrStatus && typeof subOrStatus === 'object') {
         if (subOrStatus.status === 'invalid' || subOrStatus.invalid_since) return 'invalid';
+        const current = Number(subOrStatus.current_episode_number || 0);
+        const total = Number((subOrStatus.total_episode_number) || (subOrStatus.rules && subOrStatus.rules.finish_after_episode) || 0);
+        if ((subOrStatus.status === 'completed' || subOrStatus.completed) && total > 0 && current < total) return 'active';
         if (subOrStatus.status === 'completed' || subOrStatus.completed) return 'completed';
         return 'active';
       }

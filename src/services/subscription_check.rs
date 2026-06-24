@@ -14,9 +14,11 @@ use crate::services::episode::{
 use crate::services::notification::{add_notification, dispatch_push_event};
 use crate::services::push::{PushEvent, PushLevel};
 use crate::services::subscription_progress::{
-    completion_target_episode, should_mark_completed_from_known_episodes,
-    should_mark_completed_from_transferred_files,
+    completion_target_episode, reopen_completed_subscription_status,
+    should_mark_completed_from_known_episodes, should_mark_completed_from_transferred_files,
+    should_reopen_completed_subscription,
 };
+use crate::services::transfer_rule::transfer_state_key;
 use crate::services::SubscriptionTransferService;
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
@@ -86,6 +88,12 @@ impl SubscriptionCheckService {
             return Err(AppError::Validation("订阅未启用".to_string()));
         }
 
+        let sub = if should_reopen_completed_subscription(&sub) {
+            self.reopen_completed_subscription(&sub).await?
+        } else {
+            sub
+        };
+
         if sub.completed {
             return Err(AppError::Validation("订阅已完成".to_string()));
         }
@@ -110,9 +118,18 @@ impl SubscriptionCheckService {
             });
         }
 
+        let auto_transfer_enabled = self
+            .auto_transfer_disabled_reason(&sub, force_transfer)
+            .await;
+
         // 2. 对比文件，找出新增文件
         let new_files = self.find_new_files(&sub, &probe_result.files);
         let new_file_names: Vec<String> = new_files.iter().map(|f| f.name.clone()).collect();
+        let transfer_file_names = if auto_transfer_enabled.is_none() {
+            self.transfer_candidate_file_names(&sub, &probe_result.files, &new_file_names)
+        } else {
+            new_file_names.clone()
+        };
 
         // 3. 解析集数
         let new_episodes = self.parse_episodes(&new_file_names);
@@ -152,17 +169,14 @@ impl SubscriptionCheckService {
         }
 
         // 6. 自动转存：优先提交后台任务，保留同步转存作为回退路径。
-        if !new_file_names.is_empty() {
-            if let Some(reason) = self
-                .auto_transfer_disabled_reason(&sub, force_transfer)
-                .await
-            {
+        if !transfer_file_names.is_empty() {
+            if let Some(reason) = auto_transfer_enabled {
                 info!("跳过订阅自动转存: {} ({})", sub.title, reason);
             } else if let Some(job_queue) = &self.job_queue {
                 match job_queue
                     .submit_subscription_transfer(SubscriptionTransferPayload {
                         subscription_id: sub.id.clone(),
-                        file_names: new_file_names.clone(),
+                        file_names: transfer_file_names.clone(),
                         force_transfer,
                     })
                     .await
@@ -172,7 +186,11 @@ impl SubscriptionCheckService {
                 }
             } else if let Some(transfer_service) = &self.transfer_service {
                 match transfer_service
-                    .auto_transfer_new_files_with_options(&sub.id, &new_file_names, force_transfer)
+                    .auto_transfer_new_files_with_options(
+                        &sub.id,
+                        &transfer_file_names,
+                        force_transfer,
+                    )
                     .await
                 {
                     Ok(result) => {
@@ -233,13 +251,31 @@ impl SubscriptionCheckService {
         None
     }
 
+    async fn reopen_completed_subscription(&self, sub: &Subscription) -> Result<Subscription> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        info!("订阅 {} 仍未达到完结集数，恢复为追更中", sub.title);
+        self.subscription_store
+            .update(&sub.id, |sub| {
+                reopen_completed_subscription_status(sub);
+                sub.updated_at = now;
+            })
+            .await?
+            .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))
+    }
+
     /// 检查所有启用的订阅
     pub async fn check_all_subscriptions(&self, cookie: &str) -> Result<Vec<CheckResult>> {
         let subscriptions = self.subscription_store.list().await;
         let mut results = Vec::new();
 
         for sub in subscriptions {
-            if !sub.enabled || sub.completed {
+            if !sub.enabled {
+                continue;
+            }
+            if sub.completed && !should_reopen_completed_subscription(&sub) {
                 continue;
             }
 
@@ -304,6 +340,42 @@ impl SubscriptionCheckService {
             })
             .map(|index| files[index].clone())
             .collect()
+    }
+
+    fn transfer_candidate_file_names(
+        &self,
+        sub: &Subscription,
+        files: &[ProbeFile],
+        new_file_names: &[String],
+    ) -> Vec<String> {
+        let mut names = new_file_names.to_vec();
+        let mut seen = names.iter().cloned().collect::<HashSet<_>>();
+        let mut transferred_keys: HashSet<String> =
+            sub.transferred_file_keys.iter().cloned().collect();
+        transferred_keys.extend(sub.transferred_files.iter().map(|name| {
+            let episode = extract_episode_number(name);
+            transfer_state_key(name, episode, sub.rules.ignore_extensions)
+        }));
+
+        if sub.media_type == "movie" {
+            return names;
+        }
+
+        for file in files {
+            if self.is_before_start_episode(sub, &file.name) {
+                continue;
+            }
+            let episode = extract_episode_number(&file.name);
+            let key = transfer_state_key(&file.name, episode, sub.rules.ignore_extensions);
+            if !key.starts_with("ep:") || transferred_keys.contains(&key) {
+                continue;
+            }
+            if seen.insert(file.name.clone()) {
+                names.push(file.name.clone());
+            }
+        }
+
+        names
     }
 
     fn known_episode_video_reason(
@@ -998,6 +1070,51 @@ mod tests {
             "同集重复视频，已保留清晰度最高版本"
         );
         assert_eq!(details.items[1].action, "new");
+    }
+
+    #[test]
+    fn test_transfer_candidates_retry_known_untransferred_episode() {
+        let (service, _, _) = make_service();
+        let mut sub = make_subscription();
+        sub.media_type = "anime".to_string();
+        sub.start_episode_number = Some(144);
+        sub.known_episodes = vec![144, 145, 146, 147];
+        sub.transferred_files = vec![
+            "145.mkv".to_string(),
+            "146.mkv".to_string(),
+            "S01E144.2025.2160p.WEB-DL.HQ.H265.30fps.10bit.AAC.mp4".to_string(),
+        ];
+        sub.transferred_file_keys = vec![];
+        let files = vec![
+            ProbeFile {
+                name: "144-1.mp4".to_string(),
+                size: 1,
+                updated_at: None,
+                file_key: "ep144-new-name".to_string(),
+            },
+            ProbeFile {
+                name: "145.mkv".to_string(),
+                size: 1,
+                updated_at: None,
+                file_key: "ep145".to_string(),
+            },
+            ProbeFile {
+                name: "146.mkv".to_string(),
+                size: 1,
+                updated_at: None,
+                file_key: "ep146".to_string(),
+            },
+            ProbeFile {
+                name: "147.mp4".to_string(),
+                size: 1,
+                updated_at: None,
+                file_key: "ep147".to_string(),
+            },
+        ];
+
+        let candidates = service.transfer_candidate_file_names(&sub, &files, &[]);
+
+        assert_eq!(candidates, vec!["147.mp4".to_string()]);
     }
 
     #[test]
