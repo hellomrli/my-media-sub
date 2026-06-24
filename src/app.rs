@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use crate::clients::PanSouClient;
 use crate::config::Config;
 use crate::error::Result;
 use crate::jobs::{JobQueue, JobStore};
@@ -20,7 +19,6 @@ pub struct AppContext {
     pub notification_store: Arc<NotificationStore>,
     pub job_store: Arc<JobStore>,
     pub job_queue: Arc<JobQueue>,
-    pub pansou_client: Arc<PanSouClient>,
     pub metadata_service: Arc<MetadataService>,
     pub transfer_service: Arc<SubscriptionTransferService>,
     pub check_service: Arc<SubscriptionCheckService>,
@@ -55,14 +53,6 @@ impl AppContext {
         job_store.load().await?;
         tracing::info!("✅ Loaded jobs");
 
-        let settings = settings_store.get().await;
-        let pansou_api_url = settings.pansou_api_url.trim().to_string();
-        let pansou_api_url = if pansou_api_url.is_empty() {
-            None
-        } else {
-            Some(pansou_api_url)
-        };
-        let pansou_client = Arc::new(PanSouClient::new(pansou_api_url));
         let metadata_service = Arc::new(MetadataService::new());
         tracing::info!("✅ Clients initialized");
 
@@ -114,7 +104,6 @@ impl AppContext {
             notification_store,
             job_store,
             job_queue,
-            pansou_client,
             metadata_service,
             transfer_service,
             check_service,

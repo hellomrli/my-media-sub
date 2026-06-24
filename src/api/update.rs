@@ -85,6 +85,23 @@ pub struct UpdateCheckResponse {
 }
 
 #[derive(Debug, Serialize)]
+pub struct UpdateReleaseResponse {
+    pub tag: String,
+    pub version: String,
+    pub name: String,
+    pub release_url: String,
+    pub published_at: Option<String>,
+    pub asset: Option<UpdateAsset>,
+    pub is_current: bool,
+    pub is_newer: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateApplyRequest {
+    pub tag: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct UpdateApplyResponse {
     pub success: bool,
     pub previous_version: String,
@@ -162,13 +179,33 @@ async fn check_update() -> Result<impl IntoResponse> {
     Ok(Json(Response::ok(response)))
 }
 
-async fn apply_update() -> Result<impl IntoResponse> {
+async fn list_releases() -> Result<impl IntoResponse> {
+    let releases = fetch_releases().await?;
+    let current_version = env!("CARGO_PKG_VERSION").to_string();
+    let response = releases
+        .into_iter()
+        .map(|release| release_to_response(release, &current_version))
+        .collect::<Vec<_>>();
+
+    Ok(Json(Response::ok(response)))
+}
+
+async fn apply_update(request: Option<Json<UpdateApplyRequest>>) -> Result<impl IntoResponse> {
     if current_update_progress().running {
         return Err(AppError::Validation("已有升级任务正在执行".to_string()));
     }
 
-    begin_update_progress("正在检查最新版本");
-    match apply_update_inner().await {
+    let target_tag = request.and_then(|Json(req)| req.tag).and_then(|tag| {
+        let tag = tag.trim().to_string();
+        (!tag.is_empty()).then_some(tag)
+    });
+    let message = target_tag
+        .as_deref()
+        .map(|tag| format!("正在准备切换到 {}", tag))
+        .unwrap_or_else(|| "正在检查最新版本".to_string());
+
+    begin_update_progress(message);
+    match apply_update_inner(target_tag).await {
         Ok(response) => Ok(Json(Response::ok(response))),
         Err(error) => {
             fail_update_progress(error.to_string());
@@ -290,12 +327,21 @@ fn format_bytes(bytes: u64) -> String {
     format!("{:.2} {}", size, UNITS[unit])
 }
 
-async fn apply_update_inner() -> Result<UpdateApplyResponse> {
-    let release = fetch_latest_release().await?;
+async fn apply_update_inner(target_tag: Option<String>) -> Result<UpdateApplyResponse> {
+    let release = match target_tag {
+        Some(ref tag) => fetch_release_by_tag(tag).await?,
+        None => fetch_latest_release().await?,
+    };
     set_update_progress(5, "checking", "正在校验版本信息");
     let current_version = env!("CARGO_PKG_VERSION").to_string();
-    let latest_version = normalize_version(&release.tag_name);
-    if !is_newer_version(&latest_version, &current_version) {
+    let target_version = normalize_version(&release.tag_name);
+    if target_version == current_version {
+        return Err(AppError::Validation(format!(
+            "当前已经是 {}",
+            release.tag_name
+        )));
+    }
+    if target_tag.is_none() && !is_newer_version(&target_version, &current_version) {
         return Err(AppError::Validation("当前已是最新版本".to_string()));
     }
 
@@ -307,7 +353,7 @@ async fn apply_update_inner() -> Result<UpdateApplyResponse> {
     let backup_path = backup_path(&current_exe);
     let work_dir = std::env::temp_dir().join(format!(
         "my-media-sub-update-{}-{}",
-        latest_version,
+        target_version,
         uuid::Uuid::new_v4()
     ));
     tokio::fs::create_dir_all(&work_dir)
@@ -337,12 +383,12 @@ async fn apply_update_inner() -> Result<UpdateApplyResponse> {
     Ok(UpdateApplyResponse {
         success: true,
         previous_version: current_version,
-        new_version: latest_version,
+        new_version: target_version,
         binary_path: current_exe.display().to_string(),
         backup_path: backup_path.display().to_string(),
         restart_required: true,
         auto_restart_scheduled: false,
-        message: "二进制已替换，请重启服务后生效".to_string(),
+        message: format!("已切换到 {}，请重启服务后生效", release.tag_name),
     })
 }
 
@@ -411,6 +457,59 @@ async fn fetch_latest_release() -> Result<GithubRelease> {
         .error_for_status()?;
 
     Ok(response.json::<GithubRelease>().await?)
+}
+
+async fn fetch_release_by_tag(tag: &str) -> Result<GithubRelease> {
+    let tag = tag.trim().trim_start_matches('/').to_string();
+    if tag.is_empty() || tag.contains('/') {
+        return Err(AppError::Validation("版本标签无效".to_string()));
+    }
+
+    let url = format!(
+        "https://api.github.com/repos/{}/releases/tags/{}",
+        GITHUB_REPO, tag
+    );
+    let client = reqwest::Client::new();
+    let response = client
+        .get(url)
+        .header(reqwest::header::USER_AGENT, "my-media-sub-update-check")
+        .send()
+        .await?
+        .error_for_status()?;
+
+    Ok(response.json::<GithubRelease>().await?)
+}
+
+async fn fetch_releases() -> Result<Vec<GithubRelease>> {
+    let url = format!(
+        "https://api.github.com/repos/{}/releases?per_page=20",
+        GITHUB_REPO
+    );
+    let client = reqwest::Client::new();
+    let response = client
+        .get(url)
+        .header(reqwest::header::USER_AGENT, "my-media-sub-update-check")
+        .send()
+        .await?
+        .error_for_status()?;
+
+    Ok(response.json::<Vec<GithubRelease>>().await?)
+}
+
+fn release_to_response(release: GithubRelease, current_version: &str) -> UpdateReleaseResponse {
+    let version = normalize_version(&release.tag_name);
+    let is_current = version == current_version;
+    let is_newer = is_newer_version(&version, current_version);
+    UpdateReleaseResponse {
+        tag: release.tag_name.clone(),
+        version,
+        name: release.name.unwrap_or_else(|| release.tag_name.clone()),
+        release_url: release.html_url,
+        published_at: release.published_at,
+        asset: find_asset(&release.assets, "linux-x86_64.tar.gz").map(Into::into),
+        is_current,
+        is_newer,
+    }
 }
 
 fn detect_runtime() -> String {
@@ -694,6 +793,7 @@ fn version_parts(value: &str) -> Vec<u64> {
 pub fn routes() -> Router {
     Router::new()
         .route("/api/update/check", get(check_update))
+        .route("/api/update/releases", get(list_releases))
         .route("/api/update/progress", get(update_progress))
         .route("/api/update/apply", post(apply_update))
         .route("/api/update/restart", post(restart_update))
@@ -734,5 +834,25 @@ mod tests {
             checksum.name,
             "my-media-sub-v0.7.15-linux-x86_64.tar.gz.sha256"
         );
+    }
+
+    #[test]
+    fn test_release_response_marks_current_and_newer() {
+        let release = GithubRelease {
+            tag_name: "v0.9.1".to_string(),
+            name: None,
+            html_url: "https://example.com/release".to_string(),
+            body: None,
+            published_at: None,
+            assets: vec![asset("my-media-sub-v0.9.1-linux-x86_64.tar.gz")],
+        };
+        let current = release_to_response(release.clone(), "0.9.1");
+        let newer = release_to_response(release, "0.9.0");
+
+        assert!(current.is_current);
+        assert!(!current.is_newer);
+        assert!(!newer.is_current);
+        assert!(newer.is_newer);
+        assert!(newer.asset.is_some());
     }
 }

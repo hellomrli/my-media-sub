@@ -111,10 +111,7 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
             context.scheduler.clone(),
             context.quark_signin_scheduler.clone(),
         ))
-        .merge(search::routes(
-            context.pansou_client.clone(),
-            settings_store.clone(),
-        ))
+        .merge(search::routes(settings_store.clone()))
         .merge(metadata::routes(
             settings_store.clone(),
             context.metadata_service.clone(),

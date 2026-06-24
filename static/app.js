@@ -51,6 +51,7 @@ function app() {
     ],
     revealedSecrets: {},
     secretLoading: {},
+    settingsSchema: null,
 
     // 搜索
     searchQuery: '',
@@ -59,6 +60,8 @@ function app() {
     searchHistory: [],
     cloudTypes: ['夸克'],
     searchOptions: {probeFiles: true, filterBad: true},
+    searchProgress: {value: 0, label: '', detail: ''},
+    searchProgressTimer: null,
 
     // 订阅
     subscriptions: [],
@@ -95,6 +98,9 @@ function app() {
       original_url: '',
       original_password: '',
       original_current_episode: 0,
+      original_known_episode_count: 0,
+      original_transferred_count: 0,
+      original_start_episode_number: '',
       media_type: 'series',
       season: 1,
       target_path: '',
@@ -175,6 +181,9 @@ function app() {
     updateLoading: false,
     updateApplying: false,
     updateError: '',
+    updateReleases: [],
+    updateReleasesLoading: false,
+    selectedUpdateTag: '',
     updateProgress: null,
     updateProgressTimer: null,
     showUpdateProgressDialog: false,
@@ -199,18 +208,18 @@ function app() {
 
     // 设置
     settings: {
-      app_username: '', app_password: '', quark_cookie: '', quark_save_enabled: false, quark_save_root: '',
+      app_username: '', app_password: '', app_password_configured: false, quark_cookie: '', quark_cookie_configured: false, quark_save_enabled: false, quark_save_root: '',
       quark_signin_cookie: '', quark_signin_cookie_configured: false,
       quark_signin_enabled: false, quark_signin_hour: 8,
       quark_save_movie_dir: '', quark_save_series_dir: '', quark_save_anime_dir: '',
       custom_categories: [],
-      aria2_rpc_url: '', aria2_secret: '',
+      aria2_rpc_url: '', aria2_secret: '', aria2_secret_configured: false,
       aria2_movie_dir: '', aria2_series_dir: '', aria2_anime_dir: '',
       strm_enabled: false, strm_output_dir: '', strm_public_base_url: '', strm_access_token: '', strm_access_token_configured: false,
-      cloud_types: ['quark'], push_on_update: false, push_on_failed: false, push_on_completed: false, push_on_save: false, push_on_download_completed: false, push_on_quark_signin: false,
-      metadata_provider: 'tmdb', tmdb_api_key: '', tmdb_language: 'zh-CN',
-      wecom_bot_url: '', telegram_bot_token: '', telegram_chat_id: '', bark_url: '', serverchan_key: '',
-      wxpusher_app_token: '', wxpusher_uids: '', gotify_url: '', gotify_token: '', pushplus_token: '',
+      cloud_types: ['quark'], push_on_update: true, push_on_failed: true, push_on_completed: true, push_on_save: true, push_on_download_completed: true, push_on_quark_signin: true,
+      metadata_provider: 'tmdb', tmdb_api_key: '', tmdb_api_key_configured: false, tmdb_language: 'zh-CN',
+      wecom_bot_url: '', wecom_bot_url_configured: false, telegram_bot_token: '', telegram_bot_token_configured: false, telegram_chat_id: '', bark_url: '', bark_url_configured: false, serverchan_key: '', serverchan_key_configured: false,
+      wxpusher_app_token: '', wxpusher_app_token_configured: false, wxpusher_uids: '', gotify_url: '', gotify_token: '', gotify_token_configured: false, pushplus_token: '', pushplus_token_configured: false,
       subscription_check_interval_minutes: 60, subscription_scheduler_enabled: false, pansou_api_url: '', pansou_api_url_configured: false, check_links: true,
       probe_quark_files: true, filter_bad_links: true, push_silent: false,
       auto_download_new_subscription_items: false, default_rename_template: ''
@@ -355,6 +364,7 @@ function app() {
       await this.loadNotifications();
       await this.loadJobs();
       await this.loadSettings();
+      await this.loadSettingsSchema();
       this.setupJobEvents();
       this.loadSearchHistory();
       this.runCurrentTabEffects();
@@ -432,6 +442,7 @@ function app() {
 
       if (this.currentTab === 'settings' && this.currentSettingsTab === 'update') {
         if (!this.updateInfo && !this.updateLoading) this.checkUpdate(true);
+        if (!this.updateReleases.length && !this.updateReleasesLoading) this.loadUpdateReleases(true);
         this.loadUpdateProgress().then(progress => {
           if (progress && progress.running && !this.updateProgressTimer) {
             this.startUpdateProgressPolling();
@@ -478,11 +489,52 @@ function app() {
       else if (this.currentTab === 'downloads') await this.loadDownloads();
     },
 
+    resetSearchProgress() {
+      this.stopSearchProgressTimer();
+      this.searchProgress = {value: 0, label: '', detail: ''};
+    },
+
+    setSearchProgress(value, label, detail = '') {
+      this.searchProgress = {
+        value: Math.max(0, Math.min(100, Math.round(value))),
+        label,
+        detail
+      };
+    },
+
+    searchProgressStyle() {
+      return `width: ${this.searchProgress.value || 0}%`;
+    },
+
+    startSearchProgressTimer() {
+      this.stopSearchProgressTimer();
+      this.searchProgressTimer = setInterval(() => {
+        if (!this.searching) return;
+        const limit = this.searchOptions.probeFiles ? 88 : (this.searchOptions.filterBad ? 82 : 72);
+        if ((this.searchProgress.value || 0) < limit) {
+          this.setSearchProgress(
+            (this.searchProgress.value || 0) + 3,
+            this.searchProgress.label || '正在搜索资源',
+            this.searchProgress.detail
+          );
+        }
+      }, 700);
+    },
+
+    stopSearchProgressTimer() {
+      if (this.searchProgressTimer) {
+        clearInterval(this.searchProgressTimer);
+        this.searchProgressTimer = null;
+      }
+    },
+
     // ===== 搜索 =====
     async search() {
       if (!this.searchQuery.trim()) return;
       this.searching = true;
       this.searchResults = [];
+      this.setSearchProgress(8, '提交搜索请求', '正在连接资源搜索服务');
+      this.startSearchProgressTimer();
       try {
         // 保存搜索历史
         this.addSearchHistory(this.searchQuery.trim());
@@ -491,8 +543,12 @@ function app() {
         let statusMsg = '搜索中';
         if (this.searchOptions.probeFiles) {
           statusMsg = '搜索中，正在嗅探文件列表...';
+          this.setSearchProgress(18, '搜索资源并嗅探文件', '会检测链接并读取可用文件列表');
         } else if (this.searchOptions.filterBad) {
           statusMsg = '搜索中，正在检测链接有效性...';
+          this.setSearchProgress(18, '搜索资源并检测链接', '会过滤失效链接');
+        } else {
+          this.setSearchProgress(18, '搜索资源', '正在等待 PanSou 返回结果');
         }
         this.showNotification('info', statusMsg);
 
@@ -508,10 +564,12 @@ function app() {
             max_files: 50
           })
         });
+        this.setSearchProgress(this.searchOptions.probeFiles ? 84 : 76, '整理搜索结果', '正在生成可操作的资源列表');
         const data = await response.json();
         this.searchResults = data.data || [];
 
         if (this.searchResults.length > 0) {
+          this.setSearchProgress(100, '搜索完成', `找到 ${this.searchResults.length} 个结果`);
           let suffix = '个结果';
           if (this.searchOptions.filterBad) {
             suffix = '个有效结果';
@@ -520,14 +578,20 @@ function app() {
           }
           this.showNotification('success', `找到 ${this.searchResults.length} ${suffix}`);
         } else {
+          this.setSearchProgress(100, '搜索完成', '没有匹配结果');
           const msg = this.searchOptions.filterBad ? '未找到有效资源，请尝试其他关键词' : '未找到结果';
           this.showNotification('warning', msg);
         }
       } catch (error) {
         console.error('搜索失败:', error);
+        this.setSearchProgress(100, '搜索失败', '请检查网络、PanSou 地址或稍后重试');
         this.showNotification('error', '搜索失败');
       } finally {
         this.searching = false;
+        this.stopSearchProgressTimer();
+        setTimeout(() => {
+          if (!this.searching) this.resetSearchProgress();
+        }, 2400);
       }
     },
 
@@ -599,6 +663,9 @@ function app() {
         original_url: '',
         original_password: '',
         original_current_episode: 0,
+        original_known_episode_count: 0,
+        original_transferred_count: 0,
+        original_start_episode_number: '',
         media_type: 'series',
         season: 1,
         target_path: '',
@@ -731,6 +798,9 @@ function app() {
         original_url: result.url,
         original_password: result.password || '',
         original_current_episode: 0,
+        original_known_episode_count: 0,
+        original_transferred_count: 0,
+        original_start_episode_number: '',
         media_type: 'series',
         season: 1,
         target_path: '',
@@ -781,6 +851,9 @@ function app() {
         original_url: sub.url || '',
         original_password: sub.password || '',
         original_current_episode: Number(sub.current_episode_number || 0),
+        original_known_episode_count: Array.isArray(sub.known_episodes) ? sub.known_episodes.length : 0,
+        original_transferred_count: Array.isArray(sub.transferred_file_keys) ? sub.transferred_file_keys.length : (Array.isArray(sub.transferred_files) ? sub.transferred_files.length : 0),
+        original_start_episode_number: sub.start_episode_number || '',
         media_type: sub.media_type || 'series',
         season: this.normalizeSeason(sub.season),
         target_path: '',
@@ -852,6 +925,24 @@ function app() {
       if (!this.subscriptionEditingId) return false;
       return String(this.newSubscription.url || '') !== String(this.newSubscription.original_url || '')
         || String(this.newSubscription.password || '') !== String(this.newSubscription.original_password || '');
+    },
+
+    sourceChangeNextStartEpisode() {
+      const current = Math.max(0, Number(this.newSubscription.original_current_episode || 0));
+      if (!this.newSubscription.keep_progress_on_source_change) return 0;
+      if (this.newSubscription.media_type !== 'movie' && this.newSubscription.continue_from_current_episode && current > 0) {
+        return current + 1;
+      }
+      return this.normalizeStartEpisode(this.newSubscription.start_episode_number || this.newSubscription.original_start_episode_number);
+    },
+
+    sourceChangeStats() {
+      return [
+        {label: '当前进度', value: this.newSubscription.original_current_episode ? `第 ${this.newSubscription.original_current_episode} 集` : '-'},
+        {label: '保存后起始', value: this.sourceChangeNextStartEpisode() ? `第 ${this.sourceChangeNextStartEpisode()} 集` : '不限制'},
+        {label: '已知集数', value: String(this.newSubscription.original_known_episode_count || 0)},
+        {label: '已转存', value: String(this.newSubscription.original_transferred_count || 0)}
+      ];
     },
 
     sourceChangeSummary() {
@@ -2672,7 +2763,11 @@ function app() {
       this.updateLoading = true;
       this.updateError = '';
       try {
-        const response = await fetch('/api/update/check');
+        const [checkResponse] = await Promise.all([
+          fetch('/api/update/check'),
+          this.loadUpdateReleases(true)
+        ]);
+        const response = checkResponse;
         const result = await response.json().catch(() => ({}));
         if (response.ok && result.data) {
           this.updateInfo = result.data;
@@ -2694,8 +2789,71 @@ function app() {
       }
     },
 
-    async applyUpdate() {
-      if (!this.updateInfo || !this.updateInfo.update_available) {
+    async loadUpdateReleases(silent = false) {
+      this.updateReleasesLoading = true;
+      try {
+        const response = await fetch('/api/update/releases', {cache: 'no-store'});
+        const result = await response.json().catch(() => ({}));
+        if (response.ok && result.data) {
+          this.updateReleases = result.data || [];
+          if (!this.selectedUpdateTag) {
+            const latest = this.updateReleases.find(item => !item.is_current && item.asset) || this.updateReleases[0];
+            this.selectedUpdateTag = latest ? latest.tag : '';
+          }
+        } else if (!silent) {
+          this.updateError = result.message || result.error || '读取版本列表失败';
+          this.showNotification('error', this.updateError);
+        }
+      } catch (error) {
+        if (!silent) {
+          this.updateError = '读取版本列表失败: ' + error.message;
+          this.showNotification('error', this.updateError);
+        }
+      } finally {
+        this.updateReleasesLoading = false;
+      }
+    },
+
+    selectedUpdateRelease() {
+      return this.updateReleases.find(item => item.tag === this.selectedUpdateTag) || null;
+    },
+
+    selectedUpdateActionLabel() {
+      const item = this.selectedUpdateRelease();
+      if (!item) return '选择版本';
+      if (item.is_current) return '当前版本';
+      return item.is_newer ? '升级到所选版本' : '回退到所选版本';
+    },
+
+    selectedUpdateDescription() {
+      const item = this.selectedUpdateRelease();
+      if (!item) return '请选择一个 Release 版本。';
+      if (!item.asset) return '该版本没有 Linux x86_64 二进制包，不能在线切换。';
+      if (item.is_current) return '当前服务已经运行该版本。';
+      const direction = item.is_newer ? '升级' : '回退';
+      return `将${direction}到 ${item.tag}，替换二进制和 WebUI 静态资源，完成后需要重启。`;
+    },
+
+    canApplySelectedUpdate() {
+      const item = this.selectedUpdateRelease();
+      return Boolean(item && item.asset && !item.is_current && !this.updateApplying);
+    },
+
+    async applySelectedUpdate() {
+      const item = this.selectedUpdateRelease();
+      if (!item) {
+        this.showNotification('info', '请先选择版本');
+        return;
+      }
+      if (item.is_current) {
+        this.showNotification('info', '当前已经是所选版本');
+        return;
+      }
+      await this.applyUpdate(item.tag);
+    },
+
+    async applyUpdate(targetTag = null) {
+      if (!targetTag && (!this.updateInfo || !this.updateInfo.update_available)) {
         this.showNotification('info', '当前已是最新版本');
         return;
       }
@@ -2707,7 +2865,12 @@ function app() {
       this.setLocalUpdateProgress(1, '正在准备升级');
       this.startUpdateProgressPolling();
       try {
-        const response = await fetch('/api/update/apply', {method: 'POST'});
+        const body = targetTag ? JSON.stringify({tag: targetTag}) : '{}';
+        const response = await fetch('/api/update/apply', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body
+        });
         const result = await response.json().catch(() => ({}));
         await this.loadUpdateProgress();
         if (response.ok && result.data) {
@@ -2720,8 +2883,11 @@ function app() {
           );
           this.stopUpdateProgressPolling();
           this.showNotification('success', result.data.message || '升级完成');
-          this.updateInfo.current_version = result.data.new_version || this.updateInfo.current_version;
-          this.updateInfo.update_available = false;
+          if (this.updateInfo) {
+            this.updateInfo.current_version = result.data.new_version || this.updateInfo.current_version;
+            this.updateInfo.update_available = false;
+          }
+          await this.loadUpdateReleases(true);
         } else {
           this.updateError = result.message || result.error || '升级失败';
           this.markUpdateProgressFailed(this.updateError);
@@ -3020,6 +3186,16 @@ function app() {
         this.resetSecretVisibility();
       } catch (error) {
         console.error('加载设置失败:', error);
+      }
+    },
+
+    async loadSettingsSchema() {
+      try {
+        const response = await fetch('/api/settings/schema');
+        const data = await response.json();
+        this.settingsSchema = data.data || data || null;
+      } catch (error) {
+        console.error('加载设置字段定义失败:', error);
       }
     },
 

@@ -41,6 +41,253 @@ struct SecretFieldResponse {
     value: String,
 }
 
+#[derive(Serialize)]
+struct SettingFieldSchema {
+    key: &'static str,
+    label: &'static str,
+    kind: &'static str,
+    group: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    default: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    options: Option<Vec<&'static str>>,
+    secret: bool,
+    editable: bool,
+}
+
+#[derive(Serialize)]
+struct SettingsSchemaResponse {
+    fields: Vec<SettingFieldSchema>,
+    secret_keys: Vec<&'static str>,
+    supported_cloud_types: Vec<&'static str>,
+}
+
+macro_rules! setting_field {
+    ($key:literal, $label:literal, $kind:literal, $group:literal, $default:expr) => {
+        SettingFieldSchema {
+            key: $key,
+            label: $label,
+            kind: $kind,
+            group: $group,
+            default: Some(serde_json::json!($default)),
+            options: None,
+            secret: SECRET_KEYS.contains(&$key),
+            editable: true,
+        }
+    };
+    ($key:literal, $label:literal, $kind:literal, $group:literal, $default:expr, [$($option:literal),+]) => {
+        SettingFieldSchema {
+            key: $key,
+            label: $label,
+            kind: $kind,
+            group: $group,
+            default: Some(serde_json::json!($default)),
+            options: Some(vec![$($option),+]),
+            secret: SECRET_KEYS.contains(&$key),
+            editable: true,
+        }
+    };
+}
+
+fn settings_schema() -> SettingsSchemaResponse {
+    let fields = vec![
+        setting_field!("app_username", "用户名", "text", "basic", "admin"),
+        setting_field!("app_password", "密码", "password", "basic", "change-me"),
+        setting_field!("aria2_rpc_url", "Aria2 RPC URL", "url", "basic", ""),
+        setting_field!("aria2_secret", "Aria2 Secret", "password", "basic", ""),
+        setting_field!("aria2_movie_dir", "Aria2 电影下载目录", "path", "basic", ""),
+        setting_field!(
+            "aria2_series_dir",
+            "Aria2 连续剧下载目录",
+            "path",
+            "basic",
+            ""
+        ),
+        setting_field!("aria2_anime_dir", "Aria2 动画下载目录", "path", "basic", ""),
+        setting_field!(
+            "metadata_provider",
+            "元数据提供方",
+            "select",
+            "basic",
+            "tmdb",
+            ["tmdb", "douban", "none"]
+        ),
+        setting_field!("tmdb_api_key", "TMDB API Key", "password", "basic", ""),
+        setting_field!("tmdb_language", "TMDB 语言", "text", "basic", "zh-CN"),
+        setting_field!("quark_cookie", "夸克 Cookie", "password", "quark", ""),
+        setting_field!(
+            "quark_signin_cookie",
+            "签到 Cookie",
+            "password",
+            "quark",
+            ""
+        ),
+        setting_field!(
+            "quark_save_enabled",
+            "启用自动转存",
+            "boolean",
+            "quark",
+            false
+        ),
+        setting_field!(
+            "quark_signin_enabled",
+            "启用每日自动签到",
+            "boolean",
+            "quark",
+            false
+        ),
+        setting_field!("quark_signin_hour", "签到小时", "number", "quark", 8),
+        setting_field!("quark_save_root", "默认根目录", "path", "quark", ""),
+        setting_field!("quark_save_movie_dir", "电影目录", "path", "quark", "/电影"),
+        setting_field!(
+            "quark_save_series_dir",
+            "连续剧目录",
+            "path",
+            "quark",
+            "/连续剧"
+        ),
+        setting_field!("quark_save_anime_dir", "动画目录", "path", "quark", "/动画"),
+        setting_field!(
+            "custom_categories",
+            "自定义分类",
+            "custom_categories",
+            "quark",
+            Vec::<serde_json::Value>::new()
+        ),
+        setting_field!("strm_enabled", "启用 STRM", "boolean", "quark", false),
+        setting_field!("strm_output_dir", "STRM 输出目录", "path", "quark", ""),
+        setting_field!(
+            "strm_public_base_url",
+            "HTTPStrm 访问地址",
+            "url",
+            "quark",
+            ""
+        ),
+        setting_field!(
+            "strm_access_token",
+            "HTTPStrm Token",
+            "password",
+            "quark",
+            ""
+        ),
+        setting_field!("push_on_update", "订阅更新推送", "boolean", "push", true),
+        setting_field!("push_on_failed", "订阅失效推送", "boolean", "push", true),
+        setting_field!("push_on_completed", "订阅完结推送", "boolean", "push", true),
+        setting_field!("push_on_save", "转存完成推送", "boolean", "push", true),
+        setting_field!(
+            "push_on_download_completed",
+            "下载完成推送",
+            "boolean",
+            "push",
+            true
+        ),
+        setting_field!(
+            "push_on_quark_signin",
+            "夸克签到推送",
+            "boolean",
+            "push",
+            true
+        ),
+        setting_field!("push_silent", "静默推送", "boolean", "push", false),
+        setting_field!("wecom_bot_url", "企业微信 Webhook", "password", "push", ""),
+        setting_field!(
+            "telegram_bot_token",
+            "Telegram Bot Token",
+            "password",
+            "push",
+            ""
+        ),
+        setting_field!("telegram_chat_id", "Telegram Chat ID", "text", "push", ""),
+        setting_field!(
+            "wxpusher_app_token",
+            "WxPusher App Token",
+            "password",
+            "push",
+            ""
+        ),
+        setting_field!("wxpusher_uids", "WxPusher UIDs", "text", "push", ""),
+        setting_field!("bark_url", "Bark URL", "password", "push", ""),
+        setting_field!("serverchan_key", "Server酱 SendKey", "password", "push", ""),
+        setting_field!("gotify_url", "Gotify URL", "url", "push", ""),
+        setting_field!("gotify_token", "Gotify Token", "password", "push", ""),
+        setting_field!("pushplus_token", "PushPlus Token", "password", "push", ""),
+        setting_field!(
+            "subscription_check_interval_minutes",
+            "订阅检查间隔",
+            "number",
+            "automation",
+            60
+        ),
+        setting_field!(
+            "subscription_scheduler_enabled",
+            "启用自动检查",
+            "boolean",
+            "automation",
+            false
+        ),
+        setting_field!(
+            "auto_download_new_subscription_items",
+            "自动下载新订阅项",
+            "boolean",
+            "automation",
+            false
+        ),
+        setting_field!(
+            "default_rename_template",
+            "默认重命名模板",
+            "text",
+            "automation",
+            ""
+        ),
+        setting_field!(
+            "pansou_api_url",
+            "PanSou API URL",
+            "password",
+            "advanced",
+            ""
+        ),
+        setting_field!(
+            "cloud_types",
+            "云盘类型",
+            "multi_select",
+            "advanced",
+            ["quark"],
+            ["quark"]
+        ),
+        setting_field!(
+            "check_links",
+            "默认检测链接有效性",
+            "boolean",
+            "advanced",
+            true
+        ),
+        setting_field!(
+            "probe_quark_files",
+            "默认嗅探文件列表",
+            "boolean",
+            "advanced",
+            true
+        ),
+        setting_field!(
+            "filter_bad_links",
+            "默认过滤失效链接",
+            "boolean",
+            "advanced",
+            true
+        ),
+    ];
+
+    SettingsSchemaResponse {
+        fields,
+        secret_keys: SECRET_KEYS.to_vec(),
+        supported_cloud_types: SUPPORTED_CLOUD_TYPES.to_vec(),
+    }
+}
+
+async fn get_settings_schema() -> Json<Response<SettingsSchemaResponse>> {
+    Json(Response::ok(settings_schema()))
+}
+
 /// 获取设置（公开视图，脱敏密钥）
 async fn get_settings(
     State(state): State<Arc<SettingsState>>,
@@ -449,6 +696,37 @@ pub fn routes(
     Router::new()
         .route("/api/settings", get(get_settings))
         .route("/api/settings", post(update_settings))
+        .route("/api/settings/schema", get(get_settings_schema))
         .route("/api/settings/secret/{key}", get(get_setting_secret))
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn settings_schema_has_unique_fields_and_secret_flags() {
+        let schema = settings_schema();
+        let mut keys = HashSet::new();
+        for field in &schema.fields {
+            assert!(
+                keys.insert(field.key),
+                "duplicate setting field {}",
+                field.key
+            );
+            if SECRET_KEYS.contains(&field.key) {
+                assert!(field.secret, "{} must be marked secret", field.key);
+            }
+        }
+
+        for key in SECRET_KEYS {
+            assert!(
+                schema.fields.iter().any(|field| field.key == *key),
+                "secret key {} missing from schema",
+                key
+            );
+        }
+    }
 }
