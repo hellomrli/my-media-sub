@@ -915,6 +915,8 @@ mod tests {
         assert_eq!(extract_episode_number("03.mkv"), Some(3));
         assert_eq!(extract_episode_number("129 4K.mp4"), Some(129));
         assert_eq!(extract_episode_number("23(1).mp4"), Some(23));
+        assert_eq!(extract_episode_number("178重置版.mp4"), Some(178));
+        assert_eq!(extract_episode_number("4K.mp4"), None);
         assert_eq!(
             extract_episode_number("S01E144.2025.2160p.WEB-DL.HQ.H265.30fps.10bit.AAC.mp4"),
             Some(144)
