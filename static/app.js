@@ -350,7 +350,6 @@ function app() {
     },
 
     async init() {
-      console.log('应用初始化...');
       this.initNavigation();
       await this.loadSubscriptions();
       await this.loadNotifications();
@@ -1699,7 +1698,6 @@ function app() {
         const response = await fetch('/api/subscriptions');
         const data = await response.json();
         this.subscriptions = data.data || [];
-        console.log('加载订阅:', this.subscriptions.length, '个');
       } catch (error) {
         console.error('加载订阅失败:', error);
       }
@@ -3020,7 +3018,6 @@ function app() {
         }
         this.normalizeCustomCategories();
         this.resetSecretVisibility();
-        console.log('设置已加载:', this.settings);
       } catch (error) {
         console.error('加载设置失败:', error);
       }
@@ -3175,8 +3172,7 @@ function app() {
     showNotification(type, message) {
       const container = document.getElementById('toastContainer');
       if (!container) {
-        console.log(`[${type}] ${message}`);
-        alert(message);
+        console[type === 'error' ? 'error' : 'info'](`[${type}] ${message}`);
         return;
       }
 
@@ -3190,10 +3186,16 @@ function app() {
         info: 'ℹ'
       }[type] || 'ℹ';
 
-      toast.innerHTML = `
-        <span style="font-size: 20px; font-weight: bold;">${icon}</span>
-        <span style="flex: 1; color: white;">${message}</span>
-      `;
+      const iconEl = document.createElement('span');
+      iconEl.className = 'toast-icon';
+      iconEl.textContent = icon;
+
+      const messageEl = document.createElement('span');
+      messageEl.className = 'toast-message';
+      messageEl.textContent = String(message || '');
+
+      toast.appendChild(iconEl);
+      toast.appendChild(messageEl);
 
       container.appendChild(toast);
 

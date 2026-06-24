@@ -642,12 +642,13 @@ mod tests {
         let rules = TransferRules::default();
         let mut sub = make_sub("Show", rules);
         sub.transferred_file_keys = vec!["ep:178".to_string()];
-        let files = vec![make_file("178-4k.mkv")];
+        let files = vec![make_file("178-4k.mkv"), make_file("178重置版.mp4")];
 
         let plan = build_transfer_plan(&sub, Some(&files), None, None, None);
 
         assert_eq!(plan.transfer_count, 0);
         assert_eq!(plan.skipped[0].skip_reason, "已转存记录中存在");
+        assert_eq!(plan.skipped[1].skip_reason, "已转存记录中存在");
     }
 
     #[test]
@@ -658,6 +659,11 @@ mod tests {
         };
         let (result, err) = apply_rename("第05集.mkv", &rules, None, Some(5));
         assert_eq!(result, "Show.S01E05.mkv");
+        assert!(err.is_none());
+
+        let episode = detect_episode("178重置版.mp4").episode;
+        let (result, err) = apply_rename("178重置版.mp4", &rules, None, episode);
+        assert_eq!(result, "Show.S01E178.mp4");
         assert!(err.is_none());
     }
 

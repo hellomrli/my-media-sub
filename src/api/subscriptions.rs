@@ -361,6 +361,10 @@ fn apply_source_change_options(
     }
 }
 
+fn continue_from_current_episode_default(value: Option<bool>) -> bool {
+    value.unwrap_or(true)
+}
+
 fn reconcile_completion_status(sub: &mut Subscription) {
     reopen_completed_subscription_status(sub);
 }
@@ -500,7 +504,8 @@ async fn update_subscription(
 ) -> Result<impl IntoResponse> {
     let has_explicit_total_episode_number = req.total_episode_number.is_some();
     let keep_progress_on_source_change = req.keep_progress_on_source_change.unwrap_or(true);
-    let continue_from_current_episode = req.continue_from_current_episode.unwrap_or(false);
+    let continue_from_current_episode =
+        continue_from_current_episode_default(req.continue_from_current_episode);
     let updated = state
         .store
         .update(&id, |sub| {
@@ -918,6 +923,13 @@ mod tests {
         assert_eq!(sub.transferred_file_keys, vec!["ep:12"]);
         assert!(sub.last_new_files.is_empty());
         assert_eq!(sub.last_check_summary, "已更换订阅资源，等待下次检查");
+    }
+
+    #[test]
+    fn source_change_continue_from_current_defaults_to_enabled() {
+        assert!(continue_from_current_episode_default(None));
+        assert!(continue_from_current_episode_default(Some(true)));
+        assert!(!continue_from_current_episode_default(Some(false)));
     }
 
     #[test]

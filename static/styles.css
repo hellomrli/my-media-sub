@@ -175,6 +175,18 @@ details > summary::-webkit-details-marker { display: none; }
   border: 1px solid rgba(255,255,255,0.1);
 }
 
+.toast-icon {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.toast-message {
+  flex: 1;
+  color: white;
+  overflow-wrap: anywhere;
+}
+
 @keyframes slideIn {
   from {
     transform: translateX(400px);

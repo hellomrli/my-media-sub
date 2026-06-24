@@ -104,6 +104,30 @@ fn numeric_fallback_episode(name: &str) -> Option<i32> {
     .filter(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
     .filter_map(|part| part.parse::<i32>().ok())
     .find(|episode| is_likely_numeric_fallback_episode(*episode))
+    .or_else(|| leading_numeric_episode(stem))
+}
+
+fn leading_numeric_episode(stem: &str) -> Option<i32> {
+    let digit_end = stem
+        .char_indices()
+        .take_while(|(_, ch)| ch.is_ascii_digit())
+        .last()
+        .map(|(index, ch)| index + ch.len_utf8())?;
+
+    let suffix = stem[digit_end..].trim_start();
+    if suffix
+        .chars()
+        .next()
+        .map(|ch| matches!(ch, 'p' | 'P' | 'k' | 'K'))
+        .unwrap_or(false)
+    {
+        return None;
+    }
+
+    stem[..digit_end]
+        .parse::<i32>()
+        .ok()
+        .filter(|episode| is_likely_numeric_fallback_episode(*episode))
 }
 
 /// 是否是视频文件
@@ -331,8 +355,25 @@ mod tests {
     }
 
     #[test]
+    fn test_detect_episode_number_with_suffix() {
+        let info = detect_episode("178重置版.mp4");
+        assert_eq!(info.episode, Some(178));
+        assert_eq!(info.season, None);
+    }
+
+    #[test]
+    fn test_detect_episode_skips_quality_only_name() {
+        let info = detect_episode("4K.mp4");
+        assert_eq!(info.episode, None);
+
+        let info = detect_episode("1080p.mp4");
+        assert_eq!(info.episode, None);
+    }
+
+    #[test]
     fn test_episode_video_key_uses_numeric_fallback_and_default_season() {
         assert_eq!(episode_video_key("178-4k.mkv", 1), Some((1, 178)));
+        assert_eq!(episode_video_key("178重置版.mp4", 1), Some((1, 178)));
         assert_eq!(episode_video_key("Show.S02E178.mkv", 1), Some((2, 178)));
         assert_eq!(episode_video_key("178.ass", 1), None);
     }
