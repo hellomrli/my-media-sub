@@ -609,28 +609,32 @@
           <div x-show="subscriptions.length > 0 && filteredSubscriptions.length === 0" class="app-panel empty-state" x-text="'暂无' + subscriptionStatusLabel(subscriptionStatusTab) + '订阅'"></div>
         </div>
 
-        <!-- 转存历史页面 -->
+        <!-- 后台日志页面 -->
         <div x-show="currentTab === 'transferHistory'" class="space-y-4">
-          <div class="grid grid-cols-1 sm:grid-cols-5 gap-3">
+          <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
             <div class="stat-tile p-4">
-              <div class="text-xs text-gray-500">历史记录</div>
-              <div class="mt-2 text-2xl font-semibold text-white" x-text="transferHistoryStats.total"></div>
+              <div class="text-xs text-gray-500">后台任务</div>
+              <div class="mt-2 text-2xl font-semibold text-white" x-text="backgroundLogStats.total"></div>
             </div>
             <div class="stat-tile p-4">
               <div class="text-xs text-gray-500">进行中</div>
-              <div class="mt-2 text-2xl font-semibold text-yellow-300" x-text="transferHistoryStats.active"></div>
+              <div class="mt-2 text-2xl font-semibold text-yellow-300" x-text="backgroundLogStats.active"></div>
             </div>
             <div class="stat-tile p-4">
               <div class="text-xs text-gray-500">成功</div>
-              <div class="mt-2 text-2xl font-semibold text-green-300" x-text="transferHistoryStats.success"></div>
+              <div class="mt-2 text-2xl font-semibold text-green-300" x-text="backgroundLogStats.success"></div>
             </div>
             <div class="stat-tile p-4">
               <div class="text-xs text-gray-500">失败</div>
-              <div class="mt-2 text-2xl font-semibold text-red-300" x-text="transferHistoryStats.failed"></div>
+              <div class="mt-2 text-2xl font-semibold text-red-300" x-text="backgroundLogStats.failed"></div>
             </div>
             <div class="stat-tile p-4">
-              <div class="text-xs text-gray-500">累计文件</div>
-              <div class="mt-2 text-2xl font-semibold text-blue-300" x-text="transferHistoryStats.saved"></div>
+              <div class="text-xs text-gray-500">已取消</div>
+              <div class="mt-2 text-2xl font-semibold text-gray-300" x-text="backgroundLogStats.canceled"></div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-gray-500">处理文件</div>
+              <div class="mt-2 text-2xl font-semibold text-blue-300" x-text="backgroundLogStats.saved"></div>
             </div>
           </div>
 
@@ -667,16 +671,30 @@
             </div>
           </div>
 
-          <div x-show="recentTransferJobs.length > 0" class="app-panel overflow-hidden">
+          <div class="app-panel overflow-hidden">
             <div class="p-4 border-b border-dark-border flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
               <div>
-                <h3 class="section-title">后台任务</h3>
-                <p class="text-sm text-gray-500 mt-1">后台任务会持续更新状态，排队和运行中的任务可取消，失败任务可重试。</p>
+                <h3 class="section-title">任务日志</h3>
+                <p class="text-sm text-gray-500 mt-1">记录转存、元数据刮削和推送派发等后台任务，排队和运行中的任务可取消，失败任务可重试。</p>
               </div>
               <button @click="loadJobs()" class="btn-secondary px-4 py-2 rounded-lg transition-colors text-sm">刷新任务</button>
             </div>
+            <div class="p-4 border-b border-dark-border grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_180px_180px_auto] gap-3">
+              <input type="search" x-model="backgroundJobQuery" placeholder="搜索标题、消息、错误或任务参数" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" />
+              <select x-model="backgroundJobFilterKind" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white">
+                <template x-for="kind in backgroundJobKinds" :key="kind.id">
+                  <option :value="kind.id" x-text="kind.name"></option>
+                </template>
+              </select>
+              <select x-model="backgroundJobFilterStatus" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white">
+                <template x-for="status in backgroundJobStatuses" :key="status.id">
+                  <option :value="status.id" x-text="status.name"></option>
+                </template>
+              </select>
+              <button @click="resetBackgroundJobFilters()" class="btn-secondary px-4 py-2 rounded-lg text-sm">清空筛选</button>
+            </div>
             <div class="divide-y divide-dark-border">
-              <template x-for="job in recentTransferJobs" :key="job.id">
+              <template x-for="job in recentBackgroundJobs" :key="job.id">
                 <div class="p-4 hover:bg-dark-hover transition-colors">
                   <div class="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
                     <div class="min-w-0">
@@ -687,14 +705,16 @@
                       </div>
                       <h4 class="text-white font-medium" x-text="job.title"></h4>
                       <p class="text-sm text-gray-400 mt-1" x-text="job.message"></p>
+                      <p x-show="job.error" class="text-sm text-red-300 mt-1 break-all" x-text="job.error"></p>
                     </div>
                     <div class="w-full md:w-72">
                       <div class="h-2 rounded bg-dark-bg overflow-hidden border border-dark-border">
                         <div class="h-full bg-blue-500 transition-all" :style="'width: ' + (job.progress || 0) + '%'"></div>
                       </div>
                       <div class="mt-2 flex items-center justify-between gap-2">
-                        <div class="text-xs text-gray-500" x-text="(job.progress || 0) + '%'"></div>
+                        <div class="text-xs text-gray-500" x-text="(job.progress || 0) + '% · ' + jobDurationLabel(job)"></div>
                         <div class="flex items-center gap-2">
+                          <button @click="openJobDetail(job)" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">详情</button>
                           <button x-show="canCancelJob(job)" @click="cancelJob(job)" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">取消</button>
                           <button x-show="canRetryJob(job)" @click="retryJob(job)" class="btn-primary px-3 py-1 rounded text-xs transition-colors">重试</button>
                         </div>
@@ -703,49 +723,7 @@
                   </div>
                 </div>
               </template>
-            </div>
-          </div>
-
-          <div class="app-panel overflow-hidden">
-            <div class="p-4 border-b border-dark-border flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-              <div>
-                <h3 class="section-title">转存历史</h3>
-                <p class="text-sm text-gray-500 mt-1">自动订阅转存和手动转存会记录在这里。</p>
-              </div>
-              <button @click="loadNotifications()" class="btn-secondary px-4 py-2 rounded-lg transition-colors text-sm">刷新</button>
-            </div>
-
-            <div class="divide-y divide-dark-border">
-              <template x-for="item in transferHistory" :key="item.id">
-                <div class="p-4 hover:bg-dark-hover transition-colors">
-                  <div class="flex flex-col lg:flex-row gap-3 lg:items-start lg:justify-between">
-                    <div class="min-w-0 flex-1">
-                      <div class="flex flex-wrap items-center gap-2 mb-2">
-                        <span :class="item.level === 'success' ? 'bg-green-600/20 text-green-300' : 'bg-red-600/20 text-red-300'" class="px-2 py-1 rounded text-xs font-medium" x-text="item.level === 'success' ? '成功' : '失败'"></span>
-                        <span class="px-2 py-1 rounded text-xs bg-blue-600/20 text-blue-300" x-text="(item.meta && item.meta.mode) === 'auto' ? '自动订阅' : '手动转存'"></span>
-                        <span class="text-xs text-gray-500" x-text="formatTime(item.created_at)"></span>
-                      </div>
-                      <h4 class="text-white font-medium break-all" x-text="item.title"></h4>
-                      <p class="text-sm text-gray-400 mt-1 break-all" x-text="item.message"></p>
-                    </div>
-                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm lg:min-w-[360px]">
-                      <div class="app-panel-soft p-3">
-                        <span class="block text-xs text-gray-500 mb-1">文件数</span>
-                        <span class="text-white" x-text="(item.meta && (item.meta.saved_count || item.meta.file_count)) || '-'"></span>
-                      </div>
-                      <div class="app-panel-soft p-3">
-                        <span class="block text-xs text-gray-500 mb-1">目标</span>
-                        <span class="text-gray-300 break-all" x-text="(item.meta && (item.meta.target_dir || item.meta.target_fid)) || '-'"></span>
-                      </div>
-                      <div class="app-panel-soft p-3 col-span-2 sm:col-span-1">
-                        <span class="block text-xs text-gray-500 mb-1">来源</span>
-                        <span class="text-gray-300 break-all" x-text="(item.meta && (item.meta.subscription_title || item.meta.url)) || '-'"></span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </template>
-              <div x-show="transferHistory.length === 0" class="empty-state">暂无转存历史</div>
+              <div x-show="recentBackgroundJobs.length === 0" class="empty-state">暂无后台日志</div>
             </div>
           </div>
         </div>
@@ -755,7 +733,7 @@
           <div class="app-panel p-4 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
             <div>
               <h3 class="section-title">通知中心</h3>
-              <p class="text-sm text-gray-500 mt-1">系统通知、推送记录和转存消息会保留在这里。</p>
+              <p class="text-sm text-gray-500 mt-1">系统通知和推送记录会保留在这里，后台执行过程请查看后台日志。</p>
             </div>
             <div class="flex gap-2">
               <button @click="markAllRead()" class="btn-secondary px-4 py-2 rounded-lg transition-colors text-sm">全部已读</button>
@@ -911,6 +889,48 @@
                   </div>
                 </div>
                 <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.quark_save_enabled" class="rounded" />启用自动转存</label>
+              </div>
+
+              <div class="app-panel-soft p-4 space-y-4">
+                <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <h3 class="section-title">夸克账号健康</h3>
+                    <p class="text-sm text-gray-500 mt-1">检查 Cookie 可用性、自动转存开关和最近签到状态。</p>
+                  </div>
+                  <button type="button" @click="refreshQuarkHealth()" :disabled="quarkHealthLoading" class="btn-secondary px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+                    <span x-show="!quarkHealthLoading">检测账号</span>
+                    <span x-show="quarkHealthLoading">检测中</span>
+                  </button>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div class="stat-tile p-4">
+                    <div class="text-xs text-gray-500">连接状态</div>
+                    <div class="mt-2 text-xl font-semibold" :class="quarkHealthStatusClass()" x-text="quarkHealthStatusLabel()"></div>
+                  </div>
+                  <div class="stat-tile p-4">
+                    <div class="text-xs text-gray-500">自动转存</div>
+                    <div class="mt-2 text-xl font-semibold" :class="settings.quark_save_enabled ? 'text-green-300' : 'text-gray-300'" x-text="settings.quark_save_enabled ? '已启用' : '未启用'"></div>
+                  </div>
+                  <div class="stat-tile p-4">
+                    <div class="text-xs text-gray-500">连签进度</div>
+                    <div class="mt-2 text-xl font-semibold text-blue-300" x-text="quarkSigninProgressLabel()"></div>
+                  </div>
+                  <div class="stat-tile p-4">
+                    <div class="text-xs text-gray-500">总容量</div>
+                    <div class="mt-2 text-xl font-semibold text-white" x-text="quarkCapacityLabel()"></div>
+                  </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                  <div class="app-panel-soft p-3">
+                    <div class="text-xs text-gray-500 mb-1">检测结果</div>
+                    <div class="text-gray-300 break-all" x-text="quarkHealth.message"></div>
+                    <div class="text-xs text-gray-500 mt-1" x-text="quarkHealth.checkedAt ? '检测时间 ' + formatTime(quarkHealth.checkedAt) : '尚未检测'"></div>
+                  </div>
+                  <div class="app-panel-soft p-3">
+                    <div class="text-xs text-gray-500 mb-1">签到结果</div>
+                    <div class="text-gray-300 break-all" x-text="quarkHealth.signinMessage || '尚未签到'"></div>
+                  </div>
+                </div>
               </div>
 
               <div class="app-panel-soft p-4 space-y-4">
@@ -1155,6 +1175,112 @@
                       <p><code class="text-gray-300">{ext}</code>：扩展名，不含点</p>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              <div class="flex justify-end gap-3 pt-4 border-t border-dark-border">
+                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
+              </div>
+            </div>
+
+            <!-- 规则中心 -->
+            <div x-show="currentSettingsTab === 'rules'" class="p-4 sm:p-6 space-y-6">
+              <div class="app-panel-soft p-4 space-y-4">
+                <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <h3 class="section-title">命名规则中心</h3>
+                    <p class="text-sm text-gray-500 mt-1">集中调试追剧命名模板、过滤规则和样例文件，确认后可写入默认模板或在订阅弹窗中套用。</p>
+                  </div>
+                  <div class="flex flex-col sm:flex-row gap-2">
+                    <button @click="useRuleCenterAsDefaultTemplate()" class="btn-secondary px-4 py-2 rounded-lg text-sm">写入默认模板</button>
+                    <button @click="previewRuleCenter()" :disabled="ruleCenterPreviewLoading" class="btn-primary px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+                      <span x-show="!ruleCenterPreviewLoading">预览规则</span>
+                      <span x-show="ruleCenterPreviewLoading">预览中</span>
+                    </button>
+                  </div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                  <template x-for="preset in rulePresets" :key="preset.id">
+                    <button @click="applyRulePresetToRuleCenter(preset.id)" class="btn-secondary p-3 rounded-lg text-left min-h-20">
+                      <span class="block text-sm text-white font-medium" x-text="preset.name"></span>
+                      <span class="block text-xs text-gray-500 mt-1" x-text="preset.description"></span>
+                    </button>
+                  </template>
+                </div>
+              </div>
+
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">规则配置</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label class="field-label">媒体类型</label>
+                    <select x-model="ruleCenter.media_type" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white">
+                      <option value="movie">电影</option>
+                      <option value="series">连续剧</option>
+                      <option value="anime">动画</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="field-label">标题样例</label>
+                    <input type="text" x-model="ruleCenter.title" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" />
+                  </div>
+                  <div>
+                    <label class="field-label">季号</label>
+                    <input type="number" min="1" x-model="ruleCenter.season" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" />
+                  </div>
+                  <div class="md:col-span-3">
+                    <label class="field-label">重命名模板</label>
+                    <input type="text" x-model="ruleCenter.rename_template" placeholder="{title}.S{season}E{episode}.{ext}" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" />
+                  </div>
+                  <div><label class="field-label">包含关键词</label><input type="text" x-model="ruleCenter.include_keywords_text" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="多个用逗号或换行分隔" /></div>
+                  <div><label class="field-label">排除关键词</label><input type="text" x-model="ruleCenter.exclude_keywords_text" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="预告, 花絮, trailer" /></div>
+                  <div><label class="field-label">匹配正则</label><input type="text" x-model="ruleCenter.match_regex" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：S01E\\d+|第\\d+集" /></div>
+                  <div><label class="field-label">重命名正则</label><input type="text" x-model="ruleCenter.rename_regex" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" /></div>
+                  <div><label class="field-label">替换文本</label><input type="text" x-model="ruleCenter.rename_replacement" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" /></div>
+                  <div>
+                    <label class="field-label">同集保留策略</label>
+                    <select x-model="ruleCenter.duplicate_episode_strategy" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white">
+                      <option value="highest_quality">清晰度最高</option>
+                      <option value="latest_upload">上传时间最新</option>
+                      <option value="largest_size">文件最大</option>
+                      <option value="first">最先出现</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="ruleCenter.ignore_extensions" class="rounded" />忽略扩展名匹配</label>
+                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="ruleCenter.only_latest" class="rounded" />仅处理最新一集</label>
+                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="ruleCenter.skip_existing_transferred" class="rounded" />跳过已转存</label>
+                </div>
+              </div>
+
+              <div class="app-panel-soft p-4 space-y-4">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 class="section-title">样例预览</h3>
+                    <p class="text-sm text-gray-500 mt-1">每行一个文件名，用于验证集数识别、过滤和目标文件名。</p>
+                  </div>
+                  <button @click="copyText(ruleCenter.rename_template)" class="btn-secondary px-3 py-2 rounded text-sm">复制模板</button>
+                </div>
+                <textarea x-model="ruleCenter.samples" rows="5" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white"></textarea>
+                <div x-show="ruleCenterPreviewError" class="text-sm text-red-300" x-text="ruleCenterPreviewError"></div>
+                <div x-show="ruleCenterPreview && ruleCenterPreview.items && ruleCenterPreview.items.length > 0" class="border border-dark-border rounded-lg overflow-x-auto">
+                  <div class="grid grid-cols-12 gap-2 min-w-[720px] px-3 py-2 bg-dark-bg text-xs text-gray-500">
+                    <div class="col-span-4">原文件名</div>
+                    <div class="col-span-4">目标文件名</div>
+                    <div class="col-span-2">集数</div>
+                    <div class="col-span-2">结果</div>
+                  </div>
+                  <template x-for="item in ruleCenterPreview.items" :key="item.source_name + '-' + item.target_name">
+                    <div class="grid grid-cols-12 gap-2 min-w-[720px] px-3 py-2 border-t border-dark-border text-xs">
+                      <div class="col-span-4 text-gray-300 break-all" x-text="item.source_name"></div>
+                      <div class="col-span-4 text-green-300 break-all" x-text="item.target_name"></div>
+                      <div class="col-span-2 text-gray-400" x-text="item.episode ? '第 ' + item.episode + ' 集' : '-'"></div>
+                      <div class="col-span-2">
+                        <span :class="item.action === 'transfer' ? 'text-green-300' : 'text-amber-300'" x-text="item.action === 'transfer' ? '会转存' : (item.skip_reason || '跳过')"></span>
+                      </div>
+                    </div>
+                  </template>
                 </div>
               </div>
 
@@ -1506,6 +1632,15 @@
     <div class="app-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop>
       <h3 class="text-xl font-bold text-white mb-6" x-text="subscriptionEditingId ? '编辑订阅' : '创建订阅'"></h3>
 
+      <div class="mb-6 grid grid-cols-3 gap-2">
+        <template x-for="(step, index) in subscriptionWizardSteps" :key="step.id">
+          <button @click="subscriptionDialogTab = step.id" class="border rounded-lg px-3 py-2 text-sm transition-colors" :class="subscriptionWizardStepClass(step, index)">
+            <span class="font-semibold" x-text="index + 1"></span>
+            <span class="ml-1" x-text="step.name"></span>
+          </button>
+        </template>
+      </div>
+
       <!-- 订阅模式选择 -->
       <div x-show="!subscriptionEditingId" class="mb-6">
         <label class="block text-sm font-medium text-gray-300 mb-3">订阅类型</label>
@@ -1633,6 +1768,24 @@
         </div>
 
         <div x-show="subscriptionDialogTab === 'rename' && (subscriptionMode === 'continuous' || subscriptionEditingId)" class="space-y-4">
+          <div class="app-panel-soft p-4 space-y-3">
+            <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+              <div>
+                <div class="text-sm font-medium text-gray-300">规则预设</div>
+                <div class="text-xs text-gray-500">快速套用常见命名和过滤规则，仍可继续手动微调。</div>
+              </div>
+              <button @click="showSubscriptionDialog = false; selectTab('settings'); selectSettingsTab('rules')" class="btn-secondary px-3 py-2 rounded text-xs">打开规则中心</button>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+              <template x-for="preset in rulePresets" :key="preset.id">
+                <button @click="applyRulePresetToSubscription(preset.id)" class="btn-secondary p-3 rounded-lg text-left min-h-20">
+                  <span class="block text-sm text-white font-medium" x-text="preset.name"></span>
+                  <span class="block text-xs text-gray-500 mt-1" x-text="preset.description"></span>
+                </button>
+              </template>
+            </div>
+          </div>
+
           <div>
             <label class="flex items-center justify-between text-sm font-medium text-gray-300 mb-2">
               <span>转存目录</span>
@@ -1774,12 +1927,66 @@
       </div>
 
       <!-- 操作按钮 -->
-      <div class="flex gap-3">
+      <div class="flex flex-col sm:flex-row gap-3">
         <button @click="showSubscriptionDialog = false" class="btn-secondary flex-1 px-4 py-2 rounded-lg transition-colors">取消</button>
-        <button @click="confirmSubscription()" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors">
+        <button x-show="canGoPreviousSubscriptionStep()" @click="previousSubscriptionStep()" class="btn-secondary flex-1 px-4 py-2 rounded-lg transition-colors">上一步</button>
+        <button x-show="canGoNextSubscriptionStep()" @click="nextSubscriptionStep()" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors">下一步</button>
+        <button x-show="!canGoNextSubscriptionStep()" @click="confirmSubscription()" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors">
           <span x-text="subscriptionEditingId ? '保存订阅' : (subscriptionMode === 'once' ? '立即转存' : '创建订阅')"></span>
         </button>
       </div>
+    </div>
+  </div>
+
+  <!-- 后台任务详情 -->
+  <div x-show="showJobDetailDialog" @click.self="showJobDetailDialog = false" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop>
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
+        <div class="min-w-0">
+          <h3 class="text-xl font-bold text-white break-all" x-text="selectedJob ? selectedJob.title : '任务详情'"></h3>
+          <p class="text-sm text-gray-500 mt-1" x-text="selectedJob ? selectedJob.id : ''"></p>
+        </div>
+        <div class="flex gap-2">
+          <button @click="copySelectedJobDetail()" class="btn-secondary px-3 py-2 rounded text-sm">复制详情</button>
+          <button @click="showJobDetailDialog = false" class="btn-secondary px-3 py-2 rounded text-sm">关闭</button>
+        </div>
+      </div>
+
+      <template x-if="selectedJob">
+        <div class="space-y-4">
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="stat-tile p-3"><div class="text-xs text-gray-500">类型</div><div class="mt-1 text-sm font-semibold text-white" x-text="jobKindLabel(selectedJob.kind)"></div></div>
+            <div class="stat-tile p-3"><div class="text-xs text-gray-500">状态</div><div class="mt-1 text-sm font-semibold" :class="jobStatusClass(selectedJob.status)" x-text="jobStatusLabel(selectedJob.status)"></div></div>
+            <div class="stat-tile p-3"><div class="text-xs text-gray-500">进度</div><div class="mt-1 text-sm font-semibold text-blue-300" x-text="(selectedJob.progress || 0) + '%'"></div></div>
+            <div class="stat-tile p-3"><div class="text-xs text-gray-500">耗时</div><div class="mt-1 text-sm font-semibold text-white" x-text="jobDurationLabel(selectedJob)"></div></div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+            <div class="app-panel-soft p-3">
+              <div class="text-xs text-gray-500 mb-1">创建 / 开始 / 结束</div>
+              <div class="text-gray-300" x-text="'创建：' + formatTime(selectedJob.created_at)"></div>
+              <div class="text-gray-300" x-text="'开始：' + formatTime(selectedJob.started_at)"></div>
+              <div class="text-gray-300" x-text="'结束：' + formatTime(selectedJob.finished_at)"></div>
+            </div>
+            <div class="app-panel-soft p-3">
+              <div class="text-xs text-gray-500 mb-1">消息</div>
+              <div class="text-gray-300 break-all" x-text="selectedJob.message || '-'"></div>
+              <div x-show="selectedJob.error" class="text-red-300 break-all mt-2" x-text="selectedJob.error"></div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <div>
+              <div class="text-sm font-medium text-gray-300 mb-2">Payload</div>
+              <pre class="app-panel-soft p-3 max-h-72 overflow-auto whitespace-pre-wrap text-xs text-gray-300" x-text="jobPayloadPretty(selectedJob)"></pre>
+            </div>
+            <div>
+              <div class="text-sm font-medium text-gray-300 mb-2">Result</div>
+              <pre class="app-panel-soft p-3 max-h-72 overflow-auto whitespace-pre-wrap text-xs text-gray-300" x-text="jobResultPretty(selectedJob)"></pre>
+            </div>
+          </div>
+        </div>
+      </template>
     </div>
   </div>
 

@@ -8,8 +8,8 @@ function app() {
       {id: 'drive', name: '我的网盘', description: '管理夸克网盘文件', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>'},
       {id: 'downloads', name: '下载任务', description: '查看 Aria2 实时进度', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4m0 0l4-4m-4 4V4"/></svg>'},
       {id: 'subscriptions', name: '订阅管理', description: '管理媒体订阅', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>'},
-      {id: 'transferHistory', name: '转存历史', description: '查看转存成功和失败记录', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0019 5M19 5h-5M5 19h5"/></svg>'},
-      {id: 'notifications', name: '通知中心', description: '查看系统通知', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>'},
+      {id: 'transferHistory', name: '后台日志', description: '查看后台任务和执行记录', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0019 5M19 5h-5M5 19h5"/></svg>'},
+      {id: 'notifications', name: '通知中心', description: '查看用户通知和推送记录', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>'},
       {id: 'settings', name: '系统设置', description: '配置系统参数', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>'}
     ],
 
@@ -18,6 +18,7 @@ function app() {
       {id: 'quark', name: '夸克网盘'},
       {id: 'push', name: '消息推送'},
       {id: 'automation', name: '自动化'},
+      {id: 'rules', name: '规则中心'},
       {id: 'advanced', name: '高级'},
       {id: 'update', name: '在线更新'}
     ],
@@ -138,11 +139,15 @@ function app() {
       {id: 'all', name: '全部'},
       {id: 'unread', name: '未读'},
       {id: 'push', name: '推送记录'},
-      {id: 'system', name: '系统通知'},
-      {id: 'transfer', name: '转存历史'}
+      {id: 'system', name: '系统通知'}
     ],
     jobs: [],
     jobEvents: null,
+    backgroundJobFilterKind: 'all',
+    backgroundJobFilterStatus: 'all',
+    backgroundJobQuery: '',
+    selectedJob: null,
+    showJobDetailDialog: false,
 
     // 网盘
     driveItems: [],
@@ -205,6 +210,30 @@ function app() {
     aria2DirLoading: false,
     aria2DirError: '',
     quarkSigninLoading: false,
+    quarkHealthLoading: false,
+    quarkHealth: {status: 'unknown', message: '尚未检测', checkedAt: null, nickname: '', signinMessage: '', signinResult: null},
+
+    // 规则中心
+    ruleCenter: {
+      media_type: 'series',
+      season: 1,
+      title: '示例剧集',
+      rename_template: '{title}.S{season}E{episode}.{ext}',
+      include_keywords_text: '',
+      exclude_keywords_text: '',
+      match_regex: '',
+      rename_regex: '',
+      rename_replacement: '',
+      ignore_extensions: false,
+      only_latest: false,
+      skip_existing_transferred: true,
+      duplicate_episode_strategy: 'highest_quality',
+      finish_after_episode: '',
+      samples: '178重置版.mp4\n第179话.mp4\nShow.S01E180.1080p.mkv'
+    },
+    ruleCenterPreview: null,
+    ruleCenterPreviewLoading: false,
+    ruleCenterPreviewError: '',
 
     // 设置
     settings: {
@@ -226,49 +255,139 @@ function app() {
     },
 
     get unreadNotifications() {
-      return this.notifications.filter(n => !n.read).length;
+      return this.notificationCenterNotifications.filter(n => !n.read).length;
     },
 
     get pushNotifications() {
-      return this.notifications.filter(n => n.event === 'push_sent');
+      return this.notificationCenterNotifications.filter(n => n.event === 'push_sent');
     },
 
-    get transferHistory() {
-      const events = ['subscription_transferred', 'subscription_transfer_failed', 'manual_transfer_succeeded', 'manual_transfer_failed'];
-      return this.notifications.filter(n => events.includes(n.event));
+    get backgroundNotificationEvents() {
+      return [
+        'subscription_transferred',
+        'subscription_transfer_failed',
+        'manual_transfer_succeeded',
+        'manual_transfer_failed',
+        'metadata_scrape_completed'
+      ];
+    },
+
+    get notificationCenterNotifications() {
+      return this.notifications.filter(n => !this.backgroundNotificationEvents.includes(n.event));
     },
 
     get systemNotifications() {
-      const transferEvents = ['subscription_transferred', 'subscription_transfer_failed', 'manual_transfer_succeeded', 'manual_transfer_failed'];
-      return this.notifications.filter(n => n.event !== 'push_sent' && !transferEvents.includes(n.event));
+      return this.notificationCenterNotifications.filter(n => n.event !== 'push_sent');
     },
 
     get filteredNotifications() {
-      if (this.notificationFilter === 'unread') return this.notifications.filter(n => !n.read);
+      if (this.notificationFilter === 'unread') return this.notificationCenterNotifications.filter(n => !n.read);
       if (this.notificationFilter === 'push') return this.pushNotifications;
       if (this.notificationFilter === 'system') return this.systemNotifications;
-      if (this.notificationFilter === 'transfer') return this.transferHistory;
-      return this.notifications;
+      return this.notificationCenterNotifications;
     },
 
-    get transferHistoryStats() {
-      const items = this.transferHistory;
-      const success = items.filter(n => n.level === 'success').length;
-      const failed = items.filter(n => n.level === 'error').length;
-      const saved = items.reduce((sum, n) => sum + Number((n.meta || {}).saved_count || 0), 0);
-      return {total: items.length, active: this.runningTransferJobs.length, success, failed, saved};
+    get backgroundLogStats() {
+      const jobs = this.backgroundJobs;
+      const success = jobs.filter(job => job.status === 'succeeded').length;
+      const failed = jobs.filter(job => job.status === 'failed').length;
+      const canceled = jobs.filter(job => job.status === 'canceled').length;
+      const active = jobs.filter(job => ['queued', 'running'].includes(job.status)).length;
+      const saved = jobs.reduce((sum, job) => sum + Number((job.result || {}).saved_count || (job.result || {}).transferred_count || 0), 0);
+      return {total: jobs.length, active, success, failed, canceled, saved};
     },
 
-    get transferJobs() {
+    get backgroundJobs() {
       return this.jobs.filter(job => ['manual_transfer', 'subscription_transfer', 'metadata_scrape', 'push_dispatch'].includes(job.kind));
     },
 
-    get runningTransferJobs() {
-      return this.transferJobs.filter(job => ['queued', 'running'].includes(job.status));
+    get recentBackgroundJobs() {
+      return this.filteredBackgroundJobs.slice(0, 80);
     },
 
-    get recentTransferJobs() {
-      return this.transferJobs.slice(0, 20);
+    get filteredBackgroundJobs() {
+      const query = this.backgroundJobQuery.trim().toLowerCase();
+      return this.backgroundJobs.filter(job => {
+        if (this.backgroundJobFilterKind !== 'all' && job.kind !== this.backgroundJobFilterKind) return false;
+        if (this.backgroundJobFilterStatus !== 'all' && job.status !== this.backgroundJobFilterStatus) return false;
+        if (!query) return true;
+        return [
+          job.title,
+          job.message,
+          job.error,
+          job.kind,
+          job.status,
+          JSON.stringify(job.payload || {}),
+          JSON.stringify(job.result || {})
+        ].some(value => String(value || '').toLowerCase().includes(query));
+      });
+    },
+
+    get backgroundJobKinds() {
+      return [
+        {id: 'all', name: '全部类型'},
+        {id: 'manual_transfer', name: '手动转存'},
+        {id: 'subscription_transfer', name: '自动订阅'},
+        {id: 'metadata_scrape', name: '元数据刮削'},
+        {id: 'push_dispatch', name: '推送派发'}
+      ];
+    },
+
+    get backgroundJobStatuses() {
+      return [
+        {id: 'all', name: '全部状态'},
+        {id: 'queued', name: '排队中'},
+        {id: 'running', name: '执行中'},
+        {id: 'succeeded', name: '成功'},
+        {id: 'failed', name: '失败'},
+        {id: 'canceled', name: '已取消'}
+      ];
+    },
+
+    get subscriptionWizardSteps() {
+      const steps = [{id: 'content', name: '内容'}];
+      if (this.subscriptionMode === 'continuous' || this.subscriptionEditingId) {
+        steps.push({id: 'rename', name: '规则'});
+        steps.push({id: 'download', name: '下载'});
+      }
+      return steps;
+    },
+
+    get rulePresets() {
+      return [
+        {
+          id: 'standard_tv',
+          name: '标准剧集',
+          description: 'S01E01 风格，适合电视剧和动画',
+          template: '{title}.S{season}E{episode}.{ext}',
+          exclude: this.defaultExcludeKeywords(),
+          duplicate: 'highest_quality'
+        },
+        {
+          id: 'episode_only',
+          name: '仅集数',
+          description: '生成 01.mp4 / 02.mkv，适合短目录',
+          template: '{episode}.{ext}',
+          exclude: this.defaultExcludeKeywords(),
+          duplicate: 'highest_quality'
+        },
+        {
+          id: 'original_keep',
+          name: '保留原名',
+          description: '尽量不改文件名，只做过滤和去重',
+          template: '{original}.{ext}',
+          exclude: this.defaultExcludeKeywords(),
+          duplicate: 'latest_upload'
+        },
+        {
+          id: 'movie_title',
+          name: '电影标题',
+          description: '电影直接使用标题和扩展名',
+          template: '{title}.{ext}',
+          exclude: '预告, 花絮, 解说, 彩蛋, trailer, preview, sample',
+          duplicate: 'largest_size'
+        }
+      ];
     },
 
     get filteredDriveItems() {
@@ -478,7 +597,6 @@ function app() {
       if (this.currentTab === 'subscriptions') await this.loadSubscriptions();
       else if (this.currentTab === 'transferHistory') {
         await this.loadJobs();
-        await this.loadNotifications();
       }
       else if (this.currentTab === 'notifications') await this.loadNotifications();
       else if (this.currentTab === 'settings') {
@@ -916,6 +1034,41 @@ function app() {
       return Number.isFinite(episode) && episode > 0 ? Math.floor(episode) : 0;
     },
 
+    subscriptionWizardStepIndex(tabId = this.subscriptionDialogTab) {
+      const index = this.subscriptionWizardSteps.findIndex(step => step.id === tabId);
+      return index >= 0 ? index : 0;
+    },
+
+    subscriptionWizardStepClass(step, index) {
+      const current = this.subscriptionWizardStepIndex();
+      if (index < current) return 'bg-green-600/20 text-green-200 border-green-500/30';
+      if (index === current) return 'bg-blue-600/20 text-blue-200 border-blue-500/40';
+      return 'bg-dark-bg text-gray-500 border-dark-border';
+    },
+
+    canGoPreviousSubscriptionStep() {
+      return this.subscriptionWizardStepIndex() > 0;
+    },
+
+    canGoNextSubscriptionStep() {
+      return this.subscriptionWizardStepIndex() < this.subscriptionWizardSteps.length - 1;
+    },
+
+    previousSubscriptionStep() {
+      const index = this.subscriptionWizardStepIndex();
+      if (index <= 0) return;
+      this.subscriptionDialogTab = this.subscriptionWizardSteps[index - 1].id;
+    },
+
+    nextSubscriptionStep() {
+      const index = this.subscriptionWizardStepIndex();
+      if (index >= this.subscriptionWizardSteps.length - 1) return;
+      this.subscriptionDialogTab = this.subscriptionWizardSteps[index + 1].id;
+      if (this.subscriptionDialogTab === 'rename' && !this.renamePreview && this.newSubscription.preview_samples) {
+        this.previewSubscriptionRename(true);
+      }
+    },
+
     subscriptionStartEpisodePayload() {
       if (this.newSubscription.media_type === 'movie') return 0;
       return this.normalizeStartEpisode(this.newSubscription.start_episode_number);
@@ -1020,6 +1173,118 @@ function app() {
     setSubscriptionMediaType(type) {
       this.newSubscription.media_type = type || 'series';
       this.updateSubscriptionDefaults();
+    },
+
+    rulePresetById(id) {
+      return this.rulePresets.find(item => item.id === id) || null;
+    },
+
+    applyRulePresetToSubscription(id) {
+      const preset = this.rulePresetById(id);
+      if (!preset) return;
+      this.newSubscription.custom_rename = true;
+      this.newSubscription.rename_template = preset.template;
+      this.newSubscription.exclude_keywords_text = preset.exclude;
+      this.newSubscription.duplicate_episode_strategy = preset.duplicate;
+      if (id === 'movie_title') {
+        this.newSubscription.media_type = 'movie';
+      }
+      this.updateSubscriptionDefaults();
+      this.previewSubscriptionRename(true);
+      this.showNotification('success', `已应用规则：${preset.name}`);
+    },
+
+    applyRulePresetToRuleCenter(id) {
+      const preset = this.rulePresetById(id);
+      if (!preset) return;
+      this.ruleCenter.rename_template = preset.template;
+      this.ruleCenter.exclude_keywords_text = preset.exclude;
+      this.ruleCenter.duplicate_episode_strategy = preset.duplicate;
+      if (id === 'movie_title') {
+        this.ruleCenter.media_type = 'movie';
+        this.ruleCenter.title = '示例电影';
+      } else if (this.ruleCenter.media_type === 'movie') {
+        this.ruleCenter.media_type = 'series';
+        this.ruleCenter.title = '示例剧集';
+      }
+      this.previewRuleCenter(true);
+      this.showNotification('success', `已载入规则：${preset.name}`);
+    },
+
+    useRuleCenterAsDefaultTemplate() {
+      const template = String(this.ruleCenter.rename_template || '').trim();
+      if (!template) {
+        this.showNotification('warning', '请先填写重命名模板');
+        return;
+      }
+      this.settings.default_rename_template = template;
+      this.showNotification('success', '已写入默认重命名模板，保存设置后生效');
+    },
+
+    ruleCenterRules() {
+      const finish = this.normalizeStartEpisode(this.ruleCenter.finish_after_episode);
+      return {
+        target_dir: '',
+        include_keywords: this.splitKeywords(this.ruleCenter.include_keywords_text),
+        exclude_keywords: this.splitKeywords(this.ruleCenter.exclude_keywords_text),
+        match_regex: this.ruleCenter.match_regex.trim(),
+        ignore_extensions: !!this.ruleCenter.ignore_extensions,
+        rename_regex: this.ruleCenter.rename_regex.trim(),
+        rename_replacement: this.ruleCenter.rename_replacement,
+        skip_existing_transferred: !!this.ruleCenter.skip_existing_transferred,
+        auto_create_target_dir: true,
+        rename_template: String(this.ruleCenter.rename_template || '').trim(),
+        only_latest: !!this.ruleCenter.only_latest,
+        duplicate_episode_strategy: this.ruleCenter.duplicate_episode_strategy || 'highest_quality',
+        notify_on_update: true,
+        notify_on_invalid: true,
+        check_interval_minutes: Number(this.settings.subscription_check_interval_minutes || 60),
+        check_weekdays: [],
+        finish_after_episode: finish > 0 ? finish : null
+      };
+    },
+
+    ruleCenterSampleFiles() {
+      return String(this.ruleCenter.samples || '')
+        .split('\n')
+        .map(name => name.trim())
+        .filter(Boolean)
+        .map(name => ({name, is_dir: false}));
+    },
+
+    async previewRuleCenter(silent = false) {
+      this.ruleCenterPreviewLoading = true;
+      this.ruleCenterPreviewError = '';
+      try {
+        const response = await fetch('/api/subscriptions/rename-preview', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            title: this.ruleCenter.title || '示例',
+            url: 'https://pan.quark.cn/s/preview',
+            password: '',
+            media_type: this.ruleCenter.media_type,
+            season: this.normalizeSeason(this.ruleCenter.season),
+            start_episode_number: 0,
+            rules: this.ruleCenterRules(),
+            sample_files: this.ruleCenterSampleFiles()
+          })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (response.ok && result.data) {
+          this.ruleCenterPreview = result.data;
+        } else {
+          this.ruleCenterPreview = null;
+          this.ruleCenterPreviewError = result.message || '预览失败';
+          if (!silent) this.showNotification('error', this.ruleCenterPreviewError);
+        }
+      } catch (error) {
+        this.ruleCenterPreview = null;
+        this.ruleCenterPreviewError = '预览失败: ' + error.message;
+        if (!silent) this.showNotification('error', this.ruleCenterPreviewError);
+      } finally {
+        this.ruleCenterPreviewLoading = false;
+      }
     },
 
     cloudTypeLabel(type) {
@@ -2052,8 +2317,7 @@ function app() {
       if (filterId === 'unread') return this.unreadNotifications;
       if (filterId === 'push') return this.pushNotifications.length;
       if (filterId === 'system') return this.systemNotifications.length;
-      if (filterId === 'transfer') return this.transferHistory.length;
-      return this.notifications.length;
+      return this.notificationCenterNotifications.length;
     },
 
     notificationLevelLabel(level) {
@@ -2154,6 +2418,63 @@ function app() {
         canceled: 'bg-gray-600/30 text-gray-300'
       };
       return classes[status] || 'bg-gray-600/30 text-gray-300';
+    },
+
+    resetBackgroundJobFilters() {
+      this.backgroundJobFilterKind = 'all';
+      this.backgroundJobFilterStatus = 'all';
+      this.backgroundJobQuery = '';
+    },
+
+    openJobDetail(job) {
+      this.selectedJob = job || null;
+      this.showJobDetailDialog = !!job;
+    },
+
+    jobDurationLabel(job) {
+      if (!job) return '-';
+      const start = Number(job.started_at || job.created_at || 0);
+      const end = Number(job.finished_at || job.updated_at || 0);
+      if (!start || !end || end < start) return '-';
+      const seconds = end - start;
+      if (seconds < 60) return `${seconds}秒`;
+      const minutes = Math.floor(seconds / 60);
+      const rest = seconds % 60;
+      if (minutes < 60) return rest ? `${minutes}分${rest}秒` : `${minutes}分钟`;
+      const hours = Math.floor(minutes / 60);
+      return `${hours}小时${minutes % 60}分钟`;
+    },
+
+    jobSummaryText(job) {
+      if (!job) return '';
+      const lines = [
+        `任务：${job.title || '-'}`,
+        `类型：${this.jobKindLabel(job.kind)}`,
+        `状态：${this.jobStatusLabel(job.status)}`,
+        `进度：${job.progress || 0}%`,
+        `创建：${this.formatTime(job.created_at)}`,
+        `开始：${this.formatTime(job.started_at)}`,
+        `结束：${this.formatTime(job.finished_at)}`,
+        `耗时：${this.jobDurationLabel(job)}`,
+        `消息：${job.message || '-'}`,
+      ];
+      if (job.error) lines.push(`错误：${job.error}`);
+      lines.push('', 'Payload:', JSON.stringify(job.payload || {}, null, 2));
+      lines.push('', 'Result:', JSON.stringify(job.result || {}, null, 2));
+      return lines.join('\n');
+    },
+
+    async copySelectedJobDetail() {
+      if (!this.selectedJob) return;
+      await this.copyText(this.jobSummaryText(this.selectedJob));
+    },
+
+    jobPayloadPretty(job) {
+      return JSON.stringify((job && job.payload) || {}, null, 2);
+    },
+
+    jobResultPretty(job) {
+      return JSON.stringify((job && job.result) || {}, null, 2);
     },
 
     canCancelJob(job) {
@@ -3234,21 +3555,56 @@ function app() {
         const response = await fetch('/api/quark/signin', {method: 'POST'});
         const data = await response.json().catch(() => ({}));
         if (response.ok && data.success) {
+          this.quarkHealth.signinMessage = data.message || '夸克签到成功';
+          this.quarkHealth.signinResult = data.result || null;
           this.showNotification('success', data.message || '夸克签到成功');
           await this.loadNotifications();
         } else {
+          this.quarkHealth.signinMessage = data.message || data.error || '夸克签到失败';
           this.showNotification('error', data.message || data.error || '夸克签到失败');
         }
       } catch (error) {
         console.error('夸克签到失败:', error);
+        this.quarkHealth.signinMessage = '夸克签到失败: ' + error.message;
         this.showNotification('error', '夸克签到失败: ' + error.message);
       } finally {
         this.quarkSigninLoading = false;
       }
     },
 
-    async testQuark() {
-      this.showNotification('info', '测试夸克连接中...');
+    quarkHealthStatusLabel() {
+      const labels = {ok: '正常', failed: '异常', unknown: '未检测'};
+      return labels[this.quarkHealth.status] || '未检测';
+    },
+
+    quarkHealthStatusClass() {
+      if (this.quarkHealth.status === 'ok') return 'text-green-300';
+      if (this.quarkHealth.status === 'failed') return 'text-red-300';
+      return 'text-gray-300';
+    },
+
+    quarkSigninProgressLabel() {
+      const result = this.quarkHealth.signinResult || {};
+      const progress = Number(result.sign_progress || 0);
+      const target = Number(result.sign_target || 0);
+      if (progress > 0 && target > 0) return `${progress}/${target}`;
+      return '-';
+    },
+
+    quarkCapacityLabel() {
+      const result = this.quarkHealth.signinResult || {};
+      const bytes = Number(result.total_capacity_bytes || 0);
+      return bytes > 0 ? this.formatSize(bytes) : '-';
+    },
+
+    async refreshQuarkHealth() {
+      await this.testQuark({silent: true});
+    },
+
+    async testQuark(options = {}) {
+      const silent = !!options.silent;
+      if (!silent) this.showNotification('info', '测试夸克连接中...');
+      this.quarkHealthLoading = true;
       try {
         const cookie = this.isMaskedSecret(this.settings.quark_cookie)
           ? ''
@@ -3260,13 +3616,36 @@ function app() {
         });
         const data = await response.json();
         if (response.ok && data.success) {
-          this.showNotification('success', `测试成功！用户: ${data.nickname || '未知'}`);
+          this.quarkHealth = {
+            ...this.quarkHealth,
+            status: 'ok',
+            message: '夸克 Cookie 可用',
+            nickname: data.nickname || '夸克用户',
+            checkedAt: Date.now() / 1000
+          };
+          if (!silent) this.showNotification('success', `测试成功！用户: ${data.nickname || '未知'}`);
         } else {
-          this.showNotification('error', data.error || '测试失败，请检查 Cookie');
+          this.quarkHealth = {
+            ...this.quarkHealth,
+            status: 'failed',
+            message: data.error || '测试失败，请检查 Cookie',
+            nickname: '',
+            checkedAt: Date.now() / 1000
+          };
+          if (!silent) this.showNotification('error', data.error || '测试失败，请检查 Cookie');
         }
       } catch (error) {
         console.error('测试失败:', error);
-        this.showNotification('error', '连接失败，请检查配置');
+        this.quarkHealth = {
+          ...this.quarkHealth,
+          status: 'failed',
+          message: '连接失败，请检查配置',
+          nickname: '',
+          checkedAt: Date.now() / 1000
+        };
+        if (!silent) this.showNotification('error', '连接失败，请检查配置');
+      } finally {
+        this.quarkHealthLoading = false;
       }
     },
 
