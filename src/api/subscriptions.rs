@@ -12,6 +12,7 @@ use crate::error::{AppError, Result};
 use crate::jobs::{JobQueue, MetadataScrapePayload};
 use crate::models::{episode_count_for_season, MediaMetadata, Subscription, TransferRules};
 use crate::services::subscription_check::CheckDetails;
+use crate::services::subscription_progress::reopen_completed_subscription_status;
 use crate::services::transfer_rule::{
     build_transfer_plan, summarize_rules, ProbeFile as RuleProbeFile,
 };
@@ -360,6 +361,10 @@ fn apply_source_change_options(
     }
 }
 
+fn reconcile_completion_status(sub: &mut Subscription) {
+    reopen_completed_subscription_status(sub);
+}
+
 fn preview_files(req: &RenamePreviewRequest, sub: &Subscription) -> Vec<RuleProbeFile> {
     if !req.sample_files.is_empty() {
         return req
@@ -570,6 +575,7 @@ async fn update_subscription(
                     sub.total_episode_number = sub.rules.finish_after_episode;
                 }
             }
+            reconcile_completion_status(sub);
             sub.rule_summary = summarize_rules(Some(&sub.rules));
             sub.updated_at = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -939,5 +945,24 @@ mod tests {
         assert_eq!(sub.status, "invalid");
         assert_eq!(sub.current_episode_number, 12);
         assert_eq!(sub.known_episodes, vec![12]);
+    }
+
+    #[test]
+    fn reconcile_completion_status_reopens_when_total_increased() {
+        let mut sub = subscription_for_source_change();
+        sub.status = "completed".to_string();
+        sub.completed = true;
+        sub.current_episode_number = 178;
+        sub.known_episodes = vec![177, 178];
+        sub.total_episode_number = Some(190);
+        sub.invalid_since = Some(10);
+        sub.last_error = "completed".to_string();
+
+        reconcile_completion_status(&mut sub);
+
+        assert_eq!(sub.status, "active");
+        assert!(!sub.completed);
+        assert_eq!(sub.invalid_since, None);
+        assert!(sub.last_error.is_empty());
     }
 }

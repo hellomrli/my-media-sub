@@ -8,6 +8,39 @@ pub fn completion_target_episode(sub: &Subscription) -> Option<i32> {
         .filter(|episode| *episode > 0)
 }
 
+pub fn progress_max_episode(sub: &Subscription) -> i32 {
+    let transferred_episodes = episode_numbers_from_file_names(sub.transferred_files.iter());
+    sub.known_episodes
+        .iter()
+        .copied()
+        .chain(transferred_episodes)
+        .chain(std::iter::once(sub.current_episode_number))
+        .max()
+        .unwrap_or(0)
+}
+
+pub fn should_reopen_completed_subscription(sub: &Subscription) -> bool {
+    if !sub.completed && sub.status != "completed" {
+        return false;
+    }
+
+    completion_target_episode(sub)
+        .map(|target| progress_max_episode(sub) < target)
+        .unwrap_or(false)
+}
+
+pub fn reopen_completed_subscription_status(sub: &mut Subscription) -> bool {
+    if !should_reopen_completed_subscription(sub) {
+        return false;
+    }
+
+    sub.completed = false;
+    sub.status = "active".to_string();
+    sub.invalid_since = None;
+    sub.last_error = String::new();
+    true
+}
+
 pub fn episode_numbers_from_file_names<'a>(
     file_names: impl IntoIterator<Item = &'a String>,
 ) -> Vec<i32> {
@@ -131,5 +164,37 @@ mod tests {
             &sub,
             &["Show.S01E10.mkv".to_string()]
         ));
+    }
+
+    #[test]
+    fn test_should_reopen_completed_subscription_when_target_not_reached() {
+        let mut sub = subscription();
+        sub.completed = true;
+        sub.status = "completed".to_string();
+        sub.current_episode_number = 178;
+        sub.total_episode_number = Some(190);
+        sub.known_episodes = vec![177, 178];
+
+        assert!(should_reopen_completed_subscription(&sub));
+
+        sub.current_episode_number = 190;
+        assert!(!should_reopen_completed_subscription(&sub));
+    }
+
+    #[test]
+    fn test_reopen_completed_subscription_status_clears_completion_flags() {
+        let mut sub = subscription();
+        sub.completed = true;
+        sub.status = "completed".to_string();
+        sub.current_episode_number = 178;
+        sub.total_episode_number = Some(190);
+        sub.invalid_since = Some(1);
+        sub.last_error = "completed".to_string();
+
+        assert!(reopen_completed_subscription_status(&mut sub));
+        assert!(!sub.completed);
+        assert_eq!(sub.status, "active");
+        assert_eq!(sub.invalid_since, None);
+        assert!(sub.last_error.is_empty());
     }
 }
