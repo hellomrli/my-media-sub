@@ -12,7 +12,7 @@
       theme: {
         extend: {
           colors: {
-            dark: { bg: '#0a0e17', card: '#0f1419', border: '#1f2937', hover: '#1a1f2e' }
+            dark: { bg: '#08111f', card: '#111d2c', border: '#284159', hover: '#162638' }
           }
         }
       }
@@ -800,9 +800,10 @@
 
           <!-- 标签页导航 -->
           <div class="app-panel settings-layout overflow-hidden">
-            <div class="settings-nav border-b lg:border-b-0 lg:border-r border-dark-border flex gap-2 p-2 overflow-x-auto lg:overflow-visible lg:flex-col">
+            <div class="settings-nav border-b border-dark-border flex gap-2 p-3 overflow-x-auto">
               <template x-for="tab in settingsTabs" :key="tab.id">
-                <button @click="selectSettingsTab(tab.id)" :class="currentSettingsTab === tab.id ? 'is-active' : 'text-gray-400'" class="settings-tab nav-button px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors lg:w-full lg:text-left">
+                <button @click="selectSettingsTab(tab.id)" :class="currentSettingsTab === tab.id ? 'is-active' : 'text-gray-400'" class="settings-tab nav-button px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors">
+                  <span class="settings-tab-icon" x-text="tab.icon"></span>
                   <span x-text="tab.name"></span>
                 </button>
               </template>
