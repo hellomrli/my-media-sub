@@ -14,13 +14,13 @@ function app() {
     ],
 
     settingsTabs: [
-      {id: 'basic', name: '基础设置'},
-      {id: 'quark', name: '夸克网盘'},
-      {id: 'push', name: '消息推送'},
-      {id: 'automation', name: '自动化'},
-      {id: 'rules', name: '规则中心'},
-      {id: 'advanced', name: '高级'},
-      {id: 'update', name: '在线更新'}
+      {id: 'basic', name: '基础设置', icon: '⚙'},
+      {id: 'quark', name: '夸克网盘', icon: '☁'},
+      {id: 'push', name: '消息推送', icon: '↗'},
+      {id: 'automation', name: '自动化', icon: '⏱'},
+      {id: 'rules', name: '规则中心', icon: '✦'},
+      {id: 'advanced', name: '高级', icon: '⌘'},
+      {id: 'update', name: '在线更新', icon: '⇧'}
     ],
 
     checkIntervalPresets: [15, 30, 60, 120, 360, 720],
