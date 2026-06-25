@@ -146,6 +146,8 @@ pub struct RenamePreviewFile {
     #[serde(default)]
     pub size: i64,
     #[serde(default)]
+    pub parent_path: String,
+    #[serde(default)]
     pub updated_at: Option<String>,
 }
 
@@ -379,6 +381,7 @@ fn preview_files(req: &RenamePreviewRequest, sub: &Subscription) -> Vec<RuleProb
                 fid: file.fid.clone(),
                 is_dir: file.is_dir,
                 size: file.size,
+                parent_path: file.parent_path.clone(),
                 updated_at: file.updated_at.clone(),
             })
             .collect();
@@ -395,6 +398,7 @@ fn preview_files(req: &RenamePreviewRequest, sub: &Subscription) -> Vec<RuleProb
                     fid: file.file_key.clone(),
                     is_dir: false,
                     size: file.size,
+                    parent_path: file.parent_path.clone(),
                     updated_at: file.updated_at.clone(),
                 })
                 .collect()

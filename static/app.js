@@ -593,6 +593,11 @@ function app() {
       }
     },
 
+    openRuleCenter() {
+      this.selectTab('settings', false);
+      this.selectSettingsTab('rules');
+    },
+
     async refresh() {
       if (this.currentTab === 'subscriptions') await this.loadSubscriptions();
       else if (this.currentTab === 'transferHistory') {
@@ -1219,6 +1224,11 @@ function app() {
       }
       this.settings.default_rename_template = template;
       this.showNotification('success', '已写入默认重命名模板，保存设置后生效');
+    },
+
+    defaultRenameTemplateLabel() {
+      const template = String(this.settings.default_rename_template || '').trim();
+      return template || '内置默认：{title}.S{season}E{episode}.{ext}';
     },
 
     ruleCenterRules() {

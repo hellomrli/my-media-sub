@@ -67,6 +67,24 @@ static QUALITY_PATTERNS: Lazy<Vec<(Regex, i64)>> = Lazy::new(|| {
     ]
 });
 
+static SEASON_HINT_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+    vec![
+        Regex::new(r"(?i)S(?P<num>\d{1,2})[._\-\s]*E\d{1,4}").unwrap(),
+        Regex::new(r"(?i)(?:^|[^\p{L}\d])S(?P<num>\d{1,2})(?:$|[^\p{L}\d])").unwrap(),
+        Regex::new(r"(?i)(?:season|series)[._\-\s]*(?P<num>\d{1,2})").unwrap(),
+        Regex::new(r"第\s*(?P<num>\d{1,2})\s*季").unwrap(),
+        Regex::new(r"第\s*(?P<cn>[一二三四五六七八九十两]+)\s*季").unwrap(),
+    ]
+});
+
+static NON_CURRENT_COLLECTION_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+    vec![
+        Regex::new(r"(?i)(番外|剧场版|剧场|特别篇|特别版|special|ova|oad)").unwrap(),
+        Regex::new(r"(?i)(?:^|[^\p{L}\d])sp(?:$|[^\p{L}\d])").unwrap(),
+        Regex::new(r"前\s*(?:\d+|[一二三四五六七八九十两]+)\s*季").unwrap(),
+    ]
+});
+
 /// 集数检测结果
 #[derive(Debug, Clone, PartialEq)]
 pub struct EpisodeInfo {
@@ -128,6 +146,100 @@ fn leading_numeric_episode(stem: &str) -> Option<i32> {
         .parse::<i32>()
         .ok()
         .filter(|episode| is_likely_numeric_fallback_episode(*episode))
+}
+
+fn chinese_digit_value(ch: char) -> Option<i32> {
+    match ch {
+        '零' | '〇' => Some(0),
+        '一' => Some(1),
+        '二' | '两' => Some(2),
+        '三' => Some(3),
+        '四' => Some(4),
+        '五' => Some(5),
+        '六' => Some(6),
+        '七' => Some(7),
+        '八' => Some(8),
+        '九' => Some(9),
+        _ => None,
+    }
+}
+
+fn parse_chinese_number(value: &str) -> Option<i32> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    if value == "十" {
+        return Some(10);
+    }
+
+    if let Some((left, right)) = value.split_once('十') {
+        let tens = if left.is_empty() {
+            1
+        } else {
+            left.chars().next().and_then(chinese_digit_value)?
+        };
+        let ones = if right.is_empty() {
+            0
+        } else {
+            right.chars().next().and_then(chinese_digit_value)?
+        };
+        return Some(tens * 10 + ones);
+    }
+
+    value.chars().next().and_then(chinese_digit_value)
+}
+
+pub fn season_hint_from_text(value: &str) -> Option<i32> {
+    for pattern in SEASON_HINT_PATTERNS.iter() {
+        for caps in pattern.captures_iter(value) {
+            if let Some(num) = caps
+                .name("num")
+                .and_then(|m| m.as_str().parse::<i32>().ok())
+            {
+                return Some(num);
+            }
+            if let Some(num) = caps
+                .name("cn")
+                .and_then(|m| parse_chinese_number(m.as_str()))
+            {
+                return Some(num);
+            }
+        }
+    }
+
+    None
+}
+
+pub fn season_hint_from_context(name: &str, parent_path: &str) -> Option<i32> {
+    season_hint_from_text(name).or_else(|| {
+        parent_path
+            .rsplit('/')
+            .map(str::trim)
+            .filter(|segment| !segment.is_empty())
+            .find_map(season_hint_from_text)
+    })
+}
+
+pub fn has_non_current_collection_hint(parent_path: &str) -> bool {
+    if parent_path.trim().is_empty() {
+        return false;
+    }
+    NON_CURRENT_COLLECTION_PATTERNS
+        .iter()
+        .any(|pattern| pattern.is_match(parent_path))
+}
+
+pub fn matches_subscription_season(
+    name: &str,
+    parent_path: &str,
+    subscription_season: i32,
+) -> bool {
+    let expected = subscription_season.max(1);
+    if let Some(season) = season_hint_from_context(name, parent_path) {
+        return season == expected;
+    }
+    !has_non_current_collection_hint(parent_path)
 }
 
 /// 是否是视频文件
@@ -394,6 +506,31 @@ mod tests {
         assert_eq!(episode_video_key("178重置版.mp4", 1), Some((1, 178)));
         assert_eq!(episode_video_key("Show.S02E178.mkv", 1), Some((2, 178)));
         assert_eq!(episode_video_key("178.ass", 1), None);
+    }
+
+    #[test]
+    fn test_matches_subscription_season_uses_parent_path_context() {
+        assert!(matches_subscription_season("178重置版.mp4", "", 6));
+        assert!(matches_subscription_season(
+            "25 4K.mp4",
+            "一人之下 第六季/第6季",
+            6
+        ));
+        assert!(!matches_subscription_season(
+            "01.mp4",
+            "前五季+番外+剧场版/第1季（2016）4K",
+            6
+        ));
+        assert!(!matches_subscription_season(
+            "S03E01.2020.1080p.WEB-DL.H265.mp4",
+            "",
+            6
+        ));
+        assert!(!matches_subscription_season(
+            "4K.mp4",
+            "前五季+番外+剧场版/锈铁重现（2024）4K",
+            6
+        ));
     }
 
     #[test]

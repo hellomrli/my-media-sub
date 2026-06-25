@@ -22,7 +22,7 @@ use crate::services::subscription_progress::{
 use crate::services::transfer_rule::{apply_rename, transfer_state_key};
 use crate::services::{
     episode::episode_video_key, episode::is_better_episode_duplicate_candidate,
-    episode::EpisodeDuplicateCandidate,
+    episode::matches_subscription_season, episode::EpisodeDuplicateCandidate,
 };
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 
@@ -73,6 +73,9 @@ fn dedup_quark_episode_files<'a>(
     let mut best_by_episode: std::collections::HashMap<(i32, i32), usize> =
         std::collections::HashMap::new();
     for (index, file) in files.iter().enumerate() {
+        if !quark_file_matches_subscription_season(sub, file) {
+            continue;
+        }
         let Some(key) = crate::services::episode::episode_video_key(&file.name, sub.season) else {
             continue;
         };
@@ -109,12 +112,20 @@ fn dedup_quark_episode_files<'a>(
         .into_iter()
         .enumerate()
         .filter(|(index, file)| {
+            if !quark_file_matches_subscription_season(sub, file) {
+                return false;
+            }
             crate::services::episode::episode_video_key(&file.name, sub.season)
                 .map(|_| selected.contains(index))
                 .unwrap_or(true)
         })
         .map(|(_, file)| file)
         .collect()
+}
+
+fn quark_file_matches_subscription_season(sub: &Subscription, file: &QuarkFile) -> bool {
+    sub.media_type == "movie"
+        || matches_subscription_season(&file.name, &file.parent_path, sub.season)
 }
 
 fn has_rename_rules(rules: &TransferRules) -> bool {
@@ -166,7 +177,10 @@ fn filter_transfer_candidates_by_targets<'a>(
 ) -> Vec<&'a QuarkFile> {
     files
         .into_iter()
-        .filter(|file| targets.matches_name(sub, &file.name))
+        .filter(|file| {
+            quark_file_matches_subscription_season(sub, file)
+                && targets.matches_name(sub, &file.name)
+        })
         .collect()
 }
 
@@ -246,6 +260,19 @@ fn append_path(base: &str, segment: &str) -> String {
         format!("/{}", segment)
     } else {
         format!("{}/{}", base, segment)
+    }
+}
+
+fn append_share_parent_path(parent_path: &str, segment: &str) -> String {
+    let parent_path = parent_path.trim().trim_matches('/');
+    let segment = segment.trim().trim_matches('/');
+    if segment.is_empty() {
+        return parent_path.to_string();
+    }
+    if parent_path.is_empty() {
+        segment.to_string()
+    } else {
+        format!("{}/{}", parent_path, segment)
     }
 }
 
@@ -522,10 +549,10 @@ async fn collect_share_transfer_files(
     }
 
     let mut result = Vec::new();
-    let mut queue = VecDeque::from(["0".to_string()]);
+    let mut queue = VecDeque::from([("0".to_string(), String::new())]);
     let mut visited_dirs = HashSet::new();
 
-    while let Some(parent_fid) = queue.pop_front() {
+    while let Some((parent_fid, parent_path)) = queue.pop_front() {
         if !visited_dirs.insert(parent_fid.clone()) {
             continue;
         }
@@ -540,8 +567,14 @@ async fn collect_share_transfer_files(
             let name = raw_share_name(&item);
             if raw_share_is_dir(&item) {
                 if !fid.is_empty() {
-                    queue.push_back(fid);
+                    queue.push_back((fid, append_share_parent_path(&parent_path, &name)));
                 }
+                continue;
+            }
+
+            if sub.media_type != "movie"
+                && !matches_subscription_season(&name, &parent_path, sub.season)
+            {
                 continue;
             }
 
@@ -855,6 +888,16 @@ impl SubscriptionTransferService {
         // 按订阅规则重命名目标目录下的视频文件。
         for video_file in &rename_candidates {
             let mut final_file = video_file.clone();
+            if sub.media_type != "movie"
+                && !matches_subscription_season(&video_file.file_name, "", sub.season)
+            {
+                info!(
+                    "文件 {} 不属于订阅第 {} 季，跳过重命名",
+                    video_file.file_name, sub.season
+                );
+                files.push(final_file);
+                continue;
+            }
             let episode_info = detect_episode(&video_file.file_name);
             if sub.rules.rename_template.contains("{}") && episode_info.episode.is_none() {
                 info!("无法从 {} 提取集数，跳过重命名", video_file.file_name);
@@ -1510,6 +1553,7 @@ mod tests {
             share_fid_token: "token-4k".to_string(),
             is_dir: false,
             size: 10,
+            parent_path: String::new(),
             updated_at: Some("2024-01-01T00:00:00Z".to_string()),
             category: None,
             format_type: None,
@@ -1520,6 +1564,7 @@ mod tests {
             share_fid_token: "token-latest".to_string(),
             is_dir: false,
             size: 1,
+            parent_path: String::new(),
             updated_at: Some("2024-01-02T00:00:00Z".to_string()),
             category: None,
             format_type: None,
@@ -1540,6 +1585,7 @@ mod tests {
             share_fid_token: "token-1".to_string(),
             is_dir: false,
             size: 1,
+            parent_path: String::new(),
             updated_at: None,
             category: None,
             format_type: None,
@@ -1550,6 +1596,7 @@ mod tests {
             share_fid_token: "token-2".to_string(),
             is_dir: false,
             size: 2,
+            parent_path: String::new(),
             updated_at: None,
             category: None,
             format_type: None,
@@ -1573,6 +1620,7 @@ mod tests {
             share_fid_token: "token-147".to_string(),
             is_dir: false,
             size: 1,
+            parent_path: String::new(),
             updated_at: None,
             category: None,
             format_type: None,
@@ -1582,6 +1630,39 @@ mod tests {
 
         assert_eq!(matched.len(), 1);
         assert_eq!(matched[0].name, "147.mp4");
+    }
+
+    #[test]
+    fn transfer_match_targets_skip_other_season_parent_paths() {
+        let sub = subscription("anime", 6);
+        let targets = TransferMatchTargets::from_file_names(&sub, &["25 4K.mp4".to_string()]);
+        let current = QuarkFile {
+            name: "25 4K.mp4".to_string(),
+            fid: "fid-s6-25".to_string(),
+            share_fid_token: "token-s6-25".to_string(),
+            is_dir: false,
+            size: 1,
+            parent_path: "一人之下 第六季/第6季".to_string(),
+            updated_at: None,
+            category: None,
+            format_type: None,
+        };
+        let other = QuarkFile {
+            name: "25 4K.mp4".to_string(),
+            fid: "fid-s1-25".to_string(),
+            share_fid_token: "token-s1-25".to_string(),
+            is_dir: false,
+            size: 1,
+            parent_path: "前五季+番外+剧场版/第1季（2016）4K".to_string(),
+            updated_at: None,
+            category: None,
+            format_type: None,
+        };
+
+        let matched = filter_transfer_candidates_by_targets(&sub, vec![&other, &current], &targets);
+
+        assert_eq!(matched.len(), 1);
+        assert_eq!(matched[0].fid, "fid-s6-25");
     }
 
     #[test]
