@@ -579,7 +579,6 @@
                       <span x-show="sub.media_type !== 'movie'" class="chip" x-text="subscriptionSeasonLabel(sub)"></span>
                       <span x-show="sub.media_type !== 'movie'" class="chip" x-text="subscriptionProgressLabel(sub)"></span>
                       <span x-show="subscriptionStartEpisodeLabel(sub)" class="chip" x-text="subscriptionStartEpisodeLabel(sub)"></span>
-                      <span class="chip" x-text="subscriptionScheduleLabel(sub)"></span>
                       <span x-show="sub.sync_download_enabled" class="chip" x-text="'Aria2下载 ' + (subscriptionAria2Dir(sub) || 'Aria2 自身目录')"></span>
                       <span x-show="sub.strm_enabled" class="chip">STRM</span>
                       <span class="chip" x-text="'最后检查 ' + formatTime(sub.last_checked_at)"></span>
@@ -1840,19 +1839,6 @@
               </div>
               <div><label class="field-label">重命名正则</label><input type="text" x-model="newSubscription.rename_regex" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：^\\d+\\." /></div>
               <div><label class="field-label">替换文本</label><input type="text" x-model="newSubscription.rename_replacement" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：S01E$0" /></div>
-            </div>
-            <div class="mt-4">
-              <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <label class="field-label mb-0">自动检查星期</label>
-                <span class="text-xs text-gray-500">不选择表示每天自动检查；手动检查不受限制。</span>
-              </div>
-              <div class="mt-3 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
-                <template x-for="day in weekdayOptions" :key="day.id">
-                  <button type="button" @click="toggleSubscriptionWeekday(day.id)" :class="newSubscription.check_weekdays.includes(day.id) ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm transition-colors">
-                    <span x-text="day.name"></span>
-                  </button>
-                </template>
-              </div>
             </div>
             <div class="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-3">
               <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="newSubscription.ignore_extensions" class="rounded" />忽略扩展名匹配</label>
