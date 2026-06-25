@@ -19,7 +19,7 @@ use crate::services::strm::{
 use crate::services::subscription_progress::{
     completion_target_episode, should_mark_completed_from_transferred_files,
 };
-use crate::services::transfer_rule::{apply_rename, transfer_state_key};
+use crate::services::transfer_rule::{apply_rename, effective_rules, transfer_state_key};
 use crate::services::{
     episode::episode_video_key, episode::is_better_episode_duplicate_candidate,
     episode::matches_subscription_season, episode::EpisodeDuplicateCandidate,
@@ -626,7 +626,7 @@ impl SubscriptionTransferService {
         new_file_names: &[String],
         force_transfer: bool,
     ) -> Result<TransferResult> {
-        let sub = self
+        let mut sub = self
             .subscription_store
             .get(subscription_id)
             .await
@@ -645,6 +645,11 @@ impl SubscriptionTransferService {
         }
 
         let settings = self.settings_store.get().await;
+        sub.rules = effective_rules(
+            &sub.rules,
+            &sub.media_type,
+            &settings.default_rename_template,
+        );
 
         if !force_transfer && !settings.auto_download_new_subscription_items {
             return Ok(TransferResult {
@@ -953,17 +958,23 @@ impl SubscriptionTransferService {
 
     /// 按订阅规则重命名目标目录中的现有视频文件。
     pub async fn rename_existing_files(&self, subscription_id: &str) -> Result<usize> {
-        let sub = self
+        let mut sub = self
             .subscription_store
             .get(subscription_id)
             .await
             .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?;
 
+        let settings = self.settings_store.get().await;
+        sub.rules = effective_rules(
+            &sub.rules,
+            &sub.media_type,
+            &settings.default_rename_template,
+        );
+
         if !has_rename_rules(&sub.rules) {
             return Err(AppError::Validation("订阅未配置重命名规则".to_string()));
         }
 
-        let settings = self.settings_store.get().await;
         if settings.quark_cookie.trim().is_empty() {
             return Err(AppError::Validation("未配置夸克 Cookie".to_string()));
         }

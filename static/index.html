@@ -579,6 +579,7 @@
                       <span x-show="sub.media_type !== 'movie'" class="chip" x-text="subscriptionSeasonLabel(sub)"></span>
                       <span x-show="sub.media_type !== 'movie'" class="chip" x-text="subscriptionProgressLabel(sub)"></span>
                       <span x-show="subscriptionStartEpisodeLabel(sub)" class="chip" x-text="subscriptionStartEpisodeLabel(sub)"></span>
+                      <span class="chip" x-text="subscriptionScheduleLabel(sub)"></span>
                       <span x-show="sub.sync_download_enabled" class="chip" x-text="'Aria2下载 ' + (subscriptionAria2Dir(sub) || 'Aria2 自身目录')"></span>
                       <span x-show="sub.strm_enabled" class="chip">STRM</span>
                       <span class="chip" x-text="'最后检查 ' + formatTime(sub.last_checked_at)"></span>
@@ -1659,7 +1660,7 @@
       <div class="mb-6">
         <div class="border-b border-dark-border flex gap-2 overflow-x-auto">
           <button @click="subscriptionDialogTab = 'content'" :class="subscriptionDialogTab === 'content' ? 'text-white border-blue-500' : 'text-gray-400 border-transparent hover:text-gray-200'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">订阅内容</button>
-          <button x-show="subscriptionMode === 'continuous' || subscriptionEditingId" @click="subscriptionDialogTab = 'rename'" :class="subscriptionDialogTab === 'rename' ? 'text-white border-blue-500' : 'text-gray-400 border-transparent hover:text-gray-200'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">重命名</button>
+          <button x-show="subscriptionMode === 'continuous' || subscriptionEditingId" @click="subscriptionDialogTab = 'rename'" :class="subscriptionDialogTab === 'rename' ? 'text-white border-blue-500' : 'text-gray-400 border-transparent hover:text-gray-200'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">高级规则</button>
           <button x-show="subscriptionMode === 'continuous' || subscriptionEditingId" @click="subscriptionDialogTab = 'download'" :class="subscriptionDialogTab === 'download' ? 'text-white border-blue-500' : 'text-gray-400 border-transparent hover:text-gray-200'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">下载/STRM</button>
         </div>
       </div>
@@ -1770,74 +1771,59 @@
           <div class="app-panel-soft p-4 space-y-3">
             <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
               <div>
-                <div class="text-sm font-medium text-gray-300">规则预设</div>
-                <div class="text-xs text-gray-500">快速套用常见命名和过滤规则，仍可继续手动微调。</div>
+                <div class="text-sm font-medium text-gray-300">默认跟随系统规则</div>
+                <div class="text-xs text-gray-500">未开启自定义模板时，订阅会按规则中心/系统默认模板重命名。</div>
               </div>
-              <button @click="showSubscriptionDialog = false; selectTab('settings'); selectSettingsTab('rules')" class="btn-secondary px-3 py-2 rounded text-xs">打开规则中心</button>
+              <button @click="showSubscriptionDialog = false; selectTab('settings'); selectSettingsTab('rules')" class="btn-secondary px-3 py-2 rounded text-xs">规则中心</button>
             </div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-              <template x-for="preset in rulePresets" :key="preset.id">
-                <button @click="applyRulePresetToSubscription(preset.id)" class="btn-secondary p-3 rounded-lg text-left min-h-20">
-                  <span class="block text-sm text-white font-medium" x-text="preset.name"></span>
-                  <span class="block text-xs text-gray-500 mt-1" x-text="preset.description"></span>
-                </button>
-              </template>
-            </div>
-          </div>
-
-          <div>
-            <label class="flex items-center justify-between text-sm font-medium text-gray-300 mb-2">
-              <span>转存目录</span>
-              <button @click="newSubscription.custom_dir = !newSubscription.custom_dir" class="text-xs text-blue-400 hover:text-blue-300">
-                <span x-text="newSubscription.custom_dir ? '使用默认' : '自定义'"></span>
-              </button>
-            </label>
-
-            <div x-show="!newSubscription.custom_dir" class="p-3 bg-dark-bg rounded-lg border border-dark-border text-sm">
-              <span class="text-gray-400">自动：</span>
-              <span class="text-green-400" x-text="getDefaultTargetDir()"></span>
-            </div>
-
-            <div x-show="newSubscription.custom_dir" class="space-y-2">
-              <input type="text" x-model="newSubscription.target_dir_name" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="目录名称，例如：庆余年（2024）" />
-              <p class="text-xs text-gray-500">电影保存到该目录；连续剧和动画会在该目录下保存到 Season X。</p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <div class="p-3 bg-dark-bg rounded-lg border border-dark-border">
+                <span class="block text-xs text-gray-500 mb-1">重命名模板</span>
+                <span class="text-green-300 break-all" x-text="getDefaultRenameTemplate()"></span>
+              </div>
+              <div class="p-3 bg-dark-bg rounded-lg border border-dark-border">
+                <span class="block text-xs text-gray-500 mb-1">保存目录</span>
+                <span class="text-green-300 break-all" x-text="getDefaultTargetDir()"></span>
+              </div>
             </div>
           </div>
 
-          <div>
-            <label class="flex items-center justify-between text-sm font-medium text-gray-300 mb-2">
-              <span>重命名模板</span>
-              <button @click="newSubscription.custom_rename = !newSubscription.custom_rename" class="text-xs text-blue-400 hover:text-blue-300">
-                <span x-text="newSubscription.custom_rename ? '使用默认' : '自定义'"></span>
-              </button>
-            </label>
-
-            <div x-show="!newSubscription.custom_rename" class="p-3 bg-dark-bg rounded-lg border border-dark-border text-sm">
-              <span class="text-gray-400">自动：</span>
-              <span class="text-green-400" x-text="getDefaultRenameTemplate()"></span>
-            </div>
-
-            <div x-show="newSubscription.custom_rename" class="space-y-2">
-              <input type="text" x-model="newSubscription.rename_template" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="例如：庆余年.S01E{} 或 影片名" />
-              <div class="space-y-2 text-xs text-gray-500 leading-5">
-                <p>示例：<code class="text-gray-300">{title}.S{season}E{episode}</code> 会生成 <code class="text-gray-300">庆余年.S02E05.mkv</code>。</p>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
-                  <p><code class="text-gray-300">{}</code>：补零集数，例如 <code class="text-gray-300">05</code></p>
-                  <p><code class="text-gray-300">{title}</code>：订阅标题</p>
-                  <p><code class="text-gray-300">{season}</code>：补零季号，例如 <code class="text-gray-300">02</code></p>
-                  <p><code class="text-gray-300">{season_number}</code>：原始季号，例如 <code class="text-gray-300">2</code></p>
-                  <p><code class="text-gray-300">{episode}</code>：补零集数，例如 <code class="text-gray-300">05</code></p>
-                  <p><code class="text-gray-300">{episode_number}</code>：原始集数，例如 <code class="text-gray-300">5</code></p>
-                  <p><code class="text-gray-300">{original}</code>：原始文件名，不含扩展名</p>
-                  <p><code class="text-gray-300">{name}</code>：正则替换后的文件名，不含扩展名</p>
-                  <p><code class="text-gray-300">{ext}</code>：扩展名，不含点</p>
+          <details class="app-panel-soft p-4">
+            <summary class="cursor-pointer text-sm font-medium text-gray-300 hover:text-white">本订阅覆盖设置</summary>
+            <div class="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div>
+                <label class="flex items-center justify-between text-sm font-medium text-gray-300 mb-2">
+                  <span>转存目录</span>
+                  <button @click="newSubscription.custom_dir = !newSubscription.custom_dir" class="text-xs text-blue-400 hover:text-blue-300">
+                    <span x-text="newSubscription.custom_dir ? '使用默认' : '自定义'"></span>
+                  </button>
+                </label>
+                <div x-show="!newSubscription.custom_dir" class="p-3 bg-dark-bg rounded-lg border border-dark-border text-sm">
+                  <span class="text-gray-400">自动：</span>
+                  <span class="text-green-400" x-text="getDefaultTargetDir()"></span>
+                </div>
+                <div x-show="newSubscription.custom_dir" class="space-y-2">
+                  <input type="text" x-model="newSubscription.target_dir_name" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="目录名称，例如：庆余年（2024）" />
+                  <p class="text-xs text-gray-500">电影保存到该目录；连续剧和动画会在该目录下保存到 Season X。</p>
+                </div>
+              </div>
+              <div>
+                <label class="flex items-center justify-between text-sm font-medium text-gray-300 mb-2">
+                  <span>重命名模板</span>
+                  <button @click="newSubscription.custom_rename = !newSubscription.custom_rename" class="text-xs text-blue-400 hover:text-blue-300">
+                    <span x-text="newSubscription.custom_rename ? '使用默认' : '自定义'"></span>
+                  </button>
+                </label>
+                <div x-show="!newSubscription.custom_rename" class="p-3 bg-dark-bg rounded-lg border border-dark-border text-sm">
+                  <span class="text-gray-400">自动：</span>
+                  <span class="text-green-400" x-text="getDefaultRenameTemplate()"></span>
+                </div>
+                <div x-show="newSubscription.custom_rename" class="space-y-2">
+                  <input type="text" x-model="newSubscription.rename_template" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="例如：庆余年.S01E{} 或 影片名" />
+                  <p class="text-xs text-gray-500">支持 <code class="text-gray-300">{title}</code>、<code class="text-gray-300">{season}</code>、<code class="text-gray-300">{episode}</code>、<code class="text-gray-300">{ext}</code>。</p>
                 </div>
               </div>
             </div>
-          </div>
-
-          <details class="app-panel-soft p-4" open>
-            <summary class="cursor-pointer text-sm font-medium text-gray-300 hover:text-white">匹配过滤与高级重命名</summary>
             <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
               <div><label class="field-label">包含关键词</label><input type="text" x-model="newSubscription.include_keywords_text" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="多个用逗号或换行分隔" /></div>
               <div><label class="field-label">排除关键词</label><input type="text" x-model="newSubscription.exclude_keywords_text" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="预告, 花絮, trailer" /></div>
@@ -1854,6 +1840,19 @@
               </div>
               <div><label class="field-label">重命名正则</label><input type="text" x-model="newSubscription.rename_regex" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：^\\d+\\." /></div>
               <div><label class="field-label">替换文本</label><input type="text" x-model="newSubscription.rename_replacement" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：S01E$0" /></div>
+            </div>
+            <div class="mt-4">
+              <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <label class="field-label mb-0">自动检查星期</label>
+                <span class="text-xs text-gray-500">不选择表示每天自动检查；手动检查不受限制。</span>
+              </div>
+              <div class="mt-3 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+                <template x-for="day in weekdayOptions" :key="day.id">
+                  <button type="button" @click="toggleSubscriptionWeekday(day.id)" :class="newSubscription.check_weekdays.includes(day.id) ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm transition-colors">
+                    <span x-text="day.name"></span>
+                  </button>
+                </template>
+              </div>
             </div>
             <div class="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-3">
               <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="newSubscription.ignore_extensions" class="rounded" />忽略扩展名匹配</label>

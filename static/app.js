@@ -24,6 +24,15 @@ function app() {
     ],
 
     checkIntervalPresets: [15, 30, 60, 120, 360, 720],
+    weekdayOptions: [
+      {id: 1, name: '周一'},
+      {id: 2, name: '周二'},
+      {id: 3, name: '周三'},
+      {id: 4, name: '周四'},
+      {id: 5, name: '周五'},
+      {id: 6, name: '周六'},
+      {id: 7, name: '周日'}
+    ],
 
     pushChannels: [
       {id: 'wecom', name: '企业微信'},
@@ -129,6 +138,7 @@ function app() {
       keep_progress_on_source_change: true,
       continue_from_current_episode: true,
       finish_after_episode: '',
+      check_weekdays: [],
       preview_samples: ''
     },
 
@@ -347,7 +357,6 @@ function app() {
     get subscriptionWizardSteps() {
       const steps = [{id: 'content', name: '内容'}];
       if (this.subscriptionMode === 'continuous' || this.subscriptionEditingId) {
-        steps.push({id: 'rename', name: '规则'});
         steps.push({id: 'download', name: '下载'});
       }
       return steps;
@@ -816,6 +825,7 @@ function app() {
         keep_progress_on_source_change: true,
         continue_from_current_episode: true,
         finish_after_episode: '',
+        check_weekdays: [],
         preview_samples: ''
       };
     },
@@ -951,6 +961,7 @@ function app() {
         keep_progress_on_source_change: true,
         continue_from_current_episode: true,
         finish_after_episode: '',
+        check_weekdays: [],
         preview_samples: this.sampleFilesFromSearchResult(result)
       };
       this.showSubscriptionDialog = true;
@@ -1004,6 +1015,7 @@ function app() {
         keep_progress_on_source_change: true,
         continue_from_current_episode: sub.media_type !== 'movie' && Number(sub.current_episode_number || 0) > 0,
         finish_after_episode: rules.finish_after_episode || '',
+        check_weekdays: this.normalizeWeekdays(rules.check_weekdays || []),
         preview_samples: ((sub.last_probe && sub.last_probe.files) || []).map(file => file.name).join('\n')
       };
       this.showSubscriptionDialog = true;
@@ -1340,6 +1352,15 @@ function app() {
       return episode > 1 ? `从第 ${episode} 集开始` : '';
     },
 
+    subscriptionScheduleLabel(sub) {
+      const weekdays = this.normalizeWeekdays(sub && sub.rules ? sub.rules.check_weekdays : []);
+      if (weekdays.length === 0) return '每天自动检查';
+      const names = weekdays
+        .map(day => (this.weekdayOptions.find(item => item.id === day) || {}).name)
+        .filter(Boolean);
+      return names.length ? `自动检查 ${names.join('、')}` : '每天自动检查';
+    },
+
     lastCheckMetric(key) {
       return (this.lastCheckResult && this.lastCheckResult.details && this.lastCheckResult.details[key]) || 0;
     },
@@ -1402,6 +1423,19 @@ function app() {
     sanitizeQuarkSigninHour() {
       const hour = Number(this.settings.quark_signin_hour);
       this.settings.quark_signin_hour = Math.min(23, Math.max(0, Math.floor(Number.isFinite(hour) ? hour : 8)));
+    },
+
+    normalizeWeekdays(value) {
+      const days = Array.isArray(value) ? value : [];
+      return [...new Set(days.map(day => Number(day)).filter(day => day >= 1 && day <= 7))].sort((a, b) => a - b);
+    },
+
+    toggleSubscriptionWeekday(day) {
+      const normalized = this.normalizeWeekdays(this.newSubscription.check_weekdays);
+      const value = Number(day);
+      this.newSubscription.check_weekdays = normalized.includes(value)
+        ? normalized.filter(item => item !== value)
+        : this.normalizeWeekdays([...normalized, value]);
     },
 
     checkIntervalLabel(minutes) {
@@ -1614,7 +1648,7 @@ function app() {
     resolveSubscriptionRenameTemplate() {
       return this.newSubscription.custom_rename
         ? this.newSubscription.rename_template.trim()
-        : this.getDefaultRenameTemplate();
+        : '';
     },
 
     buildSubscriptionRules() {
@@ -1635,7 +1669,7 @@ function app() {
         notify_on_update: true,
         notify_on_invalid: true,
         check_interval_minutes: Number(this.settings.subscription_check_interval_minutes || 60),
-        check_weekdays: [],
+        check_weekdays: this.normalizeWeekdays(this.newSubscription.check_weekdays),
         finish_after_episode: finish > 0 ? finish : null
       };
     },
