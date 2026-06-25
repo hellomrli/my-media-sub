@@ -3,7 +3,8 @@
 use crate::models::{Subscription, TransferRules};
 use crate::services::episode::{
     detect_episode, episode_video_key, is_better_episode_duplicate_candidate, is_video_name,
-    normalize_duplicate_episode_strategy, split_words, EpisodeDuplicateCandidate,
+    matches_subscription_season, normalize_duplicate_episode_strategy, season_hint_from_context,
+    split_words, EpisodeDuplicateCandidate,
 };
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -47,6 +48,7 @@ pub struct ProbeFile {
     pub fid: String,
     pub is_dir: bool,
     pub size: i64,
+    pub parent_path: String,
     pub updated_at: Option<String>,
 }
 
@@ -304,6 +306,9 @@ pub fn build_transfer_plan(
         let name = &raw.name;
         let ep_info = detect_episode(name);
         let episode = ep_info.episode;
+        let season = ep_info
+            .season
+            .or_else(|| season_hint_from_context(name, &raw.parent_path));
         let key = transfer_state_key(name, episode, rules.ignore_extensions);
         let comparable = display_name(name, rules.ignore_extensions);
 
@@ -311,7 +316,7 @@ pub fn build_transfer_plan(
             source_name: name.clone(),
             source_fid: raw.fid.clone(),
             episode,
-            season: ep_info.season,
+            season,
             file_key: key.clone(),
             target_dir: target_dir.clone(),
             target_name: name.clone(),
@@ -322,6 +327,10 @@ pub fn build_transfer_plan(
         // 过滤逻辑
         if raw.is_dir {
             item.skip_reason = "目录暂不规划转存".to_string();
+        } else if subscription.media_type != "movie"
+            && !matches_subscription_season(name, &raw.parent_path, subscription.season)
+        {
+            item.skip_reason = "非当前订阅季".to_string();
         } else if name.is_empty() {
             item.skip_reason = "文件名为空".to_string();
         } else if !include_kw.is_empty() && !has_words(&comparable, &include_kw) {
@@ -411,6 +420,7 @@ pub fn build_transfer_plan(
                 && i.skip_reason != "不含包含关键词"
                 && i.skip_reason != "命中排除关键词"
                 && i.skip_reason != "未命中匹配正则"
+                && i.skip_reason != "非当前订阅季"
         })
         .collect();
     let episodes: Vec<i32> = normalized_matched
@@ -548,6 +558,7 @@ mod tests {
             fid: "fid123".to_string(),
             is_dir: false,
             size: 0,
+            parent_path: String::new(),
             updated_at: None,
         }
     }
@@ -603,6 +614,48 @@ mod tests {
     }
 
     #[test]
+    fn test_build_transfer_plan_skips_other_season_context() {
+        let rules = TransferRules::default();
+        let mut sub = make_sub("一人之下", rules);
+        sub.media_type = "anime".to_string();
+        sub.season = 6;
+        sub.start_episode_number = Some(25);
+        let files = vec![
+            ProbeFile {
+                name: "25 4K.mp4".to_string(),
+                fid: "s6-25".to_string(),
+                is_dir: false,
+                size: 1,
+                parent_path: "一人之下 第六季/第6季".to_string(),
+                updated_at: None,
+            },
+            ProbeFile {
+                name: "01.mp4".to_string(),
+                fid: "s1-01".to_string(),
+                is_dir: false,
+                size: 1,
+                parent_path: "前五季+番外+剧场版/第1季（2016）4K".to_string(),
+                updated_at: None,
+            },
+            ProbeFile {
+                name: "第6季".to_string(),
+                fid: "dir".to_string(),
+                is_dir: true,
+                size: 0,
+                parent_path: String::new(),
+                updated_at: None,
+            },
+        ];
+
+        let plan = build_transfer_plan(&sub, Some(&files), None, None, None);
+
+        assert_eq!(plan.transfer_count, 1);
+        assert_eq!(plan.transfers[0].source_name, "25 4K.mp4");
+        assert_eq!(plan.skipped[0].skip_reason, "非当前订阅季");
+        assert_eq!(plan.skipped[1].skip_reason, "目录暂不规划转存");
+    }
+
+    #[test]
     fn test_build_transfer_plan_can_keep_latest_episode_variant() {
         let rules = TransferRules {
             duplicate_episode_strategy: "latest_upload".to_string(),
@@ -615,6 +668,7 @@ mod tests {
                 fid: "fid-4k".to_string(),
                 is_dir: false,
                 size: 10,
+                parent_path: String::new(),
                 updated_at: Some("2024-01-01T00:00:00Z".to_string()),
             },
             ProbeFile {
@@ -622,6 +676,7 @@ mod tests {
                 fid: "fid-new".to_string(),
                 is_dir: false,
                 size: 1,
+                parent_path: String::new(),
                 updated_at: Some("2024-01-02T00:00:00Z".to_string()),
             },
         ];

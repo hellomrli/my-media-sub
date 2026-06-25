@@ -28,8 +28,8 @@
   <div class="app-shell lg:flex">
 
     <!-- 侧边栏 -->
-    <aside class="app-sidebar hidden lg:flex lg:sticky lg:top-0 h-screen w-72 border-r border-dark-border flex-col">
-      <div class="p-5 border-b border-dark-border">
+    <aside class="app-sidebar hidden lg:flex lg:sticky lg:top-0 h-screen w-64 border-r border-dark-border flex-col">
+      <div class="px-4 py-4 border-b border-dark-border">
         <h1 class="text-lg font-semibold text-white flex items-center gap-3">
           <span class="grid h-9 w-9 place-items-center rounded-lg bg-blue-500/15 border border-blue-400/20">
             <svg class="w-5 h-5 text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -43,9 +43,9 @@
         </h1>
       </div>
 
-      <nav class="flex-1 p-4 space-y-1.5">
+      <nav class="flex-1 p-3 space-y-1">
         <template x-for="tab in tabs" :key="tab.id">
-          <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : 'text-gray-400'" class="nav-button w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors duration-150 text-left">
+          <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : 'text-gray-400'" class="nav-button w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors duration-150 text-left">
             <span x-html="tab.icon" class="w-5 h-5 flex-shrink-0"></span>
             <span class="min-w-0">
               <span x-text="tab.name" class="block text-sm font-medium"></span>
@@ -55,7 +55,7 @@
         </template>
       </nav>
 
-      <div class="p-4 border-t border-dark-border space-y-3">
+      <div class="px-4 py-3 border-t border-dark-border space-y-2">
         <div class="flex items-center justify-between text-xs text-gray-500">
           <span>订阅数</span>
           <span class="font-semibold text-blue-300" x-text="subscriptions.length"></span>
@@ -73,10 +73,10 @@
 
     <!-- 主内容区 -->
     <main class="min-w-0 flex-1 flex flex-col lg:h-screen">
-      <header class="app-header sticky top-0 z-30 border-b border-dark-border px-4 sm:px-6 py-4">
-        <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+      <header class="app-header sticky top-0 z-30 border-b border-dark-border px-4 sm:px-5 py-3">
+        <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div class="min-w-0">
-            <h2 class="text-xl sm:text-2xl font-semibold text-white" x-text="tabs.find(t => t.id === currentTab)?.name"></h2>
+            <h2 class="text-lg sm:text-xl font-semibold text-white" x-text="tabs.find(t => t.id === currentTab)?.name"></h2>
             <p class="text-sm text-gray-500 mt-1" x-text="tabs.find(t => t.id === currentTab)?.description"></p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
@@ -88,17 +88,17 @@
             </button>
           </div>
         </div>
-        <nav class="mt-4 lg:hidden flex gap-2 overflow-x-auto pb-1">
+        <nav class="mobile-tab-grid mt-3 lg:hidden grid grid-cols-4 gap-2">
           <template x-for="tab in tabs" :key="tab.id">
-            <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : 'text-gray-400'" class="nav-button flex items-center gap-2 px-3 py-2 rounded-lg transition-colors whitespace-nowrap">
+            <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : 'text-gray-400'" class="nav-button flex flex-col items-center justify-center gap-1 px-2 py-2 rounded-lg transition-colors">
               <span x-html="tab.icon" class="w-4 h-4"></span>
-              <span x-text="tab.name" class="text-sm"></span>
+              <span x-text="tab.name" class="text-xs leading-4 text-center"></span>
             </button>
           </template>
         </nav>
       </header>
 
-      <div class="app-content flex-1 overflow-y-auto px-4 sm:px-6 py-5 sm:py-6">
+      <div class="app-content flex-1 overflow-y-auto px-4 sm:px-5 py-4 sm:py-5">
 
         <!-- 搜索页面 -->
         <div x-show="currentTab === 'search'" class="space-y-5">
@@ -646,23 +646,28 @@
               </div>
               <button @click="lastCheckResult = null" class="btn-secondary px-3 py-2 rounded text-sm">关闭</button>
             </div>
-            <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
               <div class="stat-tile p-3"><div class="text-xs text-gray-500">扫描文件</div><div class="mt-1 text-xl font-semibold text-white" x-text="lastCheckMetric('scanned_count')"></div></div>
               <div class="stat-tile p-3"><div class="text-xs text-gray-500">新增</div><div class="mt-1 text-xl font-semibold text-green-300" x-text="lastCheckMetric('new_count')"></div></div>
               <div class="stat-tile p-3"><div class="text-xs text-gray-500">已知</div><div class="mt-1 text-xl font-semibold text-blue-300" x-text="lastCheckMetric('known_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-gray-500">目录跳过</div><div class="mt-1 text-xl font-semibold text-gray-300" x-text="lastCheckMetric('skipped_directory_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-gray-500">跨季跳过</div><div class="mt-1 text-xl font-semibold text-orange-300" x-text="lastCheckMetric('skipped_other_season_count')"></div></div>
               <div class="stat-tile p-3"><div class="text-xs text-gray-500">起始集跳过</div><div class="mt-1 text-xl font-semibold text-amber-300" x-text="lastCheckMetric('skipped_before_start_count')"></div></div>
               <div class="stat-tile p-3"><div class="text-xs text-gray-500">同集跳过</div><div class="mt-1 text-xl font-semibold text-purple-300" x-text="lastCheckMetric('skipped_duplicate_episode_count')"></div></div>
             </div>
             <div x-show="checkDetailItems().length > 0" class="border border-dark-border rounded-lg overflow-x-auto">
-              <div class="grid grid-cols-12 gap-2 min-w-[680px] px-3 py-2 bg-dark-bg text-xs text-gray-500">
+              <div class="grid grid-cols-12 gap-2 min-w-[760px] px-3 py-2 bg-dark-bg text-xs text-gray-500">
                 <div class="col-span-5">文件名</div>
                 <div class="col-span-2">集数</div>
                 <div class="col-span-2">结果</div>
                 <div class="col-span-3">原因</div>
               </div>
               <template x-for="item in checkDetailItems()" :key="item.file_key || item.name">
-                <div class="grid grid-cols-12 gap-2 min-w-[680px] px-3 py-2 border-t border-dark-border text-xs">
-                  <div class="col-span-5 text-gray-300 break-all" x-text="item.name"></div>
+                <div class="grid grid-cols-12 gap-2 min-w-[760px] px-3 py-2 border-t border-dark-border text-xs">
+                  <div class="col-span-5">
+                    <div class="text-gray-300 break-all" x-text="item.name"></div>
+                    <div x-show="item.parent_path" class="text-gray-500 break-all mt-1" x-text="item.parent_path"></div>
+                  </div>
                   <div class="col-span-2 text-gray-400" x-text="item.episode ? '第 ' + item.episode + ' 集' : '-'"></div>
                   <div class="col-span-2"><span :class="checkActionClass(item.action)" x-text="checkActionLabel(item.action)"></span></div>
                   <div class="col-span-3 text-gray-400 break-all" x-text="item.reason || '-'"></div>
@@ -794,14 +799,15 @@
         <div x-show="currentTab === 'settings'" class="space-y-4">
 
           <!-- 标签页导航 -->
-          <div class="app-panel overflow-hidden">
-            <div class="border-b border-dark-border flex gap-2 p-2 overflow-x-auto">
+          <div class="app-panel settings-layout overflow-hidden">
+            <div class="settings-nav border-b lg:border-b-0 lg:border-r border-dark-border flex gap-2 p-2 overflow-x-auto lg:overflow-visible lg:flex-col">
               <template x-for="tab in settingsTabs" :key="tab.id">
-                <button @click="selectSettingsTab(tab.id)" :class="currentSettingsTab === tab.id ? 'is-active' : 'text-gray-400'" class="nav-button px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors">
+                <button @click="selectSettingsTab(tab.id)" :class="currentSettingsTab === tab.id ? 'is-active' : 'text-gray-400'" class="settings-tab nav-button px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors lg:w-full lg:text-left">
                   <span x-text="tab.name"></span>
                 </button>
               </template>
             </div>
+            <div class="settings-content min-w-0">
 
             <!-- 基础设置 -->
             <div x-show="currentSettingsTab === 'basic'" class="p-4 sm:p-6 space-y-6">
@@ -1157,24 +1163,16 @@
               </div>
 
               <div class="app-panel-soft p-4 space-y-4">
-                <h3 class="section-title">重命名默认值</h3>
-                <div>
-                  <label class="field-label">默认重命名模板</label>
-                  <input type="text" x-model="settings.default_rename_template" placeholder="{title}.S{season}E{episode}" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
-                  <div class="mt-3 space-y-2 text-xs text-gray-500 leading-5">
-                    <p>留空时使用内置默认模板。示例：<code class="text-gray-300">{title}.S{season}E{episode}</code> 会生成 <code class="text-gray-300">庆余年.S02E05.mkv</code>。</p>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
-                      <p><code class="text-gray-300">{}</code>：补零集数，例如 <code class="text-gray-300">05</code></p>
-                      <p><code class="text-gray-300">{title}</code>：订阅标题</p>
-                      <p><code class="text-gray-300">{season}</code>：补零季号，例如 <code class="text-gray-300">02</code></p>
-                      <p><code class="text-gray-300">{season_number}</code>：原始季号，例如 <code class="text-gray-300">2</code></p>
-                      <p><code class="text-gray-300">{episode}</code>：补零集数，例如 <code class="text-gray-300">05</code></p>
-                      <p><code class="text-gray-300">{episode_number}</code>：原始集数，例如 <code class="text-gray-300">5</code></p>
-                      <p><code class="text-gray-300">{original}</code>：原始文件名，不含扩展名</p>
-                      <p><code class="text-gray-300">{name}</code>：正则替换后的文件名，不含扩展名</p>
-                      <p><code class="text-gray-300">{ext}</code>：扩展名，不含点</p>
-                    </div>
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h3 class="section-title">命名规则</h3>
+                    <p class="text-sm text-gray-500 mt-1">默认重命名模板和规则预览统一在规则中心维护。</p>
                   </div>
+                  <button type="button" @click="openRuleCenter()" class="btn-secondary px-4 py-2 rounded-lg text-sm">打开规则中心</button>
+                </div>
+                <div class="border-t border-dark-border pt-3 text-sm">
+                  <div class="text-xs text-gray-500 mb-1">当前默认模板</div>
+                  <div class="text-gray-300 break-all" x-text="defaultRenameTemplateLabel()"></div>
                 </div>
               </div>
 
@@ -1422,6 +1420,7 @@
                   </div>
                 </div>
               </div>
+            </div>
             </div>
           </div>
         </div>

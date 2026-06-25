@@ -25,6 +25,8 @@ pub struct QuarkFile {
     pub share_fid_token: String,
     pub is_dir: bool,
     pub size: i64,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub parent_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -89,6 +91,19 @@ fn raw_time_field(item: &HashMap<String, serde_json::Value>) -> Option<String> {
                 .or_else(|| value.as_u64().map(|number| number.to_string()))
         })
     })
+}
+
+fn append_display_path(parent_path: &str, name: &str) -> String {
+    let parent_path = parent_path.trim().trim_matches('/');
+    let name = name.trim().trim_matches('/');
+    if name.is_empty() {
+        return parent_path.to_string();
+    }
+    if parent_path.is_empty() {
+        name.to_string()
+    } else {
+        format!("{}/{}", parent_path, name)
+    }
 }
 
 impl QuarkShareProbe {
@@ -315,10 +330,13 @@ impl QuarkShareProbe {
 
         // 递归遍历文件夹
         let mut files = Vec::new();
-        let mut queue = raw;
+        let mut queue: std::collections::VecDeque<_> =
+            raw.into_iter().map(|item| (item, String::new())).collect();
 
-        while !queue.is_empty() && files.len() < max_files {
-            let item = queue.remove(0);
+        while let Some((item, parent_path)) = queue.pop_front() {
+            if files.len() >= max_files {
+                break;
+            }
             let fid = item
                 .get("fid")
                 .or_else(|| item.get("file_id"))
@@ -349,6 +367,7 @@ impl QuarkShareProbe {
                     .to_string(),
                 is_dir,
                 size: item.get("size").and_then(|v| v.as_i64()).unwrap_or(0),
+                parent_path: parent_path.clone(),
                 updated_at: raw_time_field(&item),
                 category: item
                     .get("category")
@@ -364,7 +383,12 @@ impl QuarkShareProbe {
             // 如果是目录且未达上限，递归获取
             if is_dir && !fid.is_empty() && files.len() < max_files {
                 if let Ok((children, None)) = self.list_files(&pwd_id, &stoken, &fid).await {
-                    queue.extend(children);
+                    let child_parent_path = append_display_path(&parent_path, &name);
+                    queue.extend(
+                        children
+                            .into_iter()
+                            .map(|child| (child, child_parent_path.clone())),
+                    );
                 }
             }
         }
@@ -442,6 +466,7 @@ mod tests {
                 share_fid_token: "".to_string(),
                 is_dir: false,
                 size: 1000,
+                parent_path: String::new(),
                 updated_at: None,
                 category: None,
                 format_type: None,
@@ -452,6 +477,7 @@ mod tests {
                 share_fid_token: "".to_string(),
                 is_dir: false,
                 size: 2000,
+                parent_path: String::new(),
                 updated_at: None,
                 category: None,
                 format_type: None,
@@ -462,6 +488,7 @@ mod tests {
                 share_fid_token: "".to_string(),
                 is_dir: false,
                 size: 500,
+                parent_path: String::new(),
                 updated_at: None,
                 category: None,
                 format_type: None,

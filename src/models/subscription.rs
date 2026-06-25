@@ -75,6 +75,14 @@ pub struct ProbeFile {
     /// 文件名
     pub name: String,
 
+    /// 是否目录
+    #[serde(default)]
+    pub is_dir: bool,
+
+    /// 父目录路径（分享内路径，仅用于识别季别和展示）
+    #[serde(default)]
+    pub parent_path: String,
+
     /// 文件大小
     #[serde(default)]
     pub size: i64,

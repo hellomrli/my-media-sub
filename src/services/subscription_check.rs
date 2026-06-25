@@ -8,8 +8,8 @@ use crate::error::{AppError, Result};
 use crate::jobs::{JobQueue, SubscriptionTransferPayload};
 use crate::models::subscription::{CheckHistoryItem, ProbeFile, ProbeResult, Subscription};
 use crate::services::episode::{
-    episode_video_key, is_better_episode_duplicate_candidate, normalize_duplicate_episode_strategy,
-    EpisodeDuplicateCandidate,
+    episode_video_key, is_better_episode_duplicate_candidate, matches_subscription_season,
+    normalize_duplicate_episode_strategy, EpisodeDuplicateCandidate,
 };
 use crate::services::notification::{add_notification, dispatch_push_event};
 use crate::services::push::{PushEvent, PushLevel};
@@ -304,6 +304,8 @@ impl SubscriptionCheckService {
             .iter()
             .map(|f| ProbeFile {
                 name: f.name.clone(),
+                is_dir: f.is_dir,
+                parent_path: f.parent_path.clone(),
                 size: f.size,
                 updated_at: f.updated_at.clone(),
                 file_key: f.fid.clone(),
@@ -324,7 +326,9 @@ impl SubscriptionCheckService {
             .iter()
             .enumerate()
             .filter_map(|(index, file)| {
-                (!sub.known_file_keys.contains(&file.file_key)
+                (!file.is_dir
+                    && Self::is_current_subscription_season_file(sub, file)
+                    && !sub.known_file_keys.contains(&file.file_key)
                     && !self.is_before_start_episode(sub, &file.name)
                     && self.known_episode_video_reason(sub, file).is_none())
                 .then_some(index)
@@ -362,6 +366,9 @@ impl SubscriptionCheckService {
         }
 
         for file in files {
+            if file.is_dir || !Self::is_current_subscription_season_file(sub, file) {
+                continue;
+            }
             if self.is_before_start_episode(sub, &file.name) {
                 continue;
             }
@@ -394,6 +401,15 @@ impl SubscriptionCheckService {
         }
 
         None
+    }
+
+    fn is_current_subscription_season_file(sub: &Subscription, file: &ProbeFile) -> bool {
+        sub.media_type == "movie"
+            || matches_subscription_season(&file.name, &file.parent_path, sub.season)
+    }
+
+    fn should_record_known_probe_file(sub: &Subscription, file: &ProbeFile) -> bool {
+        !file.is_dir && Self::is_current_subscription_season_file(sub, file)
     }
 
     fn duplicate_episode_skip_reason(&self, sub: &Subscription) -> &'static str {
@@ -431,6 +447,9 @@ impl SubscriptionCheckService {
         let mut best_by_episode: HashMap<(i32, i32), usize> = HashMap::new();
         for &index in candidate_indices {
             let file = &files[index];
+            if !Self::is_current_subscription_season_file(sub, file) {
+                continue;
+            }
             let Some(key) = episode_video_key(&file.name, sub.season) else {
                 continue;
             };
@@ -465,6 +484,10 @@ impl SubscriptionCheckService {
             return true;
         }
 
+        if !Self::is_current_subscription_season_file(sub, file) {
+            return false;
+        }
+
         episode_video_key(&file.name, sub.season)
             .map(|_| selected_episode_videos.contains(&index))
             .unwrap_or(true)
@@ -497,7 +520,9 @@ impl SubscriptionCheckService {
             .iter()
             .enumerate()
             .filter_map(|(index, file)| {
-                (!sub.known_file_keys.contains(&file.file_key)
+                (!file.is_dir
+                    && Self::is_current_subscription_season_file(sub, file)
+                    && !sub.known_file_keys.contains(&file.file_key)
                     && !self.is_before_start_episode(sub, &file.name)
                     && self.known_episode_video_reason(sub, file).is_none())
                 .then_some(index)
@@ -508,9 +533,15 @@ impl SubscriptionCheckService {
 
         for (index, file) in files.iter().enumerate() {
             let episode = extract_episode_number(&file.name);
-            let (action, reason) = if sub.known_file_keys.contains(&file.file_key) {
+            let (action, reason) = if file.is_dir {
+                details.skipped_directory_count += 1;
+                ("skip", "目录不参与订阅检查")
+            } else if sub.known_file_keys.contains(&file.file_key) {
                 details.known_count += 1;
                 ("known", "已知文件")
+            } else if !Self::is_current_subscription_season_file(sub, file) {
+                details.skipped_other_season_count += 1;
+                ("skip", "非当前订阅季")
             } else if self.is_before_start_episode(sub, &file.name) {
                 details.skipped_before_start_count += 1;
                 ("skip", "低于起始转存集数")
@@ -528,6 +559,8 @@ impl SubscriptionCheckService {
             details.items.push(CheckDetailItem {
                 name: file.name.clone(),
                 episode,
+                is_dir: file.is_dir,
+                parent_path: file.parent_path.clone(),
                 file_key: file.file_key.clone(),
                 action: action.to_string(),
                 reason: reason.to_string(),
@@ -572,6 +605,9 @@ impl SubscriptionCheckService {
             .update(&sub.id, |s| {
                 // 更新已知文件列表
                 for file in &probe.files {
+                    if !Self::should_record_known_probe_file(s, file) {
+                        continue;
+                    }
                     if !s.known_file_keys.contains(&file.file_key) {
                         s.known_files.push(file.name.clone());
                         s.known_file_keys.push(file.file_key.clone());
@@ -806,6 +842,8 @@ pub struct CheckDetails {
     pub scanned_count: usize,
     pub new_count: usize,
     pub known_count: usize,
+    pub skipped_directory_count: usize,
+    pub skipped_other_season_count: usize,
     pub skipped_before_start_count: usize,
     pub skipped_duplicate_episode_count: usize,
     pub items: Vec<CheckDetailItem>,
@@ -815,6 +853,8 @@ pub struct CheckDetails {
 pub struct CheckDetailItem {
     pub name: String,
     pub episode: Option<i32>,
+    pub is_dir: bool,
+    pub parent_path: String,
     pub file_key: String,
     pub action: String,
     pub reason: String,
@@ -902,6 +942,28 @@ mod tests {
         )
     }
 
+    fn probe_file(name: &str, parent_path: &str, file_key: &str) -> ProbeFile {
+        ProbeFile {
+            name: name.to_string(),
+            is_dir: false,
+            parent_path: parent_path.to_string(),
+            size: 1,
+            updated_at: None,
+            file_key: file_key.to_string(),
+        }
+    }
+
+    fn probe_dir(name: &str, parent_path: &str, file_key: &str) -> ProbeFile {
+        ProbeFile {
+            name: name.to_string(),
+            is_dir: true,
+            parent_path: parent_path.to_string(),
+            size: 0,
+            updated_at: None,
+            file_key: file_key.to_string(),
+        }
+    }
+
     #[test]
     fn test_extract_episode_number() {
         assert_eq!(extract_episode_number("动画名称 E01 1080p.mkv"), Some(1));
@@ -933,18 +995,24 @@ mod tests {
         let files = vec![
             ProbeFile {
                 name: "Show.S01E04.mkv".to_string(),
+                is_dir: false,
+                parent_path: String::new(),
                 size: 1,
                 updated_at: None,
                 file_key: "old-ep".to_string(),
             },
             ProbeFile {
                 name: "Show.S01E05.mkv".to_string(),
+                is_dir: false,
+                parent_path: String::new(),
                 size: 1,
                 updated_at: None,
                 file_key: "start-ep".to_string(),
             },
             ProbeFile {
                 name: "special.mkv".to_string(),
+                is_dir: false,
+                parent_path: String::new(),
                 size: 1,
                 updated_at: None,
                 file_key: "special".to_string(),
@@ -967,12 +1035,16 @@ mod tests {
         let files = vec![
             ProbeFile {
                 name: "178.mkv".to_string(),
+                is_dir: false,
+                parent_path: String::new(),
                 size: 1,
                 updated_at: None,
                 file_key: "ep178".to_string(),
             },
             ProbeFile {
                 name: "178-4k.mkv".to_string(),
+                is_dir: false,
+                parent_path: String::new(),
                 size: 1,
                 updated_at: None,
                 file_key: "ep178-4k".to_string(),
@@ -995,6 +1067,8 @@ mod tests {
         sub.known_episodes = vec![178];
         let files = vec![ProbeFile {
             name: "178-4k.mkv".to_string(),
+            is_dir: false,
+            parent_path: String::new(),
             size: 1,
             updated_at: None,
             file_key: "ep178-4k".to_string(),
@@ -1006,6 +1080,45 @@ mod tests {
     }
 
     #[test]
+    fn test_find_new_files_skips_directories_and_other_seasons() {
+        let (service, _, _) = make_service();
+        let mut sub = make_subscription();
+        sub.media_type = "anime".to_string();
+        sub.season = 6;
+        sub.start_episode_number = Some(25);
+
+        let files = vec![
+            probe_dir("第6季", "", "dir-s6"),
+            probe_dir("前五季+番外+剧场版", "", "dir-archive"),
+            probe_file("25 4K.mp4", "一人之下 第六季/第6季", "s6-25"),
+            probe_file("26 4K.mp4", "一人之下 第六季/第6季", "s6-26"),
+            probe_file("01.mp4", "前五季+番外+剧场版/第1季（2016）4K", "s1-01"),
+            probe_file(
+                "S03E01.2020.1080p.WEB-DL.H265.mp4",
+                "前五季+番外+剧场版/第3季（2020）",
+                "s3-01",
+            ),
+            probe_file(
+                "4K.mp4",
+                "前五季+番外+剧场版/锈铁重现（2024）4K",
+                "movie-extra",
+            ),
+        ];
+
+        let new_names = service
+            .find_new_files(&sub, &files)
+            .into_iter()
+            .map(|file| file.name)
+            .collect::<Vec<_>>();
+        let details = service.build_check_details(&sub, &files);
+
+        assert_eq!(new_names, vec!["25 4K.mp4", "26 4K.mp4"]);
+        assert_eq!(details.new_count, 2);
+        assert_eq!(details.skipped_directory_count, 2);
+        assert_eq!(details.skipped_other_season_count, 3);
+    }
+
+    #[test]
     fn test_build_check_details_classifies_probe_files() {
         let (service, _, _) = make_service();
         let mut sub = make_subscription();
@@ -1014,18 +1127,24 @@ mod tests {
         let files = vec![
             ProbeFile {
                 name: "Show.S01E03.mkv".to_string(),
+                is_dir: false,
+                parent_path: String::new(),
                 size: 1,
                 updated_at: None,
                 file_key: "known-key".to_string(),
             },
             ProbeFile {
                 name: "Show.S01E04.mkv".to_string(),
+                is_dir: false,
+                parent_path: String::new(),
                 size: 1,
                 updated_at: None,
                 file_key: "before-start".to_string(),
             },
             ProbeFile {
                 name: "Show.S01E05.mkv".to_string(),
+                is_dir: false,
+                parent_path: String::new(),
                 size: 1,
                 updated_at: None,
                 file_key: "new-key".to_string(),
@@ -1050,12 +1169,16 @@ mod tests {
         let files = vec![
             ProbeFile {
                 name: "178.mkv".to_string(),
+                is_dir: false,
+                parent_path: String::new(),
                 size: 1,
                 updated_at: None,
                 file_key: "ep178".to_string(),
             },
             ProbeFile {
                 name: "178-4k.mkv".to_string(),
+                is_dir: false,
+                parent_path: String::new(),
                 size: 1,
                 updated_at: None,
                 file_key: "ep178-4k".to_string(),
@@ -1090,24 +1213,32 @@ mod tests {
         let files = vec![
             ProbeFile {
                 name: "144-1.mp4".to_string(),
+                is_dir: false,
+                parent_path: String::new(),
                 size: 1,
                 updated_at: None,
                 file_key: "ep144-new-name".to_string(),
             },
             ProbeFile {
                 name: "145.mkv".to_string(),
+                is_dir: false,
+                parent_path: String::new(),
                 size: 1,
                 updated_at: None,
                 file_key: "ep145".to_string(),
             },
             ProbeFile {
                 name: "146.mkv".to_string(),
+                is_dir: false,
+                parent_path: String::new(),
                 size: 1,
                 updated_at: None,
                 file_key: "ep146".to_string(),
             },
             ProbeFile {
                 name: "147.mp4".to_string(),
+                is_dir: false,
+                parent_path: String::new(),
                 size: 1,
                 updated_at: None,
                 file_key: "ep147".to_string(),
@@ -1233,12 +1364,16 @@ mod tests {
             files: vec![
                 ProbeFile {
                     name: "Show.S01E01.mkv".to_string(),
+                    is_dir: false,
+                    parent_path: String::new(),
                     size: 1,
                     updated_at: None,
                     file_key: "old-key".to_string(),
                 },
                 ProbeFile {
                     name: "Show.S01E02.mkv".to_string(),
+                    is_dir: false,
+                    parent_path: String::new(),
                     size: 1,
                     updated_at: None,
                     file_key: "new-key".to_string(),
@@ -1287,12 +1422,16 @@ mod tests {
             files: vec![
                 ProbeFile {
                     name: "Show.S01E04.mkv".to_string(),
+                    is_dir: false,
+                    parent_path: String::new(),
                     size: 1,
                     updated_at: None,
                     file_key: "ep4-key".to_string(),
                 },
                 ProbeFile {
                     name: "Show.S01E05.mkv".to_string(),
+                    is_dir: false,
+                    parent_path: String::new(),
                     size: 1,
                     updated_at: None,
                     file_key: "ep5-key".to_string(),
