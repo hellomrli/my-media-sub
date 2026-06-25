@@ -290,6 +290,37 @@ impl SubscriptionCheckService {
         Ok(results)
     }
 
+    /// 检查今天允许自动运行的订阅。weekday 使用 ISO 星期：周一=1，周日=7。
+    pub async fn check_due_subscriptions(
+        &self,
+        cookie: &str,
+        weekday: i32,
+    ) -> Result<Vec<CheckResult>> {
+        let subscriptions = self.subscription_store.list().await;
+        let mut results = Vec::new();
+
+        for sub in subscriptions {
+            if !sub.enabled {
+                continue;
+            }
+            if sub.completed && !should_reopen_completed_subscription(&sub) {
+                continue;
+            }
+            if !subscription_due_on_weekday(&sub, weekday) {
+                continue;
+            }
+
+            match self.check_subscription(&sub.id, cookie).await {
+                Ok(result) => results.push(result),
+                Err(e) => {
+                    warn!("检查订阅 {} 失败: {}", sub.id, e);
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
     /// 探测分享链接
     async fn probe_share(&self, sub: &Subscription, cookie: &str) -> Result<ProbeResult> {
         if let Some(mock_result) = mock_probe_result(&sub.url)? {
@@ -798,6 +829,31 @@ impl SubscriptionCheckService {
         )
         .await;
     }
+}
+
+fn subscription_due_on_weekday(sub: &Subscription, weekday: i32) -> bool {
+    let weekday = normalize_weekday(weekday);
+    let weekdays = normalized_weekdays(&sub.rules.check_weekdays);
+    weekdays.is_empty() || weekdays.contains(&weekday)
+}
+
+fn normalize_weekday(weekday: i32) -> i32 {
+    if (1..=7).contains(&weekday) {
+        weekday
+    } else {
+        1
+    }
+}
+
+fn normalized_weekdays(weekdays: &[i32]) -> Vec<i32> {
+    let mut days: Vec<i32> = weekdays
+        .iter()
+        .copied()
+        .filter(|day| (1..=7).contains(day))
+        .collect();
+    days.sort_unstable();
+    days.dedup();
+    days
 }
 
 fn mock_probe_result(url: &str) -> Result<Option<ProbeResult>> {
@@ -1481,6 +1537,25 @@ mod tests {
         assert_eq!(updated.status, "invalid");
         assert_eq!(updated.last_error, "invalid share");
         assert!(updated.invalid_since.is_some());
+    }
+
+    #[test]
+    fn subscription_due_on_weekday_defaults_to_every_day() {
+        let sub = make_subscription();
+
+        assert!(super::subscription_due_on_weekday(&sub, 1));
+        assert!(super::subscription_due_on_weekday(&sub, 7));
+    }
+
+    #[test]
+    fn subscription_due_on_weekday_respects_configured_days() {
+        let mut sub = make_subscription();
+        sub.rules.check_weekdays = vec![3, 1, 3, 9, 0];
+
+        assert!(super::subscription_due_on_weekday(&sub, 1));
+        assert!(super::subscription_due_on_weekday(&sub, 3));
+        assert!(!super::subscription_due_on_weekday(&sub, 2));
+        assert!(!super::subscription_due_on_weekday(&sub, 7));
     }
 
     #[test]

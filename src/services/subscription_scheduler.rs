@@ -1,3 +1,4 @@
+use chrono::{Datelike, Utc};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::RwLock;
 use tokio_cron_scheduler::{Job, JobScheduler};
@@ -85,7 +86,11 @@ impl SubscriptionScheduler {
                         return;
                     }
 
-                    match check_service.check_all_subscriptions(&cookie).await {
+                    let weekday = current_shanghai_weekday();
+                    match check_service
+                        .check_due_subscriptions(&cookie, weekday)
+                        .await
+                    {
                         Ok(results) => {
                             let total = results.len();
                             let updated: Vec<_> =
@@ -182,6 +187,11 @@ impl SubscriptionScheduler {
 
 fn normalize_interval_minutes(minutes: i32) -> u64 {
     normalize_check_interval_minutes(i64::from(minutes)) as u64
+}
+
+fn current_shanghai_weekday() -> i32 {
+    let shanghai_now = Utc::now() + chrono::Duration::hours(8);
+    shanghai_now.date_naive().weekday().number_from_monday() as i32
 }
 
 async fn dispatch_subscription_check_summary(

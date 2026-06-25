@@ -14,7 +14,7 @@ use crate::models::{episode_count_for_season, MediaMetadata, Subscription, Trans
 use crate::services::subscription_check::CheckDetails;
 use crate::services::subscription_progress::reopen_completed_subscription_status;
 use crate::services::transfer_rule::{
-    build_transfer_plan, summarize_rules, ProbeFile as RuleProbeFile,
+    build_transfer_plan, effective_rules, summarize_rules, ProbeFile as RuleProbeFile,
 };
 use crate::services::{SubscriptionCheckService, SubscriptionTransferService};
 use crate::store::{SettingsStore, SubscriptionStore};
@@ -758,7 +758,13 @@ async fn preview_subscription_rename(
         None
     };
     let base_ref = base.as_ref();
-    let sub = preview_subscription(&req, base_ref);
+    let mut sub = preview_subscription(&req, base_ref);
+    let settings = state.settings_store.get().await;
+    sub.rules = effective_rules(
+        &sub.rules,
+        &sub.media_type,
+        &settings.default_rename_template,
+    );
     let files = preview_files(&req, &sub);
     let plan = build_transfer_plan(&sub, Some(&files), None, None, None);
     let items = plan

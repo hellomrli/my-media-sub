@@ -57,6 +57,23 @@ pub fn normalize_rules(rules: Option<&TransferRules>) -> TransferRules {
     rules.cloned().unwrap_or_default()
 }
 
+pub fn effective_rules(
+    rules: &TransferRules,
+    media_type: &str,
+    default_rename_template: &str,
+) -> TransferRules {
+    let mut rules = rules.clone();
+    if media_type != "movie" && rules.rename_template.trim().is_empty() {
+        let template = default_rename_template.trim();
+        rules.rename_template = if template.is_empty() {
+            "{title}.S{season}E{episode}".to_string()
+        } else {
+            template.to_string()
+        };
+    }
+    rules
+}
+
 /// 显示名称（可选忽略扩展名）
 fn display_name(name: &str, ignore_extensions: bool) -> String {
     if !ignore_extensions {
@@ -743,6 +760,27 @@ mod tests {
         let (result, err) = apply_rename("第05集.mkv", &rules, Some(&sub), Some(5));
         assert_eq!(result, "Show.S02E05.mkv");
         assert!(err.is_none());
+    }
+
+    #[test]
+    fn test_effective_rules_use_default_rename_template_for_series() {
+        let rules = TransferRules::default();
+
+        let effective = effective_rules(&rules, "series", "{title}.S{season}E{episode}.{ext}");
+
+        assert_eq!(
+            effective.rename_template,
+            "{title}.S{season}E{episode}.{ext}"
+        );
+    }
+
+    #[test]
+    fn test_effective_rules_do_not_apply_series_template_to_movies() {
+        let rules = TransferRules::default();
+
+        let effective = effective_rules(&rules, "movie", "{title}.S{season}E{episode}.{ext}");
+
+        assert!(effective.rename_template.is_empty());
     }
 
     #[test]
