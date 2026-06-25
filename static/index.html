@@ -28,7 +28,7 @@
   <div class="app-shell lg:flex">
 
     <!-- 侧边栏 -->
-    <aside class="app-sidebar hidden lg:flex lg:sticky lg:top-0 h-screen w-64 border-r border-dark-border flex-col">
+    <aside class="app-sidebar hidden lg:flex lg:sticky lg:top-0 h-screen w-60 border-r border-dark-border flex-col">
       <div class="px-4 py-4 border-b border-dark-border">
         <h1 class="text-lg font-semibold text-white flex items-center gap-3">
           <span class="grid h-9 w-9 place-items-center rounded-lg bg-blue-500/15 border border-blue-400/20">
@@ -101,8 +101,8 @@
       <div class="app-content flex-1 overflow-y-auto px-4 sm:px-5 py-4 sm:py-5">
 
         <!-- 搜索页面 -->
-        <div x-show="currentTab === 'search'" class="space-y-5">
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div x-show="currentTab === 'search'" class="page-stack">
+          <div class="metric-grid">
             <div class="stat-tile p-4">
               <div class="text-xs text-gray-500">搜索结果</div>
               <div class="mt-2 text-2xl font-semibold text-white" x-text="searchResults.length"></div>
@@ -236,9 +236,9 @@
         </div>
 
         <!-- 网盘管理页面 -->
-        <div x-show="currentTab === 'drive'" class="space-y-4">
+        <div x-show="currentTab === 'drive'" class="page-stack">
           <div class="app-panel p-4 space-y-4">
-            <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div class="toolbar-panel">
               <div class="min-w-0">
                 <div class="flex flex-wrap items-center gap-2 text-sm text-gray-400">
                   <template x-for="crumb in driveBreadcrumbs" :key="crumb.fid + '-' + crumb.index">
@@ -250,7 +250,7 @@
                   <span x-show="driveRefreshing" class="text-blue-300">刷新中</span>
                 </div>
               </div>
-              <div class="flex flex-wrap gap-2">
+              <div class="control-row">
                 <button @click="driveGoBack()" :disabled="driveFidStack.length <= 1 || driveLoading" class="btn-secondary px-3 py-2 disabled:opacity-50 rounded-lg text-sm transition-colors">
                   返回上级
                 </button>
@@ -265,7 +265,7 @@
               </div>
             </div>
 
-            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div class="metric-grid">
               <div class="stat-tile p-3">
                 <div class="text-xs text-gray-500">文件夹</div>
                 <div class="mt-1 text-xl font-semibold text-white" x-text="driveStats.folders"></div>
@@ -289,13 +289,13 @@
                 <input x-model.debounce.150ms="driveSearchQuery" class="w-full px-4 py-2 pl-10 bg-dark-hover border border-dark-border rounded-lg text-white" placeholder="搜索当前目录" />
                 <svg class="w-4 h-4 absolute left-3 top-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
               </div>
-              <div class="flex flex-wrap gap-2">
+              <div class="segmented-control">
                 <button @click="driveFilterType = 'all'" :class="driveFilterType === 'all' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">全部</button>
                 <button @click="driveFilterType = 'folder'" :class="driveFilterType === 'folder' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">文件夹</button>
                 <button @click="driveFilterType = 'video'" :class="driveFilterType === 'video' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">视频</button>
                 <button @click="driveFilterType = 'other'" :class="driveFilterType === 'other' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">其他</button>
               </div>
-              <div class="flex flex-wrap gap-2">
+              <div class="control-row">
                 <select x-model="driveSortBy" class="px-3 py-2 bg-dark-hover border border-dark-border rounded-lg text-sm text-gray-300">
                   <option value="name">名称</option>
                   <option value="size">大小</option>
@@ -308,7 +308,7 @@
             </div>
           </div>
 
-          <div class="app-panel overflow-hidden">
+          <div class="app-panel list-surface">
             <div class="px-4 py-3 border-b border-dark-border flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between bg-black/10">
               <label class="flex items-center gap-3 text-sm text-gray-300 cursor-pointer">
                 <input type="checkbox" :checked="driveAllVisibleSelected()" @change="toggleVisibleDriveSelection()" class="rounded" />
@@ -334,7 +334,7 @@
 
             <div x-show="!driveLoading && filteredDriveItems.length > 0 && driveViewMode === 'list'" class="overflow-x-auto">
               <div class="min-w-[760px] divide-y divide-dark-border">
-                <div class="grid grid-cols-[44px_minmax(260px,1fr)_120px_120px_180px] gap-3 px-4 py-2 text-xs text-gray-500">
+                <div class="table-head grid grid-cols-[44px_minmax(260px,1fr)_120px_120px_180px] gap-3 px-4 py-2 text-xs">
                   <div></div>
                   <button @click="setDriveSort('name')" class="text-left hover:text-white">名称</button>
                   <button @click="setDriveSort('size')" class="text-left hover:text-white">大小</button>
@@ -342,7 +342,7 @@
                   <div class="text-right">操作</div>
                 </div>
                 <template x-for="item in visibleDriveItems" :key="item.fid">
-                  <div class="grid grid-cols-[44px_minmax(260px,1fr)_120px_120px_180px] gap-3 px-4 py-3 items-center hover:bg-dark-hover transition-colors">
+                  <div class="list-row grid grid-cols-[44px_minmax(260px,1fr)_120px_120px_180px] gap-3 px-4 py-3 items-center hover:bg-dark-hover transition-colors">
                     <input type="checkbox" :checked="isDriveItemSelected(item)" @change="toggleDriveItemSelection(item)" class="rounded" />
                     <button @click="driveItemClick(item)" class="min-w-0 flex items-center gap-3 text-left">
                       <span :class="driveItemIconClass(item)" class="w-10 h-10 rounded-lg border flex items-center justify-center shrink-0">
@@ -410,8 +410,8 @@
         </div>
 
         <!-- 下载任务页面 -->
-        <div x-show="currentTab === 'downloads'" class="space-y-4">
-          <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+        <div x-show="currentTab === 'downloads'" class="page-stack">
+          <div class="metric-grid">
             <div class="stat-tile p-4">
               <div class="text-xs text-gray-500">下载中</div>
               <div class="mt-2 text-2xl font-semibold text-white" x-text="downloads.active.length"></div>
@@ -430,13 +430,13 @@
             </div>
           </div>
 
-          <div class="app-panel overflow-hidden">
-            <div class="p-4 border-b border-dark-border flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div class="app-panel list-surface">
+            <div class="p-4 border-b border-dark-border toolbar-panel">
               <div>
                 <h3 class="section-title">Aria2 下载任务</h3>
                 <p class="text-sm text-gray-500 mt-1" x-text="downloadsError || (downloadsUpdatedAt ? '更新时间 ' + new Date(downloadsUpdatedAt).toLocaleTimeString() : '等待刷新')"></p>
               </div>
-              <div class="flex flex-wrap items-center gap-2">
+              <div class="control-row">
                 <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
                   <input type="checkbox" x-model="downloadsAutoRefresh" @change="downloadsAutoRefresh ? startDownloadsPolling() : stopDownloadsPolling()" class="rounded" />
                   <span>实时刷新</span>
@@ -526,13 +526,13 @@
         </div>
 
         <!-- 订阅管理页面 -->
-        <div x-show="currentTab === 'subscriptions'" class="space-y-4">
-          <div class="app-panel p-4 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+        <div x-show="currentTab === 'subscriptions'" class="page-stack">
+          <div class="app-panel p-4 toolbar-panel">
             <div>
               <h3 class="section-title">订阅列表</h3>
               <p class="text-sm text-gray-500 mt-1">按状态、进度和最近检查时间快速扫描。</p>
             </div>
-            <div class="flex flex-col sm:flex-row gap-2">
+            <div class="control-row">
               <button @click="checkAllSubscriptions()" :disabled="checkingAllSubscriptions" class="btn-secondary px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0019 5M19 5h-5M5 19h5" /></svg>
                 <span x-show="!checkingAllSubscriptions">批量检查</span>
@@ -610,8 +610,8 @@
         </div>
 
         <!-- 后台日志页面 -->
-        <div x-show="currentTab === 'transferHistory'" class="space-y-4">
-          <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+        <div x-show="currentTab === 'transferHistory'" class="page-stack">
+          <div class="metric-grid">
             <div class="stat-tile p-4">
               <div class="text-xs text-gray-500">后台任务</div>
               <div class="mt-2 text-2xl font-semibold text-white" x-text="backgroundLogStats.total"></div>
@@ -676,8 +676,8 @@
             </div>
           </div>
 
-          <div class="app-panel overflow-hidden">
-            <div class="p-4 border-b border-dark-border flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+          <div class="app-panel list-surface">
+            <div class="p-4 border-b border-dark-border toolbar-panel">
               <div>
                 <h3 class="section-title">任务日志</h3>
                 <p class="text-sm text-gray-500 mt-1">记录转存、元数据刮削和推送派发等后台任务，排队和运行中的任务可取消，失败任务可重试。</p>
@@ -734,13 +734,13 @@
         </div>
 
         <!-- 通知页面 -->
-        <div x-show="currentTab === 'notifications'" class="space-y-4">
-          <div class="app-panel p-4 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+        <div x-show="currentTab === 'notifications'" class="page-stack">
+          <div class="app-panel p-4 toolbar-panel">
             <div>
               <h3 class="section-title">通知中心</h3>
               <p class="text-sm text-gray-500 mt-1">系统通知和推送记录会保留在这里，后台执行过程请查看后台日志。</p>
             </div>
-            <div class="flex gap-2">
+            <div class="control-row">
               <button @click="markAllRead()" class="btn-secondary px-4 py-2 rounded-lg transition-colors text-sm">全部已读</button>
               <button @click="clearNotifications()" class="btn-danger px-4 py-2 rounded-lg transition-colors text-sm">清空通知</button>
             </div>
@@ -796,7 +796,7 @@
         </div>
 
         <!-- 设置页面 -->
-        <div x-show="currentTab === 'settings'" class="space-y-4">
+        <div x-show="currentTab === 'settings'" class="page-stack">
 
           <!-- 标签页导航 -->
           <div class="app-panel settings-layout overflow-hidden">
@@ -1430,8 +1430,8 @@
   </div>
 
   <!-- 模态框：在线升级进度 -->
-  <div x-show="showUpdateProgressDialog" @click.self="closeUpdateProgressDialog()" @keydown.escape.window="closeUpdateProgressDialog()" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel p-6 max-w-lg w-full" @click.stop>
+  <div x-show="showUpdateProgressDialog" @click.self="closeUpdateProgressDialog()" @keydown.escape.window="closeUpdateProgressDialog()" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel dialog-panel p-6 max-w-lg w-full" @click.stop>
       <div class="flex items-start justify-between gap-4">
         <div>
           <h3 class="text-xl font-bold text-white" x-text="updateDialogTitle()"></h3>
@@ -1478,8 +1478,8 @@
   </div>
 
   <!-- 模态框：新建文件夹 -->
-  <div x-show="showNewFolderModal" @click.self="showNewFolderModal = false" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel p-6 max-w-md w-full" @click.stop>
+  <div x-show="showNewFolderModal" @click.self="showNewFolderModal = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel dialog-panel p-6 max-w-md w-full" @click.stop>
       <h3 class="text-xl font-bold text-white mb-4">新建文件夹</h3>
       <div><label class="field-label">文件夹名称</label><input type="text" x-model="newFolderName" placeholder="输入名称" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-500" /></div>
       <div class="flex gap-3 mt-6">
@@ -1490,8 +1490,8 @@
   </div>
 
   <!-- 模态框：选择转存目录 -->
-  <div x-show="showTransferModal" @click.self="showTransferModal = false" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel p-6 max-w-2xl w-full" @click.stop>
+  <div x-show="showTransferModal" @click.self="showTransferModal = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel dialog-panel p-6 max-w-2xl w-full" @click.stop>
       <h3 class="text-xl font-bold text-white mb-4">选择转存目录</h3>
 
       <!-- 快速选择 -->
@@ -1538,8 +1538,8 @@
   </div>
 
   <!-- 手动元数据刮削对话框 -->
-  <div x-show="showManualMetadataDialog" @click.self="closeManualMetadataDialog()" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel p-6 max-w-3xl w-full max-h-[88vh] overflow-y-auto" @click.stop>
+  <div x-show="showManualMetadataDialog" @click.self="closeManualMetadataDialog()" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel dialog-panel p-6 max-w-3xl w-full max-h-[88vh] overflow-y-auto" @click.stop>
           <div class="flex flex-col sm:flex-row gap-3 sm:items-start sm:justify-between mb-5">
             <div>
               <h3 class="text-xl font-bold text-white">手动刮削元数据</h3>
@@ -1589,8 +1589,8 @@
       </div>
 
   <!-- Aria2 下载目录选择对话框 -->
-  <div x-show="showAria2DirDialog" @click.self="showAria2DirDialog = false" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[60]" style="display: none;">
-    <div class="app-panel p-6 max-w-2xl w-full max-h-[88vh] overflow-y-auto" @click.stop>
+  <div x-show="showAria2DirDialog" @click.self="showAria2DirDialog = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-[60]" style="display: none;">
+    <div class="app-panel dialog-panel p-6 max-w-2xl w-full max-h-[88vh] overflow-y-auto" @click.stop>
       <div class="flex flex-col sm:flex-row gap-3 sm:items-start sm:justify-between mb-4">
         <div>
           <h3 class="text-xl font-bold text-white">选择 Aria2 下载目录</h3>
@@ -1627,8 +1627,8 @@
   </div>
 
   <!-- 订阅配置对话框 -->
-  <div x-show="showSubscriptionDialog" @click.self="showSubscriptionDialog = false" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop>
+  <div x-show="showSubscriptionDialog" @click.self="showSubscriptionDialog = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel dialog-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop>
       <h3 class="text-xl font-bold text-white mb-6" x-text="subscriptionEditingId ? '编辑订阅' : '创建订阅'"></h3>
 
       <div class="mb-6 grid grid-cols-3 gap-2">
@@ -1938,8 +1938,8 @@
   </div>
 
   <!-- 后台任务详情 -->
-  <div x-show="showJobDetailDialog" @click.self="showJobDetailDialog = false" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop>
+  <div x-show="showJobDetailDialog" @click.self="showJobDetailDialog = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel dialog-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop>
       <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
         <div class="min-w-0">
           <h3 class="text-xl font-bold text-white break-all" x-text="selectedJob ? selectedJob.title : '任务详情'"></h3>
