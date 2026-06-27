@@ -1,5 +1,6 @@
 use crate::error::{AppError, Result};
 use crate::models::Subscription;
+use crate::utils::{quarantine_corrupt_file, write_json_atomic_async};
 use std::path::PathBuf;
 use tokio::sync::RwLock;
 
@@ -26,25 +27,20 @@ impl SubscriptionStore {
         }
         let content = std::fs::read_to_string(&self.path)
             .map_err(|e| AppError::Database(format!("读取订阅文件失败: {}", e)))?;
-        *items = serde_json::from_str(&content)
-            .map_err(|e| AppError::Database(format!("解析订阅 JSON 失败: {}", e)))?;
+        match serde_json::from_str(&content) {
+            Ok(parsed) => *items = parsed,
+            Err(e) => {
+                tracing::warn!("解析订阅 JSON 失败，已隔离损坏文件并使用空订阅: {}", e);
+                quarantine_corrupt_file(&self.path);
+                *items = Vec::new();
+            }
+        }
         Ok(())
     }
 
     /// 原子保存到文件
     async fn save(&self, items: &[Subscription]) -> Result<()> {
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| AppError::Database(format!("创建目录失败: {}", e)))?;
-        }
-        let content = serde_json::to_string_pretty(items)
-            .map_err(|e| AppError::Database(format!("序列化订阅失败: {}", e)))?;
-        let tmp = self.path.with_extension("tmp");
-        std::fs::write(&tmp, content)
-            .map_err(|e| AppError::Database(format!("写入临时文件失败: {}", e)))?;
-        std::fs::rename(&tmp, &self.path)
-            .map_err(|e| AppError::Database(format!("重命名临时文件失败: {}", e)))?;
-        Ok(())
+        write_json_atomic_async(&self.path, &items, 0o600).await
     }
 
     /// 列出所有订阅
@@ -60,6 +56,12 @@ impl SubscriptionStore {
     /// 创建订阅
     pub async fn create(&self, sub: Subscription) -> Result<Subscription> {
         let mut items = self.items.write().await;
+        if items.iter().any(|s| s.id == sub.id) {
+            return Err(AppError::Validation(format!(
+                "订阅已存在（相同链接和标题）: {}",
+                sub.title
+            )));
+        }
         items.push(sub.clone());
         self.save(&items).await?;
         Ok(sub)
@@ -106,6 +108,14 @@ mod tests {
     use super::*;
     use crate::models::Subscription;
 
+    fn temp_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "my-media-sub-{}-{}.json",
+            name,
+            uuid::Uuid::new_v4()
+        ))
+    }
+
     fn make_sub(id: &str) -> Subscription {
         Subscription {
             id: id.to_string(),
@@ -135,6 +145,7 @@ mod tests {
             enabled: true,
             completed: false,
             rules: Default::default(),
+            rule_preset_id: String::new(),
             created_at: 1,
             updated_at: 1,
             last_checked_at: 1,
@@ -151,8 +162,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_subscription_store_crud() {
-        let tmp = std::env::temp_dir().join("test_subs_store.json");
-        let _ = std::fs::remove_file(&tmp);
+        let tmp = temp_path("subs-store");
         let store = SubscriptionStore::new(&tmp);
         store.load().await.unwrap();
 
@@ -189,5 +199,58 @@ mod tests {
         assert_eq!(store2.count().await, 0);
 
         let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[tokio::test]
+    async fn create_rejects_duplicate_subscription_id() {
+        let tmp = temp_path("subs-duplicate");
+        let store = SubscriptionStore::new(&tmp);
+        store.load().await.unwrap();
+
+        store.create(make_sub("same")).await.unwrap();
+        let error = store.create(make_sub("same")).await.unwrap_err();
+
+        assert!(matches!(error, AppError::Validation(_)));
+        assert_eq!(store.count().await, 1);
+
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[tokio::test]
+    async fn load_quarantines_corrupt_subscription_file() {
+        let tmp = temp_path("subs-corrupt");
+        std::fs::write(&tmp, b"{not-valid-json").unwrap();
+
+        let store = SubscriptionStore::new(&tmp);
+        store.load().await.unwrap();
+
+        assert_eq!(store.count().await, 0);
+        assert!(!tmp.exists());
+
+        let parent = tmp.parent().unwrap();
+        let file_name = tmp.file_name().unwrap().to_string_lossy();
+        let quarantined = std::fs::read_dir(parent)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .any(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(&format!("{}.corrupt-", file_name))
+            });
+        assert!(quarantined);
+
+        for entry in std::fs::read_dir(parent)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+        {
+            if entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(&format!("{}.corrupt-", file_name))
+            {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
     }
 }

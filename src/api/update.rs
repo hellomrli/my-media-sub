@@ -5,6 +5,7 @@ use axum::{
 };
 use chrono::Utc;
 use once_cell::sync::Lazy;
+use ring::digest;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::ffi::OsString;
@@ -15,8 +16,10 @@ use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 
 use crate::error::{AppError, Result};
+use crate::utils::constant_time_eq;
 
 const GITHUB_REPO: &str = "hellomrli/my-media-sub";
+const ENABLE_SELF_UPDATE_ENV: &str = "MY_MEDIA_SUB_ENABLE_SELF_UPDATE";
 
 static UPDATE_PROGRESS: Lazy<Mutex<UpdateProgressResponse>> =
     Lazy::new(|| Mutex::new(UpdateProgressResponse::idle()));
@@ -191,9 +194,7 @@ async fn list_releases() -> Result<impl IntoResponse> {
 }
 
 async fn apply_update(request: Option<Json<UpdateApplyRequest>>) -> Result<impl IntoResponse> {
-    if current_update_progress().running {
-        return Err(AppError::Validation("已有升级任务正在执行".to_string()));
-    }
+    ensure_self_update_enabled()?;
 
     let target_tag = request.and_then(|Json(req)| req.tag).and_then(|tag| {
         let tag = tag.trim().to_string();
@@ -204,7 +205,7 @@ async fn apply_update(request: Option<Json<UpdateApplyRequest>>) -> Result<impl 
         .map(|tag| format!("正在准备切换到 {}", tag))
         .unwrap_or_else(|| "正在检查最新版本".to_string());
 
-    begin_update_progress(message);
+    try_begin_update_progress(message)?;
     match apply_update_inner(target_tag).await {
         Ok(response) => Ok(Json(Response::ok(response))),
         Err(error) => {
@@ -219,6 +220,8 @@ async fn update_progress() -> Result<impl IntoResponse> {
 }
 
 async fn restart_update() -> Result<impl IntoResponse> {
+    ensure_self_update_enabled()?;
+
     let plan = PENDING_RESTART
         .lock()
         .map_err(|_| AppError::Internal("读取重启计划失败".to_string()))?
@@ -242,19 +245,25 @@ fn current_update_progress() -> UpdateProgressResponse {
         .unwrap_or_else(|_| UpdateProgressResponse::idle())
 }
 
-fn begin_update_progress(message: impl Into<String>) {
-    if let Ok(mut progress) = UPDATE_PROGRESS.lock() {
-        *progress = UpdateProgressResponse {
-            running: true,
-            percent: 1,
-            stage: "starting".to_string(),
-            message: message.into(),
-            downloaded_bytes: 0,
-            total_bytes: None,
-            error: None,
-            updated_at: Utc::now().to_rfc3339(),
-        };
+fn try_begin_update_progress(message: impl Into<String>) -> Result<()> {
+    let mut progress = UPDATE_PROGRESS
+        .lock()
+        .map_err(|_| AppError::Internal("读取升级状态失败".to_string()))?;
+    if progress.running {
+        return Err(AppError::Validation("已有升级任务正在执行".to_string()));
     }
+
+    *progress = UpdateProgressResponse {
+        running: true,
+        percent: 1,
+        stage: "starting".to_string(),
+        message: message.into(),
+        downloaded_bytes: 0,
+        total_bytes: None,
+        error: None,
+        updated_at: Utc::now().to_rfc3339(),
+    };
+    Ok(())
 }
 
 fn set_update_progress(percent: u8, stage: &str, message: impl Into<String>) {
@@ -347,6 +356,8 @@ async fn apply_update_inner(target_tag: Option<String>) -> Result<UpdateApplyRes
 
     let asset = find_asset(&release.assets, "linux-x86_64.tar.gz")
         .ok_or_else(|| AppError::NotFound("Release 中未找到 Linux x86_64 二进制包".to_string()))?;
+    let checksum_asset = find_asset(&release.assets, "linux-x86_64.tar.gz.sha256")
+        .ok_or_else(|| AppError::NotFound("Release 中未找到 SHA256 校验文件".to_string()))?;
     let current_exe = std::env::current_exe()
         .map_err(|e| AppError::Internal(format!("无法定位当前二进制: {}", e)))?;
     let restart_plan = restart_plan(&current_exe);
@@ -361,7 +372,11 @@ async fn apply_update_inner(target_tag: Option<String>) -> Result<UpdateApplyRes
         .map_err(|e| AppError::Internal(format!("创建升级临时目录失败: {}", e)))?;
 
     let archive_path = work_dir.join(&asset.name);
+    set_update_progress(8, "checksum", "正在下载校验文件");
+    let checksum_content = download_asset_bytes(&checksum_asset.browser_download_url).await?;
     download_asset(&asset.browser_download_url, &archive_path, asset.size).await?;
+    set_update_progress(69, "checksum", "正在校验升级包 SHA256");
+    verify_sha256(&archive_path, &asset.name, &checksum_content).await?;
     set_update_progress(70, "extracting", "正在解压升级包");
     extract_archive(&archive_path, &work_dir).await?;
     set_update_progress(82, "locating", "正在查找新版本二进制");
@@ -520,6 +535,29 @@ fn detect_runtime() -> String {
     }
 }
 
+fn ensure_self_update_enabled() -> Result<()> {
+    if self_update_enabled() {
+        return Ok(());
+    }
+
+    Err(AppError::Validation(format!(
+        "在线更新未启用，请设置 {}=1 后重启服务",
+        ENABLE_SELF_UPDATE_ENV
+    )))
+}
+
+fn self_update_enabled() -> bool {
+    std::env::var(ENABLE_SELF_UPDATE_ENV)
+        .or_else(|_| std::env::var("SELF_UPDATE_ENABLED"))
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
 async fn download_asset(url: &str, path: &Path, expected_size: u64) -> Result<()> {
     set_update_progress(10, "download", "正在连接 Release 下载地址");
     let mut response = reqwest::Client::new()
@@ -546,8 +584,91 @@ async fn download_asset(url: &str, path: &Path, expected_size: u64) -> Result<()
     file.flush()
         .await
         .map_err(|e| AppError::Internal(format!("刷新升级包文件失败: {}", e)))?;
+    file.sync_all()
+        .await
+        .map_err(|e| AppError::Internal(format!("同步升级包文件失败: {}", e)))?;
     set_download_progress(downloaded_bytes, total_bytes);
     Ok(())
+}
+
+async fn download_asset_bytes(url: &str) -> Result<Vec<u8>> {
+    let response = reqwest::Client::new()
+        .get(url)
+        .header(reqwest::header::USER_AGENT, "my-media-sub-self-update")
+        .send()
+        .await?
+        .error_for_status()?;
+    Ok(response.bytes().await?.to_vec())
+}
+
+async fn verify_sha256(path: &Path, asset_name: &str, checksum_content: &[u8]) -> Result<()> {
+    let expected = parse_sha256_checksum(checksum_content, asset_name)
+        .ok_or_else(|| AppError::Validation("SHA256 校验文件格式无效".to_string()))?;
+    let bytes = tokio::fs::read(path)
+        .await
+        .map_err(|e| AppError::Internal(format!("读取升级包失败: {}", e)))?;
+    let actual = digest::digest(&digest::SHA256, &bytes)
+        .as_ref()
+        .iter()
+        .map(|byte| format!("{:02x}", byte))
+        .collect::<String>();
+
+    if !constant_time_eq(&actual, &expected) {
+        return Err(AppError::Validation("升级包 SHA256 校验失败".to_string()));
+    }
+
+    Ok(())
+}
+
+fn parse_sha256_checksum(content: &[u8], asset_name: &str) -> Option<String> {
+    let text = String::from_utf8_lossy(content);
+    let mut bare_checksum = None;
+    let mut bare_count = 0usize;
+
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        let parts = line.split_whitespace().collect::<Vec<_>>();
+        let Some(checksum) = parts.iter().copied().find(|part| is_sha256_checksum(part)) else {
+            continue;
+        };
+
+        if checksum_matches_asset_line(line, checksum, asset_name) {
+            return Some(checksum.to_ascii_lowercase());
+        }
+
+        if parts.len() == 1 && parts[0] == checksum {
+            bare_count += 1;
+            bare_checksum = Some(checksum.to_ascii_lowercase());
+        }
+    }
+
+    (bare_count == 1).then_some(bare_checksum?).filter(|_| {
+        text.lines()
+            .filter(|line| {
+                let line = line.trim();
+                !line.is_empty() && !line.starts_with('#')
+            })
+            .count()
+            == 1
+    })
+}
+
+fn is_sha256_checksum(value: &str) -> bool {
+    value.len() == 64 && value.chars().all(|ch| ch.is_ascii_hexdigit())
+}
+
+fn checksum_matches_asset_line(line: &str, checksum: &str, asset_name: &str) -> bool {
+    let normalized = line.replace('*', " ");
+    if normalized.split_whitespace().any(|part| part == asset_name) {
+        return true;
+    }
+
+    let bsd_prefix = format!("SHA256 ({asset_name}) =");
+    line.starts_with(&bsd_prefix) && line.split_whitespace().last() == Some(checksum)
 }
 
 async fn extract_archive(archive_path: &Path, output_dir: &Path) -> Result<()> {
@@ -834,6 +955,48 @@ mod tests {
             checksum.name,
             "my-media-sub-v0.7.15-linux-x86_64.tar.gz.sha256"
         );
+    }
+
+    #[test]
+    fn test_parse_sha256_checksum_accepts_common_formats() {
+        let checksum = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let asset_name = "archive.tar.gz";
+        assert_eq!(
+            parse_sha256_checksum(
+                format!("{}  {}\n", checksum, asset_name).as_bytes(),
+                asset_name
+            ),
+            Some(checksum.to_string())
+        );
+        assert_eq!(
+            parse_sha256_checksum(
+                format!("{} *{}\n", checksum.to_ascii_uppercase(), asset_name).as_bytes(),
+                asset_name
+            ),
+            Some(checksum.to_string())
+        );
+        assert_eq!(
+            parse_sha256_checksum(
+                format!("SHA256 ({}) = {}\n", asset_name, checksum).as_bytes(),
+                asset_name
+            ),
+            Some(checksum.to_string())
+        );
+        assert_eq!(
+            parse_sha256_checksum(
+                format!("{}\n", checksum.to_ascii_uppercase()).as_bytes(),
+                asset_name
+            ),
+            Some(checksum.to_string())
+        );
+        assert_eq!(
+            parse_sha256_checksum(
+                format!("{}  other.tar.gz\n{}  another.tar.gz\n", checksum, checksum).as_bytes(),
+                asset_name
+            ),
+            None
+        );
+        assert_eq!(parse_sha256_checksum(b"not-a-checksum", asset_name), None);
     }
 
     #[test]

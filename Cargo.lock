@@ -714,7 +714,7 @@ dependencies = [
 
 [[package]]
 name = "my-media-sub"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "anyhow",
  "axum",
@@ -724,6 +724,7 @@ dependencies = [
  "once_cell",
  "regex",
  "reqwest",
+ "ring",
  "serde",
  "serde_json",
  "thiserror",

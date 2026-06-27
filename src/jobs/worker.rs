@@ -10,7 +10,7 @@ use crate::error::{AppError, Result};
 use crate::models::{episode_count_for_season, MediaMetadata, Subscription};
 use crate::services::notification::add_notification;
 use crate::services::push::{
-    record_push_message_report, PushEvent, PushLevel, PushRetryPolicy, PushService,
+    record_push_message_report_for_notification, PushEvent, PushLevel, PushRetryPolicy, PushService,
 };
 use crate::services::subscription_progress::reopen_completed_subscription_status;
 use crate::services::{MetadataService, SubscriptionTransferService};
@@ -37,15 +37,68 @@ impl JobWorker {
     pub(crate) async fn run(mut self) {
         info!("后台任务 worker 已启动");
         while let Some(job_id) = self.receiver.recv().await {
-            if let Err(e) = self.run_job(&job_id).await {
-                if self.is_canceled(&job_id).await {
-                    info!("任务 {} 已取消", job_id);
-                } else {
-                    error!("任务 {} 执行失败: {}", job_id, e);
+            let runner = self.worker_for_job();
+            let task_job_id = job_id.clone();
+            let handle = tokio::spawn(async move {
+                let result = runner.run_job(&task_job_id).await;
+                let canceled = result.is_err() && runner.is_canceled(&task_job_id).await;
+                (task_job_id, result, canceled)
+            });
+
+            match handle.await {
+                Ok((task_job_id, Ok(()), _)) => {
+                    let _ = task_job_id;
+                }
+                Ok((task_job_id, Err(_), true)) => {
+                    info!("任务 {} 已取消", task_job_id);
+                }
+                Ok((task_job_id, Err(e), false)) => {
+                    error!("任务 {} 执行失败: {}", task_job_id, e);
+                }
+                Err(join_error) => {
+                    if self.is_canceled(&job_id).await {
+                        info!("任务 {} 已取消", job_id);
+                    } else {
+                        error!("任务 {} panic: {}", job_id, join_error);
+                        if let Err(error) = self.fail_panicked_job(&job_id, &join_error).await {
+                            error!("标记 panic 任务 {} 失败: {}", job_id, error);
+                        }
+                    }
                 }
             }
         }
         warn!("后台任务 worker 已停止");
+    }
+
+    fn worker_for_job(&self) -> Self {
+        let (_unused_sender, receiver) = mpsc::channel(1);
+        Self {
+            store: self.store.clone(),
+            sender: self.sender.clone(),
+            settings_store: self.settings_store.clone(),
+            subscription_store: self.subscription_store.clone(),
+            notification_store: self.notification_store.clone(),
+            metadata_service: self.metadata_service.clone(),
+            transfer_service: self.transfer_service.clone(),
+            receiver,
+        }
+    }
+
+    async fn fail_panicked_job(
+        &self,
+        job_id: &str,
+        join_error: &tokio::task::JoinError,
+    ) -> Result<()> {
+        self.store
+            .update(job_id, |job| {
+                job.status = JobStatus::Failed;
+                job.progress = 100;
+                job.message = "后台任务异常退出，可重试".to_string();
+                job.error = Some(format!("后台任务 panic: {}", join_error));
+                job.finished_at = Some(now());
+            })
+            .await?;
+        Ok(())
     }
 
     async fn run_job(&self, job_id: &str) -> Result<()> {
@@ -119,8 +172,9 @@ impl JobWorker {
             )
             .await;
 
-        record_push_message_report(
+        record_push_message_report_for_notification(
             &self.notification_store,
+            payload.notification_id.as_deref(),
             event.as_str(),
             &payload.title,
             &payload.message,
@@ -476,6 +530,7 @@ impl JobWorker {
                 let reason = result.reason.clone();
                 let push_title = result.push_title.clone();
                 let push_message = result.push_message.clone();
+                let push_notification_id = result.push_notification_id.clone();
                 let completed = self
                     .complete_if_active(job_id, |job| {
                         job.status = JobStatus::Succeeded;
@@ -497,6 +552,7 @@ impl JobWorker {
                                 title,
                                 message,
                                 level: PushLevel::Success.as_str().to_string(),
+                                notification_id: push_notification_id,
                             })
                             .await
                         {
@@ -604,6 +660,10 @@ impl JobWorker {
         };
 
         self.update_running(job_id, 45, "正在转存文件").await?;
+        if self.is_canceled(job_id).await {
+            info!("任务 {} 已在转存前取消", job_id);
+            return Ok(());
+        }
         let save_client = QuarkSaveClient::new(cookie);
         match save_with_probe(
             &save_client,
@@ -706,6 +766,23 @@ impl JobWorker {
             })
             .await?
         {
+            self.add_transfer_notification(
+                "warning",
+                "manual_transfer_completed_after_cancel",
+                "转存已完成但任务已取消",
+                &format!(
+                    "任务取消时夸克转存已经完成，实际已转存 {} 个文件",
+                    saved_count
+                ),
+                HashMap::from([
+                    ("mode".to_string(), json!("manual")),
+                    ("job_id".to_string(), json!(job_id)),
+                    ("saved_count".to_string(), json!(saved_count)),
+                    ("target_fid".to_string(), json!(target_fid)),
+                    ("source_url".to_string(), json!(req.url.clone())),
+                ]),
+            )
+            .await;
             return Ok(());
         }
 
@@ -887,6 +964,7 @@ mod tests {
             enabled: true,
             completed: true,
             rules: TransferRules::default(),
+            rule_preset_id: String::new(),
             created_at: 1,
             updated_at: 1,
             last_checked_at: 1,

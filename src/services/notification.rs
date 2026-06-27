@@ -7,9 +7,10 @@ use crate::error::Result;
 use crate::jobs::{JobQueue, PushDispatchPayload};
 use crate::models::Notification;
 use crate::services::push::{
-    record_push_message_report, PushEvent, PushLevel, PushRetryPolicy, PushService,
+    record_push_message_report_for_notification, PushEvent, PushLevel, PushRetryPolicy, PushService,
 };
 use crate::store::{NotificationStore, SettingsStore};
+use crate::utils::unix_now;
 use std::sync::Arc;
 
 pub async fn add_notification(
@@ -34,6 +35,14 @@ pub async fn add_notification(
     notification_store.add(notification).await
 }
 
+pub struct PushDispatchRequest {
+    pub notification_id: Option<String>,
+    pub event: PushEvent,
+    pub title: String,
+    pub message: String,
+    pub level: PushLevel,
+}
+
 pub async fn dispatch_push_event(
     settings_store: Arc<SettingsStore>,
     notification_store: Arc<NotificationStore>,
@@ -43,8 +52,34 @@ pub async fn dispatch_push_event(
     message: impl Into<String>,
     level: PushLevel,
 ) {
-    let title = title.into();
-    let message = message.into();
+    dispatch_push_event_for_notification(
+        settings_store,
+        notification_store,
+        job_queue,
+        PushDispatchRequest {
+            notification_id: None,
+            event,
+            title: title.into(),
+            message: message.into(),
+            level,
+        },
+    )
+    .await;
+}
+
+pub async fn dispatch_push_event_for_notification(
+    settings_store: Arc<SettingsStore>,
+    notification_store: Arc<NotificationStore>,
+    job_queue: Option<Arc<JobQueue>>,
+    request: PushDispatchRequest,
+) {
+    let PushDispatchRequest {
+        notification_id,
+        event,
+        title,
+        message,
+        level,
+    } = request;
 
     if let Some(job_queue) = job_queue {
         let settings = settings_store.get().await;
@@ -59,6 +94,7 @@ pub async fn dispatch_push_event(
                 title: title.clone(),
                 message: message.clone(),
                 level: level.as_str().to_string(),
+                notification_id: notification_id.clone(),
             })
             .await
         {
@@ -80,6 +116,7 @@ pub async fn dispatch_push_event(
             &title,
             &message,
             level,
+            notification_id.as_deref(),
         )
         .await;
     });
@@ -92,6 +129,7 @@ async fn send_push_event(
     title: &str,
     message: &str,
     level: PushLevel,
+    notification_id: Option<&str>,
 ) {
     let settings = settings_store.get().await;
     let push_service = PushService::new(settings);
@@ -105,8 +143,9 @@ async fn send_push_event(
         )
         .await;
 
-    record_push_message_report(
+    record_push_message_report_for_notification(
         notification_store,
+        notification_id,
         event.as_str(),
         title,
         message,
@@ -126,8 +165,5 @@ async fn send_push_event(
 }
 
 fn now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64
+    unix_now()
 }

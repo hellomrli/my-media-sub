@@ -8,7 +8,7 @@ use serde::Serialize;
 use std::sync::Arc;
 
 use crate::error::Result;
-use crate::models::{settings::normalize_check_interval_minutes, CustomCategory};
+use crate::models::{settings::normalize_check_interval_minutes, CustomCategory, RulePreset};
 use crate::services::{QuarkSigninScheduler, SubscriptionScheduler};
 use crate::store::{
     settings::{SECRET_KEYS, SUPPORTED_CLOUD_TYPES},
@@ -467,6 +467,11 @@ async fn update_settings(
                     "default_rename_template" => {
                         if let Some(s) = string_value(&value) {
                             settings.default_rename_template = s;
+                        }
+                    }
+                    "rule_presets" => {
+                        if let Ok(presets) = serde_json::from_value::<Vec<RulePreset>>(value) {
+                            settings.rule_presets = presets;
                         }
                     }
                     "cloud_types" => {

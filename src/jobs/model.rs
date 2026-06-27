@@ -71,11 +71,13 @@ pub struct PushDispatchPayload {
     pub title: String,
     pub message: String,
     pub level: String,
+    #[serde(default)]
+    pub notification_id: Option<String>,
 }
 
 pub(crate) fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs() as i64
 }

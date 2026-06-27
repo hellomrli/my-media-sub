@@ -1,5 +1,5 @@
 use crate::error::{AppError, Result};
-use reqwest::header::SET_COOKIE;
+use reqwest::header::{HeaderValue, SET_COOKIE};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -14,6 +14,7 @@ const QUARK_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleW
 /// 夸克转存客户端
 pub struct QuarkSaveClient {
     client: Client,
+    mobile_client: Client,
     cookie: String,
 }
 
@@ -80,25 +81,51 @@ impl QuarkSaveClient {
     pub fn new(cookie: impl Into<String>) -> Self {
         let cookie = cookie.into();
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("User-Agent", QUARK_USER_AGENT.parse().unwrap());
+        headers.insert("User-Agent", HeaderValue::from_static(QUARK_USER_AGENT));
         headers.insert(
             "Accept",
-            "application/json, text/plain, */*".parse().unwrap(),
+            HeaderValue::from_static("application/json, text/plain, */*"),
         );
-        headers.insert("Referer", "https://pan.quark.cn/".parse().unwrap());
-        headers.insert("Origin", "https://pan.quark.cn".parse().unwrap());
+        headers.insert("Referer", HeaderValue::from_static("https://pan.quark.cn/"));
+        headers.insert("Origin", HeaderValue::from_static("https://pan.quark.cn"));
 
         if !cookie.is_empty() {
-            headers.insert("Cookie", cookie.parse().unwrap());
+            match HeaderValue::from_str(&cookie) {
+                Ok(value) => {
+                    headers.insert("Cookie", value);
+                }
+                Err(error) => {
+                    tracing::warn!("夸克 Cookie 包含非法 HTTP header 字符，已跳过: {}", error);
+                }
+            }
         }
 
         let client = Client::builder()
             .default_headers(headers)
             .timeout(Duration::from_secs(20))
             .build()
-            .unwrap();
+            .unwrap_or_else(|error| {
+                tracing::warn!("创建夸克转存 HTTP 客户端失败，使用默认客户端: {}", error);
+                Client::new()
+            });
 
-        Self { client, cookie }
+        let mut mobile_headers = reqwest::header::HeaderMap::new();
+        mobile_headers.insert("User-Agent", HeaderValue::from_static(QUARK_USER_AGENT));
+        mobile_headers.insert("content-type", HeaderValue::from_static("application/json"));
+        let mobile_client = Client::builder()
+            .default_headers(mobile_headers)
+            .timeout(Duration::from_secs(20))
+            .build()
+            .unwrap_or_else(|error| {
+                tracing::warn!("创建夸克移动端 HTTP 客户端失败，使用默认客户端: {}", error);
+                Client::new()
+            });
+
+        Self {
+            client,
+            mobile_client,
+            cookie,
+        }
     }
 
     fn api_error(data: &ApiResponse) -> Option<String> {
@@ -243,12 +270,7 @@ impl QuarkSaveClient {
 
     async fn mobile_get(&self, path: &str, params: &QuarkMobileParams) -> Result<ApiResponse> {
         let url = format!("{}{}", QUARK_MOBILE_API_BASE, path);
-        let client = Client::builder()
-            .timeout(Duration::from_secs(20))
-            .build()
-            .unwrap();
-
-        client
+        self.mobile_client
             .get(&url)
             .query(&[
                 ("pr", "ucpro"),
@@ -257,7 +279,6 @@ impl QuarkSaveClient {
                 ("sign", params.sign.as_str()),
                 ("vcode", params.vcode.as_str()),
             ])
-            .header("content-type", "application/json")
             .send()
             .await
             .map_err(|e| AppError::Http(format!("夸克移动端 GET 请求失败: {}", e)))?
@@ -273,12 +294,7 @@ impl QuarkSaveClient {
         payload: &Value,
     ) -> Result<ApiResponse> {
         let url = format!("{}{}", QUARK_MOBILE_API_BASE, path);
-        let client = Client::builder()
-            .timeout(Duration::from_secs(20))
-            .build()
-            .unwrap();
-
-        client
+        self.mobile_client
             .post(&url)
             .query(&[
                 ("pr", "ucpro"),
@@ -287,7 +303,6 @@ impl QuarkSaveClient {
                 ("sign", params.sign.as_str()),
                 ("vcode", params.vcode.as_str()),
             ])
-            .header("content-type", "application/json")
             .json(payload)
             .send()
             .await

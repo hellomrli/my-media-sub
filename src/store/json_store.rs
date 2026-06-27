@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use crate::error::{AppError, Result};
+use crate::utils::{quarantine_corrupt_file, write_json_atomic_async};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -38,36 +39,27 @@ where
         let content = fs::read_to_string(&self.path)
             .map_err(|e| AppError::Database(format!("Failed to read file: {}", e)))?;
 
-        let data: Vec<T> = serde_json::from_str(&content)
-            .map_err(|e| AppError::Database(format!("Failed to parse JSON: {}", e)))?;
-
         let mut cache = self.cache.write().await;
-        *cache = data;
+        match serde_json::from_str(&content) {
+            Ok(data) => *cache = data,
+            Err(e) => {
+                tracing::warn!("Failed to parse JSON, quarantining corrupt file: {}", e);
+                quarantine_corrupt_file(&self.path);
+                *cache = Vec::new();
+            }
+        }
 
         Ok(())
     }
 
     /// 保存数据到文件（原子写入：先写 .tmp，再 replace）
     pub async fn save(&self) -> Result<()> {
-        // 确保目录存在
-        if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| AppError::Database(format!("Failed to create directory: {}", e)))?;
-        }
+        let cache = self.cache.write().await;
+        self.save_locked(&cache).await
+    }
 
-        let cache = self.cache.read().await;
-        let content = serde_json::to_string_pretty(&*cache)
-            .map_err(|e| AppError::Database(format!("Failed to serialize JSON: {}", e)))?;
-
-        // 原子写入：先写临时文件，再 replace
-        let tmp_path = self.path.with_extension("tmp");
-        fs::write(&tmp_path, content)
-            .map_err(|e| AppError::Database(format!("Failed to write tmp file: {}", e)))?;
-
-        fs::rename(&tmp_path, &self.path)
-            .map_err(|e| AppError::Database(format!("Failed to rename tmp file: {}", e)))?;
-
-        Ok(())
+    async fn save_locked(&self, cache: &[T]) -> Result<()> {
+        write_json_atomic_async(&self.path, &cache, 0o600).await
     }
 
     /// 获取所有数据
@@ -80,8 +72,7 @@ where
     pub async fn add(&self, item: T) -> Result<()> {
         let mut cache = self.cache.write().await;
         cache.push(item);
-        drop(cache);
-        self.save().await
+        self.save_locked(&cache).await
     }
 
     /// 查找数据
@@ -115,8 +106,7 @@ where
 
         if let Some(item) = cache.iter_mut().find(|item| predicate(item)) {
             updater(item);
-            drop(cache);
-            self.save().await?;
+            self.save_locked(&cache).await?;
             Ok(true)
         } else {
             Ok(false)
@@ -132,10 +122,9 @@ where
         let initial_len = cache.len();
         cache.retain(|item| !predicate(item));
         let removed = cache.len() != initial_len;
-        drop(cache);
 
         if removed {
-            self.save().await?;
+            self.save_locked(&cache).await?;
         }
 
         Ok(removed)
@@ -145,8 +134,7 @@ where
     pub async fn clear(&self) -> Result<()> {
         let mut cache = self.cache.write().await;
         cache.clear();
-        drop(cache);
-        self.save().await
+        self.save_locked(&cache).await
     }
 
     /// 获取数据数量

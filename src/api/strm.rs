@@ -13,6 +13,7 @@ use std::time::Duration;
 use crate::clients::QuarkSaveClient;
 use crate::error::{AppError, Result};
 use crate::store::SettingsStore;
+use crate::utils::constant_time_eq;
 
 pub struct StrmState {
     pub settings_store: Arc<SettingsStore>,
@@ -32,7 +33,8 @@ async fn quark_httpstrm(
 ) -> Result<Response> {
     let settings = state.settings_store.get().await;
     let expected_token = settings.strm_access_token.trim();
-    if expected_token.is_empty() || query.token.trim() != expected_token {
+    let provided_token = strm_token_from_headers(&headers).unwrap_or_else(|| query.token.trim());
+    if expected_token.is_empty() || !constant_time_eq(provided_token, expected_token) {
         return Ok((StatusCode::UNAUTHORIZED, "Unauthorized").into_response());
     }
     if !settings.strm_enabled {
@@ -82,6 +84,26 @@ async fn quark_httpstrm(
     builder
         .body(Body::from_stream(upstream.bytes_stream()))
         .map_err(|e| AppError::Internal(format!("构建 HTTPStrm 响应失败: {}", e)))
+}
+
+fn strm_token_from_headers(headers: &HeaderMap) -> Option<&str> {
+    if let Some(token) = headers
+        .get("x-httpstrm-token")
+        .or_else(|| headers.get("x-strm-token"))
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(token);
+    }
+
+    headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
 }
 
 fn with_request_header(

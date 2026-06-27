@@ -7,6 +7,7 @@ mod jobs;
 mod models;
 mod services;
 mod store;
+mod utils;
 
 use app::AppContext;
 use error::Result;

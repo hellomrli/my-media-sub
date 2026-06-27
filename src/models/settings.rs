@@ -1,3 +1,4 @@
+use super::rules::TransferRules;
 use serde::{Deserialize, Serialize};
 
 pub const MIN_SUBSCRIPTION_CHECK_INTERVAL_MINUTES: i32 = 5;
@@ -105,6 +106,10 @@ pub struct Settings {
     /// 连续剧/动画新订阅默认重命名模板；为空时使用内置默认模板
     #[serde(default)]
     pub default_rename_template: String,
+
+    /// 订阅规则预设
+    #[serde(default = "default_rule_presets")]
+    pub rule_presets: Vec<RulePreset>,
 
     // ===== Aria2 配置 =====
     /// Aria2 RPC URL
@@ -241,6 +246,21 @@ pub struct CustomCategory {
     pub aria2_dir: String,
 }
 
+/// 订阅规则预设
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RulePreset {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub media_type: String,
+    #[serde(default)]
+    pub rules: TransferRules,
+}
+
 // 默认值函数
 fn default_username() -> String {
     "admin".to_string()
@@ -272,6 +292,70 @@ fn default_anime_dir() -> String {
 
 fn default_check_interval() -> i32 {
     60
+}
+
+fn default_rule_presets() -> Vec<RulePreset> {
+    let standard = TransferRules {
+        rename_template: "{title}.S{season}E{episode}.{ext}".to_string(),
+        ..Default::default()
+    };
+
+    let episode_only = TransferRules {
+        rename_template: "{episode}.{ext}".to_string(),
+        ..Default::default()
+    };
+
+    let original_keep = TransferRules {
+        rename_template: "{original}.{ext}".to_string(),
+        duplicate_episode_strategy: "latest_upload".to_string(),
+        ..Default::default()
+    };
+
+    let movie_title = TransferRules {
+        rename_template: "{title}.{ext}".to_string(),
+        duplicate_episode_strategy: "largest_size".to_string(),
+        exclude_keywords: vec![
+            "预告".to_string(),
+            "花絮".to_string(),
+            "解说".to_string(),
+            "彩蛋".to_string(),
+            "trailer".to_string(),
+            "preview".to_string(),
+            "sample".to_string(),
+        ],
+        ..Default::default()
+    };
+
+    vec![
+        RulePreset {
+            id: "standard_tv".to_string(),
+            name: "标准剧集".to_string(),
+            description: "S01E01 风格，适合电视剧和动画".to_string(),
+            media_type: "series".to_string(),
+            rules: standard,
+        },
+        RulePreset {
+            id: "episode_only".to_string(),
+            name: "仅集数".to_string(),
+            description: "生成 01.mp4 / 02.mkv，适合短目录".to_string(),
+            media_type: "series".to_string(),
+            rules: episode_only,
+        },
+        RulePreset {
+            id: "original_keep".to_string(),
+            name: "保留原名".to_string(),
+            description: "尽量不改文件名，只做过滤和去重".to_string(),
+            media_type: "series".to_string(),
+            rules: original_keep,
+        },
+        RulePreset {
+            id: "movie_title".to_string(),
+            name: "电影标题".to_string(),
+            description: "电影直接使用标题和扩展名".to_string(),
+            media_type: "movie".to_string(),
+            rules: movie_title,
+        },
+    ]
 }
 
 pub fn normalize_check_interval_minutes(minutes: i64) -> i32 {
@@ -324,6 +408,7 @@ impl Default for Settings {
             subscription_check_interval_minutes: default_check_interval(),
             auto_download_new_subscription_items: false,
             default_rename_template: String::new(),
+            rule_presets: default_rule_presets(),
             aria2_rpc_url: String::new(),
             aria2_secret: String::new(),
             aria2_movie_dir: String::new(),
@@ -374,6 +459,7 @@ mod tests {
         assert!(settings.push_on_quark_signin);
         assert_eq!(settings.quark_signin_hour, 8);
         assert!(settings.default_rename_template.is_empty());
+        assert!(!settings.rule_presets.is_empty());
     }
 
     #[test]

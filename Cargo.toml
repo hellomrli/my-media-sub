@@ -1,6 +1,6 @@
 [package]
 name = "my-media-sub"
-version = "0.9.6"
+version = "0.9.7"
 edition = "2021"
 authors = ["my-media-sub contributors"]
 description = "Media subscription and management system written in Rust"
@@ -42,6 +42,7 @@ regex = "1.0"
 once_cell = "1.21.4"
 md5 = "0.8.0"
 base64 = "0.22"
+ring = "0.17.14"
 
 # Scheduler
 tokio-cron-scheduler = "0.13"

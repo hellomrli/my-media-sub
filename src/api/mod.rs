@@ -22,11 +22,11 @@ use axum::{
 use base64::{engine::general_purpose, Engine as _};
 use serde::Serialize;
 use std::sync::Arc;
-use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 
 use crate::app::AppContext;
 use crate::store::SettingsStore;
+use crate::utils::constant_time_eq;
 
 /// 健康检查响应
 #[derive(Serialize)]
@@ -54,7 +54,8 @@ async fn basic_auth(
 
     let settings = settings_store.get().await;
     if settings.app_password.is_empty() {
-        return next.run(req).await;
+        tracing::warn!("拒绝请求：应用密码为空，请先配置 SERVER_PASSWORD 或系统设置密码");
+        return unauthorized_response();
     }
 
     let authorized = req
@@ -66,32 +67,33 @@ async fn basic_auth(
         .and_then(|decoded| String::from_utf8(decoded).ok())
         .and_then(|credentials| {
             let (username, password) = credentials.split_once(':')?;
-            Some(username == settings.app_username && password == settings.app_password)
+            Some(
+                constant_time_eq(username, &settings.app_username)
+                    && constant_time_eq(password, &settings.app_password),
+            )
         })
         .unwrap_or(false);
 
     if authorized {
         next.run(req).await
     } else {
-        (
-            StatusCode::UNAUTHORIZED,
-            [(header::WWW_AUTHENTICATE, r#"Basic realm="my-media-sub""#)],
-            "Unauthorized",
-        )
-            .into_response()
+        unauthorized_response()
     }
+}
+
+fn unauthorized_response() -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        [(header::WWW_AUTHENTICATE, r#"Basic realm="my-media-sub""#)],
+        "Unauthorized",
+    )
+        .into_response()
 }
 
 /// 创建主应用路由
 pub fn create_app(context: Arc<AppContext>) -> Router {
     let settings_store = context.settings_store.clone();
     let auth_state = settings_store.clone();
-
-    // CORS 配置
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
 
     // 静态文件服务
     let serve_static = ServeDir::new("static").append_index_html_on_directories(true);
@@ -137,5 +139,4 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
         ))
         .fallback_service(serve_static)
         .layer(middleware::from_fn_with_state(auth_state, basic_auth))
-        .layer(cors)
 }

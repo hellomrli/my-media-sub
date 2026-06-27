@@ -11,7 +11,7 @@ pub use subscription::Subscription;
 
 pub use rules::TransferRules;
 
-pub use settings::{CustomCategory, Settings};
+pub use settings::{CustomCategory, RulePreset, Settings};
 
 pub use search::SearchResult;
 

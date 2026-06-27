@@ -64,7 +64,10 @@ impl PanSouClient {
             .user_agent(USER_AGENT)
             .timeout(Duration::from_secs(15))
             .build()
-            .unwrap();
+            .unwrap_or_else(|error| {
+                tracing::warn!("创建 PanSou HTTP 客户端失败，使用默认客户端: {}", error);
+                Client::new()
+            });
 
         Self {
             base_url: base_url.unwrap_or_else(|| DEFAULT_PANSOU_URL.to_string()),

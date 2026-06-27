@@ -1,10 +1,11 @@
 function app() {
   return {
-    currentTab: 'search',
+    currentTab: 'dashboard',
     currentSettingsTab: 'basic',
     theme: 'dark',
 
     tabs: [
+      {id: 'dashboard', name: '工作台', description: '汇总订阅、任务、通知和服务健康', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 13h8V3H3v10zm10 8h8V11h-8v10zM3 21h8v-6H3v6zm10-12h8V3h-8v6z"/></svg>'},
       {id: 'search', name: '资源搜索', description: '搜索影视资源并添加订阅', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>'},
       {id: 'drive', name: '我的网盘', description: '管理夸克网盘文件', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>'},
       {id: 'downloads', name: '下载任务', description: '查看 Aria2 实时进度', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4m0 0l4-4m-4 4V4"/></svg>'},
@@ -53,6 +54,7 @@ function app() {
     revealedSecrets: {},
     secretLoading: {},
     settingsSchema: null,
+    settingsLoaded: false,
 
     // 搜索
     searchQuery: '',
@@ -129,6 +131,7 @@ function app() {
       keep_progress_on_source_change: true,
       continue_from_current_episode: true,
       finish_after_episode: '',
+      rule_preset_id: '',
       preview_samples: ''
     },
 
@@ -137,9 +140,7 @@ function app() {
     notificationFilter: 'all',
     notificationFilters: [
       {id: 'all', name: '全部'},
-      {id: 'unread', name: '未读'},
-      {id: 'push', name: '推送记录'},
-      {id: 'system', name: '系统通知'}
+      {id: 'unread', name: '未读'}
     ],
     jobs: [],
     jobEvents: null,
@@ -211,10 +212,13 @@ function app() {
     aria2DirError: '',
     quarkSigninLoading: false,
     quarkHealthLoading: false,
-    quarkHealth: {status: 'unknown', message: '尚未检测', checkedAt: null, nickname: '', signinMessage: '', signinResult: null},
+    quarkHealth: {status: 'unknown', message: '尚未检测', checkedAt: null, nickname: '', signinMessage: '', signinResult: null, issues: [], directories: {}, saveEnabled: false, signinEnabled: false, rootConfigured: false, strmReady: false},
 
     // 规则中心
     ruleCenter: {
+      preset_id: '',
+      preset_name: '',
+      preset_description: '',
       media_type: 'series',
       season: 1,
       title: '示例剧集',
@@ -251,7 +255,7 @@ function app() {
       wxpusher_app_token: '', wxpusher_app_token_configured: false, wxpusher_uids: '', gotify_url: '', gotify_token: '', gotify_token_configured: false, pushplus_token: '', pushplus_token_configured: false,
       subscription_check_interval_minutes: 60, subscription_scheduler_enabled: false, pansou_api_url: '', pansou_api_url_configured: false, check_links: true,
       probe_quark_files: true, filter_bad_links: true, push_silent: false,
-      auto_download_new_subscription_items: false, default_rename_template: ''
+      auto_download_new_subscription_items: false, default_rename_template: '', rule_presets: []
     },
 
     get unreadNotifications() {
@@ -259,7 +263,7 @@ function app() {
     },
 
     get pushNotifications() {
-      return this.notificationCenterNotifications.filter(n => n.event === 'push_sent');
+      return this.notificationCenterNotifications.filter(n => this.notificationHasPush(n));
     },
 
     get backgroundNotificationEvents() {
@@ -277,13 +281,11 @@ function app() {
     },
 
     get systemNotifications() {
-      return this.notificationCenterNotifications.filter(n => n.event !== 'push_sent');
+      return this.notificationCenterNotifications;
     },
 
     get filteredNotifications() {
       if (this.notificationFilter === 'unread') return this.notificationCenterNotifications.filter(n => !n.read);
-      if (this.notificationFilter === 'push') return this.pushNotifications;
-      if (this.notificationFilter === 'system') return this.systemNotifications;
       return this.notificationCenterNotifications;
     },
 
@@ -323,6 +325,37 @@ function app() {
       });
     },
 
+    get dashboardStats() {
+      const activeSubs = this.subscriptions.filter(sub => this.subscriptionStatusKey(sub) === 'active').length;
+      const invalidSubs = this.subscriptions.filter(sub => this.subscriptionStatusKey(sub) === 'invalid').length;
+      const runningJobs = this.jobs.filter(job => ['queued', 'running'].includes(job.status)).length;
+      const failedJobs = this.jobs.filter(job => job.status === 'failed').length;
+      return {
+        activeSubs,
+        invalidSubs,
+        runningJobs,
+        failedJobs,
+        unreadNotifications: this.unreadNotifications,
+        downloadSpeed: this.downloadStats.speed
+      };
+    },
+
+    get dashboardRecentSubscriptions() {
+      return [...this.subscriptions]
+        .sort((a, b) => Number(b.last_checked_at || b.updated_at || 0) - Number(a.last_checked_at || a.updated_at || 0))
+        .slice(0, 6);
+    },
+
+    get dashboardRecentJobs() {
+      return [...this.backgroundJobs]
+        .sort((a, b) => Number(b.updated_at || b.created_at || 0) - Number(a.updated_at || a.created_at || 0))
+        .slice(0, 6);
+    },
+
+    get dashboardRecentNotifications() {
+      return this.notificationCenterNotifications.slice(0, 6);
+    },
+
     get backgroundJobKinds() {
       return [
         {id: 'all', name: '全部类型'},
@@ -353,40 +386,10 @@ function app() {
     },
 
     get rulePresets() {
-      return [
-        {
-          id: 'standard_tv',
-          name: '标准剧集',
-          description: 'S01E01 风格，适合电视剧和动画',
-          template: '{title}.S{season}E{episode}.{ext}',
-          exclude: this.defaultExcludeKeywords(),
-          duplicate: 'highest_quality'
-        },
-        {
-          id: 'episode_only',
-          name: '仅集数',
-          description: '生成 01.mp4 / 02.mkv，适合短目录',
-          template: '{episode}.{ext}',
-          exclude: this.defaultExcludeKeywords(),
-          duplicate: 'highest_quality'
-        },
-        {
-          id: 'original_keep',
-          name: '保留原名',
-          description: '尽量不改文件名，只做过滤和去重',
-          template: '{original}.{ext}',
-          exclude: this.defaultExcludeKeywords(),
-          duplicate: 'latest_upload'
-        },
-        {
-          id: 'movie_title',
-          name: '电影标题',
-          description: '电影直接使用标题和扩展名',
-          template: '{title}.{ext}',
-          exclude: '预告, 花絮, 解说, 彩蛋, trailer, preview, sample',
-          duplicate: 'largest_size'
-        }
-      ];
+      const presets = Array.isArray(this.settings.rule_presets) && (this.settings.rule_presets.length || this.settingsLoaded)
+        ? this.settings.rule_presets
+        : this.defaultRulePresets();
+      return presets.map(preset => this.normalizeRulePreset(preset));
     },
 
     get filteredDriveItems() {
@@ -574,7 +577,7 @@ function app() {
 
     routeUrl(tabId = this.currentTab, settingsTab = this.currentSettingsTab) {
       const url = new URL(window.location.href);
-      url.searchParams.set('tab', this.isValidTab(tabId) ? tabId : 'search');
+      url.searchParams.set('tab', this.isValidTab(tabId) ? tabId : 'dashboard');
       if (tabId === 'settings') {
         url.searchParams.set('settings', this.isValidSettingsTab(settingsTab) ? settingsTab : 'basic');
       } else {
@@ -586,7 +589,7 @@ function app() {
     routeState(tabId = this.currentTab, settingsTab = this.currentSettingsTab) {
       return {
         appRoute: true,
-        tab: this.isValidTab(tabId) ? tabId : 'search',
+        tab: this.isValidTab(tabId) ? tabId : 'dashboard',
         settingsTab: this.isValidSettingsTab(settingsTab) ? settingsTab : 'basic'
       };
     },
@@ -601,13 +604,13 @@ function app() {
 
     applyRouteFromUrl(options = {}) {
       const params = new URLSearchParams(window.location.search);
-      const tabId = this.isValidTab(params.get('tab')) ? params.get('tab') : 'search';
+      const tabId = this.isValidTab(params.get('tab')) ? params.get('tab') : 'dashboard';
       const settingsTab = this.isValidSettingsTab(params.get('settings')) ? params.get('settings') : 'basic';
       this.applyRouteState({tab: tabId, settingsTab}, options);
     },
 
     applyRouteState(state, options = {}) {
-      this.currentTab = this.isValidTab(state.tab) ? state.tab : 'search';
+      this.currentTab = this.isValidTab(state.tab) ? state.tab : 'dashboard';
       this.currentSettingsTab = this.isValidSettingsTab(state.settingsTab) ? state.settingsTab : 'basic';
       if (options.runEffects !== false) {
         this.runCurrentTabEffects();
@@ -879,6 +882,7 @@ function app() {
         keep_progress_on_source_change: true,
         continue_from_current_episode: true,
         finish_after_episode: '',
+        rule_preset_id: '',
         preview_samples: ''
       };
     },
@@ -1014,6 +1018,7 @@ function app() {
         keep_progress_on_source_change: true,
         continue_from_current_episode: true,
         finish_after_episode: '',
+        rule_preset_id: '',
         preview_samples: this.sampleFilesFromSearchResult(result)
       };
       this.showSubscriptionDialog = true;
@@ -1067,6 +1072,7 @@ function app() {
         keep_progress_on_source_change: true,
         continue_from_current_episode: sub.media_type !== 'movie' && Number(sub.current_episode_number || 0) > 0,
         finish_after_episode: rules.finish_after_episode || '',
+        rule_preset_id: sub.rule_preset_id || '',
         preview_samples: ((sub.last_probe && sub.last_probe.files) || []).map(file => file.name).join('\n')
       };
       this.showSubscriptionDialog = true;
@@ -1235,6 +1241,61 @@ function app() {
       this.updateSubscriptionDefaults();
     },
 
+    defaultRulePresets() {
+      return [
+        {id: 'standard_tv', name: '标准剧集', description: 'S01E01 风格，适合电视剧和动画', media_type: 'series', rules: {...this.emptyTransferRules(), rename_template: '{title}.S{season}E{episode}.{ext}'}},
+        {id: 'episode_only', name: '仅集数', description: '生成 01.mp4 / 02.mkv，适合短目录', media_type: 'series', rules: {...this.emptyTransferRules(), rename_template: '{episode}.{ext}'}},
+        {id: 'original_keep', name: '保留原名', description: '尽量不改文件名，只做过滤和去重', media_type: 'series', rules: {...this.emptyTransferRules(), rename_template: '{original}.{ext}', duplicate_episode_strategy: 'latest_upload'}},
+        {id: 'movie_title', name: '电影标题', description: '电影直接使用标题和扩展名', media_type: 'movie', rules: {...this.emptyTransferRules(), rename_template: '{title}.{ext}', duplicate_episode_strategy: 'largest_size', exclude_keywords: [...this.splitRuleWords(this.defaultExcludeKeywords()), 'sample']}}
+      ];
+    },
+
+    emptyTransferRules() {
+      return {
+        target_dir: '',
+        auto_create_target_dir: true,
+        skip_existing_transferred: true,
+        duplicate_episode_strategy: 'highest_quality',
+        include_keywords: [],
+        exclude_keywords: this.splitRuleWords(this.defaultExcludeKeywords()),
+        match_regex: '',
+        ignore_extensions: false,
+        rename_regex: '',
+        rename_replacement: '',
+        rename_template: '',
+        only_latest: false,
+        notify_on_update: true,
+        notify_on_invalid: true,
+        check_interval_minutes: Number(this.settings.subscription_check_interval_minutes || 60),
+        check_weekdays: [],
+        finish_after_episode: null
+      };
+    },
+
+    normalizeRulePreset(preset) {
+      const raw = preset && typeof preset === 'object' ? preset : {};
+      const legacyRules = {
+        ...this.emptyTransferRules(),
+        rename_template: String(raw.template || ''),
+        exclude_keywords: this.splitRuleWords(raw.exclude || this.defaultExcludeKeywords()),
+        duplicate_episode_strategy: raw.duplicate || 'highest_quality'
+      };
+      const rules = raw.rules && typeof raw.rules === 'object'
+        ? {...this.emptyTransferRules(), ...raw.rules}
+        : legacyRules;
+      return {
+        id: String(raw.id || this.generateCustomCategoryId()),
+        name: String(raw.name || '未命名规则'),
+        description: String(raw.description || ''),
+        media_type: String(raw.media_type || ''),
+        rules
+      };
+    },
+
+    ruleWordsText(words) {
+      return Array.isArray(words) ? words.join(', ') : '';
+    },
+
     rulePresetById(id) {
       return this.rulePresets.find(item => item.id === id) || null;
     },
@@ -1242,33 +1303,93 @@ function app() {
     applyRulePresetToSubscription(id) {
       const preset = this.rulePresetById(id);
       if (!preset) return;
-      this.newSubscription.custom_rename = true;
-      this.newSubscription.rename_template = preset.template;
-      this.newSubscription.exclude_keywords_text = preset.exclude;
-      this.newSubscription.duplicate_episode_strategy = preset.duplicate;
-      if (id === 'movie_title') {
-        this.newSubscription.media_type = 'movie';
+      this.newSubscription.rule_preset_id = preset.id;
+      this.applyRulesToSubscription(preset.rules);
+      if (preset.media_type) {
+        this.newSubscription.media_type = preset.media_type;
       }
       this.updateSubscriptionDefaults();
       this.previewSubscriptionRename(true);
       this.showNotification('success', `已应用规则：${preset.name}`);
     },
 
+    applyRulesToSubscription(rules) {
+      const next = {...this.emptyTransferRules(), ...(rules || {})};
+      this.newSubscription.custom_rename = true;
+      this.newSubscription.rename_template = next.rename_template || '';
+      this.newSubscription.include_keywords_text = this.ruleWordsText(next.include_keywords);
+      this.newSubscription.exclude_keywords_text = this.ruleWordsText(next.exclude_keywords);
+      this.newSubscription.match_regex = next.match_regex || '';
+      this.newSubscription.ignore_extensions = !!next.ignore_extensions;
+      this.newSubscription.rename_regex = next.rename_regex || '';
+      this.newSubscription.rename_replacement = next.rename_replacement || '';
+      this.newSubscription.only_latest = !!next.only_latest;
+      this.newSubscription.skip_existing_transferred = next.skip_existing_transferred !== false;
+      this.newSubscription.duplicate_episode_strategy = next.duplicate_episode_strategy || 'highest_quality';
+      this.newSubscription.auto_create_target_dir = next.auto_create_target_dir !== false;
+      this.newSubscription.finish_after_episode = next.finish_after_episode || '';
+    },
+
     applyRulePresetToRuleCenter(id) {
       const preset = this.rulePresetById(id);
       if (!preset) return;
-      this.ruleCenter.rename_template = preset.template;
-      this.ruleCenter.exclude_keywords_text = preset.exclude;
-      this.ruleCenter.duplicate_episode_strategy = preset.duplicate;
-      if (id === 'movie_title') {
-        this.ruleCenter.media_type = 'movie';
+      const rules = {...this.emptyTransferRules(), ...preset.rules};
+      this.ruleCenter.preset_id = preset.id;
+      this.ruleCenter.preset_name = preset.name;
+      this.ruleCenter.preset_description = preset.description;
+      this.ruleCenter.rename_template = rules.rename_template || '';
+      this.ruleCenter.include_keywords_text = this.ruleWordsText(rules.include_keywords);
+      this.ruleCenter.exclude_keywords_text = this.ruleWordsText(rules.exclude_keywords);
+      this.ruleCenter.match_regex = rules.match_regex || '';
+      this.ruleCenter.rename_regex = rules.rename_regex || '';
+      this.ruleCenter.rename_replacement = rules.rename_replacement || '';
+      this.ruleCenter.ignore_extensions = !!rules.ignore_extensions;
+      this.ruleCenter.only_latest = !!rules.only_latest;
+      this.ruleCenter.skip_existing_transferred = rules.skip_existing_transferred !== false;
+      this.ruleCenter.duplicate_episode_strategy = rules.duplicate_episode_strategy || 'highest_quality';
+      this.ruleCenter.finish_after_episode = rules.finish_after_episode || '';
+      if (preset.media_type) {
+        this.ruleCenter.media_type = preset.media_type;
+      }
+      if (this.ruleCenter.media_type === 'movie') {
         this.ruleCenter.title = '示例电影';
-      } else if (this.ruleCenter.media_type === 'movie') {
-        this.ruleCenter.media_type = 'series';
+      } else {
         this.ruleCenter.title = '示例剧集';
       }
       this.previewRuleCenter(true);
       this.showNotification('success', `已载入规则：${preset.name}`);
+    },
+
+    async saveRuleCenterPreset() {
+      const name = String(this.ruleCenter.preset_name || '').trim();
+      if (!name) {
+        this.showNotification('warning', '请填写预设名称');
+        return;
+      }
+      const id = String(this.ruleCenter.preset_id || '').trim() || this.generateCustomCategoryId();
+      const preset = {
+        id,
+        name,
+        description: String(this.ruleCenter.preset_description || '').trim(),
+        media_type: this.ruleCenter.media_type || 'series',
+        rules: this.ruleCenterRules()
+      };
+      const presets = this.rulePresets.filter(item => item.id !== id);
+      presets.unshift(preset);
+      this.settings.rule_presets = presets;
+      this.ruleCenter.preset_id = id;
+      await this.saveSettings();
+    },
+
+    async deleteRulePreset(id) {
+      if (!id || !confirm('确定删除这个规则预设？')) return;
+      this.settings.rule_presets = this.rulePresets.filter(item => item.id !== id);
+      if (this.ruleCenter.preset_id === id) {
+        this.ruleCenter.preset_id = '';
+        this.ruleCenter.preset_name = '';
+        this.ruleCenter.preset_description = '';
+      }
+      await this.saveSettings();
     },
 
     useRuleCenterAsDefaultTemplate() {
@@ -1290,8 +1411,8 @@ function app() {
       const finish = this.normalizeStartEpisode(this.ruleCenter.finish_after_episode);
       return {
         target_dir: '',
-        include_keywords: this.splitKeywords(this.ruleCenter.include_keywords_text),
-        exclude_keywords: this.splitKeywords(this.ruleCenter.exclude_keywords_text),
+        include_keywords: this.splitRuleWords(this.ruleCenter.include_keywords_text),
+        exclude_keywords: this.splitRuleWords(this.ruleCenter.exclude_keywords_text),
         match_regex: this.ruleCenter.match_regex.trim(),
         ignore_extensions: !!this.ruleCenter.ignore_extensions,
         rename_regex: this.ruleCenter.rename_regex.trim(),
@@ -1920,6 +2041,7 @@ function app() {
             sync_download_dir: this.newSubscription.sync_download_dir,
             strm_enabled: !!this.newSubscription.strm_enabled,
             metadata: this.newSubscription.metadata,
+            rule_preset_id: this.newSubscription.rule_preset_id || '',
             rules
           })
         });
@@ -1964,6 +2086,7 @@ function app() {
             keep_progress_on_source_change: !!this.newSubscription.keep_progress_on_source_change,
             continue_from_current_episode: !!this.newSubscription.continue_from_current_episode,
             metadata: this.newSubscription.metadata,
+            rule_preset_id: this.newSubscription.rule_preset_id || '',
             rules,
             target_dir: rules.target_dir,
             rename_template: rules.rename_template
@@ -2378,8 +2501,6 @@ function app() {
 
     notificationFilterCount(filterId) {
       if (filterId === 'unread') return this.unreadNotifications;
-      if (filterId === 'push') return this.pushNotifications.length;
-      if (filterId === 'system') return this.systemNotifications.length;
       return this.notificationCenterNotifications.length;
     },
 
@@ -2401,6 +2522,7 @@ function app() {
     notificationEventLabel(event) {
       const labels = {
         push_sent: '推送记录',
+        push_test: '推送测试',
         subscription_updated: '订阅更新',
         subscription_invalid: '订阅失效',
         subscription_completed: '订阅完结',
@@ -2422,7 +2544,7 @@ function app() {
     },
 
     notificationPushChannelStatuses(notif) {
-      const meta = notif && notif.meta ? notif.meta : {};
+      const meta = this.notificationPushMeta(notif);
       const results = meta.results || {};
       const attempts = meta.attempts || {};
       const channels = Array.isArray(meta.channels) ? meta.channels : Object.keys(results);
@@ -2435,10 +2557,21 @@ function app() {
     },
 
     notificationPushErrors(notif) {
-      const errors = (notif && notif.meta && notif.meta.errors) || {};
+      const errors = this.notificationPushMeta(notif).errors || {};
       return Object.entries(errors)
         .filter(([_, error]) => !!error)
         .map(([channel, error]) => ({channel, error}));
+    },
+
+    notificationHasPush(notif) {
+      return Object.keys(this.notificationPushMeta(notif).results || {}).length > 0;
+    },
+
+    notificationPushMeta(notif) {
+      const meta = notif && notif.meta ? notif.meta : {};
+      if (meta.push) return meta.push;
+      if (notif && notif.event === 'push_sent') return meta;
+      return {};
     },
 
     async loadJobs() {
@@ -3567,6 +3700,8 @@ function app() {
           this.settings = {...this.settings, ...data};
         }
         this.normalizeCustomCategories();
+        this.settingsLoaded = true;
+        this.settings.rule_presets = this.rulePresets;
         this.resetSecretVisibility();
       } catch (error) {
         console.error('加载设置失败:', error);
@@ -3660,6 +3795,11 @@ function app() {
       return bytes > 0 ? this.formatSize(bytes) : '-';
     },
 
+    quarkHealthIssueText() {
+      const issues = this.quarkHealth.issues || [];
+      return issues.length ? issues.join('；') : '关键配置完整';
+    },
+
     async refreshQuarkHealth() {
       await this.testQuark({silent: true});
     },
@@ -3684,7 +3824,13 @@ function app() {
             status: 'ok',
             message: '夸克 Cookie 可用',
             nickname: data.nickname || '夸克用户',
-            checkedAt: Date.now() / 1000
+            checkedAt: Date.now() / 1000,
+            issues: data.issues || [],
+            directories: data.directories || {},
+            saveEnabled: !!data.save_enabled,
+            signinEnabled: !!data.signin_enabled,
+            rootConfigured: !!data.root_configured,
+            strmReady: !!data.strm_ready
           };
           if (!silent) this.showNotification('success', `测试成功！用户: ${data.nickname || '未知'}`);
         } else {
@@ -3693,7 +3839,13 @@ function app() {
             status: 'failed',
             message: data.error || '测试失败，请检查 Cookie',
             nickname: '',
-            checkedAt: Date.now() / 1000
+            checkedAt: Date.now() / 1000,
+            issues: data.issues || [],
+            directories: data.directories || {},
+            saveEnabled: !!data.save_enabled,
+            signinEnabled: !!data.signin_enabled,
+            rootConfigured: !!data.root_configured,
+            strmReady: !!data.strm_ready
           };
           if (!silent) this.showNotification('error', data.error || '测试失败，请检查 Cookie');
         }

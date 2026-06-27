@@ -19,7 +19,9 @@ use crate::clients::{Aria2Client, NormalizedItem, QuarkSaveClient, QuarkSigninRe
 use crate::error::{AppError, Result};
 use crate::jobs::JobQueue;
 use crate::models::{Notification, Settings, Subscription};
-use crate::services::notification::{add_notification, dispatch_push_event};
+use crate::services::notification::{
+    add_notification, dispatch_push_event_for_notification, PushDispatchRequest,
+};
 use crate::services::push::{PushEvent, PushLevel};
 use crate::services::quark_signin::signin_message;
 use crate::services::subscription_progress::{
@@ -27,6 +29,7 @@ use crate::services::subscription_progress::{
 };
 use crate::services::QuarkSigninService;
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
+use crate::utils::unix_now;
 
 /// 网盘状态
 pub struct DriveState {
@@ -206,6 +209,15 @@ pub struct TestResponse {
     pub nickname: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    pub cookie_configured: bool,
+    pub save_enabled: bool,
+    pub signin_enabled: bool,
+    pub signin_cookie_configured: bool,
+    pub root_configured: bool,
+    pub strm_enabled: bool,
+    pub strm_ready: bool,
+    pub directories: HashMap<String, String>,
+    pub issues: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -295,8 +307,10 @@ async fn test_quark(
     State(state): State<Arc<DriveState>>,
     Json(req): Json<TestRequest>,
 ) -> Result<impl IntoResponse> {
+    let settings = state.settings_store.get().await;
+    let health = quark_health_snapshot(&settings);
     let cookie = if req.cookie.trim().is_empty() {
-        state.settings_store.get().await.quark_cookie
+        settings.quark_cookie.clone()
     } else {
         req.cookie
     };
@@ -306,6 +320,7 @@ async fn test_quark(
             success: false,
             nickname: None,
             error: Some("未配置夸克 Cookie".to_string()),
+            ..health
         }));
     }
 
@@ -316,12 +331,52 @@ async fn test_quark(
             success: true,
             nickname: Some("夸克用户".to_string()),
             error: None,
+            ..health
         })),
         Err(e) => Ok(Json(TestResponse {
             success: false,
             nickname: None,
             error: Some(format!("连接失败: {}", e)),
+            ..health
         })),
+    }
+}
+
+fn quark_health_snapshot(settings: &Settings) -> TestResponse {
+    let mut directories = HashMap::new();
+    directories.insert("root".to_string(), settings.quark_save_root.clone());
+    directories.insert("movie".to_string(), settings.quark_save_movie_dir.clone());
+    directories.insert("series".to_string(), settings.quark_save_series_dir.clone());
+    directories.insert("anime".to_string(), settings.quark_save_anime_dir.clone());
+
+    let cookie_configured = !settings.quark_cookie.trim().is_empty();
+    let root_configured = !settings.quark_save_root.trim().is_empty();
+    let strm_ready = !settings.strm_output_dir.trim().is_empty()
+        && !settings.strm_public_base_url.trim().is_empty();
+    let mut issues = Vec::new();
+    if !cookie_configured {
+        issues.push("未配置夸克 Cookie".to_string());
+    }
+    if settings.quark_save_enabled && !root_configured {
+        issues.push("已启用自动转存，但默认根目录为空".to_string());
+    }
+    if settings.strm_enabled && !strm_ready {
+        issues.push("已启用 STRM，但输出目录或访问地址未配置完整".to_string());
+    }
+
+    TestResponse {
+        success: false,
+        nickname: None,
+        error: None,
+        cookie_configured,
+        save_enabled: settings.quark_save_enabled,
+        signin_enabled: settings.quark_signin_enabled,
+        signin_cookie_configured: !settings.quark_signin_cookie.trim().is_empty(),
+        root_configured,
+        strm_enabled: settings.strm_enabled,
+        strm_ready,
+        directories,
+        issues,
     }
 }
 
@@ -560,7 +615,7 @@ async fn notify_completed_download(state: &DriveState, task: &Aria2Task) -> Resu
         ("completed_length".to_string(), json!(task.completed_length)),
     ]);
 
-    add_notification(
+    let notification = add_notification(
         &state.notification_store,
         "success",
         PushEvent::DownloadCompleted.as_str(),
@@ -569,14 +624,17 @@ async fn notify_completed_download(state: &DriveState, task: &Aria2Task) -> Resu
         meta,
     )
     .await?;
-    dispatch_push_event(
+    dispatch_push_event_for_notification(
         state.settings_store.clone(),
         state.notification_store.clone(),
         Some(state.job_queue.clone()),
-        PushEvent::DownloadCompleted,
-        title,
-        message,
-        PushLevel::Success,
+        PushDispatchRequest {
+            notification_id: Some(notification.id),
+            event: PushEvent::DownloadCompleted,
+            title,
+            message,
+            level: PushLevel::Success,
+        },
     )
     .await;
 
@@ -663,7 +721,7 @@ async fn mark_subscription_completed_after_download(
         ),
     ]);
 
-    add_notification(
+    let notification = add_notification(
         &state.notification_store,
         "success",
         PushEvent::SubscriptionCompleted.as_str(),
@@ -672,14 +730,17 @@ async fn mark_subscription_completed_after_download(
         meta,
     )
     .await?;
-    dispatch_push_event(
+    dispatch_push_event_for_notification(
         state.settings_store.clone(),
         state.notification_store.clone(),
         Some(state.job_queue.clone()),
-        PushEvent::SubscriptionCompleted,
-        title,
-        message,
-        PushLevel::Success,
+        PushDispatchRequest {
+            notification_id: Some(notification.id),
+            event: PushEvent::SubscriptionCompleted,
+            title,
+            message,
+            level: PushLevel::Success,
+        },
     )
     .await;
 
@@ -766,10 +827,7 @@ fn format_bytes(bytes: u64) -> String {
 }
 
 fn now_ts() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64
+    unix_now()
 }
 
 fn aria2_client(settings: &Settings) -> Result<Aria2Client> {

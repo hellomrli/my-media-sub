@@ -15,7 +15,10 @@ impl MetadataService {
         let client = Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
-            .expect("metadata HTTP client");
+            .unwrap_or_else(|error| {
+                tracing::warn!("创建元数据 HTTP 客户端失败，使用默认客户端: {}", error);
+                Client::new()
+            });
         Self { client }
     }
 
