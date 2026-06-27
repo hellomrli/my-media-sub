@@ -5,7 +5,7 @@ function app() {
     theme: 'dark',
 
     tabs: [
-      {id: 'dashboard', name: '工作台', description: '汇总订阅、任务、通知和服务健康', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 13h8V3H3v10zm10 8h8V11h-8v10zM3 21h8v-6H3v6zm10-12h8V3h-8v6z"/></svg>'},
+      {id: 'dashboard', name: '工作台', description: '', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 13h8V3H3v10zm10 8h8V11h-8v10zM3 21h8v-6H3v6zm10-12h8V3h-8v6z"/></svg>'},
       {id: 'search', name: '资源搜索', description: '搜索影视资源并添加订阅', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>'},
       {id: 'drive', name: '我的网盘', description: '管理夸克网盘文件', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>'},
       {id: 'downloads', name: '下载任务', description: '查看 Aria2 实时进度', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4m0 0l4-4m-4 4V4"/></svg>'},
@@ -212,7 +212,7 @@ function app() {
     aria2DirError: '',
     quarkSigninLoading: false,
     quarkHealthLoading: false,
-    quarkHealth: {status: 'unknown', message: '尚未检测', checkedAt: null, nickname: '', signinMessage: '', signinResult: null, issues: [], directories: {}, saveEnabled: false, signinEnabled: false, rootConfigured: false, strmReady: false},
+    quarkHealth: {status: 'unknown', message: '尚未检测', checkedAt: null, nickname: '', signinMessage: '', signinResult: null, issues: [], directories: {}, saveEnabled: false, signinEnabled: false, rootConfigured: false, strmReady: false, capacityBytes: 0, memberType: '', signProgress: 0, signTarget: 0},
 
     // 规则中心
     ruleCenter: {
@@ -3755,6 +3755,10 @@ function app() {
         if (response.ok && data.success) {
           this.quarkHealth.signinMessage = data.message || '夸克签到成功';
           this.quarkHealth.signinResult = data.result || null;
+          this.quarkHealth.capacityBytes = Number((data.result || {}).total_capacity_bytes || this.quarkHealth.capacityBytes || 0);
+          this.quarkHealth.memberType = (data.result || {}).member_type || this.quarkHealth.memberType || '';
+          this.quarkHealth.signProgress = Number((data.result || {}).sign_progress || this.quarkHealth.signProgress || 0);
+          this.quarkHealth.signTarget = Number((data.result || {}).sign_target || this.quarkHealth.signTarget || 0);
           this.showNotification('success', data.message || '夸克签到成功');
           await this.loadNotifications();
         } else {
@@ -3783,15 +3787,15 @@ function app() {
 
     quarkSigninProgressLabel() {
       const result = this.quarkHealth.signinResult || {};
-      const progress = Number(result.sign_progress || 0);
-      const target = Number(result.sign_target || 0);
+      const progress = Number(result.sign_progress || this.quarkHealth.signProgress || 0);
+      const target = Number(result.sign_target || this.quarkHealth.signTarget || 0);
       if (progress > 0 && target > 0) return `${progress}/${target}`;
       return '-';
     },
 
     quarkCapacityLabel() {
       const result = this.quarkHealth.signinResult || {};
-      const bytes = Number(result.total_capacity_bytes || 0);
+      const bytes = Number(this.quarkHealth.capacityBytes || result.total_capacity_bytes || 0);
       return bytes > 0 ? this.formatSize(bytes) : '-';
     },
 
@@ -3830,7 +3834,11 @@ function app() {
             saveEnabled: !!data.save_enabled,
             signinEnabled: !!data.signin_enabled,
             rootConfigured: !!data.root_configured,
-            strmReady: !!data.strm_ready
+            strmReady: !!data.strm_ready,
+            capacityBytes: Number(data.total_capacity_bytes || 0),
+            memberType: data.member_type || '',
+            signProgress: Number(data.sign_progress || 0),
+            signTarget: Number(data.sign_target || 0)
           };
           if (!silent) this.showNotification('success', `测试成功！用户: ${data.nickname || '未知'}`);
         } else {
@@ -3845,7 +3853,11 @@ function app() {
             saveEnabled: !!data.save_enabled,
             signinEnabled: !!data.signin_enabled,
             rootConfigured: !!data.root_configured,
-            strmReady: !!data.strm_ready
+            strmReady: !!data.strm_ready,
+            capacityBytes: Number(data.total_capacity_bytes || 0),
+            memberType: data.member_type || '',
+            signProgress: Number(data.sign_progress || 0),
+            signTarget: Number(data.sign_target || 0)
           };
           if (!silent) this.showNotification('error', data.error || '测试失败，请检查 Cookie');
         }

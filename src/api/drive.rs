@@ -218,6 +218,10 @@ pub struct TestResponse {
     pub strm_ready: bool,
     pub directories: HashMap<String, String>,
     pub issues: Vec<String>,
+    pub total_capacity_bytes: i64,
+    pub member_type: String,
+    pub sign_progress: i64,
+    pub sign_target: i64,
 }
 
 #[derive(Serialize)]
@@ -308,11 +312,17 @@ async fn test_quark(
     Json(req): Json<TestRequest>,
 ) -> Result<impl IntoResponse> {
     let settings = state.settings_store.get().await;
-    let health = quark_health_snapshot(&settings);
-    let cookie = if req.cookie.trim().is_empty() {
+    let mut health = quark_health_snapshot(&settings);
+    let request_cookie = req.cookie.trim().to_string();
+    let cookie = if request_cookie.is_empty() {
         settings.quark_cookie.clone()
     } else {
-        req.cookie
+        request_cookie
+    };
+    let capacity_cookie = if !settings.quark_signin_cookie.trim().is_empty() {
+        settings.quark_signin_cookie.clone()
+    } else {
+        cookie.clone()
     };
 
     if cookie.trim().is_empty() {
@@ -325,6 +335,20 @@ async fn test_quark(
     }
 
     let client = QuarkSaveClient::new(cookie);
+    if !capacity_cookie.trim().is_empty() {
+        let capacity_client = QuarkSaveClient::new(capacity_cookie);
+        match capacity_client.growth_info().await {
+            Ok(info) => {
+                health.total_capacity_bytes = info.total_capacity_bytes;
+                health.member_type = info.member_type;
+                health.sign_progress = info.sign_progress;
+                health.sign_target = info.sign_target;
+            }
+            Err(err) => {
+                health.issues.push(format!("容量读取失败: {}", err));
+            }
+        }
+    }
 
     match client.list_dir("0").await {
         Ok(_) => Ok(Json(TestResponse {
@@ -344,21 +368,16 @@ async fn test_quark(
 
 fn quark_health_snapshot(settings: &Settings) -> TestResponse {
     let mut directories = HashMap::new();
-    directories.insert("root".to_string(), settings.quark_save_root.clone());
     directories.insert("movie".to_string(), settings.quark_save_movie_dir.clone());
     directories.insert("series".to_string(), settings.quark_save_series_dir.clone());
     directories.insert("anime".to_string(), settings.quark_save_anime_dir.clone());
 
     let cookie_configured = !settings.quark_cookie.trim().is_empty();
-    let root_configured = !settings.quark_save_root.trim().is_empty();
     let strm_ready = !settings.strm_output_dir.trim().is_empty()
         && !settings.strm_public_base_url.trim().is_empty();
     let mut issues = Vec::new();
     if !cookie_configured {
         issues.push("未配置夸克 Cookie".to_string());
-    }
-    if settings.quark_save_enabled && !root_configured {
-        issues.push("已启用自动转存，但默认根目录为空".to_string());
     }
     if settings.strm_enabled && !strm_ready {
         issues.push("已启用 STRM，但输出目录或访问地址未配置完整".to_string());
@@ -372,11 +391,15 @@ fn quark_health_snapshot(settings: &Settings) -> TestResponse {
         save_enabled: settings.quark_save_enabled,
         signin_enabled: settings.quark_signin_enabled,
         signin_cookie_configured: !settings.quark_signin_cookie.trim().is_empty(),
-        root_configured,
+        root_configured: true,
         strm_enabled: settings.strm_enabled,
         strm_ready,
         directories,
         issues,
+        total_capacity_bytes: 0,
+        member_type: String::new(),
+        sign_progress: 0,
+        sign_target: 0,
     }
 }
 

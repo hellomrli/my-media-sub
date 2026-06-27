@@ -77,7 +77,7 @@
         <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div class="min-w-0">
             <h2 class="text-lg sm:text-xl font-semibold text-text" x-text="tabs.find(t => t.id === currentTab)?.name"></h2>
-            <p class="text-sm text-muted/75 mt-1" x-text="tabs.find(t => t.id === currentTab)?.description"></p>
+            <p x-show="tabs.find(t => t.id === currentTab)?.description" class="text-sm text-muted/75 mt-1" x-text="tabs.find(t => t.id === currentTab)?.description"></p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <span class="chip">订阅 <strong class="text-primary/85" x-text="subscriptions.length"></strong></span>
@@ -108,19 +108,39 @@
         <div x-show="currentTab === 'dashboard'" class="page-stack">
           <div class="metric-grid">
             <div class="stat-tile p-4">
-              <div class="text-xs text-muted/75">追更订阅</div>
+              <div class="flex items-center justify-between gap-3">
+                <div class="text-xs text-muted/75">追更订阅</div>
+                <span class="grid h-9 w-9 place-items-center rounded-lg bg-primary/15 text-primary">
+                  <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4h10a2 2 0 012 2v14l-7-3-7 3V6a2 2 0 012-2z" /></svg>
+                </span>
+              </div>
               <div class="mt-2 text-2xl font-semibold text-text" x-text="dashboardStats.activeSubs"></div>
             </div>
             <div class="stat-tile p-4">
-              <div class="text-xs text-muted/75">失效订阅</div>
+              <div class="flex items-center justify-between gap-3">
+                <div class="text-xs text-muted/75">失效订阅</div>
+                <span class="grid h-9 w-9 place-items-center rounded-lg bg-danger/15 text-danger">
+                  <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
+                </span>
+              </div>
               <div class="mt-2 text-2xl font-semibold" :class="dashboardStats.invalidSubs ? 'text-danger' : 'text-text'" x-text="dashboardStats.invalidSubs"></div>
             </div>
             <div class="stat-tile p-4">
-              <div class="text-xs text-muted/75">后台运行</div>
+              <div class="flex items-center justify-between gap-3">
+                <div class="text-xs text-muted/75">后台运行</div>
+                <span class="grid h-9 w-9 place-items-center rounded-lg bg-warning/15 text-warning">
+                  <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0019 5" /></svg>
+                </span>
+              </div>
               <div class="mt-2 text-2xl font-semibold text-primary" x-text="dashboardStats.runningJobs"></div>
             </div>
             <div class="stat-tile p-4">
-              <div class="text-xs text-muted/75">下载速度</div>
+              <div class="flex items-center justify-between gap-3">
+                <div class="text-xs text-muted/75">下载速度</div>
+                <span class="grid h-9 w-9 place-items-center rounded-lg bg-success/15 text-success">
+                  <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l4-4m-4 4l-4-4M5 21h14" /></svg>
+                </span>
+              </div>
               <div class="mt-2 text-2xl font-semibold text-text" x-text="formatSpeed(dashboardStats.downloadSpeed)"></div>
             </div>
           </div>
@@ -154,19 +174,19 @@
               </div>
               <div class="grid grid-cols-2 gap-2 text-sm">
                 <div class="rounded-lg border border-border bg-app p-3">
-                  <div class="text-xs text-muted/75">账号</div>
+                  <div class="flex items-center gap-2 text-xs text-muted/75"><svg class="h-4 w-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 12a4 4 0 100-8 4 4 0 000 8zm-7 9a7 7 0 0114 0" /></svg>账号</div>
                   <div class="mt-1 font-semibold" :class="quarkHealthStatusClass()" x-text="quarkHealthStatusLabel()"></div>
                 </div>
                 <div class="rounded-lg border border-border bg-app p-3">
-                  <div class="text-xs text-muted/75">自动转存</div>
+                  <div class="flex items-center gap-2 text-xs text-muted/75"><svg class="h-4 w-4 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" /></svg>自动转存</div>
                   <div class="mt-1 font-semibold" :class="settings.quark_save_enabled ? 'text-success' : 'text-muted'" x-text="settings.quark_save_enabled ? '已启用' : '未启用'"></div>
                 </div>
                 <div class="rounded-lg border border-border bg-app p-3">
-                  <div class="text-xs text-muted/75">签到</div>
+                  <div class="flex items-center gap-2 text-xs text-muted/75"><svg class="h-4 w-4 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7 3h10a2 2 0 012 2v14l-7-3-7 3V5a2 2 0 012-2z" /></svg>签到</div>
                   <div class="mt-1 font-semibold" :class="settings.quark_signin_enabled ? 'text-success' : 'text-muted'" x-text="settings.quark_signin_enabled ? '自动' : '手动'"></div>
                 </div>
                 <div class="rounded-lg border border-border bg-app p-3">
-                  <div class="text-xs text-muted/75">容量</div>
+                  <div class="flex items-center gap-2 text-xs text-muted/75"><svg class="h-4 w-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V7zm4 5h8" /></svg>容量</div>
                   <div class="mt-1 font-semibold text-text" x-text="quarkCapacityLabel()"></div>
                 </div>
               </div>
@@ -1040,7 +1060,6 @@
                 <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div>
                     <h3 class="section-title">夸克账号健康</h3>
-                    <p class="text-sm text-muted/75 mt-1">检查 Cookie 可用性、自动转存开关和最近签到状态。</p>
                   </div>
                   <button type="button" @click="refreshQuarkHealth()" :disabled="quarkHealthLoading" class="btn-secondary px-4 py-2 rounded-lg text-sm disabled:opacity-50">
                     <span x-show="!quarkHealthLoading">检测账号</span>
@@ -1116,7 +1135,6 @@
                   </button>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div class="md:col-span-3"><label class="field-label">默认根目录</label><input type="text" x-model="settings.quark_save_root" placeholder="/NAS" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
                   <div><label class="field-label">电影目录</label><input type="text" x-model="settings.quark_save_movie_dir" placeholder="/电影" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
                   <div><label class="field-label">连续剧目录</label><input type="text" x-model="settings.quark_save_series_dir" placeholder="/连续剧" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
                   <div><label class="field-label">动画目录</label><input type="text" x-model="settings.quark_save_anime_dir" placeholder="/动画" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
