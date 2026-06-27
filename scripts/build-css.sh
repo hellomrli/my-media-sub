@@ -14,6 +14,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+export BROWSERSLIST_IGNORE_OLD_DATA=1
+
 BIN="${TAILWIND_BIN:-tailwindcss}"
 if ! command -v "$BIN" >/dev/null 2>&1; then
   echo "错误：找不到 Tailwind CLI（'$BIN'）。" >&2

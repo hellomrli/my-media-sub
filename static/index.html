@@ -4,10 +4,23 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>媒体订阅管理系统</title>
+  <script>
+    (() => {
+      try {
+        const stored = localStorage.getItem('theme');
+        const prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+        const theme = stored === 'light' || stored === 'dark' ? stored : (prefersLight ? 'light' : 'dark');
+        document.documentElement.setAttribute('data-theme', theme);
+        document.documentElement.classList.toggle('dark', theme === 'dark');
+      } catch (_) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="styles.css">
   <script defer src="vendor/alpine.min.js"></script>
 </head>
-<body class="bg-dark-bg text-gray-200 min-h-screen" x-data="app()" x-init="init()" x-cloak>
+<body class="bg-app text-text/90 min-h-screen" x-data="app()" x-init="init()" x-cloak>
 
   <!-- Toast Container -->
   <div class="toast-container" id="toastContainer"></div>
@@ -15,69 +28,73 @@
   <div class="app-shell lg:flex">
 
     <!-- 侧边栏 -->
-    <aside class="app-sidebar hidden lg:flex lg:sticky lg:top-0 h-screen w-60 border-r border-dark-border flex-col">
-      <div class="px-4 py-4 border-b border-dark-border">
-        <h1 class="text-lg font-semibold text-white flex items-center gap-3">
-          <span class="grid h-9 w-9 place-items-center rounded-lg bg-blue-500/15 border border-blue-400/20">
-            <svg class="w-5 h-5 text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <aside class="app-sidebar hidden lg:flex lg:sticky lg:top-0 h-screen w-60 border-r border-border flex-col">
+      <div class="px-4 py-4 border-b border-border">
+        <h1 class="text-lg font-semibold text-text flex items-center gap-3">
+          <span class="grid h-9 w-9 place-items-center rounded-lg bg-primary/15 border border-cyan/25">
+            <svg class="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
             </svg>
           </span>
           <span>
             <span class="block leading-5">媒体订阅</span>
-            <span class="block text-xs font-normal text-gray-500 mt-1">Rust Edition</span>
+            <span class="block text-xs font-normal text-muted/75 mt-1">Rust Edition</span>
           </span>
         </h1>
       </div>
 
       <nav class="flex-1 p-3 space-y-1">
         <template x-for="tab in tabs" :key="tab.id">
-          <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : 'text-gray-400'" class="nav-button w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors duration-150 text-left">
+          <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : 'text-muted'" class="nav-button w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors duration-150 text-left">
             <span x-html="tab.icon" class="w-5 h-5 flex-shrink-0"></span>
             <span class="min-w-0">
               <span x-text="tab.name" class="block text-sm font-medium"></span>
-              <span x-text="tab.description" class="block truncate text-xs text-gray-500 mt-0.5"></span>
+              <span x-text="tab.description" class="block truncate text-xs text-muted/75 mt-0.5"></span>
             </span>
           </button>
         </template>
       </nav>
 
-      <div class="px-4 py-3 border-t border-dark-border space-y-2">
-        <div class="flex items-center justify-between text-xs text-gray-500">
+      <div class="px-4 py-3 border-t border-border space-y-2">
+        <div class="flex items-center justify-between text-xs text-muted/75">
           <span>订阅数</span>
-          <span class="font-semibold text-blue-300" x-text="subscriptions.length"></span>
+          <span class="font-semibold text-primary" x-text="subscriptions.length"></span>
         </div>
-        <div class="flex items-center justify-between text-xs text-gray-500 mt-2">
+        <div class="flex items-center justify-between text-xs text-muted/75 mt-2">
           <span>未读通知</span>
-          <span class="font-semibold text-amber-300" x-text="unreadNotifications"></span>
+          <span class="font-semibold text-warning" x-text="unreadNotifications"></span>
         </div>
-        <div class="flex items-center justify-between text-xs text-gray-500">
+        <div class="flex items-center justify-between text-xs text-muted/75">
           <span>自动检查</span>
-          <span :class="settings.subscription_scheduler_enabled ? 'text-green-300' : 'text-gray-500'" x-text="settings.subscription_scheduler_enabled ? '已启用' : '未启用'"></span>
+          <span :class="settings.subscription_scheduler_enabled ? 'text-success' : 'text-muted/75'" x-text="settings.subscription_scheduler_enabled ? '已启用' : '未启用'"></span>
         </div>
       </div>
     </aside>
 
     <!-- 主内容区 -->
     <main class="min-w-0 flex-1 flex flex-col lg:h-screen">
-      <header class="app-header sticky top-0 z-30 border-b border-dark-border px-4 sm:px-5 py-3">
+      <header class="app-header sticky top-0 z-30 border-b border-border px-4 sm:px-5 py-3">
         <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div class="min-w-0">
-            <h2 class="text-lg sm:text-xl font-semibold text-white" x-text="tabs.find(t => t.id === currentTab)?.name"></h2>
-            <p class="text-sm text-gray-500 mt-1" x-text="tabs.find(t => t.id === currentTab)?.description"></p>
+            <h2 class="text-lg sm:text-xl font-semibold text-text" x-text="tabs.find(t => t.id === currentTab)?.name"></h2>
+            <p class="text-sm text-muted/75 mt-1" x-text="tabs.find(t => t.id === currentTab)?.description"></p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
-            <span class="chip">订阅 <strong class="text-blue-200" x-text="subscriptions.length"></strong></span>
-            <span class="chip">未读 <strong class="text-amber-200" x-text="unreadNotifications"></strong></span>
-            <span class="chip">调度 <strong :class="settings.subscription_scheduler_enabled ? 'text-green-200' : 'text-gray-400'" x-text="settings.subscription_scheduler_enabled ? '开启' : '关闭'"></strong></span>
-            <button @click="refresh()" class="btn-secondary h-10 w-10 grid place-items-center rounded-lg transition-colors" title="刷新当前页面">
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+            <span class="chip">订阅 <strong class="text-primary/85" x-text="subscriptions.length"></strong></span>
+            <span class="chip">未读 <strong class="text-warning/85" x-text="unreadNotifications"></strong></span>
+            <span class="chip">调度 <strong :class="settings.subscription_scheduler_enabled ? 'text-success/85' : 'text-muted'" x-text="settings.subscription_scheduler_enabled ? '开启' : '关闭'"></strong></span>
+            <button @click="toggleTheme()" class="btn-secondary h-10 w-10 grid place-items-center rounded-lg transition-colors" :aria-label="themeToggleLabel()" :title="themeToggleLabel()">
+              <svg x-show="theme === 'dark'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.364-6.364-1.414 1.414M7.05 16.95l-1.414 1.414m12.728 0-1.414-1.414M7.05 7.05 5.636 5.636M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+              <svg x-show="theme === 'light'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12.79A8.5 8.5 0 1111.21 3 6.5 6.5 0 0021 12.79z" /></svg>
+            </button>
+            <button @click="refresh()" class="btn-secondary h-10 w-10 grid place-items-center rounded-lg transition-colors" aria-label="刷新当前页面" title="刷新当前页面">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
             </button>
           </div>
         </div>
-        <nav class="mobile-tab-grid mt-3 lg:hidden grid grid-cols-4 gap-2">
+        <nav class="mobile-tab-grid mt-3 lg:hidden flex gap-2 overflow-x-auto pb-1">
           <template x-for="tab in tabs" :key="tab.id">
-            <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : 'text-gray-400'" class="nav-button flex flex-col items-center justify-center gap-1 px-2 py-2 rounded-lg transition-colors">
+            <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : 'text-muted'" class="nav-button flex min-w-[4.75rem] flex-none flex-col items-center justify-center gap-1 px-2 py-2 rounded-lg transition-colors">
               <span x-html="tab.icon" class="w-4 h-4"></span>
               <span x-text="tab.name" class="text-xs leading-4 text-center"></span>
             </button>
@@ -91,16 +108,16 @@
         <div x-show="currentTab === 'search'" class="page-stack">
           <div class="metric-grid">
             <div class="stat-tile p-4">
-              <div class="text-xs text-gray-500">搜索结果</div>
-              <div class="mt-2 text-2xl font-semibold text-white" x-text="searchResults.length"></div>
+              <div class="text-xs text-muted/75">搜索结果</div>
+              <div class="mt-2 text-2xl font-semibold text-text" x-text="searchResults.length"></div>
             </div>
             <div class="stat-tile p-4">
-              <div class="text-xs text-gray-500">历史关键词</div>
-              <div class="mt-2 text-2xl font-semibold text-white" x-text="searchHistory.length"></div>
+              <div class="text-xs text-muted/75">历史关键词</div>
+              <div class="mt-2 text-2xl font-semibold text-text" x-text="searchHistory.length"></div>
             </div>
             <div class="stat-tile p-4">
-              <div class="text-xs text-gray-500">默认过滤</div>
-              <div class="mt-2 text-sm font-medium" :class="searchOptions.filterBad ? 'text-green-300' : 'text-gray-400'" x-text="searchOptions.filterBad ? '过滤失效链接' : '保留全部结果'"></div>
+              <div class="text-xs text-muted/75">默认过滤</div>
+              <div class="mt-2 text-sm font-medium" :class="searchOptions.filterBad ? 'text-success' : 'text-muted'" x-text="searchOptions.filterBad ? '过滤失效链接' : '保留全部结果'"></div>
             </div>
           </div>
 
@@ -110,7 +127,7 @@
               <span class="chip" x-show="searching">正在处理</span>
             </div>
             <div class="flex flex-col sm:flex-row gap-3 mb-4">
-              <input type="text" x-model="searchQuery" @keyup.enter="search()" placeholder="输入影片名称、年份或版本..." class="flex-1 px-4 py-3 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-500" list="searchHistoryList" />
+              <input type="text" x-model="searchQuery" @keyup.enter="search()" placeholder="输入影片名称、年份或版本..." class="flex-1 px-4 py-3 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text placeholder:text-muted/70" list="searchHistoryList" />
               <datalist id="searchHistoryList">
                 <template x-for="item in searchHistory" :key="item">
                   <option :value="item"></option>
@@ -123,24 +140,24 @@
 
             <div x-show="searching || searchProgress.value > 0" x-cloak class="search-progress mb-4">
               <div class="flex items-center justify-between gap-3 text-xs">
-                <span class="text-gray-300" x-text="searchProgress.label || '准备搜索'"></span>
-                <span class="text-gray-500 tabular-nums" x-text="(searchProgress.value || 0) + '%'"></span>
+                <span class="text-text/80" x-text="searchProgress.label || '准备搜索'"></span>
+                <span class="text-muted/75 tabular-nums" x-text="(searchProgress.value || 0) + '%'"></span>
               </div>
-              <div class="mt-2 h-2 rounded-full bg-dark-bg overflow-hidden border border-dark-border">
+              <div class="mt-2 h-2 rounded-full bg-app overflow-hidden border border-border">
                 <div class="h-full search-progress-bar transition-all duration-500" :style="searchProgressStyle()"></div>
               </div>
-              <div x-show="searchProgress.detail" class="mt-2 text-xs text-gray-500" x-text="searchProgress.detail"></div>
+              <div x-show="searchProgress.detail" class="mt-2 text-xs text-muted/75" x-text="searchProgress.detail"></div>
             </div>
 
             <!-- 搜索历史快捷按钮 -->
             <div x-show="searchHistory.length > 0 && !searchQuery" class="mb-4">
               <div class="flex items-center justify-between mb-2">
-                <span class="text-sm text-gray-400">最近搜索</span>
-                <button @click="clearSearchHistory()" class="text-xs text-gray-500 hover:text-red-400">清空</button>
+                <span class="text-sm text-muted">最近搜索</span>
+                <button @click="clearSearchHistory()" class="text-xs text-muted/75 hover:text-danger">清空</button>
               </div>
               <div class="flex flex-wrap gap-2">
                 <template x-for="(item, idx) in searchHistory.slice(0, 10)" :key="idx">
-                  <button @click="searchQuery = item; search()" class="chip hover:text-white transition-colors">
+                  <button @click="searchQuery = item; search()" class="chip hover:text-text transition-colors">
                     <span x-text="item"></span>
                   </button>
                 </template>
@@ -149,17 +166,17 @@
 
             <!-- 高级选项 -->
             <details class="mt-4">
-              <summary class="cursor-pointer text-sm text-gray-400 hover:text-white flex items-center justify-between">
+              <summary class="cursor-pointer text-sm text-muted hover:text-text flex items-center justify-between">
                 <span>高级筛选</span>
-                <span class="text-xs text-gray-600">过滤失效、文件嗅探</span>
+                <span class="text-xs text-muted/60">过滤失效、文件嗅探</span>
               </summary>
               <div class="mt-3 app-panel-soft p-4 space-y-4">
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <label class="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+                  <label class="flex items-center gap-2 text-sm text-muted cursor-pointer">
                     <input type="checkbox" x-model="searchOptions.filterBad" class="rounded" />
                     过滤失效链接
                   </label>
-                  <label class="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+                  <label class="flex items-center gap-2 text-sm text-muted cursor-pointer">
                     <input type="checkbox" x-model="searchOptions.probeFiles" class="rounded" />
                     嗅探文件列表
                   </label>
@@ -171,41 +188,41 @@
           <!-- 搜索结果 -->
           <div x-show="searchResults.length > 0" class="space-y-3">
             <template x-for="(result, idx) in searchResults" :key="idx">
-              <div class="app-panel p-4 hover:border-blue-500 transition-colors">
+              <div class="app-panel p-4 hover:border-primary transition-colors">
                 <div class="flex flex-col md:flex-row justify-between items-start gap-4">
                   <div x-show="result.images && result.images.length > 0" class="flex-shrink-0">
                     <img :src="result.images[0]" :alt="result.note" class="w-24 h-32 object-cover rounded" onerror="this.style.display='none'" />
                   </div>
                   <div class="flex-1">
                     <div class="flex items-start gap-2 mb-2">
-                      <h4 class="text-white font-medium flex-1" x-text="result.note"></h4>
+                      <h4 class="text-text font-medium flex-1" x-text="result.note"></h4>
                       <!-- 有效性标记 -->
-                      <span x-show="result.is_valid === true" class="px-2 py-1 bg-green-600/20 text-green-400 rounded text-xs">✓ 有效</span>
-                      <span x-show="result.is_valid === false" class="px-2 py-1 bg-red-600/20 text-red-400 rounded text-xs">✗ 失效</span>
+                      <span x-show="result.is_valid === true" class="px-2 py-1 bg-success/20 text-success rounded text-xs">✓ 有效</span>
+                      <span x-show="result.is_valid === false" class="px-2 py-1 bg-danger/20 text-danger rounded text-xs">✗ 失效</span>
                     </div>
-                    <div class="flex flex-wrap gap-2 text-sm text-gray-400 mb-2">
-                      <span x-text="cloudTypeLabel(result.cloud_type)" class="chip text-blue-300"></span>
-                      <span x-show="result.source" x-text="result.source" class="text-gray-500"></span>
+                    <div class="flex flex-wrap gap-2 text-sm text-muted mb-2">
+                      <span x-text="cloudTypeLabel(result.cloud_type)" class="chip text-primary"></span>
+                      <span x-show="result.source" x-text="result.source" class="text-muted/75"></span>
                       <!-- 文件数量标记 -->
                       <span x-show="result.probe_info" class="chip">
                         <span x-text="result.probe_info?.file_count || 0"></span> 个文件
                       </span>
                     </div>
-                    <a :href="result.url" target="_blank" class="text-xs text-blue-400 hover:text-blue-300 break-all" x-text="result.url"></a>
+                    <a :href="result.url" target="_blank" class="text-xs text-primary hover:text-primary break-all" x-text="result.url"></a>
 
                     <!-- 文件列表（如果有探测信息） -->
-                    <div x-show="result.probe_info && result.probe_info.files && result.probe_info.files.length > 0" class="mt-3 p-3 bg-dark-bg rounded-lg border border-dark-border">
+                    <div x-show="result.probe_info && result.probe_info.files && result.probe_info.files.length > 0" class="mt-3 p-3 bg-app rounded-lg border border-border">
                       <details>
-                        <summary class="cursor-pointer text-sm text-gray-400 hover:text-white">
+                        <summary class="cursor-pointer text-sm text-muted hover:text-text">
                           文件列表 (<span x-text="result.probe_info.files.length"></span>)
                         </summary>
                         <div class="mt-2 space-y-1 max-h-48 overflow-y-auto">
                           <template x-for="(file, fidx) in result.probe_info.files" :key="fidx">
-                            <div class="text-xs text-gray-400 py-1 px-2 hover:bg-dark-hover rounded flex items-center gap-2">
-                              <svg x-show="file.is_dir" class="w-4 h-4 text-amber-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
-                              <svg x-show="!file.is_dir" class="w-4 h-4 text-blue-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                            <div class="text-xs text-muted py-1 px-2 hover:bg-surface-2 rounded flex items-center gap-2">
+                              <svg x-show="file.is_dir" class="w-4 h-4 text-warning flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                              <svg x-show="!file.is_dir" class="w-4 h-4 text-primary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
                               <span x-text="file.name" class="flex-1"></span>
-                              <span x-show="!file.is_dir && file.size" x-text="formatSize(file.size)" class="text-gray-600"></span>
+                              <span x-show="!file.is_dir && file.size" x-text="formatSize(file.size)" class="text-muted/60"></span>
                             </div>
                           </template>
                         </div>
@@ -227,14 +244,14 @@
           <div class="app-panel p-4 space-y-4">
             <div class="toolbar-panel">
               <div class="min-w-0">
-                <div class="flex flex-wrap items-center gap-2 text-sm text-gray-400">
+                <div class="flex flex-wrap items-center gap-2 text-sm text-muted">
                   <template x-for="crumb in driveBreadcrumbs" :key="crumb.fid + '-' + crumb.index">
-                    <button @click="driveOpenBreadcrumb(crumb.index)" class="max-w-[10rem] truncate hover:text-white" :class="crumb.index === driveBreadcrumbs.length - 1 ? 'text-white font-medium' : 'text-gray-400'" x-text="crumb.label"></button>
+                    <button @click="driveOpenBreadcrumb(crumb.index)" class="max-w-[10rem] truncate hover:text-text" :class="crumb.index === driveBreadcrumbs.length - 1 ? 'text-text font-medium' : 'text-muted'" x-text="crumb.label"></button>
                   </template>
                 </div>
-                <div class="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                <div class="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted/75">
                   <span x-text="driveError || (driveLastLoadedAt ? '更新时间 ' + new Date(driveLastLoadedAt).toLocaleTimeString() : '等待加载')"></span>
-                  <span x-show="driveRefreshing" class="text-blue-300">刷新中</span>
+                  <span x-show="driveRefreshing" class="text-primary">刷新中</span>
                 </div>
               </div>
               <div class="control-row">
@@ -254,27 +271,27 @@
 
             <div class="metric-grid">
               <div class="stat-tile p-3">
-                <div class="text-xs text-gray-500">文件夹</div>
-                <div class="mt-1 text-xl font-semibold text-white" x-text="driveStats.folders"></div>
+                <div class="text-xs text-muted/75">文件夹</div>
+                <div class="mt-1 text-xl font-semibold text-text" x-text="driveStats.folders"></div>
               </div>
               <div class="stat-tile p-3">
-                <div class="text-xs text-gray-500">文件</div>
-                <div class="mt-1 text-xl font-semibold text-white" x-text="driveStats.files"></div>
+                <div class="text-xs text-muted/75">文件</div>
+                <div class="mt-1 text-xl font-semibold text-text" x-text="driveStats.files"></div>
               </div>
               <div class="stat-tile p-3">
-                <div class="text-xs text-gray-500">视频</div>
-                <div class="mt-1 text-xl font-semibold text-white" x-text="driveStats.videos"></div>
+                <div class="text-xs text-muted/75">视频</div>
+                <div class="mt-1 text-xl font-semibold text-text" x-text="driveStats.videos"></div>
               </div>
               <div class="stat-tile p-3">
-                <div class="text-xs text-gray-500">总大小</div>
-                <div class="mt-1 text-lg font-semibold text-white" x-text="formatSize(driveStats.totalSize)"></div>
+                <div class="text-xs text-muted/75">总大小</div>
+                <div class="mt-1 text-lg font-semibold text-text" x-text="formatSize(driveStats.totalSize)"></div>
               </div>
             </div>
 
             <div class="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(260px,1fr)_auto_auto] xl:items-center">
               <div class="relative">
-                <input x-model.debounce.150ms="driveSearchQuery" class="w-full px-4 py-2 pl-10 bg-dark-hover border border-dark-border rounded-lg text-white" placeholder="搜索当前目录" />
-                <svg class="w-4 h-4 absolute left-3 top-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                <input x-model.debounce.150ms="driveSearchQuery" class="w-full px-4 py-2 pl-10 bg-surface-2 border border-border rounded-lg text-text" placeholder="搜索当前目录" />
+                <svg class="w-4 h-4 absolute left-3 top-3 text-muted/75" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
               </div>
               <div class="segmented-control">
                 <button @click="driveFilterType = 'all'" :class="driveFilterType === 'all' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">全部</button>
@@ -283,7 +300,7 @@
                 <button @click="driveFilterType = 'other'" :class="driveFilterType === 'other' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">其他</button>
               </div>
               <div class="control-row">
-                <select x-model="driveSortBy" class="px-3 py-2 bg-dark-hover border border-dark-border rounded-lg text-sm text-gray-300">
+                <select x-model="driveSortBy" class="px-3 py-2 bg-surface-2 border border-border rounded-lg text-sm text-text/80">
                   <option value="name">名称</option>
                   <option value="size">大小</option>
                   <option value="time">时间</option>
@@ -296,54 +313,56 @@
           </div>
 
           <div class="app-panel list-surface">
-            <div class="px-4 py-3 border-b border-dark-border flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between bg-black/10">
-              <label class="flex items-center gap-3 text-sm text-gray-300 cursor-pointer">
+            <div class="px-4 py-3 border-b border-border flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between bg-black/10">
+              <label class="flex items-center gap-3 text-sm text-text/80 cursor-pointer">
                 <input type="checkbox" :checked="driveAllVisibleSelected()" @change="toggleVisibleDriveSelection()" class="rounded" />
                 <span>选择当前列表</span>
               </label>
-              <div class="flex flex-wrap items-center gap-3 text-sm text-gray-400">
-                <span>显示 <span class="text-white" x-text="visibleDriveItems.length"></span> / <span x-text="filteredDriveItems.length"></span>，共 <span x-text="driveItems.length"></span></span>
-                <span x-show="driveSelectedItems.length > 0">已选择 <span class="text-white" x-text="driveSelectedItems.length"></span> 项，其中 <span class="text-white" x-text="selectedDriveFileCount"></span> 个文件</span>
+              <div class="flex flex-wrap items-center gap-3 text-sm text-muted">
+                <span>显示 <span class="text-text" x-text="visibleDriveItems.length"></span> / <span x-text="filteredDriveItems.length"></span>，共 <span x-text="driveItems.length"></span></span>
+                <span x-show="driveSelectedItems.length > 0">已选择 <span class="text-text" x-text="driveSelectedItems.length"></span> 项，其中 <span class="text-text" x-text="selectedDriveFileCount"></span> 个文件</span>
               </div>
             </div>
 
-            <div x-show="driveLoading" class="divide-y divide-dark-border">
+            <div x-show="driveLoading" class="divide-y divide-border">
               <template x-for="idx in 6" :key="idx">
                 <div class="px-4 py-4 flex items-center gap-4">
-                  <div class="w-10 h-10 rounded-lg bg-dark-hover animate-pulse"></div>
+                  <div class="w-10 h-10 rounded-lg bg-surface-2 animate-pulse"></div>
                   <div class="flex-1 space-y-2">
-                    <div class="h-4 w-2/3 bg-dark-hover rounded animate-pulse"></div>
-                    <div class="h-3 w-1/3 bg-dark-hover rounded animate-pulse"></div>
+                    <div class="h-4 w-2/3 bg-surface-2 rounded animate-pulse"></div>
+                    <div class="h-3 w-1/3 bg-surface-2 rounded animate-pulse"></div>
                   </div>
                 </div>
               </template>
             </div>
 
-            <div x-show="!driveLoading && filteredDriveItems.length > 0 && driveViewMode === 'list'" class="overflow-x-auto">
-              <div class="min-w-[760px] divide-y divide-dark-border">
-                <div class="table-head grid grid-cols-[44px_minmax(260px,1fr)_120px_120px_180px] gap-3 px-4 py-2 text-xs">
+            <div x-show="!driveLoading && filteredDriveItems.length > 0 && driveViewMode === 'list'">
+              <div class="divide-y divide-border">
+                <div class="table-head hidden lg:grid grid-cols-[44px_minmax(220px,1fr)_120px_120px_180px] gap-3 px-4 py-2 text-xs">
                   <div></div>
-                  <button @click="setDriveSort('name')" class="text-left hover:text-white">名称</button>
-                  <button @click="setDriveSort('size')" class="text-left hover:text-white">大小</button>
-                  <button @click="setDriveSort('time')" class="text-left hover:text-white">修改时间</button>
+                  <button @click="setDriveSort('name')" class="text-left hover:text-text">名称</button>
+                  <button @click="setDriveSort('size')" class="text-left hover:text-text">大小</button>
+                  <button @click="setDriveSort('time')" class="text-left hover:text-text">修改时间</button>
                   <div class="text-right">操作</div>
                 </div>
                 <template x-for="item in visibleDriveItems" :key="item.fid">
-                  <div class="list-row grid grid-cols-[44px_minmax(260px,1fr)_120px_120px_180px] gap-3 px-4 py-3 items-center hover:bg-dark-hover transition-colors">
-                    <input type="checkbox" :checked="isDriveItemSelected(item)" @change="toggleDriveItemSelection(item)" class="rounded" />
+                  <div class="list-row grid grid-cols-[auto_minmax(0,1fr)] gap-3 px-4 py-3 hover:bg-surface-2 transition-colors lg:grid-cols-[44px_minmax(220px,1fr)_120px_120px_180px] lg:items-center">
+                    <input type="checkbox" :checked="isDriveItemSelected(item)" @change="toggleDriveItemSelection(item)" class="rounded mt-3 lg:mt-0" />
                     <button @click="driveItemClick(item)" class="min-w-0 flex items-center gap-3 text-left">
                       <span :class="driveItemIconClass(item)" class="w-10 h-10 rounded-lg border flex items-center justify-center shrink-0">
                         <svg x-show="!item.file" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
                         <svg x-show="item.file" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
                       </span>
                       <span class="min-w-0">
-                        <span class="block text-white font-medium truncate" x-text="item.file_name"></span>
-                        <span class="block text-xs text-gray-500" x-text="driveItemTypeLabel(item)"></span>
+                        <span class="block text-text font-medium truncate" x-text="item.file_name"></span>
+                        <span class="block text-xs text-muted/75" x-text="driveItemTypeLabel(item)"></span>
                       </span>
                     </button>
-                    <div class="text-sm text-gray-400" x-text="item.file ? formatSize(item.size) : '-'"></div>
-                    <div class="text-xs text-gray-500 truncate" x-text="driveUpdatedLabel(item)"></div>
-                    <div class="flex justify-end gap-2">
+                    <div class="col-start-2 text-xs text-muted lg:col-auto lg:text-sm">
+                      <span class="text-muted/75 lg:hidden">大小 </span><span x-text="item.file ? formatSize(item.size) : '-'"></span>
+                    </div>
+                    <div class="col-start-2 text-xs text-muted/75 lg:col-auto lg:truncate" x-text="driveUpdatedLabel(item)"></div>
+                    <div class="col-span-2 flex flex-wrap gap-2 lg:col-auto lg:justify-end">
                       <button x-show="item.file" @click="sendDriveItemToAria2(item)" :disabled="driveActionLoading === 'aria2'" class="btn-secondary px-2 py-1 text-xs rounded disabled:opacity-50">Aria2</button>
                       <button @click="renameDriveItem(item)" :disabled="driveActionLoading === 'rename:' + item.fid" class="btn-secondary px-2 py-1 text-xs rounded disabled:opacity-50">重命名</button>
                       <button @click="deleteDriveItem(item)" :disabled="driveActionLoading === 'delete:' + item.fid" class="btn-danger px-2 py-1 text-xs rounded disabled:opacity-50">删除</button>
@@ -355,7 +374,7 @@
 
             <div x-show="!driveLoading && filteredDriveItems.length > 0 && driveViewMode === 'grid'" class="p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
               <template x-for="item in visibleDriveItems" :key="item.fid">
-                <div class="border border-dark-border rounded-lg p-3 hover:bg-dark-hover transition-colors">
+                <div class="border border-border rounded-lg p-3 hover:bg-surface-2 transition-colors">
                   <div class="flex items-start gap-3">
                     <input type="checkbox" :checked="isDriveItemSelected(item)" @change="toggleDriveItemSelection(item)" class="rounded mt-2" />
                     <button @click="driveItemClick(item)" class="min-w-0 flex-1 text-left">
@@ -363,8 +382,8 @@
                         <svg x-show="!item.file" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
                         <svg x-show="item.file" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
                       </div>
-                      <div class="text-white font-medium line-clamp-2 break-all" x-text="item.file_name"></div>
-                      <div class="mt-2 text-xs text-gray-500" x-text="driveItemTypeLabel(item) + ' · ' + (item.file ? formatSize(item.size) : '-')"></div>
+                      <div class="text-text font-medium line-clamp-2 break-all" x-text="item.file_name"></div>
+                      <div class="mt-2 text-xs text-muted/75" x-text="driveItemTypeLabel(item) + ' · ' + (item.file ? formatSize(item.size) : '-')"></div>
                     </button>
                   </div>
                   <div class="mt-3 flex flex-wrap gap-2">
@@ -382,12 +401,12 @@
             <div x-show="!driveLoading && driveItems.length > 0 && filteredDriveItems.length === 0" class="empty-state">
               <p>当前筛选没有匹配项目</p>
             </div>
-            <div x-show="!driveLoading && hasMoreDriveItems" class="p-4 border-t border-dark-border text-center">
+            <div x-show="!driveLoading && hasMoreDriveItems" class="p-4 border-t border-border text-center">
               <button @click="showMoreDriveItems()" class="btn-secondary px-4 py-2 rounded-lg text-sm">显示更多</button>
             </div>
 
-            <div x-show="driveSelectedItems.length > 0" class="p-4 border-t border-dark-border flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between bg-dark-hover">
-              <span class="text-sm text-gray-300">已选择 <span x-text="driveSelectedItems.length"></span> 项</span>
+            <div x-show="driveSelectedItems.length > 0" class="p-4 border-t border-border flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between bg-surface-2">
+              <span class="text-sm text-text/80">已选择 <span x-text="driveSelectedItems.length"></span> 项</span>
               <div class="flex flex-wrap gap-2">
                 <button @click="sendSelectedDriveItemsToAria2()" :disabled="selectedDriveFileCount === 0 || driveActionLoading === 'aria2'" class="btn-secondary px-4 py-2 rounded-lg text-sm disabled:opacity-50">发送到 Aria2</button>
                 <button @click="batchDeleteDrive()" :disabled="driveActionLoading === 'batch-delete'" class="btn-danger px-4 py-2 rounded-lg text-sm disabled:opacity-50">批量删除</button>
@@ -400,31 +419,31 @@
         <div x-show="currentTab === 'downloads'" class="page-stack">
           <div class="metric-grid">
             <div class="stat-tile p-4">
-              <div class="text-xs text-gray-500">下载中</div>
-              <div class="mt-2 text-2xl font-semibold text-white" x-text="downloads.active.length"></div>
+              <div class="text-xs text-muted/75">下载中</div>
+              <div class="mt-2 text-2xl font-semibold text-text" x-text="downloads.active.length"></div>
             </div>
             <div class="stat-tile p-4">
-              <div class="text-xs text-gray-500">排队中</div>
-              <div class="mt-2 text-2xl font-semibold text-white" x-text="downloads.waiting.length"></div>
+              <div class="text-xs text-muted/75">排队中</div>
+              <div class="mt-2 text-2xl font-semibold text-text" x-text="downloads.waiting.length"></div>
             </div>
             <div class="stat-tile p-4">
-              <div class="text-xs text-gray-500">总速度</div>
-              <div class="mt-2 text-lg font-semibold text-green-300" x-text="formatSpeed(downloadStats.speed)"></div>
+              <div class="text-xs text-muted/75">总速度</div>
+              <div class="mt-2 text-lg font-semibold text-success" x-text="formatSpeed(downloadStats.speed)"></div>
             </div>
             <div class="stat-tile p-4">
-              <div class="text-xs text-gray-500">最近结束</div>
-              <div class="mt-2 text-2xl font-semibold text-white" x-text="downloads.stopped.length"></div>
+              <div class="text-xs text-muted/75">最近结束</div>
+              <div class="mt-2 text-2xl font-semibold text-text" x-text="downloads.stopped.length"></div>
             </div>
           </div>
 
           <div class="app-panel list-surface">
-            <div class="p-4 border-b border-dark-border toolbar-panel">
+            <div class="p-4 border-b border-border toolbar-panel">
               <div>
                 <h3 class="section-title">Aria2 下载任务</h3>
-                <p class="text-sm text-gray-500 mt-1" x-text="downloadsError || (downloadsUpdatedAt ? '更新时间 ' + new Date(downloadsUpdatedAt).toLocaleTimeString() : '等待刷新')"></p>
+                <p class="text-sm text-muted/75 mt-1" x-text="downloadsError || (downloadsUpdatedAt ? '更新时间 ' + new Date(downloadsUpdatedAt).toLocaleTimeString() : '等待刷新')"></p>
               </div>
               <div class="control-row">
-                <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer">
                   <input type="checkbox" x-model="downloadsAutoRefresh" @change="downloadsAutoRefresh ? startDownloadsPolling() : stopDownloadsPolling()" class="rounded" />
                   <span>实时刷新</span>
                 </label>
@@ -450,19 +469,19 @@
                     <div class="min-w-0 flex-1">
                       <div class="flex flex-wrap items-center gap-2">
                         <span :class="downloadStatusClass(task.status)" class="px-2 py-1 rounded text-xs font-medium" x-text="downloadStatusLabel(task.status)"></span>
-                        <span class="text-xs text-gray-500" x-text="'GID ' + task.gid"></span>
+                        <span class="text-xs text-muted/75" x-text="'GID ' + task.gid"></span>
                       </div>
-                      <h4 class="mt-2 text-white font-semibold break-all" x-text="task.file_name || task.gid"></h4>
-                      <div class="mt-2 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs text-gray-400">
-                        <div><span class="block text-gray-500 mb-1">大小</span><span x-text="formatDownloadSize(task.total_length)"></span></div>
-                        <div><span class="block text-gray-500 mb-1">已下载</span><span x-text="formatDownloadSize(task.completed_length)"></span></div>
-                        <div><span class="block text-gray-500 mb-1">速度</span><span x-text="formatSpeed(task.download_speed)"></span></div>
-                        <div><span class="block text-gray-500 mb-1">剩余</span><span x-text="formatDuration(task.eta_seconds)"></span></div>
+                      <h4 class="mt-2 text-text font-semibold break-all" x-text="task.file_name || task.gid"></h4>
+                      <div class="mt-2 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs text-muted">
+                        <div><span class="block text-muted/75 mb-1">大小</span><span x-text="formatDownloadSize(task.total_length)"></span></div>
+                        <div><span class="block text-muted/75 mb-1">已下载</span><span x-text="formatDownloadSize(task.completed_length)"></span></div>
+                        <div><span class="block text-muted/75 mb-1">速度</span><span x-text="formatSpeed(task.download_speed)"></span></div>
+                        <div><span class="block text-muted/75 mb-1">剩余</span><span x-text="formatDuration(task.eta_seconds)"></span></div>
                       </div>
                     </div>
                     <div class="lg:w-40 lg:text-right">
-                      <div class="text-2xl font-semibold text-white" x-text="formatPercent(task.progress)"></div>
-                      <div class="text-xs text-gray-500 mt-1" x-text="task.connections + ' 连接'"></div>
+                      <div class="text-2xl font-semibold text-text" x-text="formatPercent(task.progress)"></div>
+                      <div class="text-xs text-muted/75 mt-1" x-text="task.connections + ' 连接'"></div>
                       <div class="mt-3 flex flex-wrap gap-2 lg:justify-end">
                         <button x-show="canPauseDownloadTask(task)" @click="controlDownloadTask(task, 'pause')" :disabled="downloadTaskActionLoading(task)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">暂停</button>
                         <button x-show="canResumeDownloadTask(task)" @click="controlDownloadTask(task, 'resume')" :disabled="downloadTaskActionLoading(task)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">继续</button>
@@ -472,34 +491,34 @@
                     </div>
                   </div>
 
-                  <div class="mt-4 h-2 bg-dark-bg rounded overflow-hidden">
-                    <div class="h-full bg-blue-500 transition-all" :style="downloadProgressStyle(task)"></div>
+                  <div class="mt-4 h-2 bg-app rounded overflow-hidden">
+                    <div class="h-full bg-primary transition-all" :style="downloadProgressStyle(task)"></div>
                   </div>
 
                   <div class="mt-4 text-sm">
                     <div class="min-w-0">
-                      <div class="text-xs text-gray-500 mb-1">保存目录</div>
-                      <div class="text-gray-300 break-all" x-text="task.dir || '-'"></div>
+                      <div class="text-xs text-muted/75 mb-1">保存目录</div>
+                      <div class="text-text/80 break-all" x-text="task.dir || '-'"></div>
                     </div>
                   </div>
 
-                  <div x-show="task.error_message" class="mt-3 text-sm text-red-300 break-all" x-text="task.error_code ? task.error_code + ': ' + task.error_message : task.error_message"></div>
+                  <div x-show="task.error_message" class="mt-3 text-sm text-danger break-all" x-text="task.error_code ? task.error_code + ': ' + task.error_message : task.error_message"></div>
 
                   <details class="mt-4">
-                    <summary class="cursor-pointer text-sm text-gray-300 hover:text-white">文件详情</summary>
-                    <div class="mt-3 divide-y divide-dark-border border border-dark-border rounded-lg overflow-hidden">
+                    <summary class="cursor-pointer text-sm text-text/80 hover:text-text">文件详情</summary>
+                    <div class="mt-3 divide-y divide-border border border-border rounded-lg overflow-hidden">
                       <template x-for="file in task.files" :key="task.gid + '-' + file.index">
                         <div class="p-3 bg-black/10">
                           <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                             <div class="min-w-0">
-                              <div class="text-sm text-white break-all" x-text="file.file_name || file.path || ('文件 ' + file.index)"></div>
-                              <div class="text-xs text-gray-500 break-all" x-text="file.path"></div>
+                              <div class="text-sm text-text break-all" x-text="file.file_name || file.path || ('文件 ' + file.index)"></div>
+                              <div class="text-xs text-muted/75 break-all" x-text="file.path"></div>
                             </div>
-                            <div class="text-xs text-gray-400 md:text-right" x-text="formatDownloadSize(file.completed_length) + ' / ' + formatDownloadSize(file.length)"></div>
+                            <div class="text-xs text-muted md:text-right" x-text="formatDownloadSize(file.completed_length) + ' / ' + formatDownloadSize(file.length)"></div>
                           </div>
                         </div>
                       </template>
-                      <div x-show="!task.files || task.files.length === 0" class="p-3 text-sm text-gray-500">暂无文件详情</div>
+                      <div x-show="!task.files || task.files.length === 0" class="p-3 text-sm text-muted/75">暂无文件详情</div>
                     </div>
                   </details>
                 </div>
@@ -517,7 +536,7 @@
           <div class="app-panel p-4 toolbar-panel">
             <div>
               <h3 class="section-title">订阅列表</h3>
-              <p class="text-sm text-gray-500 mt-1">按状态、进度和最近检查时间快速扫描。</p>
+              <p class="text-sm text-muted/75 mt-1">按状态、进度和最近检查时间快速扫描。</p>
             </div>
             <div class="control-row">
               <button @click="checkAllSubscriptions()" :disabled="checkingAllSubscriptions" class="btn-secondary px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
@@ -543,19 +562,19 @@
           </div>
           <div class="grid grid-cols-1 gap-4">
             <template x-for="sub in filteredSubscriptions" :key="sub.id">
-              <div class="app-panel p-4 sm:p-5 hover:border-blue-500 transition-colors">
+              <div class="app-panel p-4 sm:p-5 hover:border-primary transition-colors">
                 <div class="flex gap-3 sm:gap-4">
                   <div class="w-20 sm:w-28 shrink-0">
-                    <div class="w-20 h-28 sm:w-28 sm:h-40 rounded-lg overflow-hidden border border-dark-border bg-dark-bg grid place-items-center">
+                    <div class="w-20 h-28 sm:w-28 sm:h-40 rounded-lg overflow-hidden border border-border bg-app grid place-items-center">
                       <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" class="w-full h-full object-cover" />
-                      <div x-show="!subscriptionPoster(sub)" class="text-xs text-gray-500 text-center px-2">暂无海报</div>
+                      <div x-show="!subscriptionPoster(sub)" class="text-xs text-muted/75 text-center px-2">暂无海报</div>
                     </div>
                   </div>
                   <div class="min-w-0 flex-1 space-y-3">
                     <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
                       <div class="min-w-0">
-                        <h4 class="text-white font-semibold text-lg leading-6 break-words" x-text="subscriptionDisplayTitle(sub)"></h4>
-                        <div class="text-sm text-gray-500 mt-1 break-words" x-show="subscriptionSourceLabel(sub)" x-text="subscriptionSourceLabel(sub)"></div>
+                        <h4 class="text-text font-semibold text-lg leading-6 break-words" x-text="subscriptionDisplayTitle(sub)"></h4>
+                        <div class="text-sm text-muted/75 mt-1 break-words" x-show="subscriptionSourceLabel(sub)" x-text="subscriptionSourceLabel(sub)"></div>
                       </div>
                       <span :class="subscriptionStatusClass(sub)" class="text-sm font-semibold shrink-0 self-start lg:text-right" x-text="subscriptionStatusLabel(sub)"></span>
                     </div>
@@ -571,11 +590,11 @@
                       <span class="chip" x-text="'最后检查 ' + formatTime(sub.last_checked_at)"></span>
                     </div>
 
-                    <div x-show="sub.status === 'invalid' && sub.last_error" class="text-sm text-red-300 break-all" x-text="'失效原因：' + sub.last_error"></div>
+                    <div x-show="sub.status === 'invalid' && sub.last_error" class="text-sm text-danger break-all" x-text="'失效原因：' + sub.last_error"></div>
 
                     <div class="text-sm min-w-0">
-                      <span class="block text-xs text-gray-500 mb-1">保存目录</span>
-                      <span class="text-gray-300 break-all" x-text="(sub.rules && sub.rules.target_dir) || '-'"></span>
+                      <span class="block text-xs text-muted/75 mb-1">保存目录</span>
+                      <span class="text-text/80 break-all" x-text="(sub.rules && sub.rules.target_dir) || '-'"></span>
                     </div>
 
                     <div class="flex flex-wrap gap-2 pt-1">
@@ -600,28 +619,28 @@
         <div x-show="currentTab === 'transferHistory'" class="page-stack">
           <div class="metric-grid">
             <div class="stat-tile p-4">
-              <div class="text-xs text-gray-500">后台任务</div>
-              <div class="mt-2 text-2xl font-semibold text-white" x-text="backgroundLogStats.total"></div>
+              <div class="text-xs text-muted/75">后台任务</div>
+              <div class="mt-2 text-2xl font-semibold text-text" x-text="backgroundLogStats.total"></div>
             </div>
             <div class="stat-tile p-4">
-              <div class="text-xs text-gray-500">进行中</div>
-              <div class="mt-2 text-2xl font-semibold text-yellow-300" x-text="backgroundLogStats.active"></div>
+              <div class="text-xs text-muted/75">进行中</div>
+              <div class="mt-2 text-2xl font-semibold text-warning" x-text="backgroundLogStats.active"></div>
             </div>
             <div class="stat-tile p-4">
-              <div class="text-xs text-gray-500">成功</div>
-              <div class="mt-2 text-2xl font-semibold text-green-300" x-text="backgroundLogStats.success"></div>
+              <div class="text-xs text-muted/75">成功</div>
+              <div class="mt-2 text-2xl font-semibold text-success" x-text="backgroundLogStats.success"></div>
             </div>
             <div class="stat-tile p-4">
-              <div class="text-xs text-gray-500">失败</div>
-              <div class="mt-2 text-2xl font-semibold text-red-300" x-text="backgroundLogStats.failed"></div>
+              <div class="text-xs text-muted/75">失败</div>
+              <div class="mt-2 text-2xl font-semibold text-danger" x-text="backgroundLogStats.failed"></div>
             </div>
             <div class="stat-tile p-4">
-              <div class="text-xs text-gray-500">已取消</div>
-              <div class="mt-2 text-2xl font-semibold text-gray-300" x-text="backgroundLogStats.canceled"></div>
+              <div class="text-xs text-muted/75">已取消</div>
+              <div class="mt-2 text-2xl font-semibold text-text/80" x-text="backgroundLogStats.canceled"></div>
             </div>
             <div class="stat-tile p-4">
-              <div class="text-xs text-gray-500">处理文件</div>
-              <div class="mt-2 text-2xl font-semibold text-blue-300" x-text="backgroundLogStats.saved"></div>
+              <div class="text-xs text-muted/75">处理文件</div>
+              <div class="mt-2 text-2xl font-semibold text-primary" x-text="backgroundLogStats.saved"></div>
             </div>
           </div>
 
@@ -629,82 +648,82 @@
             <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
               <div>
                 <h3 class="section-title">最近检查结果</h3>
-                <p class="text-sm text-gray-500 mt-1" x-text="lastCheckResult ? lastCheckResult.summary : ''"></p>
+                <p class="text-sm text-muted/75 mt-1" x-text="lastCheckResult ? lastCheckResult.summary : ''"></p>
               </div>
               <button @click="lastCheckResult = null" class="btn-secondary px-3 py-2 rounded text-sm">关闭</button>
             </div>
             <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
-              <div class="stat-tile p-3"><div class="text-xs text-gray-500">扫描文件</div><div class="mt-1 text-xl font-semibold text-white" x-text="lastCheckMetric('scanned_count')"></div></div>
-              <div class="stat-tile p-3"><div class="text-xs text-gray-500">新增</div><div class="mt-1 text-xl font-semibold text-green-300" x-text="lastCheckMetric('new_count')"></div></div>
-              <div class="stat-tile p-3"><div class="text-xs text-gray-500">已知</div><div class="mt-1 text-xl font-semibold text-blue-300" x-text="lastCheckMetric('known_count')"></div></div>
-              <div class="stat-tile p-3"><div class="text-xs text-gray-500">目录跳过</div><div class="mt-1 text-xl font-semibold text-gray-300" x-text="lastCheckMetric('skipped_directory_count')"></div></div>
-              <div class="stat-tile p-3"><div class="text-xs text-gray-500">跨季跳过</div><div class="mt-1 text-xl font-semibold text-orange-300" x-text="lastCheckMetric('skipped_other_season_count')"></div></div>
-              <div class="stat-tile p-3"><div class="text-xs text-gray-500">起始集跳过</div><div class="mt-1 text-xl font-semibold text-amber-300" x-text="lastCheckMetric('skipped_before_start_count')"></div></div>
-              <div class="stat-tile p-3"><div class="text-xs text-gray-500">同集跳过</div><div class="mt-1 text-xl font-semibold text-purple-300" x-text="lastCheckMetric('skipped_duplicate_episode_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-muted/75">扫描文件</div><div class="mt-1 text-xl font-semibold text-text" x-text="lastCheckMetric('scanned_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-muted/75">新增</div><div class="mt-1 text-xl font-semibold text-success" x-text="lastCheckMetric('new_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-muted/75">已知</div><div class="mt-1 text-xl font-semibold text-primary" x-text="lastCheckMetric('known_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-muted/75">目录跳过</div><div class="mt-1 text-xl font-semibold text-text/80" x-text="lastCheckMetric('skipped_directory_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-muted/75">跨季跳过</div><div class="mt-1 text-xl font-semibold text-secondary" x-text="lastCheckMetric('skipped_other_season_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-muted/75">起始集跳过</div><div class="mt-1 text-xl font-semibold text-warning" x-text="lastCheckMetric('skipped_before_start_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-muted/75">同集跳过</div><div class="mt-1 text-xl font-semibold text-secondary" x-text="lastCheckMetric('skipped_duplicate_episode_count')"></div></div>
             </div>
-            <div x-show="checkDetailItems().length > 0" class="border border-dark-border rounded-lg overflow-x-auto">
-              <div class="grid grid-cols-12 gap-2 min-w-[760px] px-3 py-2 bg-dark-bg text-xs text-gray-500">
+            <div x-show="checkDetailItems().length > 0" class="border border-border rounded-lg overflow-hidden">
+              <div class="hidden md:grid grid-cols-12 gap-2 px-3 py-2 bg-app text-xs text-muted/75">
                 <div class="col-span-5">文件名</div>
                 <div class="col-span-2">集数</div>
                 <div class="col-span-2">结果</div>
                 <div class="col-span-3">原因</div>
               </div>
               <template x-for="item in checkDetailItems()" :key="item.file_key || item.name">
-                <div class="grid grid-cols-12 gap-2 min-w-[760px] px-3 py-2 border-t border-dark-border text-xs">
-                  <div class="col-span-5">
-                    <div class="text-gray-300 break-all" x-text="item.name"></div>
-                    <div x-show="item.parent_path" class="text-gray-500 break-all mt-1" x-text="item.parent_path"></div>
+                <div class="grid gap-2 px-3 py-3 border-t border-border text-xs md:grid-cols-12">
+                  <div class="md:col-span-5">
+                    <div class="text-text/80 break-all" x-text="item.name"></div>
+                    <div x-show="item.parent_path" class="text-muted/75 break-all mt-1" x-text="item.parent_path"></div>
                   </div>
-                  <div class="col-span-2 text-gray-400" x-text="item.episode ? '第 ' + item.episode + ' 集' : '-'"></div>
-                  <div class="col-span-2"><span :class="checkActionClass(item.action)" x-text="checkActionLabel(item.action)"></span></div>
-                  <div class="col-span-3 text-gray-400 break-all" x-text="item.reason || '-'"></div>
+                  <div class="text-muted md:col-span-2"><span class="text-muted/75 md:hidden">集数 </span><span x-text="item.episode ? '第 ' + item.episode + ' 集' : '-'"></span></div>
+                  <div class="md:col-span-2"><span class="text-muted/75 md:hidden">结果 </span><span :class="checkActionClass(item.action)" x-text="checkActionLabel(item.action)"></span></div>
+                  <div class="text-muted break-all md:col-span-3"><span class="text-muted/75 md:hidden">原因 </span><span x-text="item.reason || '-'"></span></div>
                 </div>
               </template>
             </div>
           </div>
 
           <div class="app-panel list-surface">
-            <div class="p-4 border-b border-dark-border toolbar-panel">
+            <div class="p-4 border-b border-border toolbar-panel">
               <div>
                 <h3 class="section-title">任务日志</h3>
-                <p class="text-sm text-gray-500 mt-1">记录转存、元数据刮削和推送派发等后台任务，排队和运行中的任务可取消，失败任务可重试。</p>
+                <p class="text-sm text-muted/75 mt-1">记录转存、元数据刮削和推送派发等后台任务，排队和运行中的任务可取消，失败任务可重试。</p>
               </div>
               <button @click="loadJobs()" class="btn-secondary px-4 py-2 rounded-lg transition-colors text-sm">刷新任务</button>
             </div>
-            <div class="p-4 border-b border-dark-border grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_180px_180px_auto] gap-3">
-              <input type="search" x-model="backgroundJobQuery" placeholder="搜索标题、消息、错误或任务参数" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" />
-              <select x-model="backgroundJobFilterKind" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white">
+            <div class="p-4 border-b border-border grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_180px_180px_auto] gap-3">
+              <input type="search" x-model="backgroundJobQuery" placeholder="搜索标题、消息、错误或任务参数" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" />
+              <select x-model="backgroundJobFilterKind" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
                 <template x-for="kind in backgroundJobKinds" :key="kind.id">
                   <option :value="kind.id" x-text="kind.name"></option>
                 </template>
               </select>
-              <select x-model="backgroundJobFilterStatus" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white">
+              <select x-model="backgroundJobFilterStatus" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
                 <template x-for="status in backgroundJobStatuses" :key="status.id">
                   <option :value="status.id" x-text="status.name"></option>
                 </template>
               </select>
               <button @click="resetBackgroundJobFilters()" class="btn-secondary px-4 py-2 rounded-lg text-sm">清空筛选</button>
             </div>
-            <div class="divide-y divide-dark-border">
+            <div class="divide-y divide-border">
               <template x-for="job in recentBackgroundJobs" :key="job.id">
-                <div class="p-4 hover:bg-dark-hover transition-colors">
+                <div class="p-4 hover:bg-surface-2 transition-colors">
                   <div class="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
                     <div class="min-w-0">
                       <div class="flex flex-wrap items-center gap-2 mb-2">
                         <span class="px-2 py-1 rounded text-xs" :class="jobStatusClass(job.status)" x-text="jobStatusLabel(job.status)"></span>
-                        <span class="px-2 py-1 rounded text-xs bg-blue-600/20 text-blue-300" x-text="jobKindLabel(job.kind)"></span>
-                        <span class="text-xs text-gray-500" x-text="formatTime(job.created_at)"></span>
+                        <span class="px-2 py-1 rounded text-xs bg-primary/20 text-primary" x-text="jobKindLabel(job.kind)"></span>
+                        <span class="text-xs text-muted/75" x-text="formatTime(job.created_at)"></span>
                       </div>
-                      <h4 class="text-white font-medium" x-text="job.title"></h4>
-                      <p class="text-sm text-gray-400 mt-1" x-text="job.message"></p>
-                      <p x-show="job.error" class="text-sm text-red-300 mt-1 break-all" x-text="job.error"></p>
+                      <h4 class="text-text font-medium" x-text="job.title"></h4>
+                      <p class="text-sm text-muted mt-1" x-text="job.message"></p>
+                      <p x-show="job.error" class="text-sm text-danger mt-1 break-all" x-text="job.error"></p>
                     </div>
                     <div class="w-full md:w-72">
-                      <div class="h-2 rounded bg-dark-bg overflow-hidden border border-dark-border">
-                        <div class="h-full bg-blue-500 transition-all" :style="'width: ' + (job.progress || 0) + '%'"></div>
+                      <div class="h-2 rounded bg-app overflow-hidden border border-border">
+                        <div class="h-full bg-primary transition-all" :style="'width: ' + (job.progress || 0) + '%'"></div>
                       </div>
                       <div class="mt-2 flex items-center justify-between gap-2">
-                        <div class="text-xs text-gray-500" x-text="(job.progress || 0) + '% · ' + jobDurationLabel(job)"></div>
+                        <div class="text-xs text-muted/75" x-text="(job.progress || 0) + '% · ' + jobDurationLabel(job)"></div>
                         <div class="flex items-center gap-2">
                           <button @click="openJobDetail(job)" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">详情</button>
                           <button x-show="canCancelJob(job)" @click="cancelJob(job)" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">取消</button>
@@ -725,7 +744,7 @@
           <div class="app-panel p-4 toolbar-panel">
             <div>
               <h3 class="section-title">通知中心</h3>
-              <p class="text-sm text-gray-500 mt-1">系统通知和推送记录会保留在这里，后台执行过程请查看后台日志。</p>
+              <p class="text-sm text-muted/75 mt-1">系统通知和推送记录会保留在这里，后台执行过程请查看后台日志。</p>
             </div>
             <div class="control-row">
               <button @click="markAllRead()" class="btn-secondary px-4 py-2 rounded-lg transition-colors text-sm">全部已读</button>
@@ -742,37 +761,37 @@
           </div>
           <div class="space-y-3">
             <template x-for="notif in filteredNotifications" :key="notif.id">
-              <div :class="!notif.read ? 'border-blue-500 bg-blue-600/5' : 'border-dark-border'" class="app-panel p-4 border hover:border-blue-500 transition-colors">
+              <div :class="!notif.read ? 'border-primary bg-primary/5' : 'border-border'" class="app-panel p-4 border hover:border-primary transition-colors">
                 <div class="flex flex-col sm:flex-row gap-3 sm:justify-between sm:items-start">
                   <div class="flex-1">
                     <div class="flex flex-wrap items-center gap-2 mb-1">
-                      <span x-show="!notif.read" class="h-2 w-2 rounded-full bg-blue-400"></span>
+                      <span x-show="!notif.read" class="h-2 w-2 rounded-full bg-cyan"></span>
                       <span class="px-2 py-1 rounded text-xs" :class="notificationLevelClass(notif.level)" x-text="notificationLevelLabel(notif.level)"></span>
-                      <span class="px-2 py-1 rounded text-xs bg-blue-600/20 text-blue-300" x-text="notificationEventLabel(notif.event)"></span>
-                      <h4 class="text-white font-medium" x-text="notif.title"></h4>
+                      <span class="px-2 py-1 rounded text-xs bg-primary/20 text-primary" x-text="notificationEventLabel(notif.event)"></span>
+                      <h4 class="text-text font-medium" x-text="notif.title"></h4>
                     </div>
-                    <p class="text-gray-400 text-sm mb-2 break-all" x-text="notif.message"></p>
-                    <div x-show="notif.event === 'push_sent'" class="mb-2 app-panel-soft p-3 text-xs text-gray-300">
+                    <p class="text-muted text-sm mb-2 break-all" x-text="notif.message"></p>
+                    <div x-show="notif.event === 'push_sent'" class="mb-2 app-panel-soft p-3 text-xs text-text/80">
                       <div class="flex flex-wrap gap-2">
                         <template x-for="item in notificationPushChannelStatuses(notif)" :key="item.channel">
-                          <span class="inline-flex items-center gap-1.5 rounded border px-2 py-1" :class="item.success ? 'border-green-500/30 bg-green-600/10 text-green-200' : 'border-red-500/30 bg-red-600/10 text-red-200'">
-                            <span class="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold" :class="item.success ? 'bg-green-500/20 text-green-200' : 'bg-red-500/20 text-red-200'" x-text="item.success ? '✓' : '!'"></span>
+                          <span class="inline-flex items-center gap-1.5 rounded border px-2 py-1" :class="item.success ? 'border-success/30 bg-success/10 text-success/85' : 'border-danger/30 bg-danger/10 text-danger/85'">
+                            <span class="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold" :class="item.success ? 'bg-success/20 text-success/85' : 'bg-danger/20 text-danger/85'" x-text="item.success ? '✓' : '!'"></span>
                             <span x-text="item.name"></span>
-                            <span x-show="item.attempts > 1" class="text-gray-400" x-text="'x' + item.attempts"></span>
+                            <span x-show="item.attempts > 1" class="text-muted" x-text="'x' + item.attempts"></span>
                           </span>
                         </template>
                       </div>
-                      <div class="mt-2 flex flex-wrap gap-2 text-gray-400">
-                        <span>成功: <span class="text-green-300" x-text="(notif.meta || {}).success_count || 0"></span></span>
-                        <span>失败: <span class="text-red-300" x-text="(notif.meta || {}).failed_count || 0"></span></span>
+                      <div class="mt-2 flex flex-wrap gap-2 text-muted">
+                        <span>成功: <span class="text-success" x-text="(notif.meta || {}).success_count || 0"></span></span>
+                        <span>失败: <span class="text-danger" x-text="(notif.meta || {}).failed_count || 0"></span></span>
                       </div>
-                      <div x-show="notificationPushErrors(notif).length > 0" class="mt-2 space-y-1 text-red-200">
+                      <div x-show="notificationPushErrors(notif).length > 0" class="mt-2 space-y-1 text-danger/85">
                         <template x-for="item in notificationPushErrors(notif)" :key="item.channel">
                           <div><span x-text="pushChannelName(item.channel)"></span>: <span x-text="item.error"></span></div>
                         </template>
                       </div>
                     </div>
-                    <span class="text-xs text-gray-500" x-text="formatTime(notif.created_at)"></span>
+                    <span class="text-xs text-muted/75" x-text="formatTime(notif.created_at)"></span>
                   </div>
                   <button x-show="!notif.read" @click="markRead(notif.id)" class="btn-primary px-3 py-2 rounded text-xs transition-colors">标记已读</button>
                 </div>
@@ -787,9 +806,9 @@
 
           <!-- 标签页导航 -->
           <div class="app-panel settings-layout overflow-hidden">
-            <div class="settings-nav border-b border-dark-border flex gap-2 p-3 overflow-x-auto">
+            <div class="settings-nav border-b border-border flex gap-2 p-3 overflow-x-auto">
               <template x-for="tab in settingsTabs" :key="tab.id">
-                <button @click="selectSettingsTab(tab.id)" :class="currentSettingsTab === tab.id ? 'is-active' : 'text-gray-400'" class="settings-tab nav-button px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors">
+                <button @click="selectSettingsTab(tab.id)" :class="currentSettingsTab === tab.id ? 'is-active' : 'text-muted'" class="settings-tab nav-button px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors">
                   <span class="settings-tab-icon" x-text="tab.icon"></span>
                   <span x-text="tab.name"></span>
                 </button>
@@ -802,11 +821,11 @@
               <div class="app-panel-soft p-4 space-y-4">
                 <h3 class="section-title">账号设置</h3>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label class="field-label">用户名</label><input type="text" x-model="settings.app_username" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                  <div><label class="field-label">用户名</label><input type="text" x-model="settings.app_username" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
                   <div>
                     <label class="field-label">密码</label>
                     <div class="setting-input-action">
-                      <input type="text" x-model="settings.app_password" @focus="prepareSecretInput('app_password')" placeholder="留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                      <input type="text" x-model="settings.app_password" @focus="prepareSecretInput('app_password')" placeholder="留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
                       <button type="button" @click="toggleSettingSecret('app_password')" :disabled="secretToggleDisabled('app_password')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('app_password')"></button>
                     </div>
                   </div>
@@ -816,27 +835,27 @@
               <div class="app-panel-soft p-4 space-y-4">
                 <h3 class="section-title">Aria2 配置</h3>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label class="field-label">RPC URL</label><input type="text" x-model="settings.aria2_rpc_url" placeholder="http://localhost:6800/jsonrpc" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                  <div><label class="field-label">RPC URL</label><input type="text" x-model="settings.aria2_rpc_url" placeholder="http://localhost:6800/jsonrpc" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
                   <div>
                     <label class="field-label">Secret</label>
                     <div class="setting-input-action">
-                      <input type="text" x-model="settings.aria2_secret" @focus="prepareSecretInput('aria2_secret')" placeholder="留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                      <input type="text" x-model="settings.aria2_secret" @focus="prepareSecretInput('aria2_secret')" placeholder="留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
                       <button type="button" @click="toggleSettingSecret('aria2_secret')" :disabled="secretToggleDisabled('aria2_secret')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('aria2_secret')"></button>
                     </div>
                   </div>
                 </div>
                 <div class="space-y-4">
-                  <h4 class="text-sm font-medium text-gray-300">目录配置</h4>
+                  <h4 class="text-sm font-medium text-text/80">目录配置</h4>
                   <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div><label class="field-label">电影下载目录</label><input type="text" x-model="settings.aria2_movie_dir" placeholder="/downloads/电影" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-                    <div><label class="field-label">连续剧下载目录</label><input type="text" x-model="settings.aria2_series_dir" placeholder="/downloads/连续剧" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-                    <div><label class="field-label">动画下载目录</label><input type="text" x-model="settings.aria2_anime_dir" placeholder="/downloads/动画" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                    <div><label class="field-label">电影下载目录</label><input type="text" x-model="settings.aria2_movie_dir" placeholder="/downloads/电影" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                    <div><label class="field-label">连续剧下载目录</label><input type="text" x-model="settings.aria2_series_dir" placeholder="/downloads/连续剧" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                    <div><label class="field-label">动画下载目录</label><input type="text" x-model="settings.aria2_anime_dir" placeholder="/downloads/动画" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
                   </div>
                   <div class="space-y-3" x-show="settings.custom_categories && settings.custom_categories.length > 0">
                     <template x-for="category in settings.custom_categories" :key="category.id">
                       <div>
                         <label class="field-label" x-text="(category.name || '自定义类别') + '下载目录'"></label>
-                        <input type="text" x-model="category.aria2_dir" placeholder="/downloads/自定义类别" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                        <input type="text" x-model="category.aria2_dir" placeholder="/downloads/自定义类别" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
                       </div>
                     </template>
                   </div>
@@ -848,7 +867,7 @@
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <label class="field-label">提供方</label>
-                    <select x-model="settings.metadata_provider" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white">
+                    <select x-model="settings.metadata_provider" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text">
                       <option value="tmdb">TMDB</option>
                       <option value="douban">豆瓣</option>
                       <option value="none">关闭</option>
@@ -857,15 +876,15 @@
                   <div>
                     <label class="field-label">TMDB API Key</label>
                     <div class="setting-input-action">
-                      <input type="text" x-model="settings.tmdb_api_key" @focus="prepareSecretInput('tmdb_api_key')" placeholder="留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                      <input type="text" x-model="settings.tmdb_api_key" @focus="prepareSecretInput('tmdb_api_key')" placeholder="留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
                       <button type="button" @click="toggleSettingSecret('tmdb_api_key')" :disabled="secretToggleDisabled('tmdb_api_key')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('tmdb_api_key')"></button>
                     </div>
                   </div>
-                  <div><label class="field-label">TMDB 语言</label><input type="text" x-model="settings.tmdb_language" placeholder="zh-CN" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                  <div><label class="field-label">TMDB 语言</label><input type="text" x-model="settings.tmdb_language" placeholder="zh-CN" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
                 </div>
               </div>
 
-              <div class="flex justify-end gap-3 pt-4 border-t border-dark-border">
+              <div class="flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="testAria2()" class="btn-secondary px-4 py-2 rounded-lg">测试 Aria2</button>
                 <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
@@ -878,18 +897,18 @@
                 <div>
                   <label class="field-label">夸克 Cookie</label>
                   <div class="setting-input-action">
-                    <input type="text" x-model="settings.quark_cookie" @focus="prepareSecretInput('quark_cookie')" placeholder="粘贴夸克 Cookie，留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                    <input type="text" x-model="settings.quark_cookie" @focus="prepareSecretInput('quark_cookie')" placeholder="粘贴夸克 Cookie，留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
                     <button type="button" @click="toggleSettingSecret('quark_cookie')" :disabled="secretToggleDisabled('quark_cookie')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('quark_cookie')"></button>
                   </div>
                 </div>
-                <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.quark_save_enabled" class="rounded" />启用自动转存</label>
+                <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.quark_save_enabled" class="rounded" />启用自动转存</label>
               </div>
 
               <div class="app-panel-soft p-4 space-y-4">
                 <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div>
                     <h3 class="section-title">夸克账号健康</h3>
-                    <p class="text-sm text-gray-500 mt-1">检查 Cookie 可用性、自动转存开关和最近签到状态。</p>
+                    <p class="text-sm text-muted/75 mt-1">检查 Cookie 可用性、自动转存开关和最近签到状态。</p>
                   </div>
                   <button type="button" @click="refreshQuarkHealth()" :disabled="quarkHealthLoading" class="btn-secondary px-4 py-2 rounded-lg text-sm disabled:opacity-50">
                     <span x-show="!quarkHealthLoading">检测账号</span>
@@ -898,31 +917,31 @@
                 </div>
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div class="stat-tile p-4">
-                    <div class="text-xs text-gray-500">连接状态</div>
+                    <div class="text-xs text-muted/75">连接状态</div>
                     <div class="mt-2 text-xl font-semibold" :class="quarkHealthStatusClass()" x-text="quarkHealthStatusLabel()"></div>
                   </div>
                   <div class="stat-tile p-4">
-                    <div class="text-xs text-gray-500">自动转存</div>
-                    <div class="mt-2 text-xl font-semibold" :class="settings.quark_save_enabled ? 'text-green-300' : 'text-gray-300'" x-text="settings.quark_save_enabled ? '已启用' : '未启用'"></div>
+                    <div class="text-xs text-muted/75">自动转存</div>
+                    <div class="mt-2 text-xl font-semibold" :class="settings.quark_save_enabled ? 'text-success' : 'text-text/80'" x-text="settings.quark_save_enabled ? '已启用' : '未启用'"></div>
                   </div>
                   <div class="stat-tile p-4">
-                    <div class="text-xs text-gray-500">连签进度</div>
-                    <div class="mt-2 text-xl font-semibold text-blue-300" x-text="quarkSigninProgressLabel()"></div>
+                    <div class="text-xs text-muted/75">连签进度</div>
+                    <div class="mt-2 text-xl font-semibold text-primary" x-text="quarkSigninProgressLabel()"></div>
                   </div>
                   <div class="stat-tile p-4">
-                    <div class="text-xs text-gray-500">总容量</div>
-                    <div class="mt-2 text-xl font-semibold text-white" x-text="quarkCapacityLabel()"></div>
+                    <div class="text-xs text-muted/75">总容量</div>
+                    <div class="mt-2 text-xl font-semibold text-text" x-text="quarkCapacityLabel()"></div>
                   </div>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                   <div class="app-panel-soft p-3">
-                    <div class="text-xs text-gray-500 mb-1">检测结果</div>
-                    <div class="text-gray-300 break-all" x-text="quarkHealth.message"></div>
-                    <div class="text-xs text-gray-500 mt-1" x-text="quarkHealth.checkedAt ? '检测时间 ' + formatTime(quarkHealth.checkedAt) : '尚未检测'"></div>
+                    <div class="text-xs text-muted/75 mb-1">检测结果</div>
+                    <div class="text-text/80 break-all" x-text="quarkHealth.message"></div>
+                    <div class="text-xs text-muted/75 mt-1" x-text="quarkHealth.checkedAt ? '检测时间 ' + formatTime(quarkHealth.checkedAt) : '尚未检测'"></div>
                   </div>
                   <div class="app-panel-soft p-3">
-                    <div class="text-xs text-gray-500 mb-1">签到结果</div>
-                    <div class="text-gray-300 break-all" x-text="quarkHealth.signinMessage || '尚未签到'"></div>
+                    <div class="text-xs text-muted/75 mb-1">签到结果</div>
+                    <div class="text-text/80 break-all" x-text="quarkHealth.signinMessage || '尚未签到'"></div>
                   </div>
                 </div>
               </div>
@@ -939,49 +958,49 @@
                   <div class="md:col-span-2">
                     <label class="field-label">签到 Cookie</label>
                     <div class="setting-input-action">
-                      <input type="text" x-model="settings.quark_signin_cookie" @focus="prepareSecretInput('quark_signin_cookie')" placeholder="粘贴移动端 Cookie 或 reward 请求 URL，留空使用上方夸克 Cookie" class="min-w-0 flex-1 px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                      <input type="text" x-model="settings.quark_signin_cookie" @focus="prepareSecretInput('quark_signin_cookie')" placeholder="粘贴移动端 Cookie 或 reward 请求 URL，留空使用上方夸克 Cookie" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
                       <button type="button" @click="toggleSettingSecret('quark_signin_cookie')" :disabled="secretToggleDisabled('quark_signin_cookie')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('quark_signin_cookie')"></button>
                     </div>
-                    <p class="text-xs text-gray-500 mt-2">可粘贴 <code class="text-gray-300">kps=...; sign=...; vcode=...</code>，也可直接粘贴手机端抓包到的 <code class="text-gray-300">drive-m.quark.cn/.../act/growth/reward</code> 整段 URL。</p>
+                    <p class="text-xs text-muted/75 mt-2">可粘贴 <code class="text-text/80">kps=...; sign=...; vcode=...</code>，也可直接粘贴手机端抓包到的 <code class="text-text/80">drive-m.quark.cn/.../act/growth/reward</code> 整段 URL。</p>
                   </div>
-                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.quark_signin_enabled" class="rounded" />启用每日自动签到</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.quark_signin_enabled" class="rounded" />启用每日自动签到</label>
                   <div>
                     <label class="field-label">执行时间</label>
                     <div class="flex items-center gap-2">
-                      <input type="number" x-model.number="settings.quark_signin_hour" min="0" max="23" step="1" @change="sanitizeQuarkSigninHour()" class="w-28 px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
-                      <span class="text-sm text-gray-400">:00</span>
+                      <input type="number" x-model.number="settings.quark_signin_hour" min="0" max="23" step="1" @change="sanitizeQuarkSigninHour()" class="w-28 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                      <span class="text-sm text-muted">:00</span>
                     </div>
                   </div>
                 </div>
-                <p class="text-xs text-gray-500">签到依赖移动端参数 kps、sign、vcode；签到 Cookie 留空时使用上方夸克 Cookie。</p>
+                <p class="text-xs text-muted/75">签到依赖移动端参数 kps、sign、vcode；签到 Cookie 留空时使用上方夸克 Cookie。</p>
               </div>
 
               <div class="app-panel-soft p-4 space-y-4">
                 <div class="flex items-center justify-between gap-3">
                   <h3 class="section-title">目录配置</h3>
-                  <button type="button" @click="addCustomCategory()" class="btn-secondary w-9 h-9 rounded-lg grid place-items-center transition-colors" title="添加自定义类别">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                  <button type="button" @click="addCustomCategory()" class="btn-secondary w-9 h-9 rounded-lg grid place-items-center transition-colors" aria-label="添加自定义类别" title="添加自定义类别">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
                   </button>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div class="md:col-span-3"><label class="field-label">默认根目录</label><input type="text" x-model="settings.quark_save_root" placeholder="/NAS" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-                  <div><label class="field-label">电影目录</label><input type="text" x-model="settings.quark_save_movie_dir" placeholder="/电影" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-                  <div><label class="field-label">连续剧目录</label><input type="text" x-model="settings.quark_save_series_dir" placeholder="/连续剧" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-                  <div><label class="field-label">动画目录</label><input type="text" x-model="settings.quark_save_anime_dir" placeholder="/动画" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                  <div class="md:col-span-3"><label class="field-label">默认根目录</label><input type="text" x-model="settings.quark_save_root" placeholder="/NAS" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                  <div><label class="field-label">电影目录</label><input type="text" x-model="settings.quark_save_movie_dir" placeholder="/电影" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                  <div><label class="field-label">连续剧目录</label><input type="text" x-model="settings.quark_save_series_dir" placeholder="/连续剧" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                  <div><label class="field-label">动画目录</label><input type="text" x-model="settings.quark_save_anime_dir" placeholder="/动画" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
                 </div>
                 <div class="space-y-3" x-show="settings.custom_categories && settings.custom_categories.length > 0">
                   <template x-for="(category, index) in settings.custom_categories" :key="category.id">
                     <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] gap-3 md:items-end">
                       <div>
                         <label class="field-label">类别名称</label>
-                        <input type="text" x-model="category.name" placeholder="纪录片" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                        <input type="text" x-model="category.name" placeholder="纪录片" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
                       </div>
                       <div>
                         <label class="field-label">目录</label>
-                        <input type="text" x-model="category.dir" placeholder="/纪录片" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                        <input type="text" x-model="category.dir" placeholder="/纪录片" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
                       </div>
-                      <button type="button" @click="removeCustomCategory(index)" class="btn-secondary h-10 px-3 rounded-lg grid place-items-center transition-colors" title="删除自定义类别">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 13h8l1-13" /></svg>
+                      <button type="button" @click="removeCustomCategory(index)" class="btn-secondary h-10 px-3 rounded-lg grid place-items-center transition-colors" aria-label="删除自定义类别" title="删除自定义类别">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 13h8l1-13" /></svg>
                       </button>
                     </div>
                   </template>
@@ -990,22 +1009,22 @@
 
               <div class="app-panel-soft p-4 space-y-4">
                 <h3 class="section-title">STRM 配置</h3>
-                <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.strm_enabled" class="rounded" />启用 STRM 文件生成</label>
+                <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.strm_enabled" class="rounded" />启用 STRM 文件生成</label>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label class="field-label">输出目录</label><input type="text" x-model="settings.strm_output_dir" placeholder="/media/strm" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
-                  <div><label class="field-label">HTTPStrm 访问地址</label><input type="text" x-model="settings.strm_public_base_url" placeholder="http://192.168.1.10:56001" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                  <div><label class="field-label">输出目录</label><input type="text" x-model="settings.strm_output_dir" placeholder="/media/strm" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                  <div><label class="field-label">HTTPStrm 访问地址</label><input type="text" x-model="settings.strm_public_base_url" placeholder="http://192.168.1.10:56001" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
                 </div>
                 <div>
                   <label class="field-label">访问 Token</label>
                   <div class="setting-input-action">
-                    <input type="text" x-model="settings.strm_access_token" @focus="prepareSecretInput('strm_access_token')" placeholder="留空自动生成" class="min-w-0 flex-1 px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                    <input type="text" x-model="settings.strm_access_token" @focus="prepareSecretInput('strm_access_token')" placeholder="留空自动生成" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
                     <button type="button" @click="toggleSettingSecret('strm_access_token')" :disabled="secretToggleDisabled('strm_access_token')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('strm_access_token')"></button>
                   </div>
-                  <p class="text-xs text-gray-500 mt-2">生成的 .strm 内容会指向本服务的 HTTPStrm 链接；媒体服务器需要能访问上面的地址。</p>
+                  <p class="text-xs text-muted/75 mt-2">生成的 .strm 内容会指向本服务的 HTTPStrm 链接；媒体服务器需要能访问上面的地址。</p>
                 </div>
               </div>
 
-              <div class="flex justify-end gap-3 pt-4 border-t border-dark-border">
+              <div class="flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="testQuark()" class="btn-secondary px-4 py-2 rounded-lg">测试连接</button>
                 <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
@@ -1016,13 +1035,13 @@
               <div class="app-panel-soft p-4 space-y-4">
                 <h3 class="section-title">推送事件</h3>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.push_on_update" class="rounded" />订阅更新</label>
-                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.push_on_failed" class="rounded" />订阅失效</label>
-                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.push_on_completed" class="rounded" />订阅完结</label>
-                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.push_on_save" class="rounded" />转存完成</label>
-                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.push_on_download_completed" class="rounded" />下载完成</label>
-                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.push_on_quark_signin" class="rounded" />夸克签到</label>
-                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.push_silent" class="rounded" />静默推送</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.push_on_update" class="rounded" />订阅更新</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.push_on_failed" class="rounded" />订阅失效</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.push_on_completed" class="rounded" />订阅完结</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.push_on_save" class="rounded" />转存完成</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.push_on_download_completed" class="rounded" />下载完成</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.push_on_quark_signin" class="rounded" />夸克签到</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.push_silent" class="rounded" />静默推送</label>
                 </div>
               </div>
 
@@ -1031,77 +1050,77 @@
                 <h3 class="section-title">推送渠道</h3>
 
                 <!-- 企业微信 -->
-                <details class="bg-dark-hover rounded-lg p-4">
-                  <summary class="cursor-pointer font-medium text-white">企业微信</summary>
+                <details class="bg-surface-2 rounded-lg p-4">
+                  <summary class="cursor-pointer font-medium text-text">企业微信</summary>
                   <div class="mt-3">
                     <label class="field-label">Webhook URL</label>
                     <div class="setting-input-action">
-                      <input type="text" x-model="settings.wecom_bot_url" @focus="prepareSecretInput('wecom_bot_url')" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." class="min-w-0 flex-1 px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                      <input type="text" x-model="settings.wecom_bot_url" @focus="prepareSecretInput('wecom_bot_url')" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
                       <button type="button" @click="toggleSettingSecret('wecom_bot_url')" :disabled="secretToggleDisabled('wecom_bot_url')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('wecom_bot_url')"></button>
                     </div>
                   </div>
                 </details>
 
                 <!-- Telegram -->
-                <details class="bg-dark-hover rounded-lg p-4">
-                  <summary class="cursor-pointer font-medium text-white">Telegram</summary>
+                <details class="bg-surface-2 rounded-lg p-4">
+                  <summary class="cursor-pointer font-medium text-text">Telegram</summary>
                   <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label class="field-label">Bot Token</label>
                       <div class="setting-input-action">
-                        <input type="text" x-model="settings.telegram_bot_token" @focus="prepareSecretInput('telegram_bot_token')" placeholder="123456:ABC-DEF..." class="min-w-0 flex-1 px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                        <input type="text" x-model="settings.telegram_bot_token" @focus="prepareSecretInput('telegram_bot_token')" placeholder="123456:ABC-DEF..." class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
                         <button type="button" @click="toggleSettingSecret('telegram_bot_token')" :disabled="secretToggleDisabled('telegram_bot_token')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('telegram_bot_token')"></button>
                       </div>
                     </div>
-                    <div><label class="field-label">Chat ID</label><input type="text" x-model="settings.telegram_chat_id" placeholder="你的 Chat ID" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                    <div><label class="field-label">Chat ID</label><input type="text" x-model="settings.telegram_chat_id" placeholder="你的 Chat ID" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
                   </div>
                 </details>
 
                 <!-- WxPusher -->
-                <details class="bg-dark-hover rounded-lg p-4">
-                  <summary class="cursor-pointer font-medium text-white">WxPusher</summary>
+                <details class="bg-surface-2 rounded-lg p-4">
+                  <summary class="cursor-pointer font-medium text-text">WxPusher</summary>
                   <div class="mt-3 space-y-3">
                     <div>
                       <label class="field-label">App Token</label>
                       <div class="setting-input-action">
-                        <input type="text" x-model="settings.wxpusher_app_token" @focus="prepareSecretInput('wxpusher_app_token')" placeholder="AT_xxx" class="min-w-0 flex-1 px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                        <input type="text" x-model="settings.wxpusher_app_token" @focus="prepareSecretInput('wxpusher_app_token')" placeholder="AT_xxx" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
                         <button type="button" @click="toggleSettingSecret('wxpusher_app_token')" :disabled="secretToggleDisabled('wxpusher_app_token')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('wxpusher_app_token')"></button>
                       </div>
                     </div>
-                    <div><label class="field-label">用户 UIDs（多个用逗号分隔）</label><input type="text" x-model="settings.wxpusher_uids" placeholder="UID_xxx,UID_yyy" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                    <div><label class="field-label">用户 UIDs（多个用逗号分隔）</label><input type="text" x-model="settings.wxpusher_uids" placeholder="UID_xxx,UID_yyy" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
                   </div>
                 </details>
 
                 <!-- 其他渠道 -->
-                <details class="bg-dark-hover rounded-lg p-4">
-                  <summary class="cursor-pointer font-medium text-white">其他渠道</summary>
+                <details class="bg-surface-2 rounded-lg p-4">
+                  <summary class="cursor-pointer font-medium text-text">其他渠道</summary>
                   <div class="mt-3 space-y-3">
                     <div>
                       <label class="field-label">Bark URL</label>
                       <div class="setting-input-action">
-                        <input type="text" x-model="settings.bark_url" @focus="prepareSecretInput('bark_url')" placeholder="https://api.day.app/your_key" class="min-w-0 flex-1 px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                        <input type="text" x-model="settings.bark_url" @focus="prepareSecretInput('bark_url')" placeholder="https://api.day.app/your_key" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
                         <button type="button" @click="toggleSettingSecret('bark_url')" :disabled="secretToggleDisabled('bark_url')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('bark_url')"></button>
                       </div>
                     </div>
                     <div>
                       <label class="field-label">Server酱 SendKey</label>
                       <div class="setting-input-action">
-                        <input type="text" x-model="settings.serverchan_key" @focus="prepareSecretInput('serverchan_key')" placeholder="SCTxxxxxx" class="min-w-0 flex-1 px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                        <input type="text" x-model="settings.serverchan_key" @focus="prepareSecretInput('serverchan_key')" placeholder="SCTxxxxxx" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
                         <button type="button" @click="toggleSettingSecret('serverchan_key')" :disabled="secretToggleDisabled('serverchan_key')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('serverchan_key')"></button>
                       </div>
                     </div>
-                    <div><label class="field-label">Gotify URL</label><input type="text" x-model="settings.gotify_url" placeholder="https://gotify.example.com" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" /></div>
+                    <div><label class="field-label">Gotify URL</label><input type="text" x-model="settings.gotify_url" placeholder="https://gotify.example.com" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
                     <div>
                       <label class="field-label">Gotify Token</label>
                       <div class="setting-input-action">
-                        <input type="text" x-model="settings.gotify_token" @focus="prepareSecretInput('gotify_token')" placeholder="A..." class="min-w-0 flex-1 px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                        <input type="text" x-model="settings.gotify_token" @focus="prepareSecretInput('gotify_token')" placeholder="A..." class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
                         <button type="button" @click="toggleSettingSecret('gotify_token')" :disabled="secretToggleDisabled('gotify_token')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('gotify_token')"></button>
                       </div>
                     </div>
                     <div>
                       <label class="field-label">PushPlus Token</label>
                       <div class="setting-input-action">
-                        <input type="text" x-model="settings.pushplus_token" @focus="prepareSecretInput('pushplus_token')" placeholder="pushplus token" class="min-w-0 flex-1 px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                        <input type="text" x-model="settings.pushplus_token" @focus="prepareSecretInput('pushplus_token')" placeholder="pushplus token" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
                         <button type="button" @click="toggleSettingSecret('pushplus_token')" :disabled="secretToggleDisabled('pushplus_token')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('pushplus_token')"></button>
                       </div>
                     </div>
@@ -1120,7 +1139,7 @@
                 </div>
               </div>
 
-              <div class="flex justify-end gap-3 pt-4 border-t border-dark-border">
+              <div class="flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="testPush()" class="btn-secondary px-4 py-2 rounded-lg">测试推送</button>
                 <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
@@ -1133,7 +1152,7 @@
                 <div class="space-y-3">
                   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                     <label class="field-label mb-0">检查周期</label>
-                    <span class="text-xs text-gray-500" x-text="'当前每 ' + checkIntervalLabel(settings.subscription_check_interval_minutes) + ' 检查一次'"></span>
+                    <span class="text-xs text-muted/75" x-text="'当前每 ' + checkIntervalLabel(settings.subscription_check_interval_minutes) + ' 检查一次'"></span>
                   </div>
                   <div class="flex flex-wrap gap-2">
                     <template x-for="minutes in checkIntervalPresets" :key="minutes">
@@ -1142,29 +1161,29 @@
                   </div>
                   <div>
                     <label class="field-label">自定义分钟数</label>
-                    <input type="number" x-model.number="settings.subscription_check_interval_minutes" min="5" step="5" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
-                    <p class="text-xs text-gray-500 mt-2">最小 5 分钟，保存后调度器会按新的周期重新加载。</p>
+                    <input type="number" x-model.number="settings.subscription_check_interval_minutes" min="5" step="5" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                    <p class="text-xs text-muted/75 mt-2">最小 5 分钟，保存后调度器会按新的周期重新加载。</p>
                   </div>
                 </div>
-                <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.subscription_scheduler_enabled" class="rounded" />启用自动检查</label>
-                <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.auto_download_new_subscription_items" class="rounded" />自动下载新订阅项</label>
+                <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.subscription_scheduler_enabled" class="rounded" />启用自动检查</label>
+                <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.auto_download_new_subscription_items" class="rounded" />自动下载新订阅项</label>
               </div>
 
               <div class="app-panel-soft p-4 space-y-4">
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <h3 class="section-title">命名规则</h3>
-                    <p class="text-sm text-gray-500 mt-1">默认重命名模板和规则预览统一在规则中心维护。</p>
+                    <p class="text-sm text-muted/75 mt-1">默认重命名模板和规则预览统一在规则中心维护。</p>
                   </div>
                   <button type="button" @click="openRuleCenter()" class="btn-secondary px-4 py-2 rounded-lg text-sm">打开规则中心</button>
                 </div>
-                <div class="border-t border-dark-border pt-3 text-sm">
-                  <div class="text-xs text-gray-500 mb-1">当前默认模板</div>
-                  <div class="text-gray-300 break-all" x-text="defaultRenameTemplateLabel()"></div>
+                <div class="border-t border-border pt-3 text-sm">
+                  <div class="text-xs text-muted/75 mb-1">当前默认模板</div>
+                  <div class="text-text/80 break-all" x-text="defaultRenameTemplateLabel()"></div>
                 </div>
               </div>
 
-              <div class="flex justify-end gap-3 pt-4 border-t border-dark-border">
+              <div class="flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
@@ -1175,7 +1194,7 @@
                 <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div>
                     <h3 class="section-title">命名规则中心</h3>
-                    <p class="text-sm text-gray-500 mt-1">集中调试追剧命名模板、过滤规则和样例文件，确认后可写入默认模板或在订阅弹窗中套用。</p>
+                    <p class="text-sm text-muted/75 mt-1">集中调试追剧命名模板、过滤规则和样例文件，确认后可写入默认模板或在订阅弹窗中套用。</p>
                   </div>
                   <div class="flex flex-col sm:flex-row gap-2">
                     <button @click="useRuleCenterAsDefaultTemplate()" class="btn-secondary px-4 py-2 rounded-lg text-sm">写入默认模板</button>
@@ -1188,8 +1207,8 @@
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                   <template x-for="preset in rulePresets" :key="preset.id">
                     <button @click="applyRulePresetToRuleCenter(preset.id)" class="btn-secondary p-3 rounded-lg text-left min-h-20">
-                      <span class="block text-sm text-white font-medium" x-text="preset.name"></span>
-                      <span class="block text-xs text-gray-500 mt-1" x-text="preset.description"></span>
+                      <span class="block text-sm text-text font-medium" x-text="preset.name"></span>
+                      <span class="block text-xs text-muted/75 mt-1" x-text="preset.description"></span>
                     </button>
                   </template>
                 </div>
@@ -1200,7 +1219,7 @@
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <label class="field-label">媒体类型</label>
-                    <select x-model="ruleCenter.media_type" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white">
+                    <select x-model="ruleCenter.media_type" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
                       <option value="movie">电影</option>
                       <option value="series">连续剧</option>
                       <option value="anime">动画</option>
@@ -1208,24 +1227,24 @@
                   </div>
                   <div>
                     <label class="field-label">标题样例</label>
-                    <input type="text" x-model="ruleCenter.title" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" />
+                    <input type="text" x-model="ruleCenter.title" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" />
                   </div>
                   <div>
                     <label class="field-label">季号</label>
-                    <input type="number" min="1" x-model="ruleCenter.season" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" />
+                    <input type="number" min="1" x-model="ruleCenter.season" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" />
                   </div>
                   <div class="md:col-span-3">
                     <label class="field-label">重命名模板</label>
-                    <input type="text" x-model="ruleCenter.rename_template" placeholder="{title}.S{season}E{episode}.{ext}" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" />
+                    <input type="text" x-model="ruleCenter.rename_template" placeholder="{title}.S{season}E{episode}.{ext}" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" />
                   </div>
-                  <div><label class="field-label">包含关键词</label><input type="text" x-model="ruleCenter.include_keywords_text" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="多个用逗号或换行分隔" /></div>
-                  <div><label class="field-label">排除关键词</label><input type="text" x-model="ruleCenter.exclude_keywords_text" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="预告, 花絮, trailer" /></div>
-                  <div><label class="field-label">匹配正则</label><input type="text" x-model="ruleCenter.match_regex" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：S01E\\d+|第\\d+集" /></div>
-                  <div><label class="field-label">重命名正则</label><input type="text" x-model="ruleCenter.rename_regex" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" /></div>
-                  <div><label class="field-label">替换文本</label><input type="text" x-model="ruleCenter.rename_replacement" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" /></div>
+                  <div><label class="field-label">包含关键词</label><input type="text" x-model="ruleCenter.include_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="多个用逗号或换行分隔" /></div>
+                  <div><label class="field-label">排除关键词</label><input type="text" x-model="ruleCenter.exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="预告, 花絮, trailer" /></div>
+                  <div><label class="field-label">匹配正则</label><input type="text" x-model="ruleCenter.match_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：S01E\\d+|第\\d+集" /></div>
+                  <div><label class="field-label">重命名正则</label><input type="text" x-model="ruleCenter.rename_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" /></div>
+                  <div><label class="field-label">替换文本</label><input type="text" x-model="ruleCenter.rename_replacement" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" /></div>
                   <div>
                     <label class="field-label">同集保留策略</label>
-                    <select x-model="ruleCenter.duplicate_episode_strategy" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white">
+                    <select x-model="ruleCenter.duplicate_episode_strategy" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
                       <option value="highest_quality">清晰度最高</option>
                       <option value="latest_upload">上传时间最新</option>
                       <option value="largest_size">文件最大</option>
@@ -1234,9 +1253,9 @@
                   </div>
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="ruleCenter.ignore_extensions" class="rounded" />忽略扩展名匹配</label>
-                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="ruleCenter.only_latest" class="rounded" />仅处理最新一集</label>
-                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="ruleCenter.skip_existing_transferred" class="rounded" />跳过已转存</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="ruleCenter.ignore_extensions" class="rounded" />忽略扩展名匹配</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="ruleCenter.only_latest" class="rounded" />仅处理最新一集</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="ruleCenter.skip_existing_transferred" class="rounded" />跳过已转存</label>
                 </div>
               </div>
 
@@ -1244,33 +1263,33 @@
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h3 class="section-title">样例预览</h3>
-                    <p class="text-sm text-gray-500 mt-1">每行一个文件名，用于验证集数识别、过滤和目标文件名。</p>
+                    <p class="text-sm text-muted/75 mt-1">每行一个文件名，用于验证集数识别、过滤和目标文件名。</p>
                   </div>
                   <button @click="copyText(ruleCenter.rename_template)" class="btn-secondary px-3 py-2 rounded text-sm">复制模板</button>
                 </div>
-                <textarea x-model="ruleCenter.samples" rows="5" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white"></textarea>
-                <div x-show="ruleCenterPreviewError" class="text-sm text-red-300" x-text="ruleCenterPreviewError"></div>
-                <div x-show="ruleCenterPreview && ruleCenterPreview.items && ruleCenterPreview.items.length > 0" class="border border-dark-border rounded-lg overflow-x-auto">
-                  <div class="grid grid-cols-12 gap-2 min-w-[720px] px-3 py-2 bg-dark-bg text-xs text-gray-500">
+                <textarea x-model="ruleCenter.samples" rows="5" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text"></textarea>
+                <div x-show="ruleCenterPreviewError" class="text-sm text-danger" x-text="ruleCenterPreviewError"></div>
+                <div x-show="ruleCenterPreview && ruleCenterPreview.items && ruleCenterPreview.items.length > 0" class="border border-border rounded-lg overflow-hidden">
+                  <div class="hidden md:grid grid-cols-12 gap-2 px-3 py-2 bg-app text-xs text-muted/75">
                     <div class="col-span-4">原文件名</div>
                     <div class="col-span-4">目标文件名</div>
                     <div class="col-span-2">集数</div>
                     <div class="col-span-2">结果</div>
                   </div>
                   <template x-for="item in ruleCenterPreview.items" :key="item.source_name + '-' + item.target_name">
-                    <div class="grid grid-cols-12 gap-2 min-w-[720px] px-3 py-2 border-t border-dark-border text-xs">
-                      <div class="col-span-4 text-gray-300 break-all" x-text="item.source_name"></div>
-                      <div class="col-span-4 text-green-300 break-all" x-text="item.target_name"></div>
-                      <div class="col-span-2 text-gray-400" x-text="item.episode ? '第 ' + item.episode + ' 集' : '-'"></div>
-                      <div class="col-span-2">
-                        <span :class="item.action === 'transfer' ? 'text-green-300' : 'text-amber-300'" x-text="item.action === 'transfer' ? '会转存' : (item.skip_reason || '跳过')"></span>
+                    <div class="grid gap-2 px-3 py-3 border-t border-border text-xs md:grid-cols-12">
+                      <div class="text-text/80 break-all md:col-span-4" x-text="item.source_name"></div>
+                      <div class="text-success break-all md:col-span-4" x-text="item.target_name"></div>
+                      <div class="text-muted md:col-span-2"><span class="text-muted/75 md:hidden">集数 </span><span x-text="item.episode ? '第 ' + item.episode + ' 集' : '-'"></span></div>
+                      <div class="md:col-span-2">
+                        <span :class="item.action === 'transfer' ? 'text-success' : 'text-warning'" x-text="item.action === 'transfer' ? '会转存' : (item.skip_reason || '跳过')"></span>
                       </div>
                     </div>
                   </template>
                 </div>
               </div>
 
-              <div class="flex justify-end gap-3 pt-4 border-t border-dark-border">
+              <div class="flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
@@ -1282,22 +1301,22 @@
                 <div>
                   <div class="flex items-center justify-between gap-3">
                     <label class="field-label">PanSou API URL</label>
-                    <span class="text-xs text-gray-500" x-text="settings.pansou_api_url_configured ? '已配置' : '未配置'"></span>
+                    <span class="text-xs text-muted/75" x-text="settings.pansou_api_url_configured ? '已配置' : '未配置'"></span>
                   </div>
                   <div class="setting-input-action">
-                    <input type="text" x-model="settings.pansou_api_url" @focus="prepareSecretInput('pansou_api_url')" :placeholder="settings.pansou_api_url_configured ? '已配置，留空不修改' : '留空使用内置服务，或粘贴自建 API URL'" class="min-w-0 flex-1 px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+                    <input type="text" x-model="settings.pansou_api_url" @focus="prepareSecretInput('pansou_api_url')" :placeholder="settings.pansou_api_url_configured ? '已配置，留空不修改' : '留空使用内置服务，或粘贴自建 API URL'" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
                     <button type="button" @click="toggleSettingSecret('pansou_api_url')" :disabled="secretToggleDisabled('pansou_api_url')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('pansou_api_url')"></button>
                   </div>
-                  <p class="text-xs text-gray-500 mt-2">保存后新的资源搜索会使用该地址；留空时使用内置默认服务。</p>
+                  <p class="text-xs text-muted/75 mt-2">保存后新的资源搜索会使用该地址；留空时使用内置默认服务。</p>
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.check_links" class="rounded" />默认检测链接有效性</label>
-                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.probe_quark_files" class="rounded" />默认嗅探文件列表</label>
-                  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="settings.filter_bad_links" class="rounded" />默认过滤失效链接</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.check_links" class="rounded" />默认检测链接有效性</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.probe_quark_files" class="rounded" />默认嗅探文件列表</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.filter_bad_links" class="rounded" />默认过滤失效链接</label>
                 </div>
               </div>
 
-              <div class="flex justify-end gap-3 pt-4 border-t border-dark-border">
+              <div class="flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
@@ -1306,20 +1325,20 @@
             <div x-show="currentSettingsTab === 'update'" class="p-4 sm:p-6 space-y-6">
               <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <div class="stat-tile p-4">
-                  <div class="text-xs text-gray-500">当前版本</div>
-                  <div class="mt-2 text-lg font-semibold text-white" x-text="updateInfo ? updateInfo.current_version : '-'"></div>
+                  <div class="text-xs text-muted/75">当前版本</div>
+                  <div class="mt-2 text-lg font-semibold text-text" x-text="updateInfo ? updateInfo.current_version : '-'"></div>
                 </div>
                 <div class="stat-tile p-4">
-                  <div class="text-xs text-gray-500">最新版本</div>
-                  <div class="mt-2 text-lg font-semibold text-white" x-text="updateInfo ? updateInfo.latest_tag : '-'"></div>
+                  <div class="text-xs text-muted/75">最新版本</div>
+                  <div class="mt-2 text-lg font-semibold text-text" x-text="updateInfo ? updateInfo.latest_tag : '-'"></div>
                 </div>
                 <div class="stat-tile p-4">
-                  <div class="text-xs text-gray-500">状态</div>
+                  <div class="text-xs text-muted/75">状态</div>
                   <div class="mt-2 text-lg font-semibold" :class="updateStatusClass()" x-text="updateStatusLabel()"></div>
                 </div>
                 <div class="stat-tile p-4">
-                  <div class="text-xs text-gray-500">运行方式</div>
-                  <div class="mt-2 text-lg font-semibold text-white" x-text="updateRuntimeLabel()"></div>
+                  <div class="text-xs text-muted/75">运行方式</div>
+                  <div class="mt-2 text-lg font-semibold text-text" x-text="updateRuntimeLabel()"></div>
                 </div>
               </div>
 
@@ -1327,7 +1346,7 @@
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h3 class="section-title">版本检查</h3>
-                    <p class="text-sm text-gray-500 mt-1" x-text="updateInfo ? '检查时间 ' + formatUpdateTime(updateInfo.checked_at) : '尚未检查'"></p>
+                    <p class="text-sm text-muted/75 mt-1" x-text="updateInfo ? '检查时间 ' + formatUpdateTime(updateInfo.checked_at) : '尚未检查'"></p>
                   </div>
                   <div class="flex flex-col sm:flex-row gap-2">
                     <button @click="checkUpdate()" :disabled="updateLoading || updateApplying" class="btn-secondary px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
@@ -1341,13 +1360,13 @@
                   </div>
                 </div>
 
-                <div x-show="updateError" class="text-sm text-red-300 break-all" x-text="updateError"></div>
+                <div x-show="updateError" class="text-sm text-danger break-all" x-text="updateError"></div>
 
                 <div class="app-panel-soft p-4 space-y-3">
                   <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <h3 class="section-title">指定版本切换</h3>
-                      <p class="text-sm text-gray-500 mt-1">可升级到新版本，也可回退到历史 Release。</p>
+                      <p class="text-sm text-muted/75 mt-1">可升级到新版本，也可回退到历史 Release。</p>
                     </div>
                     <button @click="loadUpdateReleases()" :disabled="updateReleasesLoading || updateApplying" class="btn-secondary px-3 py-2 rounded text-xs disabled:opacity-50">
                       <span x-show="!updateReleasesLoading">刷新版本</span>
@@ -1357,14 +1376,14 @@
                   <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-3 lg:items-end">
                     <div>
                       <label class="field-label">目标版本</label>
-                      <select x-model="selectedUpdateTag" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white">
+                      <select x-model="selectedUpdateTag" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text">
                         <option value="">选择 Release</option>
                         <template x-for="item in updateReleases" :key="item.tag">
                           <option :value="item.tag" x-text="item.tag + (item.is_current ? '（当前）' : (item.is_newer ? '（新版）' : '（历史）'))"></option>
                         </template>
                       </select>
-                      <div class="mt-2 text-xs text-gray-500" x-text="selectedUpdateDescription()"></div>
-                      <div x-show="selectedUpdateRelease()" class="mt-2 flex flex-wrap gap-2 text-xs text-gray-500">
+                      <div class="mt-2 text-xs text-muted/75" x-text="selectedUpdateDescription()"></div>
+                      <div x-show="selectedUpdateRelease()" class="mt-2 flex flex-wrap gap-2 text-xs text-muted/75">
                         <span x-text="selectedUpdateRelease() ? '发布时间 ' + formatUpdateTime(selectedUpdateRelease().published_at) : ''"></span>
                         <span x-show="selectedUpdateRelease() && selectedUpdateRelease().asset" x-text="'包大小 ' + assetSizeLabel(selectedUpdateRelease().asset)"></span>
                       </div>
@@ -1377,10 +1396,10 @@
 
                 <div x-show="updateApplying || updateProgress" x-cloak class="space-y-2">
                   <div class="flex items-center justify-between gap-3 text-sm">
-                    <span class="text-gray-300 break-words" x-text="updateProgressMessage()"></span>
-                    <span class="font-semibold text-white tabular-nums whitespace-nowrap" x-text="updateProgressPercent() + '%'"></span>
+                    <span class="text-text/80 break-words" x-text="updateProgressMessage()"></span>
+                    <span class="font-semibold text-text tabular-nums whitespace-nowrap" x-text="updateProgressPercent() + '%'"></span>
                   </div>
-                  <div class="h-2 rounded-full bg-dark-bg overflow-hidden border border-dark-border">
+                  <div class="h-2 rounded-full bg-app overflow-hidden border border-border">
                     <div class="h-full transition-all duration-300" :class="updateProgressBarClass()" :style="'width: ' + updateProgressPercent() + '%'"></div>
                   </div>
                   <div x-show="updateRestartRequired()" x-cloak class="flex justify-end">
@@ -1393,18 +1412,18 @@
                     <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div class="min-w-0">
                         <h3 class="section-title">当前版本改动</h3>
-                        <div class="text-sm text-white mt-2 break-words" x-text="updateInfo ? updateInfo.release_name : '-'"></div>
-                        <div class="text-xs text-gray-500 mt-1" x-text="updateInfo ? '发布时间 ' + formatUpdateTime(updateInfo.published_at) : '-'"></div>
+                        <div class="text-sm text-text mt-2 break-words" x-text="updateInfo ? updateInfo.release_name : '-'"></div>
+                        <div class="text-xs text-muted/75 mt-1" x-text="updateInfo ? '发布时间 ' + formatUpdateTime(updateInfo.published_at) : '-'"></div>
                       </div>
                       <a x-show="updateInfo && updateInfo.release_url" :href="updateInfo.release_url" target="_blank" rel="noopener noreferrer" class="btn-secondary px-3 py-2 rounded text-xs text-center whitespace-nowrap">打开 Release</a>
                     </div>
-                    <pre x-show="updateInfo && updateInfo.release_notes" class="max-h-64 overflow-y-auto whitespace-pre-wrap text-xs text-gray-400 leading-5" x-text="updateInfo ? updateInfo.release_notes : ''"></pre>
-                    <div x-show="updateInfo && !updateInfo.release_notes" class="text-sm text-gray-500">暂无版本说明</div>
+                    <pre x-show="updateInfo && updateInfo.release_notes" class="max-h-64 overflow-y-auto whitespace-pre-wrap text-xs text-muted leading-5" x-text="updateInfo ? updateInfo.release_notes : ''"></pre>
+                    <div x-show="updateInfo && !updateInfo.release_notes" class="text-sm text-muted/75">暂无版本说明</div>
                   </div>
 
                   <div class="app-panel-soft p-4">
                     <h3 class="section-title">升级方式</h3>
-                    <p class="text-sm text-gray-400 mt-2">升级会替换当前运行环境中的 my-media-sub 二进制文件和 WebUI 静态资源。Docker 部署时不会拉取新镜像；替换完成后需要点击重启按钮，服务恢复后页面会自动刷新。</p>
+                    <p class="text-sm text-muted mt-2">升级会替换当前运行环境中的 my-media-sub 二进制文件和 WebUI 静态资源。Docker 部署时不会拉取新镜像；替换完成后需要点击重启按钮，服务恢复后页面会自动刷新。</p>
                   </div>
                 </div>
               </div>
@@ -1419,11 +1438,11 @@
 
   <!-- 模态框：在线升级进度 -->
   <div x-show="showUpdateProgressDialog" @click.self="closeUpdateProgressDialog()" @keydown.escape.window="closeUpdateProgressDialog()" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel dialog-panel p-6 max-w-lg w-full" @click.stop>
+    <div class="app-panel dialog-panel p-6 max-w-lg w-full" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="在线升级" tabindex="-1">
       <div class="flex items-start justify-between gap-4">
         <div>
-          <h3 class="text-xl font-bold text-white" x-text="updateDialogTitle()"></h3>
-          <p class="text-sm text-gray-500 mt-1">升级过程中请保持当前页面打开。</p>
+          <h3 class="text-xl font-bold text-text" x-text="updateDialogTitle()"></h3>
+          <p class="text-sm text-muted/75 mt-1">升级过程中请保持当前页面打开。</p>
         </div>
         <button x-show="updateDialogCanClose()" @click="closeUpdateProgressDialog()" class="btn-secondary px-3 py-2 rounded-lg text-sm">关闭</button>
       </div>
@@ -1431,28 +1450,28 @@
       <div class="mt-6 space-y-4">
         <div class="space-y-2">
           <div class="flex items-center justify-between gap-3 text-sm">
-            <span class="text-gray-300 break-words" x-text="updateProgressMessage()"></span>
-            <span class="font-semibold text-white tabular-nums whitespace-nowrap" x-text="updateProgressPercent() + '%'"></span>
+            <span class="text-text/80 break-words" x-text="updateProgressMessage()"></span>
+            <span class="font-semibold text-text tabular-nums whitespace-nowrap" x-text="updateProgressPercent() + '%'"></span>
           </div>
-          <div class="h-2.5 rounded-full bg-dark-bg overflow-hidden border border-dark-border">
+          <div class="h-2.5 rounded-full bg-app overflow-hidden border border-border">
             <div class="h-full transition-all duration-300" :class="updateProgressBarClass()" :style="'width: ' + updateProgressPercent() + '%'"></div>
           </div>
         </div>
 
-        <div x-show="updateProgress && updateProgress.total_bytes" x-cloak class="text-xs text-gray-500">
+        <div x-show="updateProgress && updateProgress.total_bytes" x-cloak class="text-xs text-muted/75">
           <span x-text="formatSize(updateProgress ? updateProgress.downloaded_bytes : 0)"></span>
           <span> / </span>
           <span x-text="formatSize(updateProgress ? updateProgress.total_bytes : 0)"></span>
         </div>
 
-        <div x-show="updateRestartRequired()" x-cloak class="rounded-lg border border-green-500/30 bg-green-500/10 p-3 text-sm text-green-200">
+        <div x-show="updateRestartRequired()" x-cloak class="rounded-lg border border-success/30 bg-success/10 p-3 text-sm text-success/85">
           新版本已替换完成，点击下方按钮后服务会重启，恢复后自动刷新当前页面。
         </div>
-        <div x-show="updateRestarting" x-cloak class="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-blue-200">
+        <div x-show="updateRestarting" x-cloak class="rounded-lg border border-primary/30 bg-primary/10 p-3 text-sm text-primary/85">
           服务正在重启，页面会在服务恢复后自动刷新。
         </div>
-        <div x-show="updateRestartError" x-cloak class="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200 break-words" x-text="updateRestartError"></div>
-        <div x-show="updateProgress && updateProgress.error && !updateRestartError" x-cloak class="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200 break-words" x-text="updateProgress ? updateProgress.error : ''"></div>
+        <div x-show="updateRestartError" x-cloak class="rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger/85 break-words" x-text="updateRestartError"></div>
+        <div x-show="updateProgress && updateProgress.error && !updateRestartError" x-cloak class="rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger/85 break-words" x-text="updateProgress ? updateProgress.error : ''"></div>
       </div>
 
       <div class="mt-6 flex flex-col sm:flex-row gap-3 sm:justify-end">
@@ -1466,10 +1485,10 @@
   </div>
 
   <!-- 模态框：新建文件夹 -->
-  <div x-show="showNewFolderModal" @click.self="showNewFolderModal = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel dialog-panel p-6 max-w-md w-full" @click.stop>
-      <h3 class="text-xl font-bold text-white mb-4">新建文件夹</h3>
-      <div><label class="field-label">文件夹名称</label><input type="text" x-model="newFolderName" placeholder="输入名称" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-500" /></div>
+  <div x-show="showNewFolderModal" @click.self="showNewFolderModal = false" @keydown.escape.window="showNewFolderModal = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel dialog-panel p-6 max-w-md w-full" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="新建文件夹" tabindex="-1">
+      <h3 class="text-xl font-bold text-text mb-4">新建文件夹</h3>
+      <div><label class="field-label">文件夹名称</label><input type="text" x-model="newFolderName" placeholder="输入名称" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text placeholder:text-muted/70" /></div>
       <div class="flex gap-3 mt-6">
         <button @click="showNewFolderModal = false" class="btn-secondary flex-1 px-4 py-2 rounded-lg transition-colors">取消</button>
         <button @click="createFolder()" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors">创建</button>
@@ -1478,9 +1497,9 @@
   </div>
 
   <!-- 模态框：选择转存目录 -->
-  <div x-show="showTransferModal" @click.self="showTransferModal = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel dialog-panel p-6 max-w-2xl w-full" @click.stop>
-      <h3 class="text-xl font-bold text-white mb-4">选择转存目录</h3>
+  <div x-show="showTransferModal" @click.self="showTransferModal = false" @keydown.escape.window="showTransferModal = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel dialog-panel p-6 max-w-2xl w-full" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="选择转存目录" tabindex="-1">
+      <h3 class="text-xl font-bold text-text mb-4">选择转存目录</h3>
 
       <!-- 快速选择 -->
       <div class="mb-4">
@@ -1493,10 +1512,10 @@
       </div>
 
       <!-- 当前路径 -->
-      <div class="mb-4 p-3 bg-dark-bg rounded-lg border border-dark-border">
+      <div class="mb-4 p-3 bg-app rounded-lg border border-border">
         <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2 text-sm text-gray-300">
-            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+          <div class="flex items-center gap-2 text-sm text-text/80">
+            <svg class="w-4 h-4 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
             <span x-text="transferTargetPath"></span>
           </div>
           <button @click="transferBrowseBack()" :disabled="transferBrowseFidStack.length <= 1" class="btn-secondary px-3 py-1 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm transition-colors">← 返回上级</button>
@@ -1504,15 +1523,15 @@
       </div>
 
       <!-- 目录列表 -->
-      <div class="max-h-80 overflow-y-auto mb-4 border border-dark-border rounded-lg">
-        <div x-show="transferBrowseItems.filter(i => !i.file).length === 0" class="p-8 text-center text-gray-500">
+      <div class="max-h-80 overflow-y-auto mb-4 border border-border rounded-lg">
+        <div x-show="transferBrowseItems.filter(i => !i.file).length === 0" class="p-8 text-center text-muted/75">
           当前目录下没有文件夹
         </div>
         <template x-for="item in transferBrowseItems.filter(i => !i.file)" :key="item.fid">
-          <button @click="transferBrowseEnter(item)" class="w-full flex items-center gap-3 p-3 hover:bg-dark-hover transition-colors text-left border-b border-dark-border last:border-b-0">
-            <svg class="w-5 h-5 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
-            <span class="text-white flex-1" x-text="item.file_name"></span>
-            <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          <button @click="transferBrowseEnter(item)" class="w-full flex items-center gap-3 p-3 hover:bg-surface-2 transition-colors text-left border-b border-border last:border-b-0">
+            <svg class="w-5 h-5 text-primary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+            <span class="text-text flex-1" x-text="item.file_name"></span>
+            <svg class="w-4 h-4 text-muted/75" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
           </button>
         </template>
       </div>
@@ -1526,12 +1545,12 @@
   </div>
 
   <!-- 手动元数据刮削对话框 -->
-  <div x-show="showManualMetadataDialog" @click.self="closeManualMetadataDialog()" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel dialog-panel p-6 max-w-3xl w-full max-h-[88vh] overflow-y-auto" @click.stop>
+  <div x-show="showManualMetadataDialog" @click.self="closeManualMetadataDialog()" @keydown.escape.window="closeManualMetadataDialog()" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel dialog-panel p-6 max-w-3xl w-full max-h-[88vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="手动刮削元数据" tabindex="-1">
           <div class="flex flex-col sm:flex-row gap-3 sm:items-start sm:justify-between mb-5">
             <div>
-              <h3 class="text-xl font-bold text-white">手动刮削元数据</h3>
-              <p class="text-sm text-gray-500 mt-1" x-text="manualMetadataSubscriptionTitle"></p>
+              <h3 class="text-xl font-bold text-text">手动刮削元数据</h3>
+              <p class="text-sm text-muted/75 mt-1" x-text="manualMetadataSubscriptionTitle"></p>
             </div>
             <button @click="closeManualMetadataDialog()" class="btn-secondary px-3 py-2 rounded text-sm">关闭</button>
           </div>
@@ -1539,11 +1558,11 @@
           <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-4">
             <div class="sm:col-span-2">
               <label class="field-label">搜索关键词</label>
-              <input type="text" x-model="manualMetadataQuery" @keydown.enter.prevent="searchManualMetadata()" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
+              <input type="text" x-model="manualMetadataQuery" @keydown.enter.prevent="searchManualMetadata()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
             </div>
             <div>
               <label class="field-label">媒体类型</label>
-              <select x-model="manualMetadataMediaType" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white">
+              <select x-model="manualMetadataMediaType" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text">
                 <option value="movie">电影</option>
                 <option value="series">连续剧</option>
                 <option value="anime">动画</option>
@@ -1560,13 +1579,13 @@
           <div x-show="manualMetadataResults.length === 0 && !manualMetadataSearching" class="empty-state app-panel-soft">暂无候选结果</div>
           <div x-show="manualMetadataResults.length > 0" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <template x-for="item in manualMetadataResults" :key="'manual-' + item.provider + '-' + item.provider_id">
-              <div class="border border-dark-border bg-dark-bg rounded-lg p-3 min-h-28">
+              <div class="border border-border bg-app rounded-lg p-3 min-h-28">
                 <div class="flex gap-3">
-                  <img x-show="item.poster_url" :src="item.poster_url" class="w-14 h-20 object-cover rounded border border-dark-border shrink-0" alt="" />
+                  <img x-show="item.poster_url" :src="item.poster_url" class="w-14 h-20 object-cover rounded border border-border shrink-0" alt="" />
                   <div class="min-w-0 flex-1">
-                    <div class="text-sm text-white font-medium break-words" x-text="item.title"></div>
-                    <div class="text-xs text-gray-500 mt-1" x-text="metadataSubtitle(item)"></div>
-                    <div class="text-xs text-gray-400 mt-2 line-clamp-3" x-text="item.overview || '暂无简介'"></div>
+                    <div class="text-sm text-text font-medium break-words" x-text="item.title"></div>
+                    <div class="text-xs text-muted/75 mt-1" x-text="metadataSubtitle(item)"></div>
+                    <div class="text-xs text-muted mt-2 line-clamp-3" x-text="item.overview || '暂无简介'"></div>
                   </div>
                 </div>
                 <button @click="applyManualMetadata(item)" :disabled="manualMetadataApplying" class="btn-primary w-full mt-3 px-3 py-2 rounded text-sm disabled:opacity-50">应用这个结果</button>
@@ -1577,32 +1596,32 @@
       </div>
 
   <!-- Aria2 下载目录选择对话框 -->
-  <div x-show="showAria2DirDialog" @click.self="showAria2DirDialog = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-[60]" style="display: none;">
-    <div class="app-panel dialog-panel p-6 max-w-2xl w-full max-h-[88vh] overflow-y-auto" @click.stop>
+  <div x-show="showAria2DirDialog" @click.self="showAria2DirDialog = false" @keydown.escape.window="showAria2DirDialog = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-[60]" style="display: none;">
+    <div class="app-panel dialog-panel p-6 max-w-2xl w-full max-h-[88vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="选择 Aria2 下载目录" tabindex="-1">
       <div class="flex flex-col sm:flex-row gap-3 sm:items-start sm:justify-between mb-4">
         <div>
-          <h3 class="text-xl font-bold text-white">选择 Aria2 下载目录</h3>
-          <p class="text-sm text-gray-500 mt-1" x-text="aria2DirRoot ? '浏览根目录 ' + aria2DirRoot : '从当前媒体类型的 Aria2 下载目录开始浏览'"></p>
+          <h3 class="text-xl font-bold text-text">选择 Aria2 下载目录</h3>
+          <p class="text-sm text-muted/75 mt-1" x-text="aria2DirRoot ? '浏览根目录 ' + aria2DirRoot : '从当前媒体类型的 Aria2 下载目录开始浏览'"></p>
         </div>
         <button @click="showAria2DirDialog = false" class="btn-secondary px-3 py-2 rounded text-sm">关闭</button>
       </div>
 
-      <div class="mb-4 p-3 bg-dark-bg rounded-lg border border-dark-border">
+      <div class="mb-4 p-3 bg-app rounded-lg border border-border">
         <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-          <div class="min-w-0 text-sm text-gray-300 break-all" x-text="aria2DirCurrent || '-'"></div>
+          <div class="min-w-0 text-sm text-text/80 break-all" x-text="aria2DirCurrent || '-'"></div>
           <button @click="aria2DirBack()" :disabled="!aria2DirParent || aria2DirLoading" class="btn-secondary px-3 py-2 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed">返回上级</button>
         </div>
       </div>
 
-      <div x-show="aria2DirError" class="mb-4 text-sm text-red-300 break-all" x-text="aria2DirError"></div>
+      <div x-show="aria2DirError" class="mb-4 text-sm text-danger break-all" x-text="aria2DirError"></div>
       <div x-show="aria2DirLoading" class="empty-state app-panel-soft mb-4">正在读取目录...</div>
-      <div x-show="!aria2DirLoading" class="max-h-80 overflow-y-auto mb-4 border border-dark-border rounded-lg">
-        <div x-show="aria2DirItems.length === 0" class="p-8 text-center text-gray-500">当前目录下没有文件夹</div>
+      <div x-show="!aria2DirLoading" class="max-h-80 overflow-y-auto mb-4 border border-border rounded-lg">
+        <div x-show="aria2DirItems.length === 0" class="p-8 text-center text-muted/75">当前目录下没有文件夹</div>
         <template x-for="item in aria2DirItems" :key="item.path">
-          <button @click="aria2DirEnter(item)" class="w-full flex items-center gap-3 p-3 hover:bg-dark-hover transition-colors text-left border-b border-dark-border last:border-b-0">
-            <svg class="w-5 h-5 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
-            <span class="text-white flex-1 break-all" x-text="item.name"></span>
-            <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          <button @click="aria2DirEnter(item)" class="w-full flex items-center gap-3 p-3 hover:bg-surface-2 transition-colors text-left border-b border-border last:border-b-0">
+            <svg class="w-5 h-5 text-primary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+            <span class="text-text flex-1 break-all" x-text="item.name"></span>
+            <svg class="w-4 h-4 text-muted/75" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
           </button>
         </template>
       </div>
@@ -1615,9 +1634,9 @@
   </div>
 
   <!-- 订阅配置对话框 -->
-  <div x-show="showSubscriptionDialog" @click.self="showSubscriptionDialog = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel dialog-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop>
-      <h3 class="text-xl font-bold text-white mb-6" x-text="subscriptionEditingId ? '编辑订阅' : '创建订阅'"></h3>
+  <div x-show="showSubscriptionDialog" @click.self="showSubscriptionDialog = false" @keydown.escape.window="showSubscriptionDialog = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel dialog-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="订阅配置" tabindex="-1">
+      <h3 class="text-xl font-bold text-text mb-6" x-text="subscriptionEditingId ? '编辑订阅' : '创建订阅'"></h3>
 
       <div class="mb-6 grid grid-cols-3 gap-2">
         <template x-for="(step, index) in subscriptionWizardSteps" :key="step.id">
@@ -1630,59 +1649,59 @@
 
       <!-- 订阅模式选择 -->
       <div x-show="!subscriptionEditingId" class="mb-6">
-        <label class="block text-sm font-medium text-gray-300 mb-3">订阅类型</label>
+        <label class="block text-sm font-medium text-text/80 mb-3">订阅类型</label>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <button @click="setSubscriptionMode('once')" :class="subscriptionMode === 'once' ? 'bg-blue-600/20 border-blue-500' : 'bg-dark-hover border-dark-border hover:border-gray-500'" class="p-4 rounded-lg border transition-all text-left">
-            <div class="text-white font-semibold mb-1">仅转存一次</div>
-            <div class="text-sm text-gray-400">立即转存到网盘，不创建订阅记录</div>
+          <button @click="setSubscriptionMode('once')" :class="subscriptionMode === 'once' ? 'bg-primary/20 border-primary' : 'bg-surface-2 border-border hover:border-border'" class="p-4 rounded-lg border transition-all text-left">
+            <div class="text-text font-semibold mb-1">仅转存一次</div>
+            <div class="text-sm text-muted">立即转存到网盘，不创建订阅记录</div>
           </button>
-          <button @click="setSubscriptionMode('continuous')" :class="subscriptionMode === 'continuous' ? 'bg-blue-600/20 border-blue-500' : 'bg-dark-hover border-dark-border hover:border-gray-500'" class="p-4 rounded-lg border transition-all text-left">
-            <div class="text-white font-semibold mb-1">持续追更</div>
-            <div class="text-sm text-gray-400">创建订阅，定期检查并自动转存</div>
+          <button @click="setSubscriptionMode('continuous')" :class="subscriptionMode === 'continuous' ? 'bg-primary/20 border-primary' : 'bg-surface-2 border-border hover:border-border'" class="p-4 rounded-lg border transition-all text-left">
+            <div class="text-text font-semibold mb-1">持续追更</div>
+            <div class="text-sm text-muted">创建订阅，定期检查并自动转存</div>
           </button>
         </div>
       </div>
 
       <!-- 订阅配置 -->
       <div class="mb-6">
-        <div class="border-b border-dark-border flex gap-2 overflow-x-auto">
-          <button @click="subscriptionDialogTab = 'content'" :class="subscriptionDialogTab === 'content' ? 'text-white border-blue-500' : 'text-gray-400 border-transparent hover:text-gray-200'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">订阅内容</button>
-          <button x-show="subscriptionMode === 'continuous' || subscriptionEditingId" @click="subscriptionDialogTab = 'rename'" :class="subscriptionDialogTab === 'rename' ? 'text-white border-blue-500' : 'text-gray-400 border-transparent hover:text-gray-200'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">高级规则</button>
-          <button x-show="subscriptionMode === 'continuous' || subscriptionEditingId" @click="subscriptionDialogTab = 'download'" :class="subscriptionDialogTab === 'download' ? 'text-white border-blue-500' : 'text-gray-400 border-transparent hover:text-gray-200'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">下载/STRM</button>
+        <div class="border-b border-border flex gap-2 overflow-x-auto">
+          <button @click="subscriptionDialogTab = 'content'" :class="subscriptionDialogTab === 'content' ? 'text-text border-primary' : 'text-muted border-transparent hover:text-text/90'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">订阅内容</button>
+          <button x-show="subscriptionMode === 'continuous' || subscriptionEditingId" @click="subscriptionDialogTab = 'rename'" :class="subscriptionDialogTab === 'rename' ? 'text-text border-primary' : 'text-muted border-transparent hover:text-text/90'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">高级规则</button>
+          <button x-show="subscriptionMode === 'continuous' || subscriptionEditingId" @click="subscriptionDialogTab = 'download'" :class="subscriptionDialogTab === 'download' ? 'text-text border-primary' : 'text-muted border-transparent hover:text-text/90'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">下载/STRM</button>
         </div>
       </div>
 
       <div class="space-y-4 mb-6">
         <div x-show="subscriptionDialogTab === 'content'" class="space-y-4">
           <div>
-            <label class="block text-sm font-medium text-gray-300 mb-2">订阅名称</label>
-            <input type="text" x-model="newSubscription.title" @input="updateSubscriptionDefaults()" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="例如：风起洛阳 第二季" />
+            <label class="block text-sm font-medium text-text/80 mb-2">订阅名称</label>
+            <input type="text" x-model="newSubscription.title" @input="updateSubscriptionDefaults()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="例如：风起洛阳 第二季" />
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-300 mb-2">分享链接</label>
-            <input type="text" x-model="newSubscription.url" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="粘贴夸克分享链接" />
+            <label class="block text-sm font-medium text-text/80 mb-2">分享链接</label>
+            <input type="text" x-model="newSubscription.url" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="粘贴夸克分享链接" />
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-300 mb-2">提取码</label>
-            <input type="text" x-model="newSubscription.password" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="没有可留空" />
+            <label class="block text-sm font-medium text-text/80 mb-2">提取码</label>
+            <input type="text" x-model="newSubscription.password" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="没有可留空" />
           </div>
 
           <div x-show="subscriptionEditingId && subscriptionSourceChanged()" class="app-panel-soft p-4 space-y-3">
             <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
               <div>
-                <div class="text-sm font-medium text-gray-300">更换资源处理</div>
-                <div class="text-xs text-gray-500" x-text="sourceChangeSummary()"></div>
+                <div class="text-sm font-medium text-text/80">更换资源处理</div>
+                <div class="text-xs text-muted/75" x-text="sourceChangeSummary()"></div>
               </div>
               <span class="chip">换源</span>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+              <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer">
                 <input type="checkbox" x-model="newSubscription.keep_progress_on_source_change" class="rounded" />
                 <span>保留追更记录</span>
               </label>
-              <label x-show="newSubscription.media_type !== 'movie' && newSubscription.keep_progress_on_source_change" class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+              <label x-show="newSubscription.media_type !== 'movie' && newSubscription.keep_progress_on_source_change" class="flex items-center gap-2 text-sm text-text/80 cursor-pointer">
                 <input type="checkbox" x-model="newSubscription.continue_from_current_episode" class="rounded" />
                 <span>从当前进度下一集继续</span>
               </label>
@@ -1690,8 +1709,8 @@
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <template x-for="item in sourceChangeStats()" :key="item.label">
                 <div class="stat-tile p-3 min-h-0">
-                  <div class="text-xs text-gray-500" x-text="item.label"></div>
-                  <div class="mt-1 text-sm font-semibold text-white" x-text="item.value"></div>
+                  <div class="text-xs text-muted/75" x-text="item.label"></div>
+                  <div class="mt-1 text-sm font-semibold text-text" x-text="item.value"></div>
                 </div>
               </template>
             </div>
@@ -1700,21 +1719,21 @@
           <div x-show="metadataSearchAvailable()" class="app-panel-soft p-3 space-y-3">
             <div class="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
               <div>
-                <div class="text-sm font-medium text-gray-300">媒体元数据</div>
-                <div class="text-xs text-gray-500" x-text="selectedMetadataLabel()"></div>
+                <div class="text-sm font-medium text-text/80">媒体元数据</div>
+                <div class="text-xs text-muted/75" x-text="selectedMetadataLabel()"></div>
               </div>
               <button @click="searchMetadataForSubscription()" :disabled="metadataSearching" class="btn-secondary px-3 py-2 rounded text-xs transition-colors disabled:opacity-50">匹配</button>
             </div>
-            <div x-show="metadataSearching" class="text-xs text-gray-500">正在匹配 TMDB...</div>
+            <div x-show="metadataSearching" class="text-xs text-muted/75">正在匹配 TMDB...</div>
             <div x-show="metadataResults.length > 0" class="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <template x-for="item in metadataResults" :key="item.provider + '-' + item.provider_id">
-                <button @click="applyMetadata(item)" :class="isSelectedMetadata(item) ? 'border-blue-500 bg-blue-600/10' : 'border-dark-border bg-dark-bg hover:border-gray-500'" class="border rounded-lg p-2 text-left transition-colors min-h-20">
+                <button @click="applyMetadata(item)" :class="isSelectedMetadata(item) ? 'border-primary bg-primary/10' : 'border-border bg-app hover:border-border'" class="border rounded-lg p-2 text-left transition-colors min-h-20">
                   <div class="flex gap-3">
-                    <img x-show="item.poster_url" :src="item.poster_url" class="w-10 h-14 object-cover rounded border border-dark-border" alt="" />
+                    <img x-show="item.poster_url" :src="item.poster_url" class="w-10 h-14 object-cover rounded border border-border" alt="" />
                     <div class="min-w-0">
-                      <div class="text-sm text-white font-medium truncate" x-text="item.title"></div>
-                      <div class="text-xs text-gray-500 mt-1" x-text="metadataSubtitle(item)"></div>
-                      <div class="text-xs text-gray-400 mt-1 line-clamp-2" x-text="item.overview || '暂无简介'"></div>
+                      <div class="text-sm text-text font-medium truncate" x-text="item.title"></div>
+                      <div class="text-xs text-muted/75 mt-1" x-text="metadataSubtitle(item)"></div>
+                      <div class="text-xs text-muted mt-1 line-clamp-2" x-text="item.overview || '暂无简介'"></div>
                     </div>
                   </div>
                 </button>
@@ -1723,7 +1742,7 @@
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-300 mb-2">媒体类型</label>
+            <label class="block text-sm font-medium text-text/80 mb-2">媒体类型</label>
             <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
               <button @click="setSubscriptionMediaType('movie')" :class="newSubscription.media_type === 'movie' ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors">电影</button>
               <button @click="setSubscriptionMediaType('series')" :class="newSubscription.media_type === 'series' ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors">连续剧</button>
@@ -1735,19 +1754,19 @@
           </div>
 
           <div x-show="newSubscription.media_type !== 'movie'">
-            <label class="block text-sm font-medium text-gray-300 mb-2">季号</label>
-            <input type="number" min="1" x-model="newSubscription.season" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
-            <p class="text-xs text-gray-500 mt-1">默认第 1 季；填 2 会保存到 Season 2。</p>
+            <label class="block text-sm font-medium text-text/80 mb-2">季号</label>
+            <input type="number" min="1" x-model="newSubscription.season" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+            <p class="text-xs text-muted/75 mt-1">默认第 1 季；填 2 会保存到 Season 2。</p>
           </div>
 
           <div x-show="subscriptionMode === 'continuous' || subscriptionEditingId" class="space-y-4">
             <div x-show="newSubscription.media_type !== 'movie'">
-              <label class="block text-sm font-medium text-gray-300 mb-2">从第几集开始转存</label>
-              <input type="number" min="1" x-model="newSubscription.start_episode_number" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="留空不限制，例如：13" />
-              <p class="text-xs text-gray-500 mt-1">低于该集数的新增文件会记为已知，但不会通知或自动转存。</p>
+              <label class="block text-sm font-medium text-text/80 mb-2">从第几集开始转存</label>
+              <input type="number" min="1" x-model="newSubscription.start_episode_number" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="留空不限制，例如：13" />
+              <p class="text-xs text-muted/75 mt-1">低于该集数的新增文件会记为已知，但不会通知或自动转存。</p>
             </div>
 
-            <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+            <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer">
               <input type="checkbox" x-model="newSubscription.notify_only" class="rounded" />
               <span>仅通知不自动转存（需要手动确认）</span>
             </label>
@@ -1758,111 +1777,111 @@
           <div class="app-panel-soft p-4 space-y-3">
             <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
               <div>
-                <div class="text-sm font-medium text-gray-300">默认跟随系统规则</div>
-                <div class="text-xs text-gray-500">未开启自定义模板时，订阅会按规则中心/系统默认模板重命名。</div>
+                <div class="text-sm font-medium text-text/80">默认跟随系统规则</div>
+                <div class="text-xs text-muted/75">未开启自定义模板时，订阅会按规则中心/系统默认模板重命名。</div>
               </div>
               <button @click="showSubscriptionDialog = false; selectTab('settings'); selectSettingsTab('rules')" class="btn-secondary px-3 py-2 rounded text-xs">规则中心</button>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-              <div class="p-3 bg-dark-bg rounded-lg border border-dark-border">
-                <span class="block text-xs text-gray-500 mb-1">重命名模板</span>
-                <span class="text-green-300 break-all" x-text="getDefaultRenameTemplate()"></span>
+              <div class="p-3 bg-app rounded-lg border border-border">
+                <span class="block text-xs text-muted/75 mb-1">重命名模板</span>
+                <span class="text-success break-all" x-text="getDefaultRenameTemplate()"></span>
               </div>
-              <div class="p-3 bg-dark-bg rounded-lg border border-dark-border">
-                <span class="block text-xs text-gray-500 mb-1">保存目录</span>
-                <span class="text-green-300 break-all" x-text="getDefaultTargetDir()"></span>
+              <div class="p-3 bg-app rounded-lg border border-border">
+                <span class="block text-xs text-muted/75 mb-1">保存目录</span>
+                <span class="text-success break-all" x-text="getDefaultTargetDir()"></span>
               </div>
             </div>
           </div>
 
           <details class="app-panel-soft p-4">
-            <summary class="cursor-pointer text-sm font-medium text-gray-300 hover:text-white">本订阅覆盖设置</summary>
+            <summary class="cursor-pointer text-sm font-medium text-text/80 hover:text-text">本订阅覆盖设置</summary>
             <div class="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div>
-                <label class="flex items-center justify-between text-sm font-medium text-gray-300 mb-2">
+                <label class="flex items-center justify-between text-sm font-medium text-text/80 mb-2">
                   <span>转存目录</span>
-                  <button @click="newSubscription.custom_dir = !newSubscription.custom_dir" class="text-xs text-blue-400 hover:text-blue-300">
+                  <button @click="newSubscription.custom_dir = !newSubscription.custom_dir" class="text-xs text-primary hover:text-primary">
                     <span x-text="newSubscription.custom_dir ? '使用默认' : '自定义'"></span>
                   </button>
                 </label>
-                <div x-show="!newSubscription.custom_dir" class="p-3 bg-dark-bg rounded-lg border border-dark-border text-sm">
-                  <span class="text-gray-400">自动：</span>
-                  <span class="text-green-400" x-text="getDefaultTargetDir()"></span>
+                <div x-show="!newSubscription.custom_dir" class="p-3 bg-app rounded-lg border border-border text-sm">
+                  <span class="text-muted">自动：</span>
+                  <span class="text-success" x-text="getDefaultTargetDir()"></span>
                 </div>
                 <div x-show="newSubscription.custom_dir" class="space-y-2">
-                  <input type="text" x-model="newSubscription.target_dir_name" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="目录名称，例如：庆余年（2024）" />
-                  <p class="text-xs text-gray-500">电影保存到该目录；连续剧和动画会在该目录下保存到 Season X。</p>
+                  <input type="text" x-model="newSubscription.target_dir_name" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="目录名称，例如：庆余年（2024）" />
+                  <p class="text-xs text-muted/75">电影保存到该目录；连续剧和动画会在该目录下保存到 Season X。</p>
                 </div>
               </div>
               <div>
-                <label class="flex items-center justify-between text-sm font-medium text-gray-300 mb-2">
+                <label class="flex items-center justify-between text-sm font-medium text-text/80 mb-2">
                   <span>重命名模板</span>
-                  <button @click="newSubscription.custom_rename = !newSubscription.custom_rename" class="text-xs text-blue-400 hover:text-blue-300">
+                  <button @click="newSubscription.custom_rename = !newSubscription.custom_rename" class="text-xs text-primary hover:text-primary">
                     <span x-text="newSubscription.custom_rename ? '使用默认' : '自定义'"></span>
                   </button>
                 </label>
-                <div x-show="!newSubscription.custom_rename" class="p-3 bg-dark-bg rounded-lg border border-dark-border text-sm">
-                  <span class="text-gray-400">自动：</span>
-                  <span class="text-green-400" x-text="getDefaultRenameTemplate()"></span>
+                <div x-show="!newSubscription.custom_rename" class="p-3 bg-app rounded-lg border border-border text-sm">
+                  <span class="text-muted">自动：</span>
+                  <span class="text-success" x-text="getDefaultRenameTemplate()"></span>
                 </div>
                 <div x-show="newSubscription.custom_rename" class="space-y-2">
-                  <input type="text" x-model="newSubscription.rename_template" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" placeholder="例如：庆余年.S01E{} 或 影片名" />
-                  <p class="text-xs text-gray-500">支持 <code class="text-gray-300">{title}</code>、<code class="text-gray-300">{season}</code>、<code class="text-gray-300">{episode}</code>、<code class="text-gray-300">{ext}</code>。</p>
+                  <input type="text" x-model="newSubscription.rename_template" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="例如：庆余年.S01E{} 或 影片名" />
+                  <p class="text-xs text-muted/75">支持 <code class="text-text/80">{title}</code>、<code class="text-text/80">{season}</code>、<code class="text-text/80">{episode}</code>、<code class="text-text/80">{ext}</code>。</p>
                 </div>
               </div>
             </div>
             <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div><label class="field-label">包含关键词</label><input type="text" x-model="newSubscription.include_keywords_text" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="多个用逗号或换行分隔" /></div>
-              <div><label class="field-label">排除关键词</label><input type="text" x-model="newSubscription.exclude_keywords_text" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="预告, 花絮, trailer" /></div>
-              <div><label class="field-label">匹配正则</label><input type="text" x-model="newSubscription.match_regex" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：S01E\\d+|第\\d+集" /></div>
-              <div><label class="field-label">完成集数</label><input type="number" min="1" x-model="newSubscription.finish_after_episode" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：12" /></div>
+              <div><label class="field-label">包含关键词</label><input type="text" x-model="newSubscription.include_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="多个用逗号或换行分隔" /></div>
+              <div><label class="field-label">排除关键词</label><input type="text" x-model="newSubscription.exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="预告, 花絮, trailer" /></div>
+              <div><label class="field-label">匹配正则</label><input type="text" x-model="newSubscription.match_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：S01E\\d+|第\\d+集" /></div>
+              <div><label class="field-label">完成集数</label><input type="number" min="1" x-model="newSubscription.finish_after_episode" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：12" /></div>
               <div>
                 <label class="field-label">同集保留策略</label>
-                <select x-model="newSubscription.duplicate_episode_strategy" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white">
+                <select x-model="newSubscription.duplicate_episode_strategy" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
                   <option value="highest_quality">清晰度最高</option>
                   <option value="latest_upload">上传时间最新</option>
                   <option value="largest_size">文件最大</option>
                   <option value="first">最先出现</option>
                 </select>
               </div>
-              <div><label class="field-label">重命名正则</label><input type="text" x-model="newSubscription.rename_regex" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：^\\d+\\." /></div>
-              <div><label class="field-label">替换文本</label><input type="text" x-model="newSubscription.rename_replacement" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="例如：S01E$0" /></div>
+              <div><label class="field-label">重命名正则</label><input type="text" x-model="newSubscription.rename_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：^\\d+\\." /></div>
+              <div><label class="field-label">替换文本</label><input type="text" x-model="newSubscription.rename_replacement" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：S01E$0" /></div>
             </div>
             <div class="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-3">
-              <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="newSubscription.ignore_extensions" class="rounded" />忽略扩展名匹配</label>
-              <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="newSubscription.only_latest" class="rounded" />仅处理最新一集</label>
-              <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="newSubscription.skip_existing_transferred" class="rounded" />跳过已转存</label>
-              <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" x-model="newSubscription.auto_create_target_dir" class="rounded" />自动创建目录</label>
+              <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="newSubscription.ignore_extensions" class="rounded" />忽略扩展名匹配</label>
+              <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="newSubscription.only_latest" class="rounded" />仅处理最新一集</label>
+              <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="newSubscription.skip_existing_transferred" class="rounded" />跳过已转存</label>
+              <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="newSubscription.auto_create_target_dir" class="rounded" />自动创建目录</label>
             </div>
           </details>
 
           <div class="app-panel-soft p-4 space-y-3">
             <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
               <div>
-                <div class="text-sm font-medium text-gray-300">重命名预览</div>
-                <div class="text-xs text-gray-500" x-text="renamePreview ? renamePreview.summary : '使用搜索嗅探文件、最近探测文件或下面的样例文件预览规则。'"></div>
+                <div class="text-sm font-medium text-text/80">重命名预览</div>
+                <div class="text-xs text-muted/75" x-text="renamePreview ? renamePreview.summary : '使用搜索嗅探文件、最近探测文件或下面的样例文件预览规则。'"></div>
               </div>
               <button @click="previewSubscriptionRename()" :disabled="renamePreviewLoading" class="btn-secondary px-3 py-2 rounded text-sm disabled:opacity-50">
                 <span x-show="!renamePreviewLoading">预览</span>
                 <span x-show="renamePreviewLoading">预览中</span>
               </button>
             </div>
-            <textarea x-model="newSubscription.preview_samples" rows="4" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" placeholder="每行一个样例文件名，例如：&#10;第01集.mkv&#10;Show.S01E02.1080p.mkv"></textarea>
-            <div x-show="renamePreviewError" class="text-sm text-red-300" x-text="renamePreviewError"></div>
-            <div x-show="renamePreview && renamePreview.items && renamePreview.items.length > 0" class="border border-dark-border rounded-lg overflow-x-auto">
-              <div class="grid grid-cols-12 gap-2 min-w-[680px] px-3 py-2 bg-dark-bg text-xs text-gray-500">
+            <textarea x-model="newSubscription.preview_samples" rows="4" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="每行一个样例文件名，例如：&#10;第01集.mkv&#10;Show.S01E02.1080p.mkv"></textarea>
+            <div x-show="renamePreviewError" class="text-sm text-danger" x-text="renamePreviewError"></div>
+            <div x-show="renamePreview && renamePreview.items && renamePreview.items.length > 0" class="border border-border rounded-lg overflow-hidden">
+              <div class="hidden md:grid grid-cols-12 gap-2 px-3 py-2 bg-app text-xs text-muted/75">
                 <div class="col-span-4">原文件名</div>
                 <div class="col-span-4">目标文件名</div>
                 <div class="col-span-2">集数</div>
                 <div class="col-span-2">结果</div>
               </div>
               <template x-for="item in renamePreview.items" :key="item.source_name + '-' + item.target_name">
-                <div class="grid grid-cols-12 gap-2 min-w-[680px] px-3 py-2 border-t border-dark-border text-xs">
-                  <div class="col-span-4 text-gray-300 break-all" x-text="item.source_name"></div>
-                  <div class="col-span-4 text-green-300 break-all" x-text="item.target_name"></div>
-                  <div class="col-span-2 text-gray-400" x-text="item.episode ? '第 ' + item.episode + ' 集' : '-'"></div>
-                  <div class="col-span-2">
-                    <span :class="item.action === 'transfer' ? 'text-green-300' : 'text-amber-300'" x-text="item.action === 'transfer' ? '会转存' : (item.skip_reason || '跳过')"></span>
+                <div class="grid gap-2 px-3 py-3 border-t border-border text-xs md:grid-cols-12">
+                  <div class="text-text/80 break-all md:col-span-4" x-text="item.source_name"></div>
+                  <div class="text-success break-all md:col-span-4" x-text="item.target_name"></div>
+                  <div class="text-muted md:col-span-2"><span class="text-muted/75 md:hidden">集数 </span><span x-text="item.episode ? '第 ' + item.episode + ' 集' : '-'"></span></div>
+                  <div class="md:col-span-2">
+                    <span :class="item.action === 'transfer' ? 'text-success' : 'text-warning'" x-text="item.action === 'transfer' ? '会转存' : (item.skip_reason || '跳过')"></span>
                   </div>
                 </div>
               </template>
@@ -1872,7 +1891,7 @@
 
         <div x-show="subscriptionDialogTab === 'download' && (subscriptionMode === 'continuous' || subscriptionEditingId)" class="space-y-4">
           <div class="app-panel-soft p-4 space-y-3">
-            <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+            <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer">
               <input type="checkbox" x-model="newSubscription.sync_download_enabled" class="rounded" />
               <span>同步用Aria2下载</span>
             </label>
@@ -1880,20 +1899,20 @@
               <div>
                 <label class="field-label">下载地址</label>
                 <div class="flex gap-2">
-                  <input type="text" x-model="newSubscription.sync_download_dir" class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white" :placeholder="aria2DirForMediaType() || '/downloads/剧集/Season 1'" />
+                  <input type="text" x-model="newSubscription.sync_download_dir" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" :placeholder="aria2DirForMediaType() || '/downloads/剧集/Season 1'" />
                   <button type="button" @click="openAria2DirBrowser()" class="btn-secondary px-4 py-2 rounded-lg text-sm whitespace-nowrap">浏览</button>
                 </div>
               </div>
-              <p class="text-xs text-gray-500">留空时按媒体类型使用系统设置中的 Aria2 下载目录；未配置时不指定目录，由 Aria2 自身决定。订阅检查发现更新并完成转存后，会提交重命名后的文件到 Aria2。</p>
+              <p class="text-xs text-muted/75">留空时按媒体类型使用系统设置中的 Aria2 下载目录；未配置时不指定目录，由 Aria2 自身决定。订阅检查发现更新并完成转存后，会提交重命名后的文件到 Aria2。</p>
             </div>
           </div>
 
           <div class="app-panel-soft p-4 space-y-3">
-            <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+            <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer">
               <input type="checkbox" x-model="newSubscription.strm_enabled" class="rounded" />
               <span>转存后生成 STRM 文件</span>
             </label>
-            <p class="text-xs text-gray-500">需要先在系统设置中启用 STRM 并配置输出目录与 HTTPStrm 访问地址。</p>
+            <p class="text-xs text-muted/75">需要先在系统设置中启用 STRM 并配置输出目录与 HTTPStrm 访问地址。</p>
           </div>
         </div>
       </div>
@@ -1911,12 +1930,12 @@
   </div>
 
   <!-- 后台任务详情 -->
-  <div x-show="showJobDetailDialog" @click.self="showJobDetailDialog = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel dialog-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop>
+  <div x-show="showJobDetailDialog" @click.self="showJobDetailDialog = false" @keydown.escape.window="showJobDetailDialog = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel dialog-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="后台任务详情" tabindex="-1">
       <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
         <div class="min-w-0">
-          <h3 class="text-xl font-bold text-white break-all" x-text="selectedJob ? selectedJob.title : '任务详情'"></h3>
-          <p class="text-sm text-gray-500 mt-1" x-text="selectedJob ? selectedJob.id : ''"></p>
+          <h3 class="text-xl font-bold text-text break-all" x-text="selectedJob ? selectedJob.title : '任务详情'"></h3>
+          <p class="text-sm text-muted/75 mt-1" x-text="selectedJob ? selectedJob.id : ''"></p>
         </div>
         <div class="flex gap-2">
           <button @click="copySelectedJobDetail()" class="btn-secondary px-3 py-2 rounded text-sm">复制详情</button>
@@ -1927,34 +1946,34 @@
       <template x-if="selectedJob">
         <div class="space-y-4">
           <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div class="stat-tile p-3"><div class="text-xs text-gray-500">类型</div><div class="mt-1 text-sm font-semibold text-white" x-text="jobKindLabel(selectedJob.kind)"></div></div>
-            <div class="stat-tile p-3"><div class="text-xs text-gray-500">状态</div><div class="mt-1 text-sm font-semibold" :class="jobStatusClass(selectedJob.status)" x-text="jobStatusLabel(selectedJob.status)"></div></div>
-            <div class="stat-tile p-3"><div class="text-xs text-gray-500">进度</div><div class="mt-1 text-sm font-semibold text-blue-300" x-text="(selectedJob.progress || 0) + '%'"></div></div>
-            <div class="stat-tile p-3"><div class="text-xs text-gray-500">耗时</div><div class="mt-1 text-sm font-semibold text-white" x-text="jobDurationLabel(selectedJob)"></div></div>
+            <div class="stat-tile p-3"><div class="text-xs text-muted/75">类型</div><div class="mt-1 text-sm font-semibold text-text" x-text="jobKindLabel(selectedJob.kind)"></div></div>
+            <div class="stat-tile p-3"><div class="text-xs text-muted/75">状态</div><div class="mt-1 text-sm font-semibold" :class="jobStatusClass(selectedJob.status)" x-text="jobStatusLabel(selectedJob.status)"></div></div>
+            <div class="stat-tile p-3"><div class="text-xs text-muted/75">进度</div><div class="mt-1 text-sm font-semibold text-primary" x-text="(selectedJob.progress || 0) + '%'"></div></div>
+            <div class="stat-tile p-3"><div class="text-xs text-muted/75">耗时</div><div class="mt-1 text-sm font-semibold text-text" x-text="jobDurationLabel(selectedJob)"></div></div>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
             <div class="app-panel-soft p-3">
-              <div class="text-xs text-gray-500 mb-1">创建 / 开始 / 结束</div>
-              <div class="text-gray-300" x-text="'创建：' + formatTime(selectedJob.created_at)"></div>
-              <div class="text-gray-300" x-text="'开始：' + formatTime(selectedJob.started_at)"></div>
-              <div class="text-gray-300" x-text="'结束：' + formatTime(selectedJob.finished_at)"></div>
+              <div class="text-xs text-muted/75 mb-1">创建 / 开始 / 结束</div>
+              <div class="text-text/80" x-text="'创建：' + formatTime(selectedJob.created_at)"></div>
+              <div class="text-text/80" x-text="'开始：' + formatTime(selectedJob.started_at)"></div>
+              <div class="text-text/80" x-text="'结束：' + formatTime(selectedJob.finished_at)"></div>
             </div>
             <div class="app-panel-soft p-3">
-              <div class="text-xs text-gray-500 mb-1">消息</div>
-              <div class="text-gray-300 break-all" x-text="selectedJob.message || '-'"></div>
-              <div x-show="selectedJob.error" class="text-red-300 break-all mt-2" x-text="selectedJob.error"></div>
+              <div class="text-xs text-muted/75 mb-1">消息</div>
+              <div class="text-text/80 break-all" x-text="selectedJob.message || '-'"></div>
+              <div x-show="selectedJob.error" class="text-danger break-all mt-2" x-text="selectedJob.error"></div>
             </div>
           </div>
 
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
             <div>
-              <div class="text-sm font-medium text-gray-300 mb-2">Payload</div>
-              <pre class="app-panel-soft p-3 max-h-72 overflow-auto whitespace-pre-wrap text-xs text-gray-300" x-text="jobPayloadPretty(selectedJob)"></pre>
+              <div class="text-sm font-medium text-text/80 mb-2">Payload</div>
+              <pre class="app-panel-soft p-3 max-h-72 overflow-auto whitespace-pre-wrap text-xs text-text/80" x-text="jobPayloadPretty(selectedJob)"></pre>
             </div>
             <div>
-              <div class="text-sm font-medium text-gray-300 mb-2">Result</div>
-              <pre class="app-panel-soft p-3 max-h-72 overflow-auto whitespace-pre-wrap text-xs text-gray-300" x-text="jobResultPretty(selectedJob)"></pre>
+              <div class="text-sm font-medium text-text/80 mb-2">Result</div>
+              <pre class="app-panel-soft p-3 max-h-72 overflow-auto whitespace-pre-wrap text-xs text-text/80" x-text="jobResultPretty(selectedJob)"></pre>
             </div>
           </div>
         </div>

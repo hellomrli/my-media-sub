@@ -2,6 +2,7 @@ function app() {
   return {
     currentTab: 'search',
     currentSettingsTab: 'basic',
+    theme: 'dark',
 
     tabs: [
       {id: 'search', name: '资源搜索', description: '搜索影视资源并添加订阅', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>'},
@@ -476,6 +477,7 @@ function app() {
     },
 
     async init() {
+      this.applyTheme(this.resolveInitialTheme(), {persist: false});
       this.initNavigation();
       await this.loadSubscriptions();
       await this.loadNotifications();
@@ -485,6 +487,69 @@ function app() {
       this.setupJobEvents();
       this.loadSearchHistory();
       this.runCurrentTabEffects();
+    },
+
+    resolveInitialTheme() {
+      const current = document.documentElement.getAttribute('data-theme');
+      if (current === 'light' || current === 'dark') return current;
+      try {
+        const stored = localStorage.getItem('theme');
+        if (stored === 'light' || stored === 'dark') return stored;
+      } catch (_) {
+        // Ignore storage access failures and fall back to system preference.
+      }
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    },
+
+    applyTheme(theme, options = {}) {
+      const nextTheme = theme === 'light' ? 'light' : 'dark';
+      this.theme = nextTheme;
+      document.documentElement.setAttribute('data-theme', nextTheme);
+      document.documentElement.classList.toggle('dark', nextTheme === 'dark');
+      if (options.persist !== false) {
+        try {
+          localStorage.setItem('theme', nextTheme);
+        } catch (_) {
+          // Theme switching still works for this page load when storage is unavailable.
+        }
+      }
+    },
+
+    toggleTheme() {
+      this.applyTheme(this.theme === 'dark' ? 'light' : 'dark');
+    },
+
+    themeToggleLabel() {
+      return this.theme === 'dark' ? '切换到浅色主题' : '切换到深色主题';
+    },
+
+    trapDialogFocus(event) {
+      const dialog = event.currentTarget;
+      const focusable = Array.from(dialog.querySelectorAll([
+        'a[href]',
+        'button:not([disabled])',
+        'input:not([disabled])',
+        'select:not([disabled])',
+        'textarea:not([disabled])',
+        '[tabindex]:not([tabindex="-1"])'
+      ].join(','))).filter(element => {
+        const style = window.getComputedStyle(element);
+        return style.display !== 'none' && style.visibility !== 'hidden';
+      });
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     },
 
     initNavigation() {
@@ -1014,14 +1079,6 @@ function app() {
       this.openSubscriptionDialog(result, 'continuous');
     },
 
-    // 格式化文件大小
-    formatSize(bytes) {
-      if (!bytes || bytes === 0) return '';
-      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-      const i = Math.floor(Math.log(bytes) / Math.log(1024));
-      return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
-    },
-
     formatTime(timestamp) {
       if (!timestamp) return '-';
       return new Date(Number(timestamp) * 1000).toLocaleString();
@@ -1044,9 +1101,9 @@ function app() {
 
     subscriptionWizardStepClass(step, index) {
       const current = this.subscriptionWizardStepIndex();
-      if (index < current) return 'bg-green-600/20 text-green-200 border-green-500/30';
-      if (index === current) return 'bg-blue-600/20 text-blue-200 border-blue-500/40';
-      return 'bg-dark-bg text-gray-500 border-dark-border';
+      if (index < current) return 'bg-success/20 text-success/85 border-success/30';
+      if (index === current) return 'bg-primary/20 text-primary/85 border-primary/40';
+      return 'bg-app text-muted/75 border-border';
     },
 
     canGoPreviousSubscriptionStep() {
@@ -1351,10 +1408,10 @@ function app() {
     },
 
     checkActionClass(action) {
-      if (action === 'new') return 'text-green-300';
-      if (action === 'known') return 'text-blue-300';
-      if (action === 'skip') return 'text-amber-300';
-      return 'text-gray-300';
+      if (action === 'new') return 'text-success';
+      if (action === 'known') return 'text-primary';
+      if (action === 'skip') return 'text-warning';
+      return 'text-text/80';
     },
 
     subscriptionStatusKey(subOrStatus) {
@@ -1377,10 +1434,10 @@ function app() {
 
     subscriptionStatusClass(subOrStatus) {
       const status = this.subscriptionStatusKey(subOrStatus);
-      if (status === 'active') return 'text-green-300';
-      if (status === 'completed') return 'text-yellow-300';
-      if (status === 'invalid') return 'text-gray-400';
-      return 'text-gray-300';
+      if (status === 'active') return 'text-success';
+      if (status === 'completed') return 'text-warning';
+      if (status === 'invalid') return 'text-muted';
+      return 'text-text/80';
     },
 
     subscriptionStatusCount(status) {
@@ -2333,10 +2390,10 @@ function app() {
 
     notificationLevelClass(level) {
       const classes = {
-        info: 'bg-blue-600/20 text-blue-300',
-        success: 'bg-green-600/20 text-green-300',
-        warning: 'bg-yellow-600/20 text-yellow-300',
-        error: 'bg-red-600/20 text-red-300'
+        info: 'bg-primary/20 text-primary',
+        success: 'bg-success/20 text-success',
+        warning: 'bg-warning/20 text-warning',
+        error: 'bg-danger/20 text-danger'
       };
       return classes[level] || classes.info;
     },
@@ -2417,13 +2474,13 @@ function app() {
 
     jobStatusClass(status) {
       const classes = {
-        queued: 'bg-yellow-600/20 text-yellow-300',
-        running: 'bg-blue-600/20 text-blue-300',
-        succeeded: 'bg-green-600/20 text-green-300',
-        failed: 'bg-red-600/20 text-red-300',
-        canceled: 'bg-gray-600/30 text-gray-300'
+        queued: 'bg-warning/20 text-warning',
+        running: 'bg-primary/20 text-primary',
+        succeeded: 'bg-success/20 text-success',
+        failed: 'bg-danger/20 text-danger',
+        canceled: 'bg-muted/30 text-text/80'
       };
-      return classes[status] || 'bg-gray-600/30 text-gray-300';
+      return classes[status] || 'bg-muted/30 text-text/80';
     },
 
     resetBackgroundJobFilters() {
@@ -2748,9 +2805,9 @@ function app() {
     },
 
     driveItemIconClass(item) {
-      if (!item || !item.file) return 'bg-amber-500/15 text-amber-300 border-amber-500/20';
-      if (this.isDriveVideo(item)) return 'bg-green-500/15 text-green-300 border-green-500/20';
-      return 'bg-blue-500/15 text-blue-300 border-blue-500/20';
+      if (!item || !item.file) return 'bg-warning/15 text-warning border-warning/20';
+      if (this.isDriveVideo(item)) return 'bg-success/15 text-success border-success/20';
+      return 'bg-primary/15 text-primary border-primary/20';
     },
 
     async createFolder() {
@@ -3001,11 +3058,11 @@ function app() {
     },
 
     downloadStatusClass(status) {
-      if (status === 'active') return 'bg-blue-600/20 text-blue-300';
-      if (status === 'waiting') return 'bg-amber-600/20 text-amber-300';
-      if (status === 'complete') return 'bg-green-600/20 text-green-300';
-      if (status === 'error') return 'bg-red-600/20 text-red-300';
-      return 'bg-gray-600/20 text-gray-300';
+      if (status === 'active') return 'bg-primary/20 text-primary';
+      if (status === 'waiting') return 'bg-warning/20 text-warning';
+      if (status === 'complete') return 'bg-success/20 text-success';
+      if (status === 'error') return 'bg-danger/20 text-danger';
+      return 'bg-muted/20 text-text/80';
     },
 
     downloadProgressStyle(task) {
@@ -3399,9 +3456,9 @@ function app() {
     },
 
     updateProgressBarClass() {
-      if (this.updateProgress && this.updateProgress.error) return 'bg-red-500';
-      if (this.updateProgress && this.updateProgress.percent >= 100) return 'bg-green-500';
-      return 'bg-blue-500';
+      if (this.updateProgress && this.updateProgress.error) return 'bg-danger';
+      if (this.updateProgress && this.updateProgress.percent >= 100) return 'bg-success';
+      return 'bg-primary';
     },
 
     updateStatusLabel() {
@@ -3410,8 +3467,8 @@ function app() {
     },
 
     updateStatusClass() {
-      if (!this.updateInfo) return 'text-gray-400';
-      return this.updateInfo.update_available ? 'text-amber-300' : 'text-green-300';
+      if (!this.updateInfo) return 'text-muted';
+      return this.updateInfo.update_available ? 'text-warning' : 'text-success';
     },
 
     updateRuntimeLabel() {
@@ -3584,9 +3641,9 @@ function app() {
     },
 
     quarkHealthStatusClass() {
-      if (this.quarkHealth.status === 'ok') return 'text-green-300';
-      if (this.quarkHealth.status === 'failed') return 'text-red-300';
-      return 'text-gray-300';
+      if (this.quarkHealth.status === 'ok') return 'text-success';
+      if (this.quarkHealth.status === 'failed') return 'text-danger';
+      return 'text-text/80';
     },
 
     quarkSigninProgressLabel() {
