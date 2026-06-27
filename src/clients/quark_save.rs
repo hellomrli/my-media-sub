@@ -67,14 +67,14 @@ struct QuarkMobileParams {
 }
 
 #[derive(Debug, Clone)]
-struct QuarkGrowthInfo {
-    total_capacity_bytes: i64,
-    sign_reward_bytes: i64,
-    member_type: String,
-    sign_daily: bool,
-    sign_daily_reward_bytes: i64,
-    sign_progress: i64,
-    sign_target: i64,
+pub struct QuarkGrowthInfo {
+    pub total_capacity_bytes: i64,
+    pub sign_reward_bytes: i64,
+    pub member_type: String,
+    pub sign_daily: bool,
+    pub sign_daily_reward_bytes: i64,
+    pub sign_progress: i64,
+    pub sign_target: i64,
 }
 
 impl QuarkSaveClient {
@@ -317,15 +317,7 @@ impl QuarkSaveClient {
             AppError::Validation("夸克 Cookie 缺少移动端签到参数 kps/sign/vcode".to_string())
         })?;
 
-        let data = self.mobile_get("/capacity/growth/info", &params).await?;
-        if let Some(err) = Self::api_error(&data) {
-            return Err(AppError::Http(err));
-        }
-        let info = data
-            .data
-            .as_ref()
-            .and_then(parse_growth_info)
-            .ok_or_else(|| AppError::Http("读取夸克签到进度失败".to_string()))?;
+        let info = self.growth_info().await?;
 
         if info.sign_daily {
             return Ok(QuarkSigninResult {
@@ -367,6 +359,21 @@ impl QuarkSaveClient {
             sign_progress: info.sign_progress + 1,
             sign_target: info.sign_target,
         })
+    }
+
+    pub async fn growth_info(&self) -> Result<QuarkGrowthInfo> {
+        let params = self.mobile_params().ok_or_else(|| {
+            AppError::Validation("夸克 Cookie 缺少移动端签到参数 kps/sign/vcode".to_string())
+        })?;
+
+        let data = self.mobile_get("/capacity/growth/info", &params).await?;
+        if let Some(err) = Self::api_error(&data) {
+            return Err(AppError::Http(err));
+        }
+        data.data
+            .as_ref()
+            .and_then(parse_growth_info)
+            .ok_or_else(|| AppError::Http("读取夸克容量信息失败".to_string()))
     }
 
     // ── 目录管理 ──────────────────────────────────────────

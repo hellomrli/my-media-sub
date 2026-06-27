@@ -137,7 +137,6 @@ fn settings_schema() -> SettingsSchemaResponse {
             false
         ),
         setting_field!("quark_signin_hour", "签到小时", "number", "quark", 8),
-        setting_field!("quark_save_root", "默认根目录", "path", "quark", ""),
         setting_field!("quark_save_movie_dir", "电影目录", "path", "quark", "/电影"),
         setting_field!(
             "quark_save_series_dir",
