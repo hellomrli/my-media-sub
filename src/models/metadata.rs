@@ -32,6 +32,10 @@ pub struct MediaMetadata {
     pub number_of_seasons: Option<i32>,
     #[serde(default)]
     pub seasons: Vec<MediaMetadataSeason>,
+    #[serde(default)]
+    pub next_episode_to_air: Option<MediaMetadataEpisode>,
+    #[serde(default)]
+    pub episodes: Vec<MediaMetadataEpisode>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,6 +49,22 @@ pub struct MediaMetadataSeason {
     pub air_date: Option<String>,
     #[serde(default)]
     pub poster_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MediaMetadataEpisode {
+    #[serde(default)]
+    pub season_number: i32,
+    #[serde(default)]
+    pub episode_number: i32,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub overview: String,
+    #[serde(default)]
+    pub air_date: Option<String>,
+    #[serde(default)]
+    pub still_url: Option<String>,
 }
 
 pub fn episode_count_for_season(metadata: Option<&MediaMetadata>, season: i32) -> Option<i32> {
@@ -89,6 +109,22 @@ mod tests {
                 name: "Season 1".to_string(),
                 air_date: Some("2024-01-01".to_string()),
                 poster_url: None,
+            }],
+            next_episode_to_air: Some(MediaMetadataEpisode {
+                season_number: 1,
+                episode_number: 2,
+                name: "第二集".to_string(),
+                overview: String::new(),
+                air_date: Some("2024-01-08".to_string()),
+                still_url: None,
+            }),
+            episodes: vec![MediaMetadataEpisode {
+                season_number: 1,
+                episode_number: 1,
+                name: "第一集".to_string(),
+                overview: String::new(),
+                air_date: Some("2024-01-01".to_string()),
+                still_url: None,
             }],
         };
 

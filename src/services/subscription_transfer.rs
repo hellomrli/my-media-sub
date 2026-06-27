@@ -1434,6 +1434,8 @@ mod tests {
                 number_of_episodes: None,
                 number_of_seasons: None,
                 seasons: vec![],
+                next_episode_to_air: None,
+                episodes: vec![],
             }),
             cloud_type: "quark".to_string(),
             url: "https://pan.quark.cn/s/test".to_string(),
