@@ -10,7 +10,9 @@ use std::sync::Arc;
 
 use crate::error::{AppError, Result};
 use crate::jobs::{JobQueue, MetadataScrapePayload};
-use crate::models::{episode_count_for_season, MediaMetadata, Subscription, TransferRules};
+use crate::models::{
+    episode_count_for_season, MediaMetadata, Settings, Subscription, TransferRules,
+};
 use crate::services::subscription_check::CheckDetails;
 use crate::services::subscription_progress::reopen_completed_subscription_status;
 use crate::services::transfer_rule::{
@@ -18,6 +20,7 @@ use crate::services::transfer_rule::{
 };
 use crate::services::{SubscriptionCheckService, SubscriptionTransferService};
 use crate::store::{SettingsStore, SubscriptionStore};
+use crate::utils::unix_now;
 
 /// 订阅路由状态
 pub struct SubscriptionState {
@@ -59,6 +62,8 @@ pub struct CreateSubscriptionRequest {
     pub metadata: Option<MediaMetadata>,
     #[serde(default)]
     pub rules: Option<TransferRules>,
+    #[serde(default)]
+    pub rule_preset_id: String,
 }
 
 /// 更新订阅请求
@@ -102,6 +107,8 @@ pub struct UpdateSubscriptionRequest {
     pub target_dir: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rename_template: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_preset_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -198,8 +205,24 @@ impl<T> Response<T> {
     }
 }
 
-fn create_rules(req: &CreateSubscriptionRequest) -> TransferRules {
-    let mut rules = req.rules.clone().unwrap_or_default();
+fn preset_rules(settings: &Settings, preset_id: &str) -> Option<TransferRules> {
+    let preset_id = preset_id.trim();
+    if preset_id.is_empty() {
+        return None;
+    }
+    settings
+        .rule_presets
+        .iter()
+        .find(|preset| preset.id == preset_id)
+        .map(|preset| preset.rules.clone())
+}
+
+fn create_rules(req: &CreateSubscriptionRequest, settings: &Settings) -> TransferRules {
+    let mut rules = req
+        .rules
+        .clone()
+        .or_else(|| preset_rules(settings, &req.rule_preset_id))
+        .unwrap_or_default();
     if !req.target_dir.trim().is_empty() {
         rules.target_dir = req.target_dir.clone();
     }
@@ -225,10 +248,7 @@ fn preview_rules(req: &RenamePreviewRequest, base: Option<&Subscription>) -> Tra
 }
 
 fn preview_subscription(req: &RenamePreviewRequest, base: Option<&Subscription>) -> Subscription {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
+    let now = unix_now();
     let rules = preview_rules(req, base);
     let title = req
         .title
@@ -297,6 +317,9 @@ fn preview_subscription(req: &RenamePreviewRequest, base: Option<&Subscription>)
         enabled: true,
         completed: false,
         rules,
+        rule_preset_id: base
+            .map(|sub| sub.rule_preset_id.clone())
+            .unwrap_or_default(),
         created_at: base.map(|sub| sub.created_at).unwrap_or(now),
         updated_at: now,
         last_checked_at: base.map(|sub| sub.last_checked_at).unwrap_or(now),
@@ -430,15 +453,14 @@ async fn create_subscription(
     State(state): State<Arc<SubscriptionState>>,
     Json(req): Json<CreateSubscriptionRequest>,
 ) -> Result<impl IntoResponse> {
-    let rules = create_rules(&req);
+    let settings = state.settings_store.get().await;
+    let rules = create_rules(&req, &settings);
+    let rule_preset_id = req.rule_preset_id.trim().to_string();
     let rule_summary = summarize_rules(Some(&rules));
     let id = format!("{:x}", md5::compute(format!("{}:{}", req.url, req.title)));
     let id = &id[..12];
 
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
+    let now = unix_now();
 
     let season = req.season.max(1);
     let media_type = if req.media_type.is_empty() {
@@ -483,6 +505,7 @@ async fn create_subscription(
         enabled: true,
         completed: false,
         rules,
+        rule_preset_id,
         created_at: now,
         updated_at: now,
         last_checked_at: now,
@@ -510,6 +533,16 @@ async fn update_subscription(
     let keep_progress_on_source_change = req.keep_progress_on_source_change.unwrap_or(true);
     let continue_from_current_episode =
         continue_from_current_episode_default(req.continue_from_current_episode);
+    let settings = state.settings_store.get().await;
+    let requested_rule_preset_id = req
+        .rule_preset_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(ToString::to_string);
+    let requested_preset_rules = requested_rule_preset_id
+        .as_deref()
+        .and_then(|id| preset_rules(&settings, id));
     let updated = state
         .store
         .update(&id, |sub| {
@@ -564,6 +597,11 @@ async fn update_subscription(
             }
             if let Some(rules) = req.rules {
                 sub.rules = rules;
+            } else if let Some(rules) = requested_preset_rules {
+                sub.rules = rules;
+            }
+            if let Some(rule_preset_id) = requested_rule_preset_id {
+                sub.rule_preset_id = rule_preset_id;
             }
             if let Some(target_dir) = req.target_dir {
                 sub.rules.target_dir = target_dir;
@@ -586,10 +624,7 @@ async fn update_subscription(
             }
             reconcile_completion_status(sub);
             sub.rule_summary = summarize_rules(Some(&sub.rules));
-            sub.updated_at = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64;
+            sub.updated_at = unix_now();
         })
         .await?;
 

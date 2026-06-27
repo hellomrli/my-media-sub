@@ -47,18 +47,45 @@ struct ErrorResponse {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, error_type) = match &self {
-            AppError::Database(_) => (StatusCode::INTERNAL_SERVER_ERROR, "database_error"),
-            AppError::Http(_) => (StatusCode::BAD_GATEWAY, "http_error"),
-            AppError::Config(_) => (StatusCode::INTERNAL_SERVER_ERROR, "config_error"),
-            AppError::Validation(_) => (StatusCode::BAD_REQUEST, "validation_error"),
-            AppError::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
-            AppError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),
+        let (status, error_type, message) = match &self {
+            AppError::Database(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "database_error",
+                String::new(),
+            ),
+            AppError::Http(_) => (StatusCode::BAD_GATEWAY, "http_error", String::new()),
+            AppError::Config(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "config_error",
+                String::new(),
+            ),
+            AppError::Validation(msg) => (StatusCode::BAD_REQUEST, "validation_error", msg.clone()),
+            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, "not_found", msg.clone()),
+            AppError::Internal(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal_error",
+                String::new(),
+            ),
         };
+
+        let message = match &self {
+            AppError::Database(_) => "数据存储错误".to_string(),
+            AppError::Http(_) => "上游服务请求失败".to_string(),
+            AppError::Config(_) => "服务配置错误".to_string(),
+            AppError::Validation(_) | AppError::NotFound(_) => message,
+            AppError::Internal(_) => "服务内部错误".to_string(),
+        };
+
+        if matches!(
+            &self,
+            AppError::Database(_) | AppError::Http(_) | AppError::Config(_) | AppError::Internal(_)
+        ) {
+            tracing::error!("请求处理失败: {}", self);
+        }
 
         let body = Json(ErrorResponse {
             error: error_type.to_string(),
-            message: self.to_string(),
+            message,
         });
 
         (status, body).into_response()

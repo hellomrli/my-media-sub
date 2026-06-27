@@ -1,8 +1,10 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::clients::NormalizedItem;
 use crate::error::{AppError, Result};
 use crate::models::{Settings, Subscription};
+use crate::utils::write_file_atomic;
 
 #[derive(Debug, Clone)]
 pub struct StrmGeneratedFile {
@@ -22,6 +24,25 @@ pub struct StrmGenerationResult {
 
 pub fn strm_generation_enabled(settings: &Settings, sub: &Subscription) -> bool {
     settings.strm_enabled && sub.strm_enabled
+}
+
+/// 异步生成 STRM 文件：把阻塞的文件系统操作放到 `spawn_blocking`，避免阻塞 tokio executor 线程。
+pub async fn generate_subscription_strm_files_async(
+    settings: &Settings,
+    sub: &Subscription,
+    target_dir: &str,
+    files: &[NormalizedItem],
+) -> Result<StrmGenerationResult> {
+    let settings = settings.clone();
+    let sub = sub.clone();
+    let target_dir = target_dir.to_string();
+    let files = files.to_vec();
+
+    tokio::task::spawn_blocking(move || {
+        generate_subscription_strm_files(&settings, &sub, &target_dir, &files)
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("STRM 生成任务执行失败: {}", e)))?
 }
 
 pub fn generate_subscription_strm_files(
@@ -45,6 +66,7 @@ pub fn generate_subscription_strm_files(
 
     let mut generated = Vec::new();
     let mut skipped_count = 0usize;
+    let mut used_names: HashSet<String> = HashSet::new();
 
     for file in files {
         if !file.file
@@ -56,9 +78,9 @@ pub fn generate_subscription_strm_files(
         }
 
         let url = httpstrm_url(settings, &file.fid, &file.file_name)?;
-        let strm_path = output_dir.join(strm_file_name(&file.file_name));
-        std::fs::write(&strm_path, format!("{url}\n"))
-            .map_err(|e| AppError::Internal(format!("写入 STRM 文件失败: {}", e)))?;
+        let strm_name = unique_strm_file_name(&file.file_name, &mut used_names);
+        let strm_path = output_dir.join(&strm_name);
+        write_file_atomic(&strm_path, format!("{url}\n").as_bytes(), 0o644)?;
 
         generated.push(StrmGeneratedFile {
             fid: file.fid.clone(),
@@ -119,6 +141,34 @@ fn strm_file_name(file_name: &str) -> String {
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(file_name);
     format!("{}.strm", sanitize_path_segment(stem))
+}
+
+/// 生成不与已用名冲突的 STRM 文件名。
+///
+/// 不同扩展名的同名源文件（如 `video.mp4` 与 `video.mkv`）会归一化为同一个
+/// `video.strm`，从而相互覆盖。这里在冲突时回退到带原扩展名的名字
+/// （`video.mkv.strm`），仍冲突再追加序号，确保每个源文件都有独立的 `.strm`。
+fn unique_strm_file_name(file_name: &str, used_names: &mut HashSet<String>) -> String {
+    let primary = strm_file_name(file_name);
+    if used_names.insert(primary.clone()) {
+        return primary;
+    }
+
+    // 用完整文件名（含扩展名）作为去重词干。
+    let full = sanitize_path_segment(file_name);
+    let with_ext = format!("{}.strm", full);
+    if used_names.insert(with_ext.clone()) {
+        return with_ext;
+    }
+
+    let mut counter = 1usize;
+    loop {
+        let candidate = format!("{}.{}.strm", full, counter);
+        if used_names.insert(candidate.clone()) {
+            return candidate;
+        }
+        counter += 1;
+    }
 }
 
 fn normalized_relative_parts(path: &str) -> Vec<String> {

@@ -11,10 +11,12 @@ use crate::error::{AppError, Result};
 use crate::models::rules::TransferRules;
 use crate::models::subscription::Subscription;
 use crate::models::Settings;
-use crate::services::notification::{add_notification, dispatch_push_event};
+use crate::services::notification::{
+    add_notification, dispatch_push_event_for_notification, PushDispatchRequest,
+};
 use crate::services::push::{PushEvent, PushLevel};
 use crate::services::strm::{
-    generate_subscription_strm_files, strm_generation_enabled, StrmGenerationResult,
+    generate_subscription_strm_files_async, strm_generation_enabled, StrmGenerationResult,
 };
 use crate::services::subscription_progress::{
     completion_target_episode, should_mark_completed_from_transferred_files,
@@ -25,6 +27,7 @@ use crate::services::{
     episode::matches_subscription_season, episode::EpisodeDuplicateCandidate,
 };
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
+use crate::utils::unix_now;
 
 /// 递归收集目录下所有视频文件（独立函数，使用 Box 解决递归问题）
 fn collect_video_files_recursive<'a>(
@@ -438,10 +441,7 @@ fn sync_dir_label(dir: &str) -> &str {
 }
 
 fn now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64
+    unix_now()
 }
 
 fn transfer_notification_message(
@@ -641,6 +641,7 @@ impl SubscriptionTransferService {
                 reason: "订阅设置为仅通知模式".to_string(),
                 push_title: None,
                 push_message: None,
+                push_notification_id: None,
             });
         }
 
@@ -659,6 +660,7 @@ impl SubscriptionTransferService {
                 reason: "自动下载新订阅项未启用".to_string(),
                 push_title: None,
                 push_message: None,
+                push_notification_id: None,
             });
         }
 
@@ -670,6 +672,7 @@ impl SubscriptionTransferService {
                 reason: "全局自动转存未启用".to_string(),
                 push_title: None,
                 push_message: None,
+                push_notification_id: None,
             });
         }
 
@@ -682,6 +685,7 @@ impl SubscriptionTransferService {
                 reason: "未配置夸克 Cookie".to_string(),
                 push_title: None,
                 push_message: None,
+                push_notification_id: None,
             });
         }
 
@@ -693,6 +697,7 @@ impl SubscriptionTransferService {
                 reason: "无新文件需要转存".to_string(),
                 push_title: None,
                 push_message: None,
+                push_notification_id: None,
             });
         }
 
@@ -732,6 +737,7 @@ impl SubscriptionTransferService {
                 reason: "未找到匹配的文件".to_string(),
                 push_title: None,
                 push_message: None,
+                push_notification_id: None,
             });
         }
 
@@ -835,7 +841,7 @@ impl SubscriptionTransferService {
             .await;
 
         // 13. 发送转存成功通知
-        let (push_title, push_message) = self
+        let (push_title, push_message, push_notification_id) = self
             .send_transfer_notification(
                 &sub,
                 &transfer_file_names,
@@ -855,6 +861,7 @@ impl SubscriptionTransferService {
             reason,
             push_title: Some(push_title),
             push_message: Some(push_message),
+            push_notification_id,
         })
     }
 
@@ -1019,7 +1026,7 @@ impl SubscriptionTransferService {
         let target_fid = save_client.ensure_dir_path(&target_dir).await?;
         let files = collect_video_files_recursive(&save_client, &target_fid).await?;
 
-        generate_subscription_strm_files(&settings, &sub, &target_dir, &files)
+        generate_subscription_strm_files_async(&settings, &sub, &target_dir, &files).await
     }
 
     async fn submit_sync_downloads(
@@ -1133,7 +1140,7 @@ impl SubscriptionTransferService {
             return None;
         }
 
-        match generate_subscription_strm_files(settings, sub, target_dir, files) {
+        match generate_subscription_strm_files_async(settings, sub, target_dir, files).await {
             Ok(result) => {
                 let dir = result.output_dir.display().to_string();
                 info!(
@@ -1189,10 +1196,7 @@ impl SubscriptionTransferService {
                         sub.transferred_file_keys.push(key.clone());
                     }
                 }
-                sub.updated_at = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs() as i64;
+                sub.updated_at = unix_now();
             })
             .await?;
 
@@ -1248,7 +1252,7 @@ impl SubscriptionTransferService {
             "订阅已标记为完结".to_string()
         };
 
-        let _ = add_notification(
+        let notification = add_notification(
             &self.notification_store,
             "success",
             "subscription_completed",
@@ -1257,14 +1261,17 @@ impl SubscriptionTransferService {
             std::collections::HashMap::new(),
         )
         .await;
-        dispatch_push_event(
+        dispatch_push_event_for_notification(
             self.settings_store.clone(),
             self.notification_store.clone(),
             None,
-            PushEvent::SubscriptionCompleted,
-            title,
-            message,
-            PushLevel::Success,
+            PushDispatchRequest {
+                notification_id: notification.ok().map(|notification| notification.id),
+                event: PushEvent::SubscriptionCompleted,
+                title,
+                message,
+                level: PushLevel::Success,
+            },
         )
         .await;
     }
@@ -1277,7 +1284,7 @@ impl SubscriptionTransferService {
         target_dir: &str,
         sync_report: Option<&SyncDownloadReport>,
         strm_report: Option<&StrmGenerationReport>,
-    ) -> (String, String) {
+    ) -> (String, String, Option<String>) {
         let target_dir_label = if target_dir.is_empty() {
             "根目录"
         } else {
@@ -1344,7 +1351,7 @@ impl SubscriptionTransferService {
         }
 
         let title = format!("订阅自动转存: {}", sub.title);
-        let _ = add_notification(
+        let notification = add_notification(
             &self.notification_store,
             "success",
             "subscription_transferred",
@@ -1353,7 +1360,8 @@ impl SubscriptionTransferService {
             meta,
         )
         .await;
-        (title, message)
+        let notification_id = notification.ok().map(|notification| notification.id);
+        (title, message, notification_id)
     }
 }
 
@@ -1367,6 +1375,7 @@ pub struct TransferResult {
     pub reason: String,
     pub push_title: Option<String>,
     pub push_message: Option<String>,
+    pub push_notification_id: Option<String>,
 }
 
 #[cfg(test)]
@@ -1383,7 +1392,7 @@ mod tests {
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_nanos()
         ))
     }
@@ -1443,6 +1452,7 @@ mod tests {
             enabled: true,
             completed: false,
             rules: TransferRules::default(),
+            rule_preset_id: String::new(),
             created_at: 1,
             updated_at: 1,
             last_checked_at: 1,

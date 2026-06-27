@@ -104,6 +104,119 @@
 
       <div class="app-content flex-1 overflow-y-auto px-4 sm:px-5 py-4 sm:py-5">
 
+        <!-- 工作台 -->
+        <div x-show="currentTab === 'dashboard'" class="page-stack">
+          <div class="metric-grid">
+            <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">追更订阅</div>
+              <div class="mt-2 text-2xl font-semibold text-text" x-text="dashboardStats.activeSubs"></div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">失效订阅</div>
+              <div class="mt-2 text-2xl font-semibold" :class="dashboardStats.invalidSubs ? 'text-danger' : 'text-text'" x-text="dashboardStats.invalidSubs"></div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">后台运行</div>
+              <div class="mt-2 text-2xl font-semibold text-primary" x-text="dashboardStats.runningJobs"></div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">下载速度</div>
+              <div class="mt-2 text-2xl font-semibold text-text" x-text="formatSpeed(dashboardStats.downloadSpeed)"></div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+            <div class="app-panel p-4 xl:col-span-2">
+              <div class="flex items-center justify-between gap-3 mb-3">
+                <h3 class="section-title">最近订阅</h3>
+                <button @click="selectTab('subscriptions')" class="btn-secondary px-3 py-2 rounded text-sm">进入订阅</button>
+              </div>
+              <div class="space-y-2">
+                <template x-for="sub in dashboardRecentSubscriptions" :key="sub.id">
+                  <div class="grid grid-cols-1 gap-2 rounded-lg border border-border bg-app px-3 py-3 md:grid-cols-12 md:items-center">
+                    <div class="md:col-span-5 min-w-0">
+                      <div class="text-sm font-medium text-text truncate" x-text="subscriptionDisplayTitle(sub)"></div>
+                      <div class="text-xs text-muted/75 truncate" x-text="(sub.rules && sub.rules.target_dir) || '-'"></div>
+                    </div>
+                    <div class="md:col-span-2"><span :class="subscriptionStatusClass(sub)" class="text-sm font-semibold" x-text="subscriptionStatusLabel(sub)"></span></div>
+                    <div class="md:col-span-2 text-sm text-muted/80" x-text="subscriptionProgressLabel(sub)"></div>
+                    <div class="md:col-span-3 text-xs text-muted/75 md:text-right" x-text="formatTime(sub.last_checked_at || sub.updated_at)"></div>
+                  </div>
+                </template>
+                <div x-show="dashboardRecentSubscriptions.length === 0" class="empty-state border border-border rounded-lg">暂无订阅</div>
+              </div>
+            </div>
+
+            <div class="app-panel p-4 space-y-3">
+              <div class="flex items-center justify-between gap-3">
+                <h3 class="section-title">夸克健康</h3>
+                <button @click="refreshQuarkHealth()" :disabled="quarkHealthLoading" class="btn-secondary px-3 py-2 rounded text-sm disabled:opacity-50">检测</button>
+              </div>
+              <div class="grid grid-cols-2 gap-2 text-sm">
+                <div class="rounded-lg border border-border bg-app p-3">
+                  <div class="text-xs text-muted/75">账号</div>
+                  <div class="mt-1 font-semibold" :class="quarkHealthStatusClass()" x-text="quarkHealthStatusLabel()"></div>
+                </div>
+                <div class="rounded-lg border border-border bg-app p-3">
+                  <div class="text-xs text-muted/75">自动转存</div>
+                  <div class="mt-1 font-semibold" :class="settings.quark_save_enabled ? 'text-success' : 'text-muted'" x-text="settings.quark_save_enabled ? '已启用' : '未启用'"></div>
+                </div>
+                <div class="rounded-lg border border-border bg-app p-3">
+                  <div class="text-xs text-muted/75">签到</div>
+                  <div class="mt-1 font-semibold" :class="settings.quark_signin_enabled ? 'text-success' : 'text-muted'" x-text="settings.quark_signin_enabled ? '自动' : '手动'"></div>
+                </div>
+                <div class="rounded-lg border border-border bg-app p-3">
+                  <div class="text-xs text-muted/75">容量</div>
+                  <div class="mt-1 font-semibold text-text" x-text="quarkCapacityLabel()"></div>
+                </div>
+              </div>
+              <div class="text-sm text-text/80 break-words" x-text="quarkHealth.message"></div>
+              <div class="text-xs" :class="(quarkHealth.issues || []).length ? 'text-warning' : 'text-success'" x-text="quarkHealthIssueText()"></div>
+              <div class="text-xs text-muted/75" x-text="quarkHealth.checkedAt ? '检测时间 ' + formatTime(quarkHealth.checkedAt) : '尚未检测'"></div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div class="app-panel p-4">
+              <div class="flex items-center justify-between gap-3 mb-3">
+                <h3 class="section-title">后台任务</h3>
+                <button @click="selectTab('transferHistory')" class="btn-secondary px-3 py-2 rounded text-sm">查看日志</button>
+              </div>
+              <div class="space-y-2">
+                <template x-for="job in dashboardRecentJobs" :key="job.id">
+                  <div class="flex items-center justify-between gap-3 rounded-lg border border-border bg-app px-3 py-3">
+                    <div class="min-w-0">
+                      <div class="text-sm text-text truncate" x-text="job.title || jobKindLabel(job.kind)"></div>
+                      <div class="text-xs text-muted/75 truncate" x-text="job.message || job.error || jobKindLabel(job.kind)"></div>
+                    </div>
+                    <span :class="jobStatusClass(job.status)" class="shrink-0 rounded px-2 py-1 text-xs" x-text="jobStatusLabel(job.status)"></span>
+                  </div>
+                </template>
+                <div x-show="dashboardRecentJobs.length === 0" class="empty-state border border-border rounded-lg">暂无后台任务</div>
+              </div>
+            </div>
+
+            <div class="app-panel p-4">
+              <div class="flex items-center justify-between gap-3 mb-3">
+                <h3 class="section-title">最近通知</h3>
+                <button @click="selectTab('notifications')" class="btn-secondary px-3 py-2 rounded text-sm">通知中心</button>
+              </div>
+              <div class="space-y-2">
+                <template x-for="notif in dashboardRecentNotifications" :key="notif.id">
+                  <div class="rounded-lg border border-border bg-app px-3 py-3">
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="min-w-0 text-sm text-text truncate" x-text="notif.title"></div>
+                      <span :class="notificationLevelClass(notif.level)" class="shrink-0 rounded px-2 py-1 text-xs" x-text="notificationLevelLabel(notif.level)"></span>
+                    </div>
+                    <div class="mt-1 text-xs text-muted/75 truncate" x-text="notif.message"></div>
+                  </div>
+                </template>
+                <div x-show="dashboardRecentNotifications.length === 0" class="empty-state border border-border rounded-lg">暂无通知</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- 搜索页面 -->
         <div x-show="currentTab === 'search'" class="page-stack">
           <div class="metric-grid">
@@ -592,6 +705,25 @@
 
                     <div x-show="sub.status === 'invalid' && sub.last_error" class="text-sm text-danger break-all" x-text="'失效原因：' + sub.last_error"></div>
 
+                    <div x-show="sub.check_history && sub.check_history.length" class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <div class="rounded border border-border bg-app px-3 py-2">
+                        <div class="text-xs text-muted/75">扫描</div>
+                        <div class="text-sm font-semibold text-text" x-text="sub.check_history[0].scanned_count || sub.check_history[0].matched_count || 0"></div>
+                      </div>
+                      <div class="rounded border border-border bg-app px-3 py-2">
+                        <div class="text-xs text-muted/75">新增</div>
+                        <div class="text-sm font-semibold text-success" x-text="sub.check_history[0].new_count || (sub.check_history[0].new_files || []).length"></div>
+                      </div>
+                      <div class="rounded border border-border bg-app px-3 py-2">
+                        <div class="text-xs text-muted/75">已知</div>
+                        <div class="text-sm font-semibold text-text" x-text="sub.check_history[0].known_count || 0"></div>
+                      </div>
+                      <div class="rounded border border-border bg-app px-3 py-2">
+                        <div class="text-xs text-muted/75">跳过</div>
+                        <div class="text-sm font-semibold text-warning" x-text="Number(sub.check_history[0].skipped_directory_count || 0) + Number(sub.check_history[0].skipped_other_season_count || 0) + Number(sub.check_history[0].skipped_before_start_count || 0) + Number(sub.check_history[0].skipped_duplicate_episode_count || 0)"></div>
+                      </div>
+                    </div>
+
                     <div class="text-sm min-w-0">
                       <span class="block text-xs text-muted/75 mb-1">保存目录</span>
                       <span class="text-text/80 break-all" x-text="(sub.rules && sub.rules.target_dir) || '-'"></span>
@@ -744,7 +876,7 @@
           <div class="app-panel p-4 toolbar-panel">
             <div>
               <h3 class="section-title">通知中心</h3>
-              <p class="text-sm text-muted/75 mt-1">系统通知和推送记录会保留在这里，后台执行过程请查看后台日志。</p>
+              <p class="text-sm text-muted/75 mt-1">系统通知会保留在这里，相关推送状态会合并显示在同一条通知内。</p>
             </div>
             <div class="control-row">
               <button @click="markAllRead()" class="btn-secondary px-4 py-2 rounded-lg transition-colors text-sm">全部已读</button>
@@ -771,7 +903,7 @@
                       <h4 class="text-text font-medium" x-text="notif.title"></h4>
                     </div>
                     <p class="text-muted text-sm mb-2 break-all" x-text="notif.message"></p>
-                    <div x-show="notif.event === 'push_sent'" class="mb-2 app-panel-soft p-3 text-xs text-text/80">
+                    <div x-show="notificationHasPush(notif)" class="mb-2 app-panel-soft p-3 text-xs text-text/80">
                       <div class="flex flex-wrap gap-2">
                         <template x-for="item in notificationPushChannelStatuses(notif)" :key="item.channel">
                           <span class="inline-flex items-center gap-1.5 rounded border px-2 py-1" :class="item.success ? 'border-success/30 bg-success/10 text-success/85' : 'border-danger/30 bg-danger/10 text-danger/85'">
@@ -782,8 +914,8 @@
                         </template>
                       </div>
                       <div class="mt-2 flex flex-wrap gap-2 text-muted">
-                        <span>成功: <span class="text-success" x-text="(notif.meta || {}).success_count || 0"></span></span>
-                        <span>失败: <span class="text-danger" x-text="(notif.meta || {}).failed_count || 0"></span></span>
+                        <span>推送成功: <span class="text-success" x-text="notificationPushMeta(notif).success_count || 0"></span></span>
+                        <span>推送失败: <span class="text-danger" x-text="notificationPushMeta(notif).failed_count || 0"></span></span>
                       </div>
                       <div x-show="notificationPushErrors(notif).length > 0" class="mt-2 space-y-1 text-danger/85">
                         <template x-for="item in notificationPushErrors(notif)" :key="item.channel">
@@ -934,11 +1066,12 @@
                   </div>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                  <div class="app-panel-soft p-3">
-                    <div class="text-xs text-muted/75 mb-1">检测结果</div>
-                    <div class="text-text/80 break-all" x-text="quarkHealth.message"></div>
-                    <div class="text-xs text-muted/75 mt-1" x-text="quarkHealth.checkedAt ? '检测时间 ' + formatTime(quarkHealth.checkedAt) : '尚未检测'"></div>
-                  </div>
+	                  <div class="app-panel-soft p-3">
+	                    <div class="text-xs text-muted/75 mb-1">检测结果</div>
+	                    <div class="text-text/80 break-all" x-text="quarkHealth.message"></div>
+	                    <div class="text-xs mt-1" :class="(quarkHealth.issues || []).length ? 'text-warning' : 'text-success'" x-text="quarkHealthIssueText()"></div>
+	                    <div class="text-xs text-muted/75 mt-1" x-text="quarkHealth.checkedAt ? '检测时间 ' + formatTime(quarkHealth.checkedAt) : '尚未检测'"></div>
+	                  </div>
                   <div class="app-panel-soft p-3">
                     <div class="text-xs text-muted/75 mb-1">签到结果</div>
                     <div class="text-text/80 break-all" x-text="quarkHealth.signinMessage || '尚未签到'"></div>
@@ -1197,6 +1330,7 @@
                     <p class="text-sm text-muted/75 mt-1">集中调试追剧命名模板、过滤规则和样例文件，确认后可写入默认模板或在订阅弹窗中套用。</p>
                   </div>
                   <div class="flex flex-col sm:flex-row gap-2">
+                    <button @click="saveRuleCenterPreset()" class="btn-secondary px-4 py-2 rounded-lg text-sm">保存预设</button>
                     <button @click="useRuleCenterAsDefaultTemplate()" class="btn-secondary px-4 py-2 rounded-lg text-sm">写入默认模板</button>
                     <button @click="previewRuleCenter()" :disabled="ruleCenterPreviewLoading" class="btn-primary px-4 py-2 rounded-lg text-sm disabled:opacity-50">
                       <span x-show="!ruleCenterPreviewLoading">预览规则</span>
@@ -1206,10 +1340,16 @@
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                   <template x-for="preset in rulePresets" :key="preset.id">
-                    <button @click="applyRulePresetToRuleCenter(preset.id)" class="btn-secondary p-3 rounded-lg text-left min-h-20">
-                      <span class="block text-sm text-text font-medium" x-text="preset.name"></span>
-                      <span class="block text-xs text-muted/75 mt-1" x-text="preset.description"></span>
-                    </button>
+                    <div class="btn-secondary p-3 rounded-lg text-left min-h-20">
+                      <button @click="applyRulePresetToRuleCenter(preset.id)" class="w-full text-left">
+                        <span class="block text-sm text-text font-medium" x-text="preset.name"></span>
+                        <span class="block text-xs text-muted/75 mt-1" x-text="preset.description || ruleSummary(preset.rules)"></span>
+                      </button>
+                      <div class="mt-3 flex items-center justify-between gap-2 text-xs">
+                        <span class="text-muted/75" x-text="mediaTypeLabel(preset.media_type || 'series')"></span>
+                        <button @click.stop="deleteRulePreset(preset.id)" class="text-danger hover:text-danger/80">删除</button>
+                      </div>
+                    </div>
                   </template>
                 </div>
               </div>
@@ -1217,6 +1357,14 @@
               <div class="app-panel-soft p-4 space-y-4">
                 <h3 class="section-title">规则配置</h3>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label class="field-label">预设名称</label>
+                    <input type="text" x-model="ruleCenter.preset_name" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：番剧命名" />
+                  </div>
+                  <div class="md:col-span-2">
+                    <label class="field-label">预设说明</label>
+                    <input type="text" x-model="ruleCenter.preset_description" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="用于区分适用场景" />
+                  </div>
                   <div>
                     <label class="field-label">媒体类型</label>
                     <select x-model="ruleCenter.media_type" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
@@ -1792,6 +1940,22 @@
                 <span class="text-success break-all" x-text="getDefaultTargetDir()"></span>
               </div>
             </div>
+          </div>
+
+          <div class="app-panel-soft p-4 space-y-3">
+            <div class="flex flex-col sm:flex-row sm:items-end gap-3">
+              <div class="flex-1">
+                <label class="field-label">规则预设</label>
+                <select x-model="newSubscription.rule_preset_id" @change="applyRulePresetToSubscription(newSubscription.rule_preset_id)" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
+                  <option value="">不使用预设</option>
+                  <template x-for="preset in rulePresets" :key="preset.id">
+                    <option :value="preset.id" x-text="preset.name"></option>
+                  </template>
+                </select>
+              </div>
+              <button @click="showSubscriptionDialog = false; selectTab('settings'); selectSettingsTab('rules')" class="btn-secondary px-3 py-2 rounded text-sm">管理预设</button>
+            </div>
+            <div x-show="newSubscription.rule_preset_id" class="text-xs text-muted/75" x-text="rulePresetById(newSubscription.rule_preset_id)?.description || ruleSummary(rulePresetById(newSubscription.rule_preset_id)?.rules)"></div>
           </div>
 
           <details class="app-panel-soft p-4">

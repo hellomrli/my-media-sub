@@ -41,6 +41,7 @@ impl AppContext {
         let settings_store = Arc::new(SettingsStore::new(config.data_dir.join("settings.json")));
         settings_store.load().await?;
         apply_env_overrides(&settings_store).await?;
+        warn_weak_auth_settings(&settings_store).await;
         tracing::info!("✅ Settings loaded");
 
         let notification_store = Arc::new(NotificationStore::new(
@@ -283,6 +284,15 @@ fn should_apply_username_env_override(current: &str) -> bool {
 fn should_apply_password_env_override(current: &str) -> bool {
     let current = current.trim();
     current.is_empty() || current == "change-me"
+}
+
+async fn warn_weak_auth_settings(settings_store: &SettingsStore) {
+    let settings = settings_store.get().await;
+    if settings.app_password.trim().is_empty() {
+        tracing::warn!("应用密码为空：HTTP Basic Auth 将拒绝所有受保护请求");
+    } else if settings.app_password == "change-me" {
+        tracing::warn!("应用仍在使用默认密码 change-me，请立即通过 SERVER_PASSWORD 或系统设置修改");
+    }
 }
 
 fn parse_bool_env(value: &str) -> bool {

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use tokio::sync::{broadcast, RwLock};
 
 use crate::error::{AppError, Result};
+use crate::utils::{quarantine_corrupt_file, write_json_atomic_async};
 
 use super::model::{now, Job};
 
@@ -32,14 +33,24 @@ impl JobStore {
 
         let content = std::fs::read_to_string(&self.path)
             .map_err(|e| AppError::Database(format!("读取任务文件失败: {}", e)))?;
-        *jobs = serde_json::from_str(&content)
-            .map_err(|e| AppError::Database(format!("解析任务 JSON 失败: {}", e)))?;
+        match serde_json::from_str(&content) {
+            Ok(mut parsed) => {
+                truncate_jobs(&mut parsed);
+                *jobs = parsed;
+            }
+            Err(e) => {
+                tracing::warn!("解析任务 JSON 失败，已隔离损坏文件并使用空任务: {}", e);
+                quarantine_corrupt_file(&self.path);
+                *jobs = Vec::new();
+            }
+        }
         Ok(())
     }
 
     pub async fn add(&self, job: Job) -> Result<Job> {
         let mut jobs = self.jobs.write().await;
         jobs.push(job.clone());
+        truncate_jobs(&mut jobs);
         self.save_locked(&jobs).await?;
         self.emit(job.clone());
         Ok(job)
@@ -99,24 +110,13 @@ impl JobStore {
     }
 
     async fn save_locked(&self, jobs: &[Job]) -> Result<()> {
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| AppError::Database(format!("创建任务目录失败: {}", e)))?;
-        }
+        write_json_atomic_async(&self.path, &jobs, 0o600).await
+    }
+}
 
-        let slice = if jobs.len() > MAX_JOBS {
-            &jobs[jobs.len() - MAX_JOBS..]
-        } else {
-            jobs
-        };
-        let content = serde_json::to_string_pretty(slice)
-            .map_err(|e| AppError::Database(format!("序列化任务失败: {}", e)))?;
-        let tmp = self.path.with_extension("tmp");
-        std::fs::write(&tmp, content)
-            .map_err(|e| AppError::Database(format!("写入任务临时文件失败: {}", e)))?;
-        std::fs::rename(&tmp, &self.path)
-            .map_err(|e| AppError::Database(format!("重命名任务临时文件失败: {}", e)))?;
-
-        Ok(())
+fn truncate_jobs(jobs: &mut Vec<Job>) {
+    if jobs.len() > MAX_JOBS {
+        let remove_count = jobs.len() - MAX_JOBS;
+        jobs.drain(0..remove_count);
     }
 }

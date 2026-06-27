@@ -143,7 +143,10 @@ impl PushService {
         let client = Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
-            .unwrap();
+            .unwrap_or_else(|error| {
+                tracing::warn!("创建推送 HTTP 客户端失败，使用默认客户端: {}", error);
+                Client::new()
+            });
 
         Self { settings, client }
     }
@@ -691,8 +694,28 @@ pub async fn record_push_message_report(
     level: PushLevel,
     report: &PushDeliveryReport,
 ) {
+    record_push_message_report_for_notification(
+        notification_store,
+        None,
+        source_event,
+        title,
+        message,
+        level,
+        report,
+    )
+    .await;
+}
+
+pub async fn record_push_message_report_for_notification(
+    notification_store: &NotificationStore,
+    notification_id: Option<&str>,
+    source_event: &str,
+    title: &str,
+    message: &str,
+    level: PushLevel,
+    report: &PushDeliveryReport,
+) {
     let results = &report.results;
-    let errors = &report.errors;
 
     if results.is_empty() {
         return;
@@ -706,27 +729,39 @@ pub async fn record_push_message_report(
         level.as_str()
     };
 
+    let push_meta = push_report_meta(source_event, title, message, level, report);
+
+    if let Some(notification_id) = notification_id {
+        match notification_store
+            .update(notification_id, |notification| {
+                notification
+                    .meta
+                    .insert("push".to_string(), json!(push_meta.clone()));
+                if notification.level != "error" && record_level == "warning" {
+                    notification.level = "warning".to_string();
+                    notification.read = false;
+                }
+            })
+            .await
+        {
+            Ok(Some(_)) => return,
+            Ok(None) => {
+                tracing::warn!("待合并的通知不存在，改为写入独立通知: {}", notification_id);
+            }
+            Err(e) => {
+                tracing::warn!("合并推送记录失败: {}", e);
+                return;
+            }
+        }
+    }
+
     let notification = Notification {
         id: uuid::Uuid::new_v4().to_string(),
         level: record_level.to_string(),
-        event: "push_sent".to_string(),
-        title: format!("推送记录: {}", title),
+        event: source_event.to_string(),
+        title: title.to_string(),
         message: message.to_string(),
-        meta: HashMap::from([
-            ("source_event".to_string(), json!(source_event)),
-            ("push_title".to_string(), json!(title)),
-            ("push_message".to_string(), json!(message)),
-            ("push_level".to_string(), json!(level.as_str())),
-            ("results".to_string(), json!(results)),
-            ("errors".to_string(), json!(errors)),
-            ("attempts".to_string(), json!(report.attempts)),
-            ("success_count".to_string(), json!(success_count)),
-            ("failed_count".to_string(), json!(failed_count)),
-            (
-                "channels".to_string(),
-                json!(results.keys().cloned().collect::<Vec<_>>()),
-            ),
-        ]),
+        meta: HashMap::from([("push".to_string(), json!(push_meta))]),
         read: false,
         created_at: chrono::Local::now().timestamp(),
     };
@@ -734,6 +769,34 @@ pub async fn record_push_message_report(
     if let Err(e) = notification_store.add(notification).await {
         tracing::warn!("保存推送记录失败: {}", e);
     }
+}
+
+fn push_report_meta(
+    source_event: &str,
+    title: &str,
+    message: &str,
+    level: PushLevel,
+    report: &PushDeliveryReport,
+) -> HashMap<String, serde_json::Value> {
+    let results = &report.results;
+    let success_count = results.values().filter(|&&ok| ok).count();
+    let failed_count = results.len().saturating_sub(success_count);
+
+    HashMap::from([
+        ("source_event".to_string(), json!(source_event)),
+        ("push_title".to_string(), json!(title)),
+        ("push_message".to_string(), json!(message)),
+        ("push_level".to_string(), json!(level.as_str())),
+        ("results".to_string(), json!(results)),
+        ("errors".to_string(), json!(report.errors)),
+        ("attempts".to_string(), json!(report.attempts)),
+        ("success_count".to_string(), json!(success_count)),
+        ("failed_count".to_string(), json!(failed_count)),
+        (
+            "channels".to_string(),
+            json!(results.keys().cloned().collect::<Vec<_>>()),
+        ),
+    ])
 }
 
 #[cfg(test)]
@@ -864,10 +927,13 @@ mod tests {
 
         let notifications = store.list(true).await;
         assert_eq!(notifications.len(), 1);
-        assert_eq!(notifications[0].event, "push_sent");
+        assert_eq!(
+            notifications[0].event,
+            PushEvent::SubscriptionUpdated.as_str()
+        );
         assert_eq!(notifications[0].level, "warning");
-        assert_eq!(notifications[0].meta["success_count"], json!(1));
-        assert_eq!(notifications[0].meta["failed_count"], json!(1));
+        assert_eq!(notifications[0].meta["push"]["success_count"], json!(1));
+        assert_eq!(notifications[0].meta["push"]["failed_count"], json!(1));
 
         let _ = std::fs::remove_file(tmp);
     }
@@ -898,9 +964,12 @@ mod tests {
         .await;
 
         let notifications = store.list(true).await;
-        assert_eq!(notifications[0].meta["attempts"]["telegram"], json!(3));
         assert_eq!(
-            notifications[0].meta["errors"]["telegram"],
+            notifications[0].meta["push"]["attempts"]["telegram"],
+            json!(3)
+        );
+        assert_eq!(
+            notifications[0].meta["push"]["errors"]["telegram"],
             json!("尝试 3 次后失败")
         );
 
@@ -934,8 +1003,60 @@ mod tests {
 
         let notifications = store.list(true).await;
         assert_eq!(
-            notifications[0].meta["errors"]["gotify"],
+            notifications[0].meta["push"]["errors"]["gotify"],
             json!("https://gotify.example/message?token=*** failed")
+        );
+
+        let _ = std::fs::remove_file(tmp);
+    }
+
+    #[tokio::test]
+    async fn test_record_push_message_merges_into_existing_notification() {
+        let tmp = std::env::temp_dir().join(format!(
+            "my-media-sub-push-merge-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let store = NotificationStore::new(&tmp);
+        store.load().await.unwrap();
+        let base = store
+            .add(Notification {
+                id: "base".to_string(),
+                level: "info".to_string(),
+                event: "subscription_updated".to_string(),
+                title: "订阅有更新".to_string(),
+                message: "发现新集".to_string(),
+                meta: HashMap::new(),
+                read: true,
+                created_at: 1,
+            })
+            .await
+            .unwrap();
+
+        let report = PushDeliveryReport {
+            results: HashMap::from([("telegram".to_string(), false)]),
+            errors: HashMap::from([("telegram".to_string(), "发送失败".to_string())]),
+            attempts: HashMap::from([("telegram".to_string(), 1)]),
+        };
+        record_push_message_report_for_notification(
+            &store,
+            Some(&base.id),
+            "subscription_updated",
+            "订阅有更新",
+            "发现新集",
+            PushLevel::Info,
+            &report,
+        )
+        .await;
+
+        let notifications = store.list(true).await;
+        assert_eq!(notifications.len(), 1);
+        assert_eq!(notifications[0].event, "subscription_updated");
+        assert_eq!(notifications[0].level, "warning");
+        assert!(!notifications[0].read);
+        assert_eq!(notifications[0].meta["push"]["failed_count"], json!(1));
+        assert_eq!(
+            notifications[0].meta["push"]["results"]["telegram"],
+            json!(false)
         );
 
         let _ = std::fs::remove_file(tmp);

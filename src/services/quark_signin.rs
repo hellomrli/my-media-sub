@@ -9,7 +9,10 @@ use tracing::{error, info};
 use crate::clients::{QuarkSaveClient, QuarkSigninResult};
 use crate::error::{AppError, Result};
 use crate::jobs::JobQueue;
-use crate::services::notification::{add_notification, dispatch_push_event};
+use crate::models::Notification;
+use crate::services::notification::{
+    add_notification, dispatch_push_event_for_notification, PushDispatchRequest,
+};
 use crate::services::push::{PushEvent, PushLevel};
 use crate::store::{NotificationStore, SettingsStore};
 
@@ -43,9 +46,10 @@ impl QuarkSigninService {
         }
 
         let result = QuarkSaveClient::new(cookie).signin().await?;
-        self.record_success(&result).await?;
+        let notification = self.record_success(&result).await?;
         if result.signed {
-            self.dispatch_success_push(&result).await;
+            self.dispatch_success_push(&result, Some(notification.id))
+                .await;
         }
         Ok(result)
     }
@@ -54,16 +58,20 @@ impl QuarkSigninService {
         match self.signin().await {
             Ok(result) => Ok(result),
             Err(err) => {
-                if let Err(record_err) = self.record_failure(&err).await {
-                    error!("记录夸克签到失败通知失败: {}", record_err);
-                }
-                self.dispatch_failure_push(&err).await;
+                let notification_id = match self.record_failure(&err).await {
+                    Ok(notification) => Some(notification.id),
+                    Err(record_err) => {
+                        error!("记录夸克签到失败通知失败: {}", record_err);
+                        None
+                    }
+                };
+                self.dispatch_failure_push(&err, notification_id).await;
                 Err(err)
             }
         }
     }
 
-    async fn record_success(&self, result: &QuarkSigninResult) -> Result<()> {
+    async fn record_success(&self, result: &QuarkSigninResult) -> Result<Notification> {
         let title = if result.already_signed {
             "夸克今日已签到"
         } else {
@@ -96,11 +104,10 @@ impl QuarkSigninService {
                 ("sign_target".to_string(), json!(result.sign_target)),
             ]),
         )
-        .await?;
-        Ok(())
+        .await
     }
 
-    async fn record_failure(&self, err: &AppError) -> Result<()> {
+    async fn record_failure(&self, err: &AppError) -> Result<Notification> {
         let message = signin_failure_message(err);
         add_notification(
             &self.notification_store,
@@ -110,32 +117,41 @@ impl QuarkSigninService {
             &message,
             HashMap::from([("error".to_string(), json!(message))]),
         )
-        .await?;
-        Ok(())
+        .await
     }
 
-    async fn dispatch_success_push(&self, result: &QuarkSigninResult) {
-        dispatch_push_event(
+    async fn dispatch_success_push(
+        &self,
+        result: &QuarkSigninResult,
+        notification_id: Option<String>,
+    ) {
+        dispatch_push_event_for_notification(
             self.settings_store.clone(),
             self.notification_store.clone(),
             self.job_queue.clone(),
-            PushEvent::QuarkSignin,
-            "夸克签到成功",
-            signin_message(result),
-            PushLevel::Success,
+            PushDispatchRequest {
+                notification_id,
+                event: PushEvent::QuarkSignin,
+                title: "夸克签到成功".to_string(),
+                message: signin_message(result),
+                level: PushLevel::Success,
+            },
         )
         .await;
     }
 
-    async fn dispatch_failure_push(&self, err: &AppError) {
-        dispatch_push_event(
+    async fn dispatch_failure_push(&self, err: &AppError, notification_id: Option<String>) {
+        dispatch_push_event_for_notification(
             self.settings_store.clone(),
             self.notification_store.clone(),
             self.job_queue.clone(),
-            PushEvent::QuarkSignin,
-            "夸克签到失败",
-            signin_failure_message(err),
-            PushLevel::Error,
+            PushDispatchRequest {
+                notification_id,
+                event: PushEvent::QuarkSignin,
+                title: "夸克签到失败".to_string(),
+                message: signin_failure_message(err),
+                level: PushLevel::Error,
+            },
         )
         .await;
     }

@@ -44,7 +44,7 @@
 --app-bg:#08111f  --app-bg-2:#0c1626  --app-surface:#111d2c  --app-surface-2:#162638
 --app-surface-3:#1b3146  --app-border:#284159  --app-border-soft:rgba(137,166,194,.18)
 --app-muted:#93a4b8  --app-text:#f4f8fb
---app-primary:#11b5a4  --app-primary-hover:#0d9488  --app-secondary:#ff7a59
+--app-primary:#3b82f6  --app-primary-hover:#2563eb  --app-secondary:#ff7a59
 --app-success:#65d46e  --app-warning:#f5c542  --app-danger:#ff5c7a
 --app-cyan:#22d3ee  --app-violet:#b68cff
 --app-radius:8px  + 两档阴影
@@ -103,7 +103,7 @@ scripts/build-css.sh --watch
 **目标**：把颜色体系改成 CSS 变量驱动、支持深/浅切换；本阶段**不改 HTML**，只改 `tailwind/input.css` + `tailwind.config.js`，视觉仍以深色为默认且尽量保持一致。
 
 任务：
-1. 颜色 token 改存 **RGB 分量**（供 Tailwind alpha 用），例：`--c-primary: 17 181 164;`
+1. 颜色 token 改存 **RGB 分量**（供 Tailwind alpha 用），例：`--c-primary: 59 130 246;`
 2. `:root` = 深色一套；`[data-theme="light"]` = 浅色一套。
    - 浅色参考：底 `#f8fafc` / 面 `#ffffff` / 文字深色 / 边框浅灰 / 软阴影；**禁用网格纹理**（`body::before`）、收敛多层渐变。
 3. `tailwind.config.js` 的 `theme.extend.colors` 映射语义色：

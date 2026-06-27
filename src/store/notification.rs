@@ -1,5 +1,6 @@
 use crate::error::{AppError, Result};
 use crate::models::Notification;
+use crate::utils::{quarantine_corrupt_file, write_json_atomic_async};
 use std::path::PathBuf;
 use tokio::sync::RwLock;
 
@@ -27,38 +28,45 @@ impl NotificationStore {
         }
         let content = std::fs::read_to_string(&self.path)
             .map_err(|e| AppError::Database(format!("读取通知文件失败: {}", e)))?;
-        *items = serde_json::from_str(&content)
-            .map_err(|e| AppError::Database(format!("解析通知 JSON 失败: {}", e)))?;
+        match serde_json::from_str(&content) {
+            Ok(mut parsed) => {
+                truncate_notifications(&mut parsed);
+                *items = parsed;
+            }
+            Err(e) => {
+                tracing::warn!("解析通知 JSON 失败，已隔离损坏文件并使用空通知: {}", e);
+                quarantine_corrupt_file(&self.path);
+                *items = Vec::new();
+            }
+        }
         Ok(())
     }
 
     async fn save(&self, items: &[Notification]) -> Result<()> {
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| AppError::Database(format!("创建目录失败: {}", e)))?;
-        }
-        // 只保留最近 300 条
-        let slice = if items.len() > MAX_NOTIFICATIONS {
-            &items[items.len() - MAX_NOTIFICATIONS..]
-        } else {
-            items
-        };
-        let content = serde_json::to_string_pretty(slice)
-            .map_err(|e| AppError::Database(format!("序列化通知失败: {}", e)))?;
-        let tmp = self.path.with_extension("tmp");
-        std::fs::write(&tmp, content)
-            .map_err(|e| AppError::Database(format!("写入临时文件失败: {}", e)))?;
-        std::fs::rename(&tmp, &self.path)
-            .map_err(|e| AppError::Database(format!("重命名临时文件失败: {}", e)))?;
-        Ok(())
+        write_json_atomic_async(&self.path, &items, 0o600).await
     }
 
     /// 添加通知
     pub async fn add(&self, notif: Notification) -> Result<Notification> {
         let mut items = self.items.write().await;
         items.push(notif.clone());
+        truncate_notifications(&mut items);
         self.save(&items).await?;
         Ok(notif)
+    }
+
+    pub async fn update<F>(&self, id: &str, updater: F) -> Result<Option<Notification>>
+    where
+        F: FnOnce(&mut Notification),
+    {
+        let mut items = self.items.write().await;
+        let Some(item) = items.iter_mut().find(|item| item.id == id) else {
+            return Ok(None);
+        };
+        updater(item);
+        let updated = item.clone();
+        self.save(&items).await?;
+        Ok(Some(updated))
     }
 
     /// 列出通知（倒序，最新在前）
@@ -93,10 +101,25 @@ impl NotificationStore {
     }
 }
 
+fn truncate_notifications(items: &mut Vec<Notification>) {
+    if items.len() > MAX_NOTIFICATIONS {
+        let remove_count = items.len() - MAX_NOTIFICATIONS;
+        items.drain(0..remove_count);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    fn temp_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "my-media-sub-{}-{}.json",
+            name,
+            uuid::Uuid::new_v4()
+        ))
+    }
 
     fn make_notif(id: &str, read: bool) -> Notification {
         Notification {
@@ -113,8 +136,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_notification_store() {
-        let tmp = std::env::temp_dir().join("test_notif_store.json");
-        let _ = std::fs::remove_file(&tmp);
+        let tmp = temp_path("notif-store");
         let store = NotificationStore::new(&tmp);
         store.load().await.unwrap();
 
@@ -144,6 +166,82 @@ mod tests {
         // 清空
         store.clear().await.unwrap();
         assert_eq!(store.list(true).await.len(), 0);
+
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[tokio::test]
+    async fn add_truncates_to_recent_notifications() {
+        let tmp = temp_path("notif-truncate-add");
+        let store = NotificationStore::new(&tmp);
+        store.load().await.unwrap();
+
+        for index in 0..(MAX_NOTIFICATIONS + 5) {
+            store
+                .add(make_notif(&format!("n{}", index), false))
+                .await
+                .unwrap();
+        }
+
+        let all = store.list(true).await;
+        assert_eq!(all.len(), MAX_NOTIFICATIONS);
+        assert_eq!(
+            all.first().unwrap().id,
+            format!("n{}", MAX_NOTIFICATIONS + 4)
+        );
+        assert_eq!(all.last().unwrap().id, "n5");
+
+        let persisted = std::fs::read_to_string(&tmp).unwrap();
+        let persisted_items: Vec<Notification> = serde_json::from_str(&persisted).unwrap();
+        assert_eq!(persisted_items.len(), MAX_NOTIFICATIONS);
+        assert_eq!(persisted_items.first().unwrap().id, "n5");
+
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[tokio::test]
+    async fn load_truncates_existing_notification_file() {
+        let tmp = temp_path("notif-truncate-load");
+        let items = (0..(MAX_NOTIFICATIONS + 2))
+            .map(|index| make_notif(&format!("n{}", index), false))
+            .collect::<Vec<_>>();
+        std::fs::write(&tmp, serde_json::to_vec(&items).unwrap()).unwrap();
+
+        let store = NotificationStore::new(&tmp);
+        store.load().await.unwrap();
+
+        let all = store.list(true).await;
+        assert_eq!(all.len(), MAX_NOTIFICATIONS);
+        assert_eq!(
+            all.first().unwrap().id,
+            format!("n{}", MAX_NOTIFICATIONS + 1)
+        );
+        assert_eq!(all.last().unwrap().id, "n2");
+
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[tokio::test]
+    async fn update_modifies_existing_notification() {
+        let tmp = temp_path("notif-update");
+        let store = NotificationStore::new(&tmp);
+        store.load().await.unwrap();
+        store.add(make_notif("n1", false)).await.unwrap();
+
+        let updated = store
+            .update("n1", |notification| {
+                notification.read = true;
+                notification
+                    .meta
+                    .insert("push".to_string(), serde_json::json!({"success_count": 1}));
+            })
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(updated.read);
+        assert_eq!(updated.meta["push"]["success_count"], serde_json::json!(1));
+        assert!(store.update("missing", |_| {}).await.unwrap().is_none());
 
         let _ = std::fs::remove_file(&tmp);
     }

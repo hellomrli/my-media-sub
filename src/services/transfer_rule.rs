@@ -555,6 +555,7 @@ mod tests {
             enabled: true,
             completed: false,
             rules,
+            rule_preset_id: String::new(),
             created_at: 1,
             updated_at: 1,
             last_checked_at: 1,

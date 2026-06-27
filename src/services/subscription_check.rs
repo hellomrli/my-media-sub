@@ -11,7 +11,9 @@ use crate::services::episode::{
     episode_video_key, is_better_episode_duplicate_candidate, matches_subscription_season,
     normalize_duplicate_episode_strategy, EpisodeDuplicateCandidate,
 };
-use crate::services::notification::{add_notification, dispatch_push_event};
+use crate::services::notification::{
+    add_notification, dispatch_push_event_for_notification, PushDispatchRequest,
+};
 use crate::services::push::{PushEvent, PushLevel};
 use crate::services::subscription_progress::{
     completion_target_episode, reopen_completed_subscription_status,
@@ -21,6 +23,7 @@ use crate::services::subscription_progress::{
 use crate::services::transfer_rule::transfer_state_key;
 use crate::services::SubscriptionTransferService;
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
+use crate::utils::unix_now;
 
 /// 订阅检查服务
 pub struct SubscriptionCheckService {
@@ -199,14 +202,17 @@ impl SubscriptionCheckService {
                             if let (Some(title), Some(message)) =
                                 (result.push_title, result.push_message)
                             {
-                                dispatch_push_event(
+                                dispatch_push_event_for_notification(
                                     self.settings_store.clone(),
                                     self.notification_store.clone(),
                                     None,
-                                    PushEvent::TransferSaved,
-                                    title,
-                                    message,
-                                    PushLevel::Success,
+                                    PushDispatchRequest {
+                                        notification_id: result.push_notification_id,
+                                        event: PushEvent::TransferSaved,
+                                        title,
+                                        message,
+                                        level: PushLevel::Success,
+                                    },
                                 )
                                 .await;
                             }
@@ -252,10 +258,7 @@ impl SubscriptionCheckService {
     }
 
     async fn reopen_completed_subscription(&self, sub: &Subscription) -> Result<Subscription> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
+        let now = unix_now();
         info!("订阅 {} 仍未达到完结集数，恢复为追更中", sub.title);
         self.subscription_store
             .update(&sub.id, |sub| {
@@ -596,10 +599,8 @@ impl SubscriptionCheckService {
         summary: &str,
         completed: bool,
     ) -> Result<()> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
+        let now = unix_now();
+        let details = self.build_check_details(sub, &probe.files);
 
         self.subscription_store
             .update(&sub.id, |s| {
@@ -661,6 +662,14 @@ impl SubscriptionCheckService {
                         state: probe.state.clone(),
                         matched_count: probe.files.len() as i32,
                         transfer_count: 0, // 转存服务会更新
+                        scanned_count: details.scanned_count as i32,
+                        new_count: details.new_count as i32,
+                        known_count: details.known_count as i32,
+                        skipped_directory_count: details.skipped_directory_count as i32,
+                        skipped_other_season_count: details.skipped_other_season_count as i32,
+                        skipped_before_start_count: details.skipped_before_start_count as i32,
+                        skipped_duplicate_episode_count: details.skipped_duplicate_episode_count
+                            as i32,
                         new_files: new_files.to_vec(),
                         new_episodes: new_episodes.to_vec(),
                         summary: summary.to_string(),
@@ -679,10 +688,7 @@ impl SubscriptionCheckService {
 
     /// 标记订阅为失效
     async fn mark_subscription_invalid(&self, sub: &Subscription, error: &str) -> Result<()> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
+        let now = unix_now();
 
         self.subscription_store
             .update(&sub.id, |s| {
@@ -702,7 +708,7 @@ impl SubscriptionCheckService {
         let message = error.to_string();
 
         if sub.rules.notify_on_invalid {
-            add_notification(
+            let notification = add_notification(
                 &self.notification_store,
                 "warning",
                 "subscription_invalid",
@@ -711,14 +717,17 @@ impl SubscriptionCheckService {
                 std::collections::HashMap::new(),
             )
             .await?;
-            dispatch_push_event(
+            dispatch_push_event_for_notification(
                 self.settings_store.clone(),
                 self.notification_store.clone(),
                 self.job_queue.clone(),
-                PushEvent::SubscriptionFailed,
-                title,
-                message,
-                PushLevel::Warning,
+                PushDispatchRequest {
+                    notification_id: Some(notification.id),
+                    event: PushEvent::SubscriptionFailed,
+                    title,
+                    message,
+                    level: PushLevel::Warning,
+                },
             )
             .await;
         }
@@ -747,7 +756,7 @@ impl SubscriptionCheckService {
         };
 
         let title = format!("订阅有更新: {}", sub.title);
-        let _ = add_notification(
+        let notification = add_notification(
             &self.notification_store,
             "info",
             "subscription_updated",
@@ -756,14 +765,17 @@ impl SubscriptionCheckService {
             std::collections::HashMap::new(),
         )
         .await;
-        dispatch_push_event(
+        dispatch_push_event_for_notification(
             self.settings_store.clone(),
             self.notification_store.clone(),
             self.job_queue.clone(),
-            PushEvent::SubscriptionUpdated,
-            title,
-            message,
-            PushLevel::Info,
+            PushDispatchRequest {
+                notification_id: notification.ok().map(|notification| notification.id),
+                event: PushEvent::SubscriptionUpdated,
+                title,
+                message,
+                level: PushLevel::Info,
+            },
         )
         .await;
     }
@@ -778,7 +790,7 @@ impl SubscriptionCheckService {
             "订阅已标记为完结".to_string()
         };
 
-        let _ = add_notification(
+        let notification = add_notification(
             &self.notification_store,
             "success",
             "subscription_completed",
@@ -787,14 +799,17 @@ impl SubscriptionCheckService {
             std::collections::HashMap::new(),
         )
         .await;
-        dispatch_push_event(
+        dispatch_push_event_for_notification(
             self.settings_store.clone(),
             self.notification_store.clone(),
             self.job_queue.clone(),
-            PushEvent::SubscriptionCompleted,
-            title,
-            message,
-            PushLevel::Success,
+            PushDispatchRequest {
+                notification_id: notification.ok().map(|notification| notification.id),
+                event: PushEvent::SubscriptionCompleted,
+                title,
+                message,
+                level: PushLevel::Success,
+            },
         )
         .await;
     }
@@ -879,7 +894,7 @@ mod tests {
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_nanos()
         ))
     }
@@ -913,6 +928,7 @@ mod tests {
             enabled: true,
             completed: false,
             rules: crate::models::rules::TransferRules::default(),
+            rule_preset_id: String::new(),
             created_at: 0,
             updated_at: 0,
             last_checked_at: 0,
@@ -1515,6 +1531,7 @@ mod tests {
                 finish_after_episode: Some(12),
                 ..Default::default()
             },
+            rule_preset_id: String::new(),
             created_at: 0,
             updated_at: 0,
             last_checked_at: 0,

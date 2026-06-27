@@ -39,6 +39,34 @@ pub struct CheckHistoryItem {
     /// 转存文件数
     pub transfer_count: i32,
 
+    /// 扫描文件数
+    #[serde(default)]
+    pub scanned_count: i32,
+
+    /// 新文件数
+    #[serde(default)]
+    pub new_count: i32,
+
+    /// 已知文件数
+    #[serde(default)]
+    pub known_count: i32,
+
+    /// 跳过目录数
+    #[serde(default)]
+    pub skipped_directory_count: i32,
+
+    /// 跳过非当前季文件数
+    #[serde(default)]
+    pub skipped_other_season_count: i32,
+
+    /// 跳过起始集数前文件数
+    #[serde(default)]
+    pub skipped_before_start_count: i32,
+
+    /// 跳过同集重复视频数
+    #[serde(default)]
+    pub skipped_duplicate_episode_count: i32,
+
     /// 新文件列表
     pub new_files: Vec<String>,
 
@@ -204,6 +232,10 @@ pub struct Subscription {
     #[serde(default)]
     pub rules: TransferRules,
 
+    /// 规则预设 ID
+    #[serde(default)]
+    pub rule_preset_id: String,
+
     /// 创建时间
     pub created_at: i64,
 
@@ -297,6 +329,7 @@ mod tests {
             enabled: true,
             completed: false,
             rules: TransferRules::default(),
+            rule_preset_id: String::new(),
             created_at: 1718236800,
             updated_at: 1718323200,
             last_checked_at: 1718323200,

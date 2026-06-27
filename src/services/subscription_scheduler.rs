@@ -1,5 +1,5 @@
 use std::{sync::Arc, time::Duration};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tokio_cron_scheduler::{Job, JobScheduler};
 use tracing::{error, info};
 
@@ -63,6 +63,7 @@ impl SubscriptionScheduler {
         let settings_store = self.settings_store.clone();
         let notification_store = self.notification_store.clone();
         let job_queue = self.job_queue.clone();
+        let running_guard = Arc::new(Mutex::new(()));
 
         info!("订阅检查周期: 每 {} 分钟", interval_minutes);
 
@@ -73,9 +74,14 @@ impl SubscriptionScheduler {
                 let settings_store = settings_store.clone();
                 let notification_store = notification_store.clone();
                 let job_queue = job_queue.clone();
+                let running_guard = running_guard.clone();
 
                 Box::pin(async move {
                     info!("⏰ 定时检查订阅");
+                    let Ok(_guard) = running_guard.try_lock() else {
+                        info!("上一次订阅自动检查仍在执行，跳过本次调度");
+                        return;
+                    };
 
                     let settings = settings_store.get().await;
                     let cookie = settings.quark_cookie.clone();

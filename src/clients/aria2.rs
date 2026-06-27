@@ -122,7 +122,10 @@ impl Aria2Client {
         let client = Client::builder()
             .timeout(Duration::from_secs(20))
             .build()
-            .unwrap();
+            .unwrap_or_else(|error| {
+                tracing::warn!("创建 Aria2 HTTP 客户端失败，使用默认客户端: {}", error);
+                Client::new()
+            });
         let rpc_url = rpc_url.into();
         Self {
             rpc_url: normalize_rpc_url(&rpc_url),

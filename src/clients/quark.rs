@@ -1,4 +1,7 @@
 use crate::error::{AppError, Result};
+use once_cell::sync::Lazy;
+use regex::Regex;
+use reqwest::header::HeaderValue;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -112,34 +115,46 @@ impl QuarkShareProbe {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
             "User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                .parse()
-                .unwrap(),
+            HeaderValue::from_static(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            ),
         );
         headers.insert(
             "Accept",
-            "application/json, text/plain, */*".parse().unwrap(),
+            HeaderValue::from_static("application/json, text/plain, */*"),
         );
-        headers.insert("Referer", "https://pan.quark.cn/".parse().unwrap());
-        headers.insert("Origin", "https://pan.quark.cn".parse().unwrap());
+        headers.insert("Referer", HeaderValue::from_static("https://pan.quark.cn/"));
+        headers.insert("Origin", HeaderValue::from_static("https://pan.quark.cn"));
 
         if !cookie.is_empty() {
-            headers.insert("Cookie", cookie.parse().unwrap());
+            match HeaderValue::from_str(&cookie) {
+                Ok(value) => {
+                    headers.insert("Cookie", value);
+                }
+                Err(error) => {
+                    tracing::warn!("夸克 Cookie 包含非法 HTTP header 字符，已跳过: {}", error);
+                }
+            }
         }
 
         let client = Client::builder()
             .default_headers(headers)
             .timeout(Duration::from_secs(20))
             .build()
-            .unwrap();
+            .unwrap_or_else(|error| {
+                tracing::warn!("创建夸克探测 HTTP 客户端失败，使用默认客户端: {}", error);
+                Client::new()
+            });
 
         Self { client }
     }
 
     /// 从分享链接提取 pwd_id
     pub fn extract_pwd_id(url: &str) -> Option<String> {
-        let re = regex::Regex::new(r"/s/([A-Za-z0-9_-]+)").ok()?;
-        re.captures(url)
+        static SHARE_ID_RE: Lazy<Regex> =
+            Lazy::new(|| Regex::new(r"/s/([A-Za-z0-9_-]+)").expect("valid share id regex"));
+        SHARE_ID_RE
+            .captures(url)
             .and_then(|c| c.get(1))
             .map(|m| m.as_str().to_string())
     }
@@ -330,6 +345,7 @@ impl QuarkShareProbe {
 
         // 递归遍历文件夹
         let mut files = Vec::new();
+        let mut partial_failure = false;
         let mut queue: std::collections::VecDeque<_> =
             raw.into_iter().map(|item| (item, String::new())).collect();
 
@@ -382,13 +398,33 @@ impl QuarkShareProbe {
 
             // 如果是目录且未达上限，递归获取
             if is_dir && !fid.is_empty() && files.len() < max_files {
-                if let Ok((children, None)) = self.list_files(&pwd_id, &stoken, &fid).await {
-                    let child_parent_path = append_display_path(&parent_path, &name);
-                    queue.extend(
-                        children
-                            .into_iter()
-                            .map(|child| (child, child_parent_path.clone())),
-                    );
+                match self.list_files(&pwd_id, &stoken, &fid).await {
+                    Ok((children, None)) => {
+                        let child_parent_path = append_display_path(&parent_path, &name);
+                        queue.extend(
+                            children
+                                .into_iter()
+                                .map(|child| (child, child_parent_path.clone())),
+                        );
+                    }
+                    Ok((_, Some(err_msg))) => {
+                        partial_failure = true;
+                        tracing::warn!(
+                            "列举子目录 {} (fid={}) 返回错误，文件树可能不完整: {}",
+                            name,
+                            fid,
+                            err_msg
+                        );
+                    }
+                    Err(e) => {
+                        partial_failure = true;
+                        tracing::warn!(
+                            "列举子目录 {} (fid={}) 请求失败，文件树可能不完整: {}",
+                            name,
+                            fid,
+                            e
+                        );
+                    }
                 }
             }
         }
@@ -397,8 +433,16 @@ impl QuarkShareProbe {
 
         QuarkShareInfo {
             ok: true,
-            state: "ok".to_string(),
-            message: "链接可访问".to_string(),
+            state: if partial_failure {
+                "partial".to_string()
+            } else {
+                "ok".to_string()
+            },
+            message: if partial_failure {
+                "链接可访问，但部分子目录读取失败，文件列表可能不完整".to_string()
+            } else {
+                "链接可访问".to_string()
+            },
             file_count: files.len(),
             episode_count,
             files,
@@ -414,13 +458,16 @@ impl Default for QuarkShareProbe {
 
 /// 统计集数（简化版）
 fn count_episodes(files: &[QuarkFile]) -> usize {
-    use regex::Regex;
-    let patterns = [
-        Regex::new(r"(?i)(?:^|[^A-Za-z])S\d{1,2}E\d{1,3}(?:[^A-Za-z]|$)").unwrap(),
-        Regex::new(r"(?:第\s*\d{1,3}\s*[集话])").unwrap(),
-        Regex::new(r"(?i)(?:^|[^\d])E\d{1,3}(?:[^\d]|$)").unwrap(),
-        Regex::new(r"(?i)(?:^|[^\d])\d{1,3}\s*\.\s*(?:mkv|mp4|avi|ts|mov|wmv)$").unwrap(),
-    ];
+    static EPISODE_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+        vec![
+            Regex::new(r"(?i)(?:^|[^A-Za-z])S\d{1,2}E\d{1,3}(?:[^A-Za-z]|$)")
+                .expect("valid episode regex"),
+            Regex::new(r"(?:第\s*\d{1,3}\s*[集话])").expect("valid episode regex"),
+            Regex::new(r"(?i)(?:^|[^\d])E\d{1,3}(?:[^\d]|$)").expect("valid episode regex"),
+            Regex::new(r"(?i)(?:^|[^\d])\d{1,3}\s*\.\s*(?:mkv|mp4|avi|ts|mov|wmv)$")
+                .expect("valid episode regex"),
+        ]
+    });
 
     files
         .iter()
@@ -431,7 +478,7 @@ fn count_episodes(files: &[QuarkFile]) -> usize {
             ]
             .iter()
             .any(|ext| lower.ends_with(ext));
-            is_video && patterns.iter().any(|p| p.is_match(&f.name))
+            is_video && EPISODE_PATTERNS.iter().any(|p| p.is_match(&f.name))
         })
         .count()
 }

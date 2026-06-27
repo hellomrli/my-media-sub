@@ -1,5 +1,6 @@
 use crate::error::{AppError, Result};
 use crate::models::{settings::normalize_check_interval_minutes, Settings};
+use crate::utils::{quarantine_corrupt_file, set_file_mode, write_json_atomic_async};
 use std::path::PathBuf;
 use tokio::sync::RwLock;
 
@@ -48,6 +49,7 @@ impl SettingsStore {
         }
         let content = std::fs::read_to_string(&self.path)
             .map_err(|e| AppError::Database(format!("读取设置文件失败: {}", e)))?;
+        set_file_mode(&self.path, 0o600)?;
         let strm_token_missing = serde_json::from_str::<serde_json::Value>(&content)
             .ok()
             .and_then(|value| {
@@ -58,40 +60,28 @@ impl SettingsStore {
             })
             .unwrap_or(true);
         let mut should_write = strm_token_missing;
-        let mut parsed_ok = false;
-        // 容错：解析失败时保留默认值（与 Python 行为一致）
-        match serde_json::from_str::<Settings>(&content) {
-            Ok(s) => {
-                *settings = s;
-                parsed_ok = true;
-            }
+        *settings = match serde_json::from_str::<Settings>(&content) {
+            Ok(settings) => settings,
             Err(e) => {
-                tracing::warn!("设置文件解析失败，使用默认值: {}", e);
+                tracing::error!("设置文件解析失败，已隔离损坏文件并停止启动: {}", e);
+                quarantine_corrupt_file(&self.path);
+                return Err(AppError::Database(
+                    "设置文件解析失败，已隔离损坏文件；请检查配置后重启".to_string(),
+                ));
             }
-        }
+        };
         if settings.strm_access_token.trim().is_empty() {
             settings.strm_access_token = uuid::Uuid::new_v4().to_string();
             should_write = true;
         }
-        if should_write && parsed_ok {
+        if should_write {
             self.write_to_disk(&settings).await?;
         }
         Ok(())
     }
 
     async fn write_to_disk(&self, settings: &Settings) -> Result<()> {
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| AppError::Database(format!("创建目录失败: {}", e)))?;
-        }
-        let content = serde_json::to_string_pretty(settings)
-            .map_err(|e| AppError::Database(format!("序列化设置失败: {}", e)))?;
-        let tmp = self.path.with_extension("tmp");
-        std::fs::write(&tmp, content)
-            .map_err(|e| AppError::Database(format!("写入临时文件失败: {}", e)))?;
-        std::fs::rename(&tmp, &self.path)
-            .map_err(|e| AppError::Database(format!("重命名临时文件失败: {}", e)))?;
-        Ok(())
+        write_json_atomic_async(&self.path, settings, 0o600).await
     }
 
     /// 获取完整设置（含密钥，仅内部使用）
@@ -170,5 +160,38 @@ mod tests {
         assert_eq!(store2.get().await.app_username, "lain");
 
         let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[tokio::test]
+    async fn load_quarantines_corrupt_settings_file() {
+        let tmp = std::env::temp_dir().join(format!(
+            "test_settings_corrupt_{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::write(&tmp, b"{not-valid-json").unwrap();
+
+        let store = SettingsStore::new(&tmp);
+        let error = store.load().await.unwrap_err();
+
+        assert!(matches!(error, AppError::Database(_)));
+        assert!(!tmp.exists());
+
+        let parent = tmp.parent().unwrap();
+        let file_name = tmp.file_name().unwrap().to_string_lossy();
+        for entry in std::fs::read_dir(parent)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+        {
+            if entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(&format!("{}.corrupt-", file_name))
+            {
+                let _ = std::fs::remove_file(entry.path());
+                return;
+            }
+        }
+
+        panic!("corrupt settings file was not quarantined");
     }
 }

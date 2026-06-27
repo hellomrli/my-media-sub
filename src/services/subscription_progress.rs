@@ -130,6 +130,7 @@ mod tests {
             enabled: true,
             completed: false,
             rules: TransferRules::default(),
+            rule_preset_id: String::new(),
             created_at: 0,
             updated_at: 0,
             last_checked_at: 0,
