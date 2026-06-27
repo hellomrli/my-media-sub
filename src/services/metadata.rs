@@ -3,7 +3,7 @@ use serde::Deserialize;
 use std::time::Duration;
 
 use crate::error::{AppError, Result};
-use crate::models::{MediaMetadata, MediaMetadataSeason, MetadataProvider};
+use crate::models::{MediaMetadata, MediaMetadataEpisode, MediaMetadataSeason, MetadataProvider};
 use crate::store::SettingsStore;
 
 pub struct MetadataService {
@@ -128,7 +128,27 @@ impl MetadataService {
                 {
                     item.number_of_episodes = details.number_of_episodes;
                     item.number_of_seasons = details.number_of_seasons;
+                    item.next_episode_to_air = details.next_episode_to_air.clone().map(Into::into);
+                    let season_numbers = tmdb_episode_season_numbers(&details);
                     item.seasons = details.seasons.into_iter().map(Into::into).collect();
+                    for season_number in season_numbers {
+                        if let Ok(Some(season_details)) = self
+                            .fetch_tmdb_tv_season_details(
+                                api_key,
+                                language,
+                                &item.provider_id,
+                                season_number,
+                            )
+                            .await
+                        {
+                            item.episodes.extend(
+                                season_details
+                                    .episodes
+                                    .into_iter()
+                                    .map(|episode| episode.into_metadata(season_number)),
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -143,6 +163,31 @@ impl MetadataService {
         provider_id: &str,
     ) -> Result<Option<TmdbTvDetails>> {
         let endpoint = format!("https://api.themoviedb.org/3/tv/{}", provider_id);
+        let response = self
+            .client
+            .get(endpoint)
+            .query(&[("api_key", api_key), ("language", language)])
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Ok(None);
+        }
+
+        Ok(Some(response.json().await?))
+    }
+
+    async fn fetch_tmdb_tv_season_details(
+        &self,
+        api_key: &str,
+        language: &str,
+        provider_id: &str,
+        season_number: i32,
+    ) -> Result<Option<TmdbSeasonDetails>> {
+        let endpoint = format!(
+            "https://api.themoviedb.org/3/tv/{}/season/{}",
+            provider_id, season_number
+        );
         let response = self
             .client
             .get(endpoint)
@@ -199,9 +244,11 @@ struct TmdbTvDetails {
     number_of_seasons: Option<i32>,
     #[serde(default)]
     seasons: Vec<TmdbSeason>,
+    #[serde(default)]
+    next_episode_to_air: Option<TmdbEpisode>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct TmdbSeason {
     #[serde(default)]
     season_number: i32,
@@ -215,6 +262,28 @@ struct TmdbSeason {
     poster_path: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct TmdbSeasonDetails {
+    #[serde(default)]
+    episodes: Vec<TmdbEpisode>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct TmdbEpisode {
+    #[serde(default)]
+    season_number: i32,
+    #[serde(default)]
+    episode_number: i32,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    overview: String,
+    #[serde(default)]
+    air_date: Option<String>,
+    #[serde(default)]
+    still_path: Option<String>,
+}
+
 impl From<TmdbSeason> for MediaMetadataSeason {
     fn from(value: TmdbSeason) -> Self {
         Self {
@@ -223,6 +292,30 @@ impl From<TmdbSeason> for MediaMetadataSeason {
             name: value.name,
             air_date: value.air_date,
             poster_url: tmdb_image_url(value.poster_path),
+        }
+    }
+}
+
+impl From<TmdbEpisode> for MediaMetadataEpisode {
+    fn from(value: TmdbEpisode) -> Self {
+        let season_number = value.season_number;
+        value.into_metadata(season_number)
+    }
+}
+
+impl TmdbEpisode {
+    fn into_metadata(self, fallback_season_number: i32) -> MediaMetadataEpisode {
+        MediaMetadataEpisode {
+            season_number: if self.season_number > 0 {
+                self.season_number
+            } else {
+                fallback_season_number
+            },
+            episode_number: self.episode_number,
+            name: self.name,
+            overview: self.overview,
+            air_date: self.air_date,
+            still_url: tmdb_image_url(self.still_path),
         }
     }
 }
@@ -266,8 +359,28 @@ impl TmdbSearchItem {
             number_of_episodes: None,
             number_of_seasons: None,
             seasons: vec![],
+            next_episode_to_air: None,
+            episodes: vec![],
         })
     }
+}
+
+fn tmdb_episode_season_numbers(details: &TmdbTvDetails) -> Vec<i32> {
+    let mut numbers: Vec<i32> = details
+        .seasons
+        .iter()
+        .filter(|season| season.season_number > 0 && season.episode_count.unwrap_or(0) > 0)
+        .map(|season| season.season_number)
+        .take(5)
+        .collect();
+
+    if let Some(next) = &details.next_episode_to_air {
+        if next.season_number > 0 && !numbers.contains(&next.season_number) {
+            numbers.push(next.season_number);
+        }
+    }
+
+    numbers
 }
 
 fn tmdb_image_url(path: Option<String>) -> Option<String> {
@@ -366,6 +479,8 @@ mod tests {
                 number_of_episodes: None,
                 number_of_seasons: None,
                 seasons: vec![],
+                next_episode_to_air: None,
+                episodes: vec![],
             },
             MediaMetadata {
                 provider: MetadataProvider::Tmdb,
@@ -381,6 +496,8 @@ mod tests {
                 number_of_episodes: None,
                 number_of_seasons: None,
                 seasons: vec![],
+                next_episode_to_air: None,
+                episodes: vec![],
             },
         ];
 

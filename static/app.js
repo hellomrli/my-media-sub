@@ -70,8 +70,11 @@ function app() {
     subscriptions: [],
     lastCheckResult: null,
     checkingAllSubscriptions: false,
+    scrapingAllMetadata: false,
     showSubscriptionDialog: false,
     subscriptionStatusTab: 'active',
+    subscriptionViewMode: 'table',
+    subscriptionActionMenuId: '',
     subscriptionStatusTabs: [
       {id: 'active', name: '追更中'},
       {id: 'invalid', name: '已失效'},
@@ -343,7 +346,7 @@ function app() {
     get dashboardRecentSubscriptions() {
       return [...this.subscriptions]
         .sort((a, b) => Number(b.last_checked_at || b.updated_at || 0) - Number(a.last_checked_at || a.updated_at || 0))
-        .slice(0, 6);
+        .slice(0, 9);
     },
 
     get dashboardRecentJobs() {
@@ -354,6 +357,59 @@ function app() {
 
     get dashboardRecentNotifications() {
       return this.notificationCenterNotifications.slice(0, 6);
+    },
+
+    get dashboardMissingEpisodes() {
+      return this.subscriptions
+        .filter(sub => sub && sub.media_type !== 'movie' && this.subscriptionStatusKey(sub) === 'active')
+        .map(sub => {
+          const current = Math.max(0, Number(sub.current_episode_number || 0));
+          const total = Number(sub.total_episode_number || (sub.rules && sub.rules.finish_after_episode) || 0);
+          const missing = total > 0 ? Math.max(0, total - current) : 0;
+          return {sub, current, total, missing};
+        })
+        .filter(item => item.missing > 0 || item.total === 0)
+        .sort((a, b) => (b.missing - a.missing) || Number(b.sub.last_checked_at || 0) - Number(a.sub.last_checked_at || 0))
+        .slice(0, 7);
+    },
+
+    get dashboardUpcomingEpisodes() {
+      const today = this.localDateStart(new Date());
+      const end = this.addDays(today, 7);
+      const items = [];
+      const seen = new Set();
+
+      this.subscriptions
+        .filter(sub => sub && sub.media_type !== 'movie' && this.subscriptionStatusKey(sub) === 'active')
+        .forEach(sub => {
+          const metadata = sub.metadata || {};
+          const current = Math.max(0, Number(sub.current_episode_number || 0));
+          const season = this.normalizeSeason(sub.season);
+          const episodes = Array.isArray(metadata.episodes) ? metadata.episodes : [];
+          episodes.forEach(episode => {
+            this.collectDashboardCalendarEpisode(items, seen, sub, episode, season, current, today, end);
+          });
+          if (metadata.next_episode_to_air) {
+            this.collectDashboardCalendarEpisode(items, seen, sub, metadata.next_episode_to_air, season, current, today, end);
+          }
+        });
+
+      return items.sort((a, b) => a.date.localeCompare(b.date) || a.episodeNumber - b.episodeNumber || a.title.localeCompare(b.title));
+    },
+
+    get dashboardCalendarDays() {
+      const today = this.localDateStart(new Date());
+      const episodes = this.dashboardUpcomingEpisodes;
+      return Array.from({length: 7}, (_, index) => {
+        const date = this.addDays(today, index);
+        const key = this.dateKey(date);
+        return {
+          key,
+          label: index === 0 ? '今天' : (index === 1 ? '明天' : date.toLocaleDateString('zh-CN', {weekday: 'short'})),
+          day: String(date.getDate()),
+          episodes: episodes.filter(item => item.date === key).slice(0, 4)
+        };
+      });
     },
 
     get backgroundJobKinds() {
@@ -901,6 +957,18 @@ function app() {
       return String(
         (result && (result.note || result.title || result.name || result.file_name || result.url)) || ''
       ).trim();
+    },
+
+    searchResultValidityBadgeClass(result) {
+      if (result && result.is_valid === true) return 'badge badge-success';
+      if (result && result.is_valid === false) return 'badge badge-danger';
+      return 'badge badge-muted';
+    },
+
+    searchResultValidityLabel(result) {
+      if (result && result.is_valid === true) return '有效';
+      if (result && result.is_valid === false) return '失效';
+      return '未检测';
     },
 
     stripResourceTags(value) {
@@ -1492,6 +1560,54 @@ function app() {
       return sourceTitle;
     },
 
+    localDateStart(value) {
+      const date = value instanceof Date ? value : new Date(value);
+      return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    },
+
+    addDays(date, days) {
+      const next = new Date(date);
+      next.setDate(next.getDate() + days);
+      return next;
+    },
+
+    dateKey(date) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    },
+
+    parseAirDate(value) {
+      if (!value) return null;
+      const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (!match) return null;
+      return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    },
+
+    collectDashboardCalendarEpisode(items, seen, sub, episode, season, current, start, end) {
+      const episodeSeason = Number(episode && episode.season_number || season);
+      const episodeNumber = Number(episode && episode.episode_number || 0);
+      if (episodeSeason !== season || episodeNumber <= current) return;
+
+      const airDate = this.parseAirDate(episode && episode.air_date);
+      if (!airDate || airDate < start || airDate >= end) return;
+
+      const key = `${sub.id}:${episodeSeason}:${episodeNumber}:${this.dateKey(airDate)}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+
+      items.push({
+        sub,
+        date: this.dateKey(airDate),
+        title: this.subscriptionDisplayTitle(sub),
+        episodeName: (episode && episode.name) || '',
+        episodeNumber,
+        seasonNumber: episodeSeason,
+        poster: this.subscriptionPoster(sub)
+      });
+    },
+
     subscriptionRatingLabel(sub) {
       const rating = sub && sub.metadata ? sub.metadata.vote_average : null;
       if (rating === 0 || rating) return `TMDB ${Number(rating).toFixed(1)}`;
@@ -1507,6 +1623,13 @@ function app() {
       const current = Math.max(0, Number((sub && sub.current_episode_number) || 0));
       const total = Number((sub && sub.total_episode_number) || (sub && sub.rules && sub.rules.finish_after_episode) || 0);
       return total > 0 ? `${current}/${total} 集` : `${current}/- 集`;
+    },
+
+    subscriptionProgressPercent(sub) {
+      const current = Math.max(0, Number((sub && sub.current_episode_number) || 0));
+      const total = Number((sub && sub.total_episode_number) || (sub && sub.rules && sub.rules.finish_after_episode) || 0);
+      if (total <= 0) return 0;
+      return Math.max(0, Math.min(100, (current / total) * 100));
     },
 
     subscriptionStartEpisodeLabel(sub) {
@@ -1559,6 +1682,14 @@ function app() {
       if (status === 'completed') return 'text-warning';
       if (status === 'invalid') return 'text-muted';
       return 'text-text/80';
+    },
+
+    subscriptionStatusBadgeClass(subOrStatus) {
+      const status = this.subscriptionStatusKey(subOrStatus);
+      if (status === 'active') return 'badge badge-primary';
+      if (status === 'completed') return 'badge badge-success';
+      if (status === 'invalid') return 'badge badge-danger';
+      return 'badge badge-muted';
     },
 
     subscriptionStatusCount(status) {
@@ -2449,13 +2580,15 @@ function app() {
       }
     },
 
-    async scrapeAllSubscriptionMetadata() {
+    async scrapeAllSubscriptionMetadata(options = {}) {
+      this.scrapingAllMetadata = true;
       try {
-        this.showNotification('info', '已提交批量元数据刮削任务');
+        const overwrite = options.overwrite !== false;
+        this.showNotification('info', overwrite ? '已提交批量元数据刷新任务' : '已提交批量元数据补全任务');
         const response = await fetch('/api/subscriptions/metadata/scrape', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({overwrite: false})
+          body: JSON.stringify({overwrite})
         });
         const result = await response.json();
 
@@ -2468,7 +2601,13 @@ function app() {
       } catch (error) {
         console.error('提交批量刮削任务失败:', error);
         this.showNotification('error', '提交批量刮削任务失败');
+      } finally {
+        this.scrapingAllMetadata = false;
       }
+    },
+
+    toggleSubscriptionActionMenu(id) {
+      this.subscriptionActionMenuId = this.subscriptionActionMenuId === id ? '' : id;
     },
 
     async deleteSubscription(id) {
@@ -2515,6 +2654,16 @@ function app() {
         success: 'bg-success/20 text-success',
         warning: 'bg-warning/20 text-warning',
         error: 'bg-danger/20 text-danger'
+      };
+      return classes[level] || classes.info;
+    },
+
+    notificationLevelBadgeClass(level) {
+      const classes = {
+        info: 'badge badge-primary',
+        success: 'badge badge-success',
+        warning: 'badge badge-warning',
+        error: 'badge badge-danger'
       };
       return classes[level] || classes.info;
     },
@@ -2614,6 +2763,17 @@ function app() {
         canceled: 'bg-muted/30 text-text/80'
       };
       return classes[status] || 'bg-muted/30 text-text/80';
+    },
+
+    jobStatusBadgeClass(status) {
+      const classes = {
+        queued: 'badge badge-warning',
+        running: 'badge badge-primary',
+        succeeded: 'badge badge-success',
+        failed: 'badge badge-danger',
+        canceled: 'badge badge-muted'
+      };
+      return classes[status] || 'badge badge-muted';
     },
 
     resetBackgroundJobFilters() {
@@ -3196,6 +3356,14 @@ function app() {
       if (status === 'complete') return 'bg-success/20 text-success';
       if (status === 'error') return 'bg-danger/20 text-danger';
       return 'bg-muted/20 text-text/80';
+    },
+
+    downloadStatusBadgeClass(status) {
+      if (status === 'active') return 'badge badge-primary';
+      if (status === 'waiting') return 'badge badge-warning';
+      if (status === 'complete') return 'badge badge-success';
+      if (status === 'error') return 'badge badge-danger';
+      return 'badge badge-muted';
     },
 
     downloadProgressStyle(task) {

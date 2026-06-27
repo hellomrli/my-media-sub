@@ -19,8 +19,6 @@ use crate::error::{AppError, Result};
 use crate::utils::constant_time_eq;
 
 const GITHUB_REPO: &str = "hellomrli/my-media-sub";
-const ENABLE_SELF_UPDATE_ENV: &str = "MY_MEDIA_SUB_ENABLE_SELF_UPDATE";
-
 static UPDATE_PROGRESS: Lazy<Mutex<UpdateProgressResponse>> =
     Lazy::new(|| Mutex::new(UpdateProgressResponse::idle()));
 static PENDING_RESTART: Lazy<Mutex<Option<RestartPlan>>> = Lazy::new(|| Mutex::new(None));
@@ -194,8 +192,6 @@ async fn list_releases() -> Result<impl IntoResponse> {
 }
 
 async fn apply_update(request: Option<Json<UpdateApplyRequest>>) -> Result<impl IntoResponse> {
-    ensure_self_update_enabled()?;
-
     let target_tag = request.and_then(|Json(req)| req.tag).and_then(|tag| {
         let tag = tag.trim().to_string();
         (!tag.is_empty()).then_some(tag)
@@ -220,8 +216,6 @@ async fn update_progress() -> Result<impl IntoResponse> {
 }
 
 async fn restart_update() -> Result<impl IntoResponse> {
-    ensure_self_update_enabled()?;
-
     let plan = PENDING_RESTART
         .lock()
         .map_err(|_| AppError::Internal("读取重启计划失败".to_string()))?
@@ -533,29 +527,6 @@ fn detect_runtime() -> String {
     } else {
         "binary".to_string()
     }
-}
-
-fn ensure_self_update_enabled() -> Result<()> {
-    if self_update_enabled() {
-        return Ok(());
-    }
-
-    Err(AppError::Validation(format!(
-        "在线更新未启用，请设置 {}=1 后重启服务",
-        ENABLE_SELF_UPDATE_ENV
-    )))
-}
-
-fn self_update_enabled() -> bool {
-    std::env::var(ENABLE_SELF_UPDATE_ENV)
-        .or_else(|_| std::env::var("SELF_UPDATE_ENABLED"))
-        .map(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
-        .unwrap_or(false)
 }
 
 async fn download_asset(url: &str, path: &Path, expected_size: u64) -> Result<()> {

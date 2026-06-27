@@ -23,9 +23,6 @@ services:
       # 数据目录
       - DATA_DIR=/app/data
 
-      # 在线更新会替换服务二进制，确认需要后再启用
-      # - MY_MEDIA_SUB_ENABLE_SELF_UPDATE=1
-
       # 夸克 Cookie（可选）
       # - QUARK_COOKIE=your_cookie_here
 

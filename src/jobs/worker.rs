@@ -1000,6 +1000,8 @@ mod tests {
                 air_date: None,
                 poster_url: None,
             }],
+            next_episode_to_air: None,
+            episodes: vec![],
         }
     }
 
