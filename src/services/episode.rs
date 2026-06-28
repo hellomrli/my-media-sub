@@ -20,20 +20,25 @@ pub struct EpisodeDuplicateCandidate<'a> {
     pub order: usize,
 }
 
+fn hardcoded_regex(pattern: &str) -> Regex {
+    Regex::new(pattern)
+        .unwrap_or_else(|error| panic!("invalid hard-coded episode regex `{pattern}`: {error}"))
+}
+
 /// 集数提取正则模式。明确格式优先，裸数字只作为兜底并过滤年份/清晰度。
 static EPISODE_PATTERNS: Lazy<Vec<EpisodePattern>> = Lazy::new(|| {
     vec![
         EpisodePattern {
-            regex: Regex::new(r"(?i)S(?P<season>\d{1,2})[._\-\s]*E(?P<episode>\d{1,4})").unwrap(),
+            regex: hardcoded_regex(r"(?i)S(?P<season>\d{1,2})[._\-\s]*E(?P<episode>\d{1,4})"),
         },
         EpisodePattern {
-            regex: Regex::new(r"(?i)(?:^|[^\p{L}\d])EP?[._\-\s]*(?P<episode>\d{1,4})").unwrap(),
+            regex: hardcoded_regex(r"(?i)(?:^|[^\p{L}\d])EP?[._\-\s]*(?P<episode>\d{1,4})"),
         },
         EpisodePattern {
-            regex: Regex::new(r"第\s*(?P<episode>\d{1,4})\s*[集话話期]").unwrap(),
+            regex: hardcoded_regex(r"第\s*(?P<episode>\d{1,4})\s*[集话話期]"),
         },
         EpisodePattern {
-            regex: Regex::new(r"[\[【]\s*(?P<episode>\d{1,4})\s*[\]】]").unwrap(),
+            regex: hardcoded_regex(r"[\[【]\s*(?P<episode>\d{1,4})\s*[\]】]"),
         },
     ]
 });
@@ -41,27 +46,27 @@ static EPISODE_PATTERNS: Lazy<Vec<EpisodePattern>> = Lazy::new(|| {
 static QUALITY_PATTERNS: Lazy<Vec<(Regex, i64)>> = Lazy::new(|| {
     vec![
         (
-            Regex::new(r"(?i)(?:^|[^\p{L}\d])(?:8k|4320p)(?:$|[^\p{L}\d])").unwrap(),
+            hardcoded_regex(r"(?i)(?:^|[^\p{L}\d])(?:8k|4320p)(?:$|[^\p{L}\d])"),
             4320,
         ),
         (
-            Regex::new(r"(?i)(?:^|[^\p{L}\d])(?:4k|2160p)(?:$|[^\p{L}\d])").unwrap(),
+            hardcoded_regex(r"(?i)(?:^|[^\p{L}\d])(?:4k|2160p)(?:$|[^\p{L}\d])"),
             2160,
         ),
         (
-            Regex::new(r"(?i)(?:^|[^\p{L}\d])(?:2k|1440p)(?:$|[^\p{L}\d])").unwrap(),
+            hardcoded_regex(r"(?i)(?:^|[^\p{L}\d])(?:2k|1440p)(?:$|[^\p{L}\d])"),
             1440,
         ),
         (
-            Regex::new(r"(?i)(?:^|[^\p{L}\d])1080p(?:$|[^\p{L}\d])").unwrap(),
+            hardcoded_regex(r"(?i)(?:^|[^\p{L}\d])1080p(?:$|[^\p{L}\d])"),
             1080,
         ),
         (
-            Regex::new(r"(?i)(?:^|[^\p{L}\d])720p(?:$|[^\p{L}\d])").unwrap(),
+            hardcoded_regex(r"(?i)(?:^|[^\p{L}\d])720p(?:$|[^\p{L}\d])"),
             720,
         ),
         (
-            Regex::new(r"(?i)(?:^|[^\p{L}\d])480p(?:$|[^\p{L}\d])").unwrap(),
+            hardcoded_regex(r"(?i)(?:^|[^\p{L}\d])480p(?:$|[^\p{L}\d])"),
             480,
         ),
     ]
@@ -69,19 +74,19 @@ static QUALITY_PATTERNS: Lazy<Vec<(Regex, i64)>> = Lazy::new(|| {
 
 static SEASON_HINT_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
     vec![
-        Regex::new(r"(?i)S(?P<num>\d{1,2})[._\-\s]*E\d{1,4}").unwrap(),
-        Regex::new(r"(?i)(?:^|[^\p{L}\d])S(?P<num>\d{1,2})(?:$|[^\p{L}\d])").unwrap(),
-        Regex::new(r"(?i)(?:season|series)[._\-\s]*(?P<num>\d{1,2})").unwrap(),
-        Regex::new(r"第\s*(?P<num>\d{1,2})\s*季").unwrap(),
-        Regex::new(r"第\s*(?P<cn>[一二三四五六七八九十两]+)\s*季").unwrap(),
+        hardcoded_regex(r"(?i)S(?P<num>\d{1,2})[._\-\s]*E\d{1,4}"),
+        hardcoded_regex(r"(?i)(?:^|[^\p{L}\d])S(?P<num>\d{1,2})(?:$|[^\p{L}\d])"),
+        hardcoded_regex(r"(?i)(?:season|series)[._\-\s]*(?P<num>\d{1,2})"),
+        hardcoded_regex(r"第\s*(?P<num>\d{1,2})\s*季"),
+        hardcoded_regex(r"第\s*(?P<cn>[一二三四五六七八九十两]+)\s*季"),
     ]
 });
 
 static NON_CURRENT_COLLECTION_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
     vec![
-        Regex::new(r"(?i)(番外|剧场版|剧场|特别篇|特别版|special|ova|oad)").unwrap(),
-        Regex::new(r"(?i)(?:^|[^\p{L}\d])sp(?:$|[^\p{L}\d])").unwrap(),
-        Regex::new(r"前\s*(?:\d+|[一二三四五六七八九十两]+)\s*季").unwrap(),
+        hardcoded_regex(r"(?i)(番外|剧场版|剧场|特别篇|特别版|special|ova|oad)"),
+        hardcoded_regex(r"(?i)(?:^|[^\p{L}\d])sp(?:$|[^\p{L}\d])"),
+        hardcoded_regex(r"前\s*(?:\d+|[一二三四五六七八九十两]+)\s*季"),
     ]
 });
 

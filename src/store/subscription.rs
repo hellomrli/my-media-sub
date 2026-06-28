@@ -2,12 +2,13 @@ use crate::error::{AppError, Result};
 use crate::models::Subscription;
 use crate::utils::{quarantine_corrupt_file, write_json_atomic_async};
 use std::path::PathBuf;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 /// 订阅存储（JSON 文件，原子写入）
 pub struct SubscriptionStore {
     path: PathBuf,
     items: RwLock<Vec<Subscription>>,
+    save_lock: Mutex<()>,
 }
 
 impl SubscriptionStore {
@@ -15,6 +16,7 @@ impl SubscriptionStore {
         Self {
             path: path.into(),
             items: RwLock::new(Vec::new()),
+            save_lock: Mutex::new(()),
         }
     }
 
@@ -48,6 +50,27 @@ impl SubscriptionStore {
         self.items.read().await.clone()
     }
 
+    /// 分页列出订阅，保持与 list() 相同顺序。
+    pub async fn list_paginated(&self, offset: usize, limit: usize) -> Vec<Subscription> {
+        self.items
+            .read()
+            .await
+            .iter()
+            .skip(offset)
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+
+    /// 在读锁内访问订阅，适合统计等不需要克隆整表的场景。
+    pub async fn with_items<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&[Subscription]) -> R,
+    {
+        let items = self.items.read().await;
+        f(&items)
+    }
+
     /// 按 ID 获取
     pub async fn get(&self, id: &str) -> Option<Subscription> {
         self.items.read().await.iter().find(|s| s.id == id).cloned()
@@ -55,15 +78,19 @@ impl SubscriptionStore {
 
     /// 创建订阅
     pub async fn create(&self, sub: Subscription) -> Result<Subscription> {
-        let mut items = self.items.write().await;
-        if items.iter().any(|s| s.id == sub.id) {
-            return Err(AppError::Validation(format!(
-                "订阅已存在（相同链接和标题）: {}",
-                sub.title
-            )));
-        }
-        items.push(sub.clone());
-        self.save(&items).await?;
+        let _save_guard = self.save_lock.lock().await;
+        let snapshot = {
+            let mut items = self.items.write().await;
+            if items.iter().any(|s| s.id == sub.id) {
+                return Err(AppError::Validation(format!(
+                    "订阅已存在（相同链接和标题）: {}",
+                    sub.title
+                )));
+            }
+            items.push(sub.clone());
+            items.clone()
+        };
+        self.save(&snapshot).await?;
         Ok(sub)
     }
 
@@ -72,34 +99,51 @@ impl SubscriptionStore {
     where
         F: FnOnce(&mut Subscription),
     {
-        let mut items = self.items.write().await;
-        let found = items.iter_mut().find(|s| s.id == id);
-        match found {
-            Some(sub) => {
+        let _save_guard = self.save_lock.lock().await;
+        let updated = {
+            let mut items = self.items.write().await;
+            if let Some(sub) = items.iter_mut().find(|s| s.id == id) {
                 updater(sub);
                 let updated = sub.clone();
-                self.save(&items).await?;
-                Ok(Some(updated))
+                Some((updated, items.clone()))
+            } else {
+                None
             }
-            None => Ok(None),
+        };
+
+        if let Some((updated, snapshot)) = updated {
+            self.save(&snapshot).await?;
+            Ok(Some(updated))
+        } else {
+            Ok(None)
         }
     }
 
     /// 删除订阅，返回是否删除成功
     pub async fn delete(&self, id: &str) -> Result<bool> {
-        let mut items = self.items.write().await;
-        let before = items.len();
-        items.retain(|s| s.id != id);
-        let changed = items.len() != before;
-        if changed {
-            self.save(&items).await?;
+        let _save_guard = self.save_lock.lock().await;
+        let snapshot = {
+            let mut items = self.items.write().await;
+            let before = items.len();
+            items.retain(|s| s.id != id);
+            if items.len() != before {
+                Some(items.clone())
+            } else {
+                None
+            }
+        };
+
+        if let Some(snapshot) = snapshot {
+            self.save(&snapshot).await?;
+            Ok(true)
+        } else {
+            Ok(false)
         }
-        Ok(changed)
     }
 
     /// 数量
     pub async fn count(&self) -> usize {
-        self.items.read().await.len()
+        self.with_items(|items| items.len()).await
     }
 }
 

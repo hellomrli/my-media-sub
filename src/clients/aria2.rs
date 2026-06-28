@@ -1,8 +1,8 @@
+use super::http_pool;
 use crate::error::{AppError, Result};
 use reqwest::Client;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::time::Duration;
 
 pub struct Aria2Client {
     rpc_url: String,
@@ -119,13 +119,7 @@ impl Aria2Client {
         secret: impl Into<String>,
         dir: impl Into<String>,
     ) -> Self {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(20))
-            .build()
-            .unwrap_or_else(|error| {
-                tracing::warn!("创建 Aria2 HTTP 客户端失败，使用默认客户端: {}", error);
-                Client::new()
-            });
+        let client = http_pool::medium_client();
         let rpc_url = rpc_url.into();
         Self {
             rpc_url: normalize_rpc_url(&rpc_url),

@@ -15,6 +15,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 
+use crate::clients::http_pool;
 use crate::error::{AppError, Result};
 use crate::utils::constant_time_eq;
 
@@ -457,7 +458,7 @@ async fn fetch_latest_release() -> Result<GithubRelease> {
         "https://api.github.com/repos/{}/releases/latest",
         GITHUB_REPO
     );
-    let client = reqwest::Client::new();
+    let client = http_pool::default_client();
     let response = client
         .get(url)
         .header(reqwest::header::USER_AGENT, "my-media-sub-update-check")
@@ -478,7 +479,7 @@ async fn fetch_release_by_tag(tag: &str) -> Result<GithubRelease> {
         "https://api.github.com/repos/{}/releases/tags/{}",
         GITHUB_REPO, tag
     );
-    let client = reqwest::Client::new();
+    let client = http_pool::default_client();
     let response = client
         .get(url)
         .header(reqwest::header::USER_AGENT, "my-media-sub-update-check")
@@ -494,7 +495,7 @@ async fn fetch_releases() -> Result<Vec<GithubRelease>> {
         "https://api.github.com/repos/{}/releases?per_page=20",
         GITHUB_REPO
     );
-    let client = reqwest::Client::new();
+    let client = http_pool::default_client();
     let response = client
         .get(url)
         .header(reqwest::header::USER_AGENT, "my-media-sub-update-check")
@@ -531,7 +532,7 @@ fn detect_runtime() -> String {
 
 async fn download_asset(url: &str, path: &Path, expected_size: u64) -> Result<()> {
     set_update_progress(10, "download", "正在连接 Release 下载地址");
-    let mut response = reqwest::Client::new()
+    let mut response = http_pool::default_client()
         .get(url)
         .header(reqwest::header::USER_AGENT, "my-media-sub-self-update")
         .send()
@@ -563,7 +564,7 @@ async fn download_asset(url: &str, path: &Path, expected_size: u64) -> Result<()
 }
 
 async fn download_asset_bytes(url: &str) -> Result<Vec<u8>> {
-    let response = reqwest::Client::new()
+    let response = http_pool::default_client()
         .get(url)
         .header(reqwest::header::USER_AGENT, "my-media-sub-self-update")
         .send()

@@ -1,13 +1,22 @@
+use crate::clients::http_pool;
 use crate::error::{AppError, Result};
 use crate::models::{Notification, Settings};
 use crate::store::NotificationStore;
+use crate::utils::metrics::global_metrics;
+use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::Client;
 use serde_json::json;
 use std::collections::HashMap;
 use std::future::Future;
+use std::pin::Pin;
 use std::time::Duration;
 use tokio::time::sleep;
+
+fn hardcoded_regex(pattern: &str) -> Regex {
+    Regex::new(pattern)
+        .unwrap_or_else(|error| panic!("invalid hard-coded push regex `{pattern}`: {error}"))
+}
 
 /// 推送级别
 #[allow(dead_code)]
@@ -132,6 +141,196 @@ impl PushRetryPolicy {
     }
 }
 
+type ChannelSendFuture<'a> = Pin<Box<dyn Future<Output = Result<bool>> + Send + 'a>>;
+
+trait PushChannel: Sync {
+    fn id(&self) -> &'static str;
+    fn is_enabled(&self, settings: &Settings) -> bool;
+    fn send<'a>(
+        &'a self,
+        service: &'a PushService,
+        title: &'a str,
+        message: &'a str,
+        level: PushLevel,
+    ) -> ChannelSendFuture<'a>;
+}
+
+struct WecomChannel;
+struct WxpusherChannel;
+struct TelegramChannel;
+struct BarkChannel;
+struct GotifyChannel;
+struct PushplusChannel;
+struct ServerchanChannel;
+
+impl PushChannel for WecomChannel {
+    fn id(&self) -> &'static str {
+        "wecom"
+    }
+
+    fn is_enabled(&self, settings: &Settings) -> bool {
+        !settings.wecom_bot_url.is_empty()
+    }
+
+    fn send<'a>(
+        &'a self,
+        service: &'a PushService,
+        title: &'a str,
+        message: &'a str,
+        level: PushLevel,
+    ) -> ChannelSendFuture<'a> {
+        Box::pin(service.send_wecom(title, message, level))
+    }
+}
+
+impl PushChannel for WxpusherChannel {
+    fn id(&self) -> &'static str {
+        "wxpusher"
+    }
+
+    fn is_enabled(&self, settings: &Settings) -> bool {
+        !settings.wxpusher_app_token.is_empty()
+    }
+
+    fn send<'a>(
+        &'a self,
+        service: &'a PushService,
+        title: &'a str,
+        message: &'a str,
+        _level: PushLevel,
+    ) -> ChannelSendFuture<'a> {
+        Box::pin(service.send_wxpusher(title, message))
+    }
+}
+
+impl PushChannel for TelegramChannel {
+    fn id(&self) -> &'static str {
+        "telegram"
+    }
+
+    fn is_enabled(&self, settings: &Settings) -> bool {
+        !settings.telegram_bot_token.is_empty() && !settings.telegram_chat_id.is_empty()
+    }
+
+    fn send<'a>(
+        &'a self,
+        service: &'a PushService,
+        title: &'a str,
+        message: &'a str,
+        level: PushLevel,
+    ) -> ChannelSendFuture<'a> {
+        Box::pin(service.send_telegram(title, message, level, service.settings.push_silent))
+    }
+}
+
+impl PushChannel for BarkChannel {
+    fn id(&self) -> &'static str {
+        "bark"
+    }
+
+    fn is_enabled(&self, settings: &Settings) -> bool {
+        !settings.bark_url.is_empty()
+    }
+
+    fn send<'a>(
+        &'a self,
+        service: &'a PushService,
+        title: &'a str,
+        message: &'a str,
+        level: PushLevel,
+    ) -> ChannelSendFuture<'a> {
+        Box::pin(service.send_bark(title, message, level))
+    }
+}
+
+impl PushChannel for GotifyChannel {
+    fn id(&self) -> &'static str {
+        "gotify"
+    }
+
+    fn is_enabled(&self, settings: &Settings) -> bool {
+        !settings.gotify_url.is_empty() && !settings.gotify_token.is_empty()
+    }
+
+    fn send<'a>(
+        &'a self,
+        service: &'a PushService,
+        title: &'a str,
+        message: &'a str,
+        level: PushLevel,
+    ) -> ChannelSendFuture<'a> {
+        Box::pin(service.send_gotify(title, message, level))
+    }
+}
+
+impl PushChannel for PushplusChannel {
+    fn id(&self) -> &'static str {
+        "pushplus"
+    }
+
+    fn is_enabled(&self, settings: &Settings) -> bool {
+        !settings.pushplus_token.is_empty()
+    }
+
+    fn send<'a>(
+        &'a self,
+        service: &'a PushService,
+        title: &'a str,
+        message: &'a str,
+        _level: PushLevel,
+    ) -> ChannelSendFuture<'a> {
+        Box::pin(service.send_pushplus(title, message))
+    }
+}
+
+impl PushChannel for ServerchanChannel {
+    fn id(&self) -> &'static str {
+        "serverchan"
+    }
+
+    fn is_enabled(&self, settings: &Settings) -> bool {
+        !settings.serverchan_key.is_empty()
+    }
+
+    fn send<'a>(
+        &'a self,
+        service: &'a PushService,
+        title: &'a str,
+        message: &'a str,
+        _level: PushLevel,
+    ) -> ChannelSendFuture<'a> {
+        Box::pin(service.send_serverchan(title, message))
+    }
+}
+
+fn push_channels() -> [&'static dyn PushChannel; 7] {
+    static WECOM: WecomChannel = WecomChannel;
+    static WXPUSHER: WxpusherChannel = WxpusherChannel;
+    static TELEGRAM: TelegramChannel = TelegramChannel;
+    static BARK: BarkChannel = BarkChannel;
+    static GOTIFY: GotifyChannel = GotifyChannel;
+    static PUSHPLUS: PushplusChannel = PushplusChannel;
+    static SERVERCHAN: ServerchanChannel = ServerchanChannel;
+
+    [
+        &WECOM,
+        &WXPUSHER,
+        &TELEGRAM,
+        &BARK,
+        &GOTIFY,
+        &PUSHPLUS,
+        &SERVERCHAN,
+    ]
+}
+
+fn push_channel_by_id(id: &str) -> Option<&'static dyn PushChannel> {
+    push_channels()
+        .into_iter()
+        .find(|channel| channel.id() == id)
+}
+
+include!("push/channel_methods.rs");
+
 /// 推送服务
 pub struct PushService {
     settings: Settings,
@@ -140,46 +339,18 @@ pub struct PushService {
 
 impl PushService {
     pub fn new(settings: Settings) -> Self {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .unwrap_or_else(|error| {
-                tracing::warn!("创建推送 HTTP 客户端失败，使用默认客户端: {}", error);
-                Client::new()
-            });
+        let client = http_pool::short_client();
 
         Self { settings, client }
     }
 
     /// 获取已启用的推送渠道
     pub fn enabled_channels(&self) -> Vec<String> {
-        let mut channels = Vec::new();
-
-        if !self.settings.wecom_bot_url.is_empty() {
-            channels.push("wecom".to_string());
-        }
-        if !self.settings.wxpusher_app_token.is_empty() {
-            channels.push("wxpusher".to_string());
-        }
-        if !self.settings.telegram_bot_token.is_empty()
-            && !self.settings.telegram_chat_id.is_empty()
-        {
-            channels.push("telegram".to_string());
-        }
-        if !self.settings.bark_url.is_empty() {
-            channels.push("bark".to_string());
-        }
-        if !self.settings.gotify_url.is_empty() && !self.settings.gotify_token.is_empty() {
-            channels.push("gotify".to_string());
-        }
-        if !self.settings.pushplus_token.is_empty() {
-            channels.push("pushplus".to_string());
-        }
-        if !self.settings.serverchan_key.is_empty() {
-            channels.push("serverchan".to_string());
-        }
-
-        channels
+        push_channels()
+            .into_iter()
+            .filter(|channel| channel.is_enabled(&self.settings))
+            .map(|channel| channel.id().to_string())
+            .collect()
     }
 
     pub fn event_enabled(&self, event: PushEvent) -> bool {
@@ -254,20 +425,21 @@ impl PushService {
         level: PushLevel,
         retry_policy: PushRetryPolicy,
     ) -> PushDeliveryReport {
-        let enabled_channels = self.enabled_channels();
         let mut report = PushDeliveryReport::default();
         for channel in channels {
-            if !enabled_channels.contains(channel) {
+            let Some(channel_impl) = push_channel_by_id(channel)
+                .filter(|channel_impl| channel_impl.is_enabled(&self.settings))
+            else {
                 report.results.insert(channel.clone(), false);
                 report
                     .errors
                     .insert(channel.clone(), "渠道未配置或未启用".to_string());
                 report.attempts.insert(channel.clone(), 0);
                 continue;
-            }
+            };
 
             let (success, attempts, last_error) = send_with_retry(retry_policy, || {
-                self.send_channel(channel, title, message, level)
+                channel_impl.send(self, title, message, level)
             })
             .await;
 
@@ -331,257 +503,7 @@ impl PushService {
             .await
     }
 
-    async fn send_channel(
-        &self,
-        channel: &str,
-        title: &str,
-        message: &str,
-        level: PushLevel,
-    ) -> Result<bool> {
-        match channel {
-            "wecom" => self.send_wecom(title, message, level).await,
-            "wxpusher" => self.send_wxpusher(title, message).await,
-            "telegram" => {
-                self.send_telegram(title, message, level, self.settings.push_silent)
-                    .await
-            }
-            "bark" => self.send_bark(title, message, level).await,
-            "gotify" => self.send_gotify(title, message, level).await,
-            "pushplus" => self.send_pushplus(title, message).await,
-            "serverchan" => self.send_serverchan(title, message).await,
-            _ => Ok(false),
-        }
-    }
-
-    /// 企业微信机器人
-    async fn send_wecom(&self, title: &str, message: &str, level: PushLevel) -> Result<bool> {
-        let url = &self.settings.wecom_bot_url;
-        if url.is_empty() {
-            return Ok(false);
-        }
-
-        let now = chrono::Local::now().format("%m-%d %H:%M").to_string();
-        let content = format!("### {} {}\n{}\n> {}", level.emoji(), title, message, now);
-
-        let payload = json!({
-            "msgtype": "markdown",
-            "markdown": {
-                "content": content,
-            },
-        });
-
-        let resp = self
-            .client
-            .post(url)
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| AppError::Http(format!("企业微信推送失败: {}", e)))?;
-
-        let data: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| AppError::Http(e.to_string()))?;
-        Ok(data.get("errcode").and_then(|v| v.as_i64()) == Some(0))
-    }
-
-    /// WxPusher
-    async fn send_wxpusher(&self, title: &str, message: &str) -> Result<bool> {
-        let token = &self.settings.wxpusher_app_token;
-        if token.is_empty() {
-            return Ok(false);
-        }
-
-        let uids: Vec<String> = if !self.settings.wxpusher_uids.is_empty() {
-            self.settings
-                .wxpusher_uids
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect()
-        } else {
-            vec![]
-        };
-
-        let payload = json!({
-            "appToken": token,
-            "content": format!("<h3>{}</h3><p>{}</p>", title, message),
-            "summary": title,
-            "contentType": 2,
-            "uids": uids,
-        });
-
-        let resp = self
-            .client
-            .post("https://wxpusher.zjiecode.com/api/send/message")
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| AppError::Http(format!("WxPusher 推送失败: {}", e)))?;
-
-        let data: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| AppError::Http(e.to_string()))?;
-        Ok(data.get("code").and_then(|v| v.as_i64()) == Some(1000))
-    }
-
-    /// Telegram Bot
-    async fn send_telegram(
-        &self,
-        title: &str,
-        message: &str,
-        level: PushLevel,
-        silent: bool,
-    ) -> Result<bool> {
-        let token = &self.settings.telegram_bot_token;
-        let chat_id = &self.settings.telegram_chat_id;
-
-        if token.is_empty() || chat_id.is_empty() {
-            return Ok(false);
-        }
-
-        let text = format!("{} <b>{}</b>\n\n{}", level.emoji(), title, message);
-        let payload = json!({
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "HTML",
-            "disable_notification": silent,
-        });
-
-        let url = format!("https://api.telegram.org/bot{}/sendMessage", token);
-        let resp = self
-            .client
-            .post(&url)
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| AppError::Http(format!("Telegram 推送失败: {}", e)))?;
-
-        let data: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| AppError::Http(e.to_string()))?;
-        Ok(data.get("ok").and_then(|v| v.as_bool()).unwrap_or(false))
-    }
-
-    /// Bark (iOS)
-    async fn send_bark(&self, title: &str, message: &str, level: PushLevel) -> Result<bool> {
-        let url = self.settings.bark_url.trim_end_matches('/');
-        if url.is_empty() {
-            return Ok(false);
-        }
-
-        let payload = json!({
-            "title": title,
-            "body": message,
-            "level": level.as_str(),
-            "badge": 1,
-        });
-
-        let resp = self
-            .client
-            .post(format!("{}/push", url))
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| AppError::Http(format!("Bark 推送失败: {}", e)))?;
-
-        let data: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| AppError::Http(e.to_string()))?;
-        Ok(data.get("code").and_then(|v| v.as_i64()) == Some(200))
-    }
-
-    /// Gotify
-    async fn send_gotify(&self, title: &str, message: &str, level: PushLevel) -> Result<bool> {
-        let url = self.settings.gotify_url.trim_end_matches('/');
-        let token = &self.settings.gotify_token;
-
-        if url.is_empty() || token.is_empty() {
-            return Ok(false);
-        }
-
-        let priority = match level {
-            PushLevel::Info | PushLevel::Success => 5,
-            PushLevel::Warning => 7,
-            PushLevel::Error => 9,
-        };
-
-        let payload = json!({
-            "title": title,
-            "message": message,
-            "priority": priority,
-        });
-
-        let resp = self
-            .client
-            .post(format!("{}/message?token={}", url, token))
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| AppError::Http(format!("Gotify 推送失败: {}", e)))?;
-
-        Ok(resp.status().is_success())
-    }
-
-    /// PushPlus
-    async fn send_pushplus(&self, title: &str, message: &str) -> Result<bool> {
-        let token = &self.settings.pushplus_token;
-        if token.is_empty() {
-            return Ok(false);
-        }
-
-        let payload = json!({
-            "token": token,
-            "title": title,
-            "content": message,
-            "template": "html",
-        });
-
-        let resp = self
-            .client
-            .post("http://www.pushplus.plus/send")
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| AppError::Http(format!("PushPlus 推送失败: {}", e)))?;
-
-        let data: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| AppError::Http(e.to_string()))?;
-        Ok(data.get("code").and_then(|v| v.as_i64()) == Some(200))
-    }
-
-    /// Server酱
-    async fn send_serverchan(&self, title: &str, message: &str) -> Result<bool> {
-        let key = &self.settings.serverchan_key;
-        if key.is_empty() {
-            return Ok(false);
-        }
-
-        let payload = json!({
-            "title": title,
-            "desp": message,
-        });
-
-        let url = format!("https://sctapi.ftqq.com/{}.send", key);
-        let resp = self
-            .client
-            .post(&url)
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| AppError::Http(format!("Server酱推送失败: {}", e)))?;
-
-        let data: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| AppError::Http(e.to_string()))?;
-        Ok(data.get("code").and_then(|v| v.as_i64()) == Some(0))
-    }
+    push_channel_methods!();
 }
 
 async fn send_with_retry<F, Fut>(
@@ -620,13 +542,14 @@ where
 }
 
 fn sanitize_push_error(value: &str) -> String {
-    let token_re = Regex::new(r"(?i)(token|key|sendkey|access_token)=([^&\s]+)").unwrap();
-    let bot_re = Regex::new(r"(?i)bot[0-9]+:[A-Za-z0-9_-]+").unwrap();
-    let serverchan_re = Regex::new(r"SCT[A-Za-z0-9]+").unwrap();
+    static TOKEN_RE: Lazy<Regex> =
+        Lazy::new(|| hardcoded_regex(r"(?i)(token|key|sendkey|access_token)=([^&\s]+)"));
+    static BOT_RE: Lazy<Regex> = Lazy::new(|| hardcoded_regex(r"(?i)bot[0-9]+:[A-Za-z0-9_-]+"));
+    static SERVERCHAN_RE: Lazy<Regex> = Lazy::new(|| hardcoded_regex(r"SCT[A-Za-z0-9]+"));
 
-    let sanitized = token_re.replace_all(value, "$1=***");
-    let sanitized = bot_re.replace_all(&sanitized, "bot***");
-    let sanitized = serverchan_re.replace_all(&sanitized, "SCT***");
+    let sanitized = TOKEN_RE.replace_all(value, "$1=***");
+    let sanitized = BOT_RE.replace_all(&sanitized, "bot***");
+    let sanitized = SERVERCHAN_RE.replace_all(&sanitized, "SCT***");
     let sanitized = sanitized.to_string();
 
     const MAX_ERROR_LEN: usize = 300;
@@ -723,6 +646,7 @@ pub async fn record_push_message_report_for_notification(
 
     let success_count = results.values().filter(|&&ok| ok).count();
     let failed_count = results.len().saturating_sub(success_count);
+    global_metrics().add_push_results(success_count as u64, failed_count as u64);
     let record_level = if failed_count > 0 {
         "warning"
     } else {
@@ -800,265 +724,4 @@ fn push_report_meta(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::store::NotificationStore;
-
-    #[test]
-    fn test_push_level() {
-        assert_eq!(PushLevel::Info.as_str(), "info");
-        assert_eq!(PushLevel::Success.emoji(), "✅");
-        assert_eq!(PushLevel::Warning.emoji(), "⚠️");
-        assert_eq!(PushLevel::Error.emoji(), "❌");
-    }
-
-    #[test]
-    fn test_enabled_channels() {
-        let settings = Settings {
-            wecom_bot_url: "https://test".to_string(),
-            telegram_bot_token: "token".to_string(),
-            telegram_chat_id: "123".to_string(),
-            ..Default::default()
-        };
-
-        let service = PushService::new(settings);
-        let channels = service.enabled_channels();
-
-        assert_eq!(channels.len(), 2);
-        assert!(channels.contains(&"wecom".to_string()));
-        assert!(channels.contains(&"telegram".to_string()));
-    }
-
-    #[test]
-    fn test_retry_policy_uses_exponential_backoff_with_cap() {
-        let policy = PushRetryPolicy {
-            max_attempts: 0,
-            initial_delay: Duration::from_secs(2),
-            max_delay: Duration::from_secs(5),
-        };
-
-        assert_eq!(policy.attempts(), 1);
-        assert_eq!(policy.delay_for_retry(0), Duration::from_secs(2));
-        assert_eq!(policy.delay_for_retry(1), Duration::from_secs(4));
-        assert_eq!(policy.delay_for_retry(2), Duration::from_secs(5));
-    }
-
-    #[tokio::test]
-    async fn test_send_to_channels_retries_until_success() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        use std::sync::Arc;
-
-        let attempts = Arc::new(AtomicUsize::new(0));
-        let attempts_for_send = attempts.clone();
-        let (success, attempt_count, last_error) = send_with_retry(
-            PushRetryPolicy {
-                max_attempts: 3,
-                initial_delay: Duration::ZERO,
-                max_delay: Duration::ZERO,
-            },
-            move || {
-                let attempts_for_send = attempts_for_send.clone();
-                async move {
-                    let attempt = attempts_for_send.fetch_add(1, Ordering::SeqCst) + 1;
-                    Ok::<bool, AppError>(attempt == 3)
-                }
-            },
-        )
-        .await;
-
-        assert!(success);
-        assert_eq!(attempt_count, 3);
-        assert_eq!(attempts.load(Ordering::SeqCst), 3);
-        assert_eq!(last_error, "渠道返回失败状态");
-    }
-
-    #[test]
-    fn test_sanitize_push_error_masks_tokens() {
-        let error = "request failed: https://example.com/message?token=abc123&key=secret bot123456:ABC_def SCTabcdef";
-        let sanitized = sanitize_push_error(error);
-
-        assert!(sanitized.contains("token=***"));
-        assert!(sanitized.contains("key=***"));
-        assert!(sanitized.contains("bot***"));
-        assert!(sanitized.contains("SCT***"));
-        assert!(!sanitized.contains("abc123"));
-        assert!(!sanitized.contains("secret"));
-        assert!(!sanitized.contains("ABC_def"));
-    }
-
-    #[tokio::test]
-    async fn test_send_event_respects_global_switch() {
-        let settings = Settings {
-            push_on_update: false,
-            wecom_bot_url: "https://test".to_string(),
-            ..Default::default()
-        };
-
-        let service = PushService::new(settings);
-        let results = service
-            .send_event(
-                PushEvent::SubscriptionUpdated,
-                "title",
-                "message",
-                PushLevel::Info,
-            )
-            .await;
-
-        assert!(results.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_record_push_message_saves_results() {
-        let tmp =
-            std::env::temp_dir().join(format!("my-media-sub-push-{}.json", uuid::Uuid::new_v4()));
-        let store = NotificationStore::new(&tmp);
-        store.load().await.unwrap();
-
-        let results = HashMap::from([("telegram".to_string(), true), ("bark".to_string(), false)]);
-        record_push_message(
-            &store,
-            PushEvent::SubscriptionUpdated.as_str(),
-            "title",
-            "message",
-            PushLevel::Info,
-            &results,
-        )
-        .await;
-
-        let notifications = store.list(true).await;
-        assert_eq!(notifications.len(), 1);
-        assert_eq!(
-            notifications[0].event,
-            PushEvent::SubscriptionUpdated.as_str()
-        );
-        assert_eq!(notifications[0].level, "warning");
-        assert_eq!(notifications[0].meta["push"]["success_count"], json!(1));
-        assert_eq!(notifications[0].meta["push"]["failed_count"], json!(1));
-
-        let _ = std::fs::remove_file(tmp);
-    }
-
-    #[tokio::test]
-    async fn test_record_push_message_saves_attempts() {
-        let tmp = std::env::temp_dir().join(format!(
-            "my-media-sub-push-attempts-{}.json",
-            uuid::Uuid::new_v4()
-        ));
-        let store = NotificationStore::new(&tmp);
-        store.load().await.unwrap();
-
-        let report = PushDeliveryReport {
-            results: HashMap::from([("telegram".to_string(), false)]),
-            errors: HashMap::from([("telegram".to_string(), "尝试 3 次后失败".to_string())]),
-            attempts: HashMap::from([("telegram".to_string(), 3)]),
-        };
-
-        record_push_message_report(
-            &store,
-            "subscription_updated",
-            "title",
-            "message",
-            PushLevel::Info,
-            &report,
-        )
-        .await;
-
-        let notifications = store.list(true).await;
-        assert_eq!(
-            notifications[0].meta["push"]["attempts"]["telegram"],
-            json!(3)
-        );
-        assert_eq!(
-            notifications[0].meta["push"]["errors"]["telegram"],
-            json!("尝试 3 次后失败")
-        );
-
-        let _ = std::fs::remove_file(tmp);
-    }
-
-    #[tokio::test]
-    async fn test_record_push_message_saves_sanitized_errors() {
-        let tmp = std::env::temp_dir().join(format!(
-            "my-media-sub-push-errors-{}.json",
-            uuid::Uuid::new_v4()
-        ));
-        let store = NotificationStore::new(&tmp);
-        store.load().await.unwrap();
-
-        let results = HashMap::from([("gotify".to_string(), false)]);
-        let errors = HashMap::from([(
-            "gotify".to_string(),
-            sanitize_push_error("https://gotify.example/message?token=secret-token failed"),
-        )]);
-        record_push_message_with_errors(
-            &store,
-            "push_test",
-            "title",
-            "message",
-            PushLevel::Info,
-            &results,
-            &errors,
-        )
-        .await;
-
-        let notifications = store.list(true).await;
-        assert_eq!(
-            notifications[0].meta["push"]["errors"]["gotify"],
-            json!("https://gotify.example/message?token=*** failed")
-        );
-
-        let _ = std::fs::remove_file(tmp);
-    }
-
-    #[tokio::test]
-    async fn test_record_push_message_merges_into_existing_notification() {
-        let tmp = std::env::temp_dir().join(format!(
-            "my-media-sub-push-merge-{}.json",
-            uuid::Uuid::new_v4()
-        ));
-        let store = NotificationStore::new(&tmp);
-        store.load().await.unwrap();
-        let base = store
-            .add(Notification {
-                id: "base".to_string(),
-                level: "info".to_string(),
-                event: "subscription_updated".to_string(),
-                title: "订阅有更新".to_string(),
-                message: "发现新集".to_string(),
-                meta: HashMap::new(),
-                read: true,
-                created_at: 1,
-            })
-            .await
-            .unwrap();
-
-        let report = PushDeliveryReport {
-            results: HashMap::from([("telegram".to_string(), false)]),
-            errors: HashMap::from([("telegram".to_string(), "发送失败".to_string())]),
-            attempts: HashMap::from([("telegram".to_string(), 1)]),
-        };
-        record_push_message_report_for_notification(
-            &store,
-            Some(&base.id),
-            "subscription_updated",
-            "订阅有更新",
-            "发现新集",
-            PushLevel::Info,
-            &report,
-        )
-        .await;
-
-        let notifications = store.list(true).await;
-        assert_eq!(notifications.len(), 1);
-        assert_eq!(notifications[0].event, "subscription_updated");
-        assert_eq!(notifications[0].level, "warning");
-        assert!(!notifications[0].read);
-        assert_eq!(notifications[0].meta["push"]["failed_count"], json!(1));
-        assert_eq!(
-            notifications[0].meta["push"]["results"]["telegram"],
-            json!(false)
-        );
-
-        let _ = std::fs::remove_file(tmp);
-    }
-}
+include!("push/tests.rs");

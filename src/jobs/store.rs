@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, Mutex, RwLock};
 
 use crate::error::{AppError, Result};
 use crate::utils::{quarantine_corrupt_file, write_json_atomic_async};
@@ -12,6 +12,7 @@ const MAX_JOBS: usize = 500;
 pub struct JobStore {
     path: PathBuf,
     jobs: RwLock<Vec<Job>>,
+    save_lock: Mutex<()>,
     events: broadcast::Sender<Job>,
 }
 
@@ -20,6 +21,7 @@ impl JobStore {
         Self {
             path: path.into(),
             jobs: RwLock::new(Vec::new()),
+            save_lock: Mutex::new(()),
             events: broadcast::channel(200).0,
         }
     }
@@ -48,10 +50,14 @@ impl JobStore {
     }
 
     pub async fn add(&self, job: Job) -> Result<Job> {
-        let mut jobs = self.jobs.write().await;
-        jobs.push(job.clone());
-        truncate_jobs(&mut jobs);
-        self.save_locked(&jobs).await?;
+        let _save_guard = self.save_lock.lock().await;
+        let snapshot = {
+            let mut jobs = self.jobs.write().await;
+            jobs.push(job.clone());
+            truncate_jobs(&mut jobs);
+            jobs.clone()
+        };
+        self.save_snapshot(&snapshot).await?;
         self.emit(job.clone());
         Ok(job)
     }
@@ -64,6 +70,16 @@ impl JobStore {
     pub async fn list(&self) -> Vec<Job> {
         let jobs = self.jobs.read().await;
         jobs.iter().rev().cloned().collect()
+    }
+
+    pub async fn list_paginated(&self, offset: usize, limit: usize) -> Vec<Job> {
+        let jobs = self.jobs.read().await;
+        jobs.iter()
+            .rev()
+            .skip(offset)
+            .take(limit)
+            .cloned()
+            .collect()
     }
 
     pub async fn update<F>(&self, id: &str, updater: F) -> Result<Option<Job>>
@@ -81,24 +97,27 @@ impl JobStore {
     where
         F: FnOnce(&mut Job) -> Result<()>,
     {
-        let mut jobs = self.jobs.write().await;
-        let updated = if let Some(job) = jobs.iter_mut().find(|job| job.id == id) {
-            updater(job)?;
-            job.updated_at = now();
-            Some(job.clone())
-        } else {
-            None
+        let _save_guard = self.save_lock.lock().await;
+        let updated = {
+            let mut jobs = self.jobs.write().await;
+            if let Some(job) = jobs.iter_mut().find(|job| job.id == id) {
+                updater(job)?;
+                job.updated_at = now();
+                Some((job.clone(), jobs.clone()))
+            } else {
+                None
+            }
         };
 
-        if updated.is_some() {
-            self.save_locked(&jobs).await?;
+        if let Some((_, snapshot)) = &updated {
+            self.save_snapshot(snapshot).await?;
         }
 
-        if let Some(job) = &updated {
+        if let Some((job, _)) = &updated {
             self.emit(job.clone());
         }
 
-        Ok(updated)
+        Ok(updated.map(|(job, _)| job))
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Job> {
@@ -109,7 +128,7 @@ impl JobStore {
         let _ = self.events.send(job);
     }
 
-    async fn save_locked(&self, jobs: &[Job]) -> Result<()> {
+    async fn save_snapshot(&self, jobs: &[Job]) -> Result<()> {
         write_json_atomic_async(&self.path, &jobs, 0o600).await
     }
 }

@@ -1,7 +1,7 @@
 use reqwest::Client;
 use serde::Deserialize;
-use std::time::Duration;
 
+use crate::clients::http_pool;
 use crate::error::{AppError, Result};
 use crate::models::{MediaMetadata, MediaMetadataEpisode, MediaMetadataSeason, MetadataProvider};
 use crate::store::SettingsStore;
@@ -12,13 +12,7 @@ pub struct MetadataService {
 
 impl MetadataService {
     pub fn new() -> Self {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .unwrap_or_else(|error| {
-                tracing::warn!("创建元数据 HTTP 客户端失败，使用默认客户端: {}", error);
-                Client::new()
-            });
+        let client = http_pool::short_client();
         Self { client }
     }
 

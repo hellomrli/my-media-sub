@@ -1,6 +1,7 @@
 pub mod drive;
 pub mod jobs;
 pub mod metadata;
+pub mod metrics;
 pub mod notifications;
 pub mod push;
 pub mod search;
@@ -118,6 +119,7 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
             settings_store.clone(),
             context.metadata_service.clone(),
         ))
+        .merge(metrics::routes(context.metrics.clone()))
         .merge(jobs::routes(
             context.job_store.clone(),
             context.job_queue.clone(),
