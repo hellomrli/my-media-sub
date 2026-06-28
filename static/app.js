@@ -359,59 +359,6 @@ function app() {
       return this.notificationCenterNotifications.slice(0, 6);
     },
 
-    get dashboardMissingEpisodes() {
-      return this.subscriptions
-        .filter(sub => sub && sub.media_type !== 'movie' && this.subscriptionStatusKey(sub) === 'active')
-        .map(sub => {
-          const current = Math.max(0, Number(sub.current_episode_number || 0));
-          const total = Number(sub.total_episode_number || (sub.rules && sub.rules.finish_after_episode) || 0);
-          const missing = total > 0 ? Math.max(0, total - current) : 0;
-          return {sub, current, total, missing};
-        })
-        .filter(item => item.missing > 0 || item.total === 0)
-        .sort((a, b) => (b.missing - a.missing) || Number(b.sub.last_checked_at || 0) - Number(a.sub.last_checked_at || 0))
-        .slice(0, 7);
-    },
-
-    get dashboardUpcomingEpisodes() {
-      const today = this.localDateStart(new Date());
-      const end = this.addDays(today, 7);
-      const items = [];
-      const seen = new Set();
-
-      this.subscriptions
-        .filter(sub => sub && sub.media_type !== 'movie' && this.subscriptionStatusKey(sub) === 'active')
-        .forEach(sub => {
-          const metadata = sub.metadata || {};
-          const current = Math.max(0, Number(sub.current_episode_number || 0));
-          const season = this.normalizeSeason(sub.season);
-          const episodes = Array.isArray(metadata.episodes) ? metadata.episodes : [];
-          episodes.forEach(episode => {
-            this.collectDashboardCalendarEpisode(items, seen, sub, episode, season, current, today, end);
-          });
-          if (metadata.next_episode_to_air) {
-            this.collectDashboardCalendarEpisode(items, seen, sub, metadata.next_episode_to_air, season, current, today, end);
-          }
-        });
-
-      return items.sort((a, b) => a.date.localeCompare(b.date) || a.episodeNumber - b.episodeNumber || a.title.localeCompare(b.title));
-    },
-
-    get dashboardCalendarDays() {
-      const today = this.localDateStart(new Date());
-      const episodes = this.dashboardUpcomingEpisodes;
-      return Array.from({length: 7}, (_, index) => {
-        const date = this.addDays(today, index);
-        const key = this.dateKey(date);
-        return {
-          key,
-          label: index === 0 ? '今天' : (index === 1 ? '明天' : date.toLocaleDateString('zh-CN', {weekday: 'short'})),
-          day: String(date.getDate()),
-          episodes: episodes.filter(item => item.date === key).slice(0, 4)
-        };
-      });
-    },
-
     get backgroundJobKinds() {
       return [
         {id: 'all', name: '全部类型'},
@@ -1558,54 +1505,6 @@ function app() {
       const sourceTitle = sub.source_title || sub.title || '';
       if (!sourceTitle || sourceTitle === displayTitle) return '';
       return sourceTitle;
-    },
-
-    localDateStart(value) {
-      const date = value instanceof Date ? value : new Date(value);
-      return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    },
-
-    addDays(date, days) {
-      const next = new Date(date);
-      next.setDate(next.getDate() + days);
-      return next;
-    },
-
-    dateKey(date) {
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    },
-
-    parseAirDate(value) {
-      if (!value) return null;
-      const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
-      if (!match) return null;
-      return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-    },
-
-    collectDashboardCalendarEpisode(items, seen, sub, episode, season, current, start, end) {
-      const episodeSeason = Number(episode && episode.season_number || season);
-      const episodeNumber = Number(episode && episode.episode_number || 0);
-      if (episodeSeason !== season || episodeNumber <= current) return;
-
-      const airDate = this.parseAirDate(episode && episode.air_date);
-      if (!airDate || airDate < start || airDate >= end) return;
-
-      const key = `${sub.id}:${episodeSeason}:${episodeNumber}:${this.dateKey(airDate)}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-
-      items.push({
-        sub,
-        date: this.dateKey(airDate),
-        title: this.subscriptionDisplayTitle(sub),
-        episodeName: (episode && episode.name) || '',
-        episodeNumber,
-        seasonNumber: episodeSeason,
-        poster: this.subscriptionPoster(sub)
-      });
     },
 
     subscriptionRatingLabel(sub) {
