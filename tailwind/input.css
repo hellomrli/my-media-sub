@@ -429,21 +429,6 @@ input[type="checkbox"] {
   border-radius: inherit;
   background: linear-gradient(90deg, var(--app-primary), var(--app-cyan));
 }
-.mini-cal {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(112px, 1fr));
-  gap: 6px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-}
-.mini-cal-day {
-  min-height: 64px;
-  min-width: 112px;
-  border: 1px solid var(--app-border-soft);
-  border-radius: var(--app-radius);
-  background: rgb(var(--c-surface-2) / 0.48);
-  padding: 8px;
-}
 .table-head {
   background: rgb(var(--c-bg) / 0.68);
   color: rgb(var(--c-muted));
