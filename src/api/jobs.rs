@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     response::{
         sse::{Event, KeepAlive, Sse},
         IntoResponse,
@@ -20,6 +20,12 @@ pub struct JobState {
     pub queue: Arc<JobQueue>,
 }
 
+#[derive(Debug, Default, serde::Deserialize)]
+struct ListQuery {
+    offset: Option<usize>,
+    limit: Option<usize>,
+}
+
 #[derive(Serialize)]
 struct Response<T> {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -32,8 +38,20 @@ impl<T> Response<T> {
     }
 }
 
-async fn list_jobs(State(state): State<Arc<JobState>>) -> Result<Json<Response<Vec<Job>>>> {
-    Ok(Json(Response::ok(state.store.list().await)))
+async fn list_jobs(
+    State(state): State<Arc<JobState>>,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<Response<Vec<Job>>>> {
+    let jobs = match query.limit {
+        Some(limit) => {
+            state
+                .store
+                .list_paginated(query.offset.unwrap_or(0), limit)
+                .await
+        }
+        None => state.store.list().await,
+    };
+    Ok(Json(Response::ok(jobs)))
 }
 
 async fn get_job(

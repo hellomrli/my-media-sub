@@ -6,6 +6,7 @@ use tracing::{info, warn};
 use crate::error::{AppError, Result};
 use crate::services::{MetadataService, SubscriptionTransferService};
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
+use crate::utils::metrics::global_metrics;
 
 use super::model::{
     now, Job, JobKind, JobStatus, ManualTransferPayload, MetadataScrapePayload,
@@ -164,9 +165,16 @@ impl JobQueue {
         };
 
         let job = self.store.add(job).await?;
+        let job_kind = job.kind.clone();
         if self.sender.send(id.clone()).await.is_err() {
             mark_queue_unavailable(&self.store, &id).await?;
             return Err(AppError::Internal("任务队列不可用".to_string()));
+        }
+        if matches!(
+            job_kind,
+            JobKind::ManualTransfer | JobKind::SubscriptionTransfer
+        ) {
+            global_metrics().increment_transfer_tasks();
         }
 
         Ok(job)

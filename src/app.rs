@@ -8,6 +8,7 @@ use crate::services::{
     SubscriptionScheduler, SubscriptionTransferService,
 };
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
+use crate::utils::metrics::{global_metrics, Metrics};
 
 /// 应用级依赖上下文。
 ///
@@ -25,6 +26,7 @@ pub struct AppContext {
     pub scheduler: Arc<SubscriptionScheduler>,
     pub quark_signin_service: Arc<QuarkSigninService>,
     pub quark_signin_scheduler: Arc<QuarkSigninScheduler>,
+    pub metrics: Arc<Metrics>,
 }
 
 impl AppContext {
@@ -56,6 +58,7 @@ impl AppContext {
 
         let metadata_service = Arc::new(MetadataService::new());
         tracing::info!("✅ Clients initialized");
+        let metrics = global_metrics();
 
         let transfer_service = Arc::new(SubscriptionTransferService::new(
             subscription_store.clone(),
@@ -98,7 +101,6 @@ impl AppContext {
         let quark_signin_scheduler = Arc::new(
             QuarkSigninScheduler::new(quark_signin_service.clone(), settings_store.clone()).await?,
         );
-
         Ok(Arc::new(Self {
             subscription_store,
             settings_store,
@@ -111,6 +113,7 @@ impl AppContext {
             scheduler,
             quark_signin_service,
             quark_signin_scheduler,
+            metrics,
         }))
     }
 

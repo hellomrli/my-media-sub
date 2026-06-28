@@ -8,9 +8,8 @@ use axum::{
 };
 use serde::Deserialize;
 use std::sync::Arc;
-use std::time::Duration;
 
-use crate::clients::QuarkSaveClient;
+use crate::clients::{http_pool, QuarkSaveClient};
 use crate::error::{AppError, Result};
 use crate::store::SettingsStore;
 use crate::utils::constant_time_eq;
@@ -51,10 +50,7 @@ async fn quark_httpstrm(
         .next()
         .ok_or_else(|| AppError::Http("未能获取夸克文件下载链接".to_string()))?;
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(300))
-        .build()
-        .map_err(|e| AppError::Http(format!("创建 HTTPStrm 客户端失败: {}", e)))?;
+    let client = http_pool::streaming_client();
     let mut request = client.get(&info.download_url);
 
     for raw in &info.headers {

@@ -5,6 +5,8 @@ target/
 *.log
 .env
 data/
+docs/
+tests/
 src.backup/
 *.sh
 README.md

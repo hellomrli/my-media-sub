@@ -1,7 +1,7 @@
+use super::http_pool;
 use crate::error::{AppError, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 
 const DEFAULT_PANSOU_URL: &str = "https://pansou.lxf87.com.cn";
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
@@ -60,14 +60,7 @@ pub struct PanSouClient {
 
 impl PanSouClient {
     pub fn new(base_url: Option<String>) -> Self {
-        let client = Client::builder()
-            .user_agent(USER_AGENT)
-            .timeout(Duration::from_secs(15))
-            .build()
-            .unwrap_or_else(|error| {
-                tracing::warn!("创建 PanSou HTTP 客户端失败，使用默认客户端: {}", error);
-                Client::new()
-            });
+        let client = http_pool::short_client();
 
         Self {
             base_url: base_url.unwrap_or_else(|| DEFAULT_PANSOU_URL.to_string()),
@@ -91,6 +84,7 @@ impl PanSouClient {
         let resp = self
             .client
             .get(&api_url)
+            .header(reqwest::header::USER_AGENT, USER_AGENT)
             .query(&[("kw", keyword), ("res", "merge"), ("src", "all")])
             .send()
             .await

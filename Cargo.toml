@@ -1,6 +1,6 @@
 [package]
 name = "my-media-sub"
-version = "0.9.11"
+version = "1.0.0"
 edition = "2021"
 authors = ["my-media-sub contributors"]
 description = "Media subscription and management system written in Rust"

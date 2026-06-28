@@ -2,7 +2,7 @@ use crate::error::{AppError, Result};
 use crate::models::{settings::normalize_check_interval_minutes, Settings};
 use crate::utils::{quarantine_corrupt_file, set_file_mode, write_json_atomic_async};
 use std::path::PathBuf;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 /// 受保护的密钥字段（public() 视图中会被脱敏）
 pub const SECRET_KEYS: &[&str] = &[
@@ -29,6 +29,7 @@ pub const SUPPORTED_CLOUD_TYPES: &[&str] = &["quark"];
 pub struct SettingsStore {
     path: PathBuf,
     settings: RwLock<Settings>,
+    save_lock: Mutex<()>,
 }
 
 impl SettingsStore {
@@ -36,6 +37,7 @@ impl SettingsStore {
         Self {
             path: path.into(),
             settings: RwLock::new(Settings::default()),
+            save_lock: Mutex::new(()),
         }
     }
 
@@ -94,22 +96,25 @@ impl SettingsStore {
     where
         F: FnOnce(&mut Settings),
     {
-        let mut settings = self.settings.write().await;
-        updater(&mut settings);
-        settings.subscription_check_interval_minutes = normalize_check_interval_minutes(i64::from(
-            settings.subscription_check_interval_minutes,
-        ));
-        // 校验：cloud_types 只保留支持的类型，为空则默认 quark
-        settings
-            .cloud_types
-            .retain(|t| SUPPORTED_CLOUD_TYPES.contains(&t.as_str()));
-        if settings.cloud_types.is_empty() {
-            settings.cloud_types = vec!["quark".to_string()];
-        }
-        if settings.strm_access_token.trim().is_empty() {
-            settings.strm_access_token = uuid::Uuid::new_v4().to_string();
-        }
-        let updated = settings.clone();
+        let _save_guard = self.save_lock.lock().await;
+        let updated = {
+            let mut settings = self.settings.write().await;
+            updater(&mut settings);
+            settings.subscription_check_interval_minutes = normalize_check_interval_minutes(
+                i64::from(settings.subscription_check_interval_minutes),
+            );
+            // 校验：cloud_types 只保留支持的类型，为空则默认 quark
+            settings
+                .cloud_types
+                .retain(|t| SUPPORTED_CLOUD_TYPES.contains(&t.as_str()));
+            if settings.cloud_types.is_empty() {
+                settings.cloud_types = vec!["quark".to_string()];
+            }
+            if settings.strm_access_token.trim().is_empty() {
+                settings.strm_access_token = uuid::Uuid::new_v4().to_string();
+            }
+            settings.clone()
+        };
         self.write_to_disk(&updated).await?;
         Ok(updated)
     }

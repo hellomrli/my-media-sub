@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, get, post, put},
@@ -162,6 +162,12 @@ pub struct RenamePreviewFile {
 pub struct CheckSubscriptionRequest {
     #[serde(default)]
     pub force_transfer: bool,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ListSubscriptionsQuery {
+    offset: Option<usize>,
+    limit: Option<usize>,
 }
 
 #[derive(Serialize)]
@@ -432,8 +438,17 @@ fn preview_files(req: &RenamePreviewRequest, sub: &Subscription) -> Vec<RuleProb
 /// 列出所有订阅
 async fn list_subscriptions(
     State(state): State<Arc<SubscriptionState>>,
+    Query(query): Query<ListSubscriptionsQuery>,
 ) -> Result<Json<Response<Vec<Subscription>>>> {
-    let subscriptions = state.store.list().await;
+    let subscriptions = match query.limit {
+        Some(limit) => {
+            state
+                .store
+                .list_paginated(query.offset.unwrap_or(0), limit)
+                .await
+        }
+        None => state.store.list().await,
+    };
     Ok(Json(Response::ok(subscriptions)))
 }
 

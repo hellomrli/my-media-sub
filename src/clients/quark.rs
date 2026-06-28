@@ -9,6 +9,11 @@ use std::time::Duration;
 
 const QUARK_API_BASE: &str = "https://drive.quark.cn/1/clouddrive";
 
+fn hardcoded_regex(pattern: &str) -> Regex {
+    Regex::new(pattern)
+        .unwrap_or_else(|error| panic!("invalid hard-coded quark regex `{pattern}`: {error}"))
+}
+
 /// 夸克分享探测结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuarkShareInfo {
@@ -151,8 +156,7 @@ impl QuarkShareProbe {
 
     /// 从分享链接提取 pwd_id
     pub fn extract_pwd_id(url: &str) -> Option<String> {
-        static SHARE_ID_RE: Lazy<Regex> =
-            Lazy::new(|| Regex::new(r"/s/([A-Za-z0-9_-]+)").expect("valid share id regex"));
+        static SHARE_ID_RE: Lazy<Regex> = Lazy::new(|| hardcoded_regex(r"/s/([A-Za-z0-9_-]+)"));
         SHARE_ID_RE
             .captures(url)
             .and_then(|c| c.get(1))
@@ -460,12 +464,10 @@ impl Default for QuarkShareProbe {
 fn count_episodes(files: &[QuarkFile]) -> usize {
     static EPISODE_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
         vec![
-            Regex::new(r"(?i)(?:^|[^A-Za-z])S\d{1,2}E\d{1,3}(?:[^A-Za-z]|$)")
-                .expect("valid episode regex"),
-            Regex::new(r"(?:第\s*\d{1,3}\s*[集话])").expect("valid episode regex"),
-            Regex::new(r"(?i)(?:^|[^\d])E\d{1,3}(?:[^\d]|$)").expect("valid episode regex"),
-            Regex::new(r"(?i)(?:^|[^\d])\d{1,3}\s*\.\s*(?:mkv|mp4|avi|ts|mov|wmv)$")
-                .expect("valid episode regex"),
+            hardcoded_regex(r"(?i)(?:^|[^A-Za-z])S\d{1,2}E\d{1,3}(?:[^A-Za-z]|$)"),
+            hardcoded_regex(r"(?:第\s*\d{1,3}\s*[集话])"),
+            hardcoded_regex(r"(?i)(?:^|[^\d])E\d{1,3}(?:[^\d]|$)"),
+            hardcoded_regex(r"(?i)(?:^|[^\d])\d{1,3}\s*\.\s*(?:mkv|mp4|avi|ts|mov|wmv)$"),
         ]
     });
 

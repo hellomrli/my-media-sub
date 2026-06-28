@@ -5,7 +5,7 @@ use crate::utils::{quarantine_corrupt_file, write_json_atomic_async};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 /// JSON 文件存储（原子写入）
 pub struct JsonStore<T> {
@@ -13,6 +13,8 @@ pub struct JsonStore<T> {
     path: PathBuf,
     /// 内存缓存
     cache: RwLock<Vec<T>>,
+    /// 串行化文件写入，避免并发写快照乱序落盘。
+    save_lock: Mutex<()>,
 }
 
 impl<T> JsonStore<T>
@@ -24,6 +26,7 @@ where
         Self {
             path: path.as_ref().to_path_buf(),
             cache: RwLock::new(Vec::new()),
+            save_lock: Mutex::new(()),
         }
     }
 
@@ -54,11 +57,12 @@ where
 
     /// 保存数据到文件（原子写入：先写 .tmp，再 replace）
     pub async fn save(&self) -> Result<()> {
-        let cache = self.cache.write().await;
-        self.save_locked(&cache).await
+        let _save_guard = self.save_lock.lock().await;
+        let snapshot = self.cache.read().await.clone();
+        self.write_snapshot(&snapshot).await
     }
 
-    async fn save_locked(&self, cache: &[T]) -> Result<()> {
+    async fn write_snapshot(&self, cache: &[T]) -> Result<()> {
         write_json_atomic_async(&self.path, &cache, 0o600).await
     }
 
@@ -68,11 +72,30 @@ where
         cache.clone()
     }
 
+    /// 在读锁内访问所有数据，避免调用方为了统计等只读操作克隆整表。
+    pub async fn with_all<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&[T]) -> R,
+    {
+        let cache = self.cache.read().await;
+        f(&cache)
+    }
+
+    /// 分页获取数据。
+    pub async fn paginate(&self, offset: usize, limit: usize) -> Vec<T> {
+        let cache = self.cache.read().await;
+        cache.iter().skip(offset).take(limit).cloned().collect()
+    }
+
     /// 添加数据
     pub async fn add(&self, item: T) -> Result<()> {
-        let mut cache = self.cache.write().await;
-        cache.push(item);
-        self.save_locked(&cache).await
+        let _save_guard = self.save_lock.lock().await;
+        let snapshot = {
+            let mut cache = self.cache.write().await;
+            cache.push(item);
+            cache.clone()
+        };
+        self.write_snapshot(&snapshot).await
     }
 
     /// 查找数据
@@ -102,11 +125,19 @@ where
     where
         F: Fn(&T) -> bool,
     {
-        let mut cache = self.cache.write().await;
+        let _save_guard = self.save_lock.lock().await;
+        let snapshot = {
+            let mut cache = self.cache.write().await;
+            if let Some(item) = cache.iter_mut().find(|item| predicate(item)) {
+                updater(item);
+                Some(cache.clone())
+            } else {
+                None
+            }
+        };
 
-        if let Some(item) = cache.iter_mut().find(|item| predicate(item)) {
-            updater(item);
-            self.save_locked(&cache).await?;
+        if let Some(snapshot) = snapshot {
+            self.write_snapshot(&snapshot).await?;
             Ok(true)
         } else {
             Ok(false)
@@ -118,23 +149,35 @@ where
     where
         F: Fn(&T) -> bool,
     {
-        let mut cache = self.cache.write().await;
-        let initial_len = cache.len();
-        cache.retain(|item| !predicate(item));
-        let removed = cache.len() != initial_len;
+        let _save_guard = self.save_lock.lock().await;
+        let snapshot = {
+            let mut cache = self.cache.write().await;
+            let initial_len = cache.len();
+            cache.retain(|item| !predicate(item));
+            if cache.len() != initial_len {
+                Some(cache.clone())
+            } else {
+                None
+            }
+        };
 
-        if removed {
-            self.save_locked(&cache).await?;
+        if let Some(snapshot) = snapshot {
+            self.write_snapshot(&snapshot).await?;
+            Ok(true)
+        } else {
+            Ok(false)
         }
-
-        Ok(removed)
     }
 
     /// 清空所有数据
     pub async fn clear(&self) -> Result<()> {
-        let mut cache = self.cache.write().await;
-        cache.clear();
-        self.save_locked(&cache).await
+        let _save_guard = self.save_lock.lock().await;
+        let snapshot = {
+            let mut cache = self.cache.write().await;
+            cache.clear();
+            cache.clone()
+        };
+        self.write_snapshot(&snapshot).await
     }
 
     /// 获取数据数量

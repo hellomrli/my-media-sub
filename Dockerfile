@@ -16,13 +16,17 @@ COPY Cargo.toml Cargo.lock ./
 
 # 复制源代码
 COPY src ./src
-COPY tests ./tests
 
 # 构建 release 版本
 RUN cargo build --release --locked
 
 # Stage 2: 运行阶段
 FROM debian:bookworm-slim
+
+LABEL org.opencontainers.image.title="My Media Sub" \
+      org.opencontainers.image.description="Media subscription and Quark drive automation service" \
+      org.opencontainers.image.source="https://github.com/hellomrli/my-media-sub" \
+      org.opencontainers.image.licenses="MIT"
 
 WORKDIR /app
 

@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900">
+  <defs>
+    <style>
+      .bg { fill: #f7fafc; }
+      .title { font: 700 34px sans-serif; fill: #0f172a; }
+      .subtitle { font: 16px sans-serif; fill: #475569; }
+      .box { fill: #ffffff; stroke: #2563eb; stroke-width: 2; rx: 10; }
+      .box2 { fill: #eff6ff; stroke: #1d4ed8; stroke-width: 2; rx: 10; }
+      .box3 { fill: #f0fdf4; stroke: #16a34a; stroke-width: 2; rx: 10; }
+      .box4 { fill: #fff7ed; stroke: #ea580c; stroke-width: 2; rx: 10; }
+      .box5 { fill: #f8fafc; stroke: #64748b; stroke-width: 2; rx: 10; }
+      .label { font: 700 17px sans-serif; fill: #0f172a; }
+      .text { font: 13px sans-serif; fill: #334155; }
+      .small { font: 12px sans-serif; fill: #64748b; }
+      .arrow { stroke: #2563eb; stroke-width: 2.5; marker-end: url(#arrow); fill: none; }
+      .arrow2 { stroke: #64748b; stroke-width: 2; marker-end: url(#arrow-gray); fill: none; stroke-dasharray: 7 6; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrow-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1400" height="900"/>
+  <text class="title" x="60" y="70">My Media Sub 1.0 架构图</text>
+  <text class="subtitle" x="60" y="100">Rust + Axum 单体服务，JSON 存储，后台任务队列，静态 WebUI</text>
+
+  <rect class="box2" x="60" y="150" width="190" height="92"/>
+  <text class="label" x="85" y="184">浏览器用户</text>
+  <text class="text" x="85" y="210">WebUI / Basic Auth</text>
+
+  <rect class="box" x="320" y="135" width="230" height="122"/>
+  <text class="label" x="350" y="170">静态 WebUI</text>
+  <text class="text" x="350" y="198">static/index.html</text>
+  <text class="text" x="350" y="218">static/app.js</text>
+  <text class="text" x="350" y="238">static/styles.css</text>
+
+  <rect class="box" x="620" y="135" width="230" height="122"/>
+  <text class="label" x="648" y="170">Axum HTTP Server</text>
+  <text class="text" x="648" y="198">src/main.rs</text>
+  <text class="text" x="648" y="218">src/api/mod.rs</text>
+  <text class="text" x="648" y="238">静态资源 + API 路由</text>
+
+  <rect class="box3" x="920" y="135" width="240" height="122"/>
+  <text class="label" x="950" y="170">AppContext</text>
+  <text class="text" x="950" y="198">Store / Service / Queue</text>
+  <text class="text" x="950" y="218">Scheduler / Metrics</text>
+  <text class="text" x="950" y="238">src/app.rs</text>
+
+  <path class="arrow" d="M250 196 H320"/>
+  <path class="arrow" d="M550 196 H620"/>
+  <path class="arrow" d="M850 196 H920"/>
+
+  <rect class="box" x="80" y="340" width="240" height="138"/>
+  <text class="label" x="108" y="375">API 路由层</text>
+  <text class="text" x="108" y="403">订阅 / 网盘 / 搜索</text>
+  <text class="text" x="108" y="423">任务 / 推送 / 更新</text>
+  <text class="text" x="108" y="443">指标 / STRM</text>
+  <text class="small" x="108" y="464">src/api/*</text>
+
+  <rect class="box3" x="400" y="340" width="240" height="138"/>
+  <text class="label" x="428" y="375">业务服务层</text>
+  <text class="text" x="428" y="403">订阅检查 / 转存</text>
+  <text class="text" x="428" y="423">规则 / 推送 / STRM</text>
+  <text class="text" x="428" y="443">元数据 / 签到</text>
+  <text class="small" x="428" y="464">src/services/*</text>
+
+  <rect class="box4" x="720" y="340" width="240" height="138"/>
+  <text class="label" x="748" y="375">后台任务队列</text>
+  <text class="text" x="748" y="403">转存 / 刮削 / 推送</text>
+  <text class="text" x="748" y="423">取消 / 重试 / SSE</text>
+  <text class="text" x="748" y="443">JobWorker</text>
+  <text class="small" x="748" y="464">src/jobs/*</text>
+
+  <rect class="box5" x="1040" y="340" width="240" height="138"/>
+  <text class="label" x="1068" y="375">JSON Store</text>
+  <text class="text" x="1068" y="403">settings.json</text>
+  <text class="text" x="1068" y="423">subscriptions.json</text>
+  <text class="text" x="1068" y="443">notifications / jobs</text>
+  <text class="small" x="1068" y="464">src/store/*</text>
+
+  <path class="arrow" d="M1040 257 C980 300 890 315 640 360"/>
+  <path class="arrow" d="M1040 257 C1065 290 1128 310 1160 340"/>
+  <path class="arrow" d="M920 257 C690 300 450 312 320 360"/>
+  <path class="arrow" d="M320 409 H400"/>
+  <path class="arrow" d="M640 409 H720"/>
+  <path class="arrow" d="M960 409 H1040"/>
+  <path class="arrow" d="M720 455 C655 522 562 522 520 478"/>
+
+  <rect class="box" x="80" y="600" width="240" height="138"/>
+  <text class="label" x="108" y="635">外部客户端</text>
+  <text class="text" x="108" y="663">PanSou / 夸克</text>
+  <text class="text" x="108" y="683">TMDB / Aria2</text>
+  <text class="text" x="108" y="703">共享 HTTP client 池</text>
+  <text class="small" x="108" y="724">src/clients/*</text>
+
+  <rect class="box3" x="400" y="600" width="240" height="138"/>
+  <text class="label" x="428" y="635">外部服务</text>
+  <text class="text" x="428" y="663">PanSou Search API</text>
+  <text class="text" x="428" y="683">Quark Drive API</text>
+  <text class="text" x="428" y="703">TMDB / Aria2 RPC</text>
+
+  <rect class="box4" x="720" y="600" width="240" height="138"/>
+  <text class="label" x="748" y="635">推送渠道</text>
+  <text class="text" x="748" y="663">PushChannel trait</text>
+  <text class="text" x="748" y="683">Telegram / Bark</text>
+  <text class="text" x="748" y="703">WxPusher / Gotify 等</text>
+
+  <rect class="box5" x="1040" y="600" width="240" height="138"/>
+  <text class="label" x="1068" y="635">运维接口</text>
+  <text class="text" x="1068" y="663">/api/jobs/events</text>
+  <text class="text" x="1068" y="683">/api/metrics</text>
+  <text class="text" x="1068" y="703">/api/update/*</text>
+
+  <path class="arrow" d="M400 455 C300 520 240 545 200 600"/>
+  <path class="arrow" d="M320 669 H400"/>
+  <path class="arrow" d="M640 455 C712 520 790 545 840 600"/>
+  <path class="arrow2" d="M550 257 C735 520 960 560 1040 640"/>
+
+  <text class="small" x="60" y="830">实线：主要同步/异步调用方向。虚线：前端通过 SSE/指标接口观察服务状态。</text>
+  <text class="small" x="60" y="854">Telegram 主动控制未包含在 1.0.0 当前运行架构中，后续可作为独立服务接入 AppContext 和 JobQueue。</text>
+</svg>

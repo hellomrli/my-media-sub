@@ -2,12 +2,13 @@ use crate::error::{AppError, Result};
 use crate::models::Notification;
 use crate::utils::{quarantine_corrupt_file, write_json_atomic_async};
 use std::path::PathBuf;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 /// 通知存储（JSON 文件，保留最近 300 条，原子写入）
 pub struct NotificationStore {
     path: PathBuf,
     items: RwLock<Vec<Notification>>,
+    save_lock: Mutex<()>,
 }
 
 const MAX_NOTIFICATIONS: usize = 300;
@@ -17,6 +18,7 @@ impl NotificationStore {
         Self {
             path: path.into(),
             items: RwLock::new(Vec::new()),
+            save_lock: Mutex::new(()),
         }
     }
 
@@ -48,10 +50,14 @@ impl NotificationStore {
 
     /// 添加通知
     pub async fn add(&self, notif: Notification) -> Result<Notification> {
-        let mut items = self.items.write().await;
-        items.push(notif.clone());
-        truncate_notifications(&mut items);
-        self.save(&items).await?;
+        let _save_guard = self.save_lock.lock().await;
+        let snapshot = {
+            let mut items = self.items.write().await;
+            items.push(notif.clone());
+            truncate_notifications(&mut items);
+            items.clone()
+        };
+        self.save(&snapshot).await?;
         Ok(notif)
     }
 
@@ -59,14 +65,24 @@ impl NotificationStore {
     where
         F: FnOnce(&mut Notification),
     {
-        let mut items = self.items.write().await;
-        let Some(item) = items.iter_mut().find(|item| item.id == id) else {
-            return Ok(None);
+        let _save_guard = self.save_lock.lock().await;
+        let updated = {
+            let mut items = self.items.write().await;
+            if let Some(item) = items.iter_mut().find(|item| item.id == id) {
+                updater(item);
+                let updated = item.clone();
+                Some((updated, items.clone()))
+            } else {
+                None
+            }
         };
-        updater(item);
-        let updated = item.clone();
-        self.save(&items).await?;
-        Ok(Some(updated))
+
+        if let Some((updated, snapshot)) = updated {
+            self.save(&snapshot).await?;
+            Ok(Some(updated))
+        } else {
+            Ok(None)
+        }
     }
 
     /// 列出通知（倒序，最新在前）
@@ -82,21 +98,29 @@ impl NotificationStore {
 
     /// 标记已读（None 表示全部）
     pub async fn mark_read(&self, id: Option<&str>) -> Result<()> {
-        let mut items = self.items.write().await;
-        for item in items.iter_mut() {
-            if id.is_none() || id == Some(item.id.as_str()) {
-                item.read = true;
+        let _save_guard = self.save_lock.lock().await;
+        let snapshot = {
+            let mut items = self.items.write().await;
+            for item in items.iter_mut() {
+                if id.is_none() || id == Some(item.id.as_str()) {
+                    item.read = true;
+                }
             }
-        }
-        self.save(&items).await?;
+            items.clone()
+        };
+        self.save(&snapshot).await?;
         Ok(())
     }
 
     /// 清空所有通知
     pub async fn clear(&self) -> Result<()> {
-        let mut items = self.items.write().await;
-        items.clear();
-        self.save(&items).await?;
+        let _save_guard = self.save_lock.lock().await;
+        let snapshot = {
+            let mut items = self.items.write().await;
+            items.clear();
+            items.clone()
+        };
+        self.save(&snapshot).await?;
         Ok(())
     }
 }
