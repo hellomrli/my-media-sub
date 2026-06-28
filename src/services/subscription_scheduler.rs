@@ -196,6 +196,10 @@ async fn dispatch_subscription_check_summary(
     job_queue: Option<Arc<JobQueue>>,
     results: &[CheckResult],
 ) {
+    if !should_dispatch_subscription_check_summary(results) {
+        return;
+    }
+
     let message = subscription_check_summary_message(results);
     let level = if results.iter().any(|result| !result.new_files.is_empty()) {
         PushLevel::Success
@@ -213,6 +217,12 @@ async fn dispatch_subscription_check_summary(
         level,
     )
     .await;
+}
+
+fn should_dispatch_subscription_check_summary(results: &[CheckResult]) -> bool {
+    results.iter().any(|result| {
+        !result.new_files.is_empty() || result.became_invalid || result.became_completed
+    })
 }
 
 fn subscription_check_summary_message(results: &[CheckResult]) -> String {
@@ -345,5 +355,20 @@ mod tests {
         assert!(message.contains("本次检查 2 个订阅，1 个有更新，1 个无更新。"));
         assert!(message.contains("有更新：庆余年：2 个新文件"));
         assert!(message.contains("无更新：孤独摇滚"));
+    }
+
+    #[test]
+    fn summary_dispatches_only_for_noteworthy_results() {
+        assert!(!should_dispatch_subscription_check_summary(&[
+            check_result("孤独摇滚", vec![])
+        ]));
+        assert!(should_dispatch_subscription_check_summary(&[check_result(
+            "庆余年",
+            vec!["S02E01.mkv"]
+        )]));
+
+        let mut invalid = check_result("凡人修仙传", vec![]);
+        invalid.became_invalid = true;
+        assert!(should_dispatch_subscription_check_summary(&[invalid]));
     }
 }

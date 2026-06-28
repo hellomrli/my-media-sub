@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
@@ -140,6 +141,21 @@ impl JobQueue {
         }
     }
 
+    pub async fn successful_push_dispatch_messages(
+        &self,
+        event: &str,
+    ) -> HashSet<(String, String)> {
+        self.store
+            .list()
+            .await
+            .into_iter()
+            .filter(|job| job.kind == JobKind::PushDispatch && job.status == JobStatus::Succeeded)
+            .filter_map(|job| serde_json::from_value::<PushDispatchPayload>(job.payload).ok())
+            .filter(|payload| payload.event == event)
+            .map(|payload| (payload.title, payload.message))
+            .collect()
+    }
+
     async fn submit_job(
         &self,
         kind: JobKind,
@@ -185,22 +201,26 @@ pub(crate) async fn recover_jobs(store: Arc<JobStore>, sender: mpsc::Sender<Stri
     let jobs = store.list().await;
     let mut queued = Vec::new();
     let mut interrupted = 0usize;
+    let mut skipped_push_dispatch = 0usize;
 
     for job in jobs {
         match job.status {
+            JobStatus::Queued if job.kind == JobKind::PushDispatch => {
+                skipped_push_dispatch += 1;
+                if let Err(e) = mark_push_dispatch_skipped_after_restart(&store, &job.id).await {
+                    warn!("跳过重启前推送任务 {} 失败: {}", job.id, e);
+                }
+            }
             JobStatus::Queued => queued.push(job),
+            JobStatus::Running if job.kind == JobKind::PushDispatch => {
+                skipped_push_dispatch += 1;
+                if let Err(e) = mark_push_dispatch_skipped_after_restart(&store, &job.id).await {
+                    warn!("跳过重启前推送任务 {} 失败: {}", job.id, e);
+                }
+            }
             JobStatus::Running => {
                 interrupted += 1;
-                if let Err(e) = store
-                    .update(&job.id, |job| {
-                        job.status = JobStatus::Failed;
-                        job.progress = 100;
-                        job.message = "服务重启，任务已中断，可重试".to_string();
-                        job.error = Some("服务重启，任务已中断".to_string());
-                        job.finished_at = Some(now());
-                    })
-                    .await
-                {
+                if let Err(e) = store.update(&job.id, mark_interrupted_after_restart).await {
                     warn!("恢复运行中任务 {} 失败: {}", job.id, e);
                 }
             }
@@ -218,12 +238,33 @@ pub(crate) async fn recover_jobs(store: Arc<JobStore>, sender: mpsc::Sender<Stri
         }
     }
 
-    if queued_count > 0 || interrupted > 0 {
+    if queued_count > 0 || interrupted > 0 || skipped_push_dispatch > 0 {
         info!(
-            "任务队列恢复完成: 重新入队 {} 个，标记中断 {} 个",
-            queued_count, interrupted
+            "任务队列恢复完成: 重新入队 {} 个，标记中断 {} 个，跳过推送 {} 个",
+            queued_count, interrupted, skipped_push_dispatch
         );
     }
+}
+
+fn mark_interrupted_after_restart(job: &mut Job) {
+    job.status = JobStatus::Failed;
+    job.progress = 100;
+    job.message = "服务重启，任务已中断，可重试".to_string();
+    job.error = Some("服务重启，任务已中断".to_string());
+    job.finished_at = Some(now());
+}
+
+async fn mark_push_dispatch_skipped_after_restart(store: &JobStore, id: &str) -> Result<()> {
+    store
+        .update(id, |job| {
+            job.status = JobStatus::Canceled;
+            job.progress = 100;
+            job.message = "服务重启，已跳过未完成推送，避免重复发送".to_string();
+            job.error = None;
+            job.finished_at = Some(now());
+        })
+        .await?;
+    Ok(())
 }
 
 async fn mark_queue_unavailable(store: &JobStore, id: &str) -> Result<()> {
@@ -249,9 +290,13 @@ mod tests {
     use super::*;
 
     fn test_job(id: &str, status: JobStatus) -> Job {
+        test_job_with_kind(id, status, JobKind::MetadataScrape)
+    }
+
+    fn test_job_with_kind(id: &str, status: JobStatus, kind: JobKind) -> Job {
         Job {
             id: id.to_string(),
-            kind: JobKind::MetadataScrape,
+            kind,
             status,
             progress: 30,
             title: "测试任务".to_string(),
@@ -286,6 +331,71 @@ mod tests {
         assert_eq!(canceled.status, JobStatus::Canceled);
         assert_eq!(canceled.progress, 100);
         assert!(canceled.finished_at.is_some());
+        let _ = std::fs::remove_file(tmp);
+    }
+
+    #[tokio::test]
+    async fn recover_jobs_skips_push_dispatch_after_restart() {
+        let tmp = std::env::temp_dir().join(format!(
+            "my-media-sub-job-recover-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let store = Arc::new(JobStore::new(&tmp));
+        store.load().await.unwrap();
+        let mut push_job = test_job_with_kind("push", JobStatus::Queued, JobKind::PushDispatch);
+        push_job.payload = json!({
+            "event": "download_completed",
+            "title": "下载完成: A.mkv",
+            "message": "文件：A.mkv",
+            "level": "success"
+        });
+        store.add(push_job).await.unwrap();
+        store
+            .add(test_job_with_kind(
+                "metadata",
+                JobStatus::Queued,
+                JobKind::MetadataScrape,
+            ))
+            .await
+            .unwrap();
+
+        let (sender, mut receiver) = mpsc::channel(4);
+        recover_jobs(store.clone(), sender).await;
+
+        let skipped = store.get("push").await.unwrap();
+        assert_eq!(skipped.status, JobStatus::Canceled);
+        assert_eq!(skipped.progress, 100);
+        assert!(skipped.message.contains("避免重复发送"));
+        assert_eq!(receiver.try_recv().unwrap(), "metadata");
+        assert!(receiver.try_recv().is_err());
+
+        let _ = std::fs::remove_file(tmp);
+    }
+
+    #[tokio::test]
+    async fn successful_push_dispatch_messages_lists_succeeded_payloads() {
+        let tmp = std::env::temp_dir().join(format!(
+            "my-media-sub-job-push-history-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let store = Arc::new(JobStore::new(&tmp));
+        store.load().await.unwrap();
+        let mut job = test_job_with_kind("push", JobStatus::Succeeded, JobKind::PushDispatch);
+        job.payload = json!({
+            "event": "download_completed",
+            "title": "下载完成: A.mkv",
+            "message": "文件：A.mkv",
+            "level": "success"
+        });
+        store.add(job).await.unwrap();
+        let (sender, _receiver) = mpsc::channel(1);
+        let queue = JobQueue { store, sender };
+
+        let messages = queue
+            .successful_push_dispatch_messages("download_completed")
+            .await;
+
+        assert!(messages.contains(&("下载完成: A.mkv".to_string(), "文件：A.mkv".to_string())));
         let _ = std::fs::remove_file(tmp);
     }
 }

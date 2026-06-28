@@ -576,33 +576,39 @@ async fn list_aria2_tasks(
 
 async fn notify_completed_downloads(state: &DriveState, tasks: &[Aria2Task]) {
     let history = state.notification_store.list(true).await;
-    let known_gids = state.notified_completed_downloads.read().await.clone();
-    let pending_gids = tasks
+    let pushed_downloads = state
+        .job_queue
+        .successful_push_dispatch_messages(PushEvent::DownloadCompleted.as_str())
+        .await;
+    let known_keys = state.notified_completed_downloads.read().await.clone();
+    let pending_tasks = tasks
         .iter()
         .filter(|task| task.status == "complete")
         .filter(|task| !task.gid.trim().is_empty())
-        .filter(|task| !known_gids.contains(task.gid.trim()))
         .filter(|task| {
-            !history.iter().any(|notification| {
-                notification.event == "download_completed"
-                    && notification.meta.get("gid").and_then(Value::as_str)
-                        == Some(task.gid.as_str())
-            })
+            download_completed_dedupe_keys(task)
+                .iter()
+                .all(|key| !known_keys.contains(key))
         })
-        .map(|task| task.gid.clone())
+        .filter(|task| !completed_download_already_recorded(&history, &pushed_downloads, task))
         .collect::<Vec<_>>();
 
-    if pending_gids.is_empty() {
+    if pending_tasks.is_empty() {
         return;
     }
 
     let mut inserted_gids = Vec::new();
     {
         let mut known = state.notified_completed_downloads.write().await;
-        for gid in pending_gids {
-            if known.insert(gid.clone()) {
-                inserted_gids.push(gid);
+        for task in pending_tasks {
+            let keys = download_completed_dedupe_keys(task);
+            if keys.iter().any(|key| known.contains(key)) {
+                continue;
             }
+            for key in keys {
+                known.insert(key);
+            }
+            inserted_gids.push(task.gid.clone());
         }
     }
 
@@ -616,28 +622,8 @@ async fn notify_completed_downloads(state: &DriveState, tasks: &[Aria2Task]) {
 }
 
 async fn notify_completed_download(state: &DriveState, task: &Aria2Task) -> Result<()> {
-    let file_name = if task.file_name.trim().is_empty() {
-        task.gid.as_str()
-    } else {
-        task.file_name.trim()
-    };
-    let title = format!("下载完成: {}", file_name);
-    let mut parts = vec![format!("文件：{}", file_name)];
-    if !task.dir.trim().is_empty() {
-        parts.push(format!("目录：{}", task.dir.trim()));
-    }
-    if task.total_length > 0 {
-        parts.push(format!("大小：{}", format_bytes(task.total_length)));
-    }
-    let message = parts.join("\n");
-    let meta: HashMap<String, Value> = HashMap::from([
-        ("gid".to_string(), json!(task.gid)),
-        ("file_name".to_string(), json!(task.file_name)),
-        ("dir".to_string(), json!(task.dir)),
-        ("total_length".to_string(), json!(task.total_length)),
-        ("completed_length".to_string(), json!(task.completed_length)),
-    ]);
-
+    let (title, message) = download_completed_title_message(task);
+    let meta = download_completed_meta(task);
     let notification = add_notification(
         &state.notification_store,
         "success",
@@ -666,6 +652,87 @@ async fn notify_completed_download(state: &DriveState, task: &Aria2Task) -> Resu
     }
 
     Ok(())
+}
+
+fn download_completed_title_message(task: &Aria2Task) -> (String, String) {
+    let file_name = if task.file_name.trim().is_empty() {
+        task.gid.as_str()
+    } else {
+        task.file_name.trim()
+    };
+    let title = format!("下载完成: {}", file_name);
+    let mut parts = vec![format!("文件：{}", file_name)];
+    if !task.dir.trim().is_empty() {
+        parts.push(format!("目录：{}", task.dir.trim()));
+    }
+    if task.total_length > 0 {
+        parts.push(format!("大小：{}", format_bytes(task.total_length)));
+    }
+    let message = parts.join("\n");
+    (title, message)
+}
+
+fn download_completed_meta(task: &Aria2Task) -> HashMap<String, Value> {
+    HashMap::from([
+        ("gid".to_string(), json!(task.gid)),
+        ("file_name".to_string(), json!(task.file_name)),
+        ("dir".to_string(), json!(task.dir)),
+        ("total_length".to_string(), json!(task.total_length)),
+        ("completed_length".to_string(), json!(task.completed_length)),
+    ])
+}
+
+fn download_completed_dedupe_keys(task: &Aria2Task) -> Vec<String> {
+    let mut keys = Vec::with_capacity(2);
+    let gid = task.gid.trim();
+    if !gid.is_empty() {
+        keys.push(format!("gid:{}", gid));
+    }
+    keys.push(format!(
+        "file:{}\n{}\n{}",
+        task.file_name.trim(),
+        task.dir.trim(),
+        task.total_length
+    ));
+    keys
+}
+
+fn completed_download_already_recorded(
+    history: &[Notification],
+    pushed_downloads: &HashSet<(String, String)>,
+    task: &Aria2Task,
+) -> bool {
+    let (title, message) = download_completed_title_message(task);
+    pushed_downloads.contains(&(title.clone(), message.clone()))
+        || history.iter().any(|notification| {
+            notification_matches_completed_download(notification, task, &title, &message)
+        })
+}
+
+fn notification_matches_completed_download(
+    notification: &Notification,
+    task: &Aria2Task,
+    title: &str,
+    message: &str,
+) -> bool {
+    if notification.event != PushEvent::DownloadCompleted.as_str() {
+        return false;
+    }
+    if notification.meta.get("gid").and_then(Value::as_str) == Some(task.gid.as_str()) {
+        return true;
+    }
+    if notification.title == title && notification.message == message {
+        return true;
+    }
+    let same_file =
+        notification.meta.get("file_name").and_then(Value::as_str) == Some(task.file_name.as_str());
+    let same_dir = notification.meta.get("dir").and_then(Value::as_str) == Some(task.dir.as_str());
+    let same_size = notification
+        .meta
+        .get("total_length")
+        .and_then(Value::as_u64)
+        == Some(task.total_length);
+    same_file && same_dir && same_size
 }
 
 async fn complete_subscription_for_download(state: &DriveState, task: &Aria2Task) -> Result<()> {
@@ -1193,6 +1260,64 @@ mod tests {
         assert_eq!(format_bytes(512), "512 B");
         assert_eq!(format_bytes(1024), "1.00 KB");
         assert_eq!(format_bytes(1024 * 1024), "1.00 MB");
+    }
+
+    fn completed_task(gid: &str) -> Aria2Task {
+        Aria2Task {
+            gid: gid.to_string(),
+            status: "complete".to_string(),
+            total_length: 1024,
+            completed_length: 1024,
+            download_speed: 0,
+            upload_speed: 0,
+            connections: 0,
+            dir: "/downloads/anime".to_string(),
+            file_name: "Show.S01E01.mkv".to_string(),
+            error_code: String::new(),
+            error_message: String::new(),
+            progress: 100.0,
+            eta_seconds: None,
+            files: vec![],
+        }
+    }
+
+    #[test]
+    fn completed_download_history_matches_when_gid_changes() {
+        let task = completed_task("new-gid");
+        let notifications = vec![Notification {
+            id: "n1".to_string(),
+            level: "success".to_string(),
+            event: "download_completed".to_string(),
+            title: "下载完成: Show.S01E01.mkv".to_string(),
+            message: "文件：Show.S01E01.mkv\n目录：/downloads/anime\n大小：1.00 KB".to_string(),
+            meta: HashMap::from([
+                ("gid".to_string(), json!("old-gid")),
+                ("file_name".to_string(), json!("Show.S01E01.mkv")),
+                ("dir".to_string(), json!("/downloads/anime")),
+                ("total_length".to_string(), json!(1024)),
+            ]),
+            read: false,
+            created_at: 1,
+        }];
+
+        assert!(completed_download_already_recorded(
+            &notifications,
+            &HashSet::new(),
+            &task
+        ));
+    }
+
+    #[test]
+    fn completed_download_history_uses_push_jobs_when_notifications_were_cleared() {
+        let task = completed_task("new-gid");
+        let (title, message) = download_completed_title_message(&task);
+        let pushed_downloads = HashSet::from([(title, message)]);
+
+        assert!(completed_download_already_recorded(
+            &[],
+            &pushed_downloads,
+            &task
+        ));
     }
 
     #[test]
