@@ -183,9 +183,9 @@
                     <div class="text-right">最近检查</div>
                   </div>
                   <template x-for="sub in dashboardRecentSubscriptions" :key="sub.id">
-                    <div class="data-table-row grid-cols-[minmax(260px,1.8fr)_110px_140px_110px_150px] px-3">
-                      <div class="flex min-w-0 items-center gap-2">
-                        <div class="h-10 w-7 shrink-0 overflow-hidden rounded border border-border bg-surface-2 grid place-items-center">
+                    <div class="data-table-row min-h-20 grid-cols-[minmax(260px,1.8fr)_110px_140px_110px_150px] px-3 py-2">
+                      <div class="flex min-w-0 items-center gap-3">
+                        <div class="h-20 w-14 shrink-0 overflow-hidden rounded border border-border bg-surface-2 grid place-items-center">
                           <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" class="h-full w-full object-cover" />
                           <span x-show="!subscriptionPoster(sub)" class="text-[10px] text-muted/60">N/A</span>
                         </div>
