@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use chrono::{DateTime, FixedOffset, Timelike, Utc};
 use serde_json::json;
 use tokio::sync::RwLock;
 use tokio_cron_scheduler::{Job, JobScheduler};
@@ -15,6 +16,9 @@ use crate::services::notification::{
 };
 use crate::services::push::{PushEvent, PushLevel};
 use crate::store::{NotificationStore, SettingsStore};
+use crate::utils::unix_now;
+
+const SIGNIN_TIMEZONE_OFFSET_SECONDS: i32 = 8 * 60 * 60;
 
 pub struct QuarkSigninService {
     settings_store: Arc<SettingsStore>,
@@ -94,6 +98,10 @@ impl QuarkSigninService {
                 (
                     "total_capacity_bytes".to_string(),
                     json!(result.total_capacity_bytes),
+                ),
+                (
+                    "used_capacity_bytes".to_string(),
+                    json!(result.used_capacity_bytes),
                 ),
                 (
                     "sign_reward_bytes".to_string(),
@@ -191,7 +199,7 @@ impl QuarkSigninScheduler {
         let cron_expr = format!("0 0 {} * * *", hour);
         let service = self.service.clone();
 
-        let job = Job::new_async(cron_expr.as_str(), move |_uuid, _l| {
+        let job = Job::new_async_tz(cron_expr.as_str(), signin_timezone(), move |_uuid, _l| {
             let service = service.clone();
             Box::pin(async move {
                 info!("定时执行夸克签到");
@@ -213,7 +221,8 @@ impl QuarkSigninScheduler {
         let job_uuid = self.scheduler.add(job).await?;
         *self.job_id.write().await = Some(job_uuid);
         self.scheduler.start().await?;
-        info!("夸克自动签到已启动，每天 {}:00 执行", hour);
+        info!("夸克自动签到已启动，每天北京时间 {}:00 执行", hour);
+        self.spawn_startup_catchup_if_needed(hour).await;
         Ok(())
     }
 
@@ -231,6 +240,36 @@ impl QuarkSigninScheduler {
     pub async fn reload(&self) -> Result<()> {
         self.stop().await?;
         self.start().await
+    }
+
+    async fn spawn_startup_catchup_if_needed(&self, hour: i32) {
+        let now = Utc::now().with_timezone(&signin_timezone());
+        if !should_run_startup_catchup(hour, now) {
+            return;
+        }
+
+        let notifications = self.service.notification_store.list(true).await;
+        if successful_signin_recorded_today(&notifications, unix_now()) {
+            info!("今日已有夸克签到成功记录，跳过启动补签");
+            return;
+        }
+
+        let service = self.service.clone();
+        tokio::spawn(async move {
+            info!("今日夸克签到时间已过且无成功记录，立即执行补签");
+            match service.signin_with_failure_notice().await {
+                Ok(result) => {
+                    if result.signed {
+                        info!("夸克补签成功: {}", signin_message(&result));
+                    } else {
+                        info!("夸克今日已签到: {}", signin_message(&result));
+                    }
+                }
+                Err(err) => {
+                    error!("夸克补签失败: {}", err);
+                }
+            }
+        });
     }
 }
 
@@ -258,6 +297,27 @@ pub fn signin_failure_message(err: &AppError) -> String {
 
 fn normalize_hour(hour: i32) -> i32 {
     hour.clamp(0, 23)
+}
+
+fn signin_timezone() -> FixedOffset {
+    FixedOffset::east_opt(SIGNIN_TIMEZONE_OFFSET_SECONDS).expect("valid signin timezone")
+}
+
+fn should_run_startup_catchup(hour: i32, now: DateTime<FixedOffset>) -> bool {
+    now.hour() >= normalize_hour(hour) as u32
+}
+
+fn successful_signin_recorded_today(notifications: &[Notification], now: i64) -> bool {
+    let today = shanghai_day_index(now);
+    notifications.iter().any(|notification| {
+        notification.event == PushEvent::QuarkSignin.as_str()
+            && notification.level == "success"
+            && shanghai_day_index(notification.created_at) == today
+    })
+}
+
+fn shanghai_day_index(timestamp: i64) -> i64 {
+    (timestamp + i64::from(SIGNIN_TIMEZONE_OFFSET_SECONDS)) / 86_400
 }
 
 fn member_type_label(value: &str) -> &str {
@@ -306,6 +366,7 @@ mod tests {
             already_signed: false,
             daily_reward_bytes: 5 * 1024 * 1024,
             total_capacity_bytes: 1024 * 1024 * 1024,
+            used_capacity_bytes: Some(256 * 1024 * 1024),
             sign_reward_bytes: 10 * 1024 * 1024,
             member_type: "SUPER_VIP".to_string(),
             sign_progress: 2,
@@ -315,6 +376,57 @@ mod tests {
         assert!(message.contains("今日签到 +5.00 MB"));
         assert!(message.contains("连签进度 2/7"));
         assert!(message.contains("SVIP 总空间 1.00 GB"));
+    }
+
+    #[test]
+    fn startup_catchup_runs_after_configured_hour() {
+        let now = DateTime::parse_from_rfc3339("2026-06-29T08:00:00+08:00")
+            .unwrap()
+            .with_timezone(&signin_timezone());
+        assert!(should_run_startup_catchup(8, now));
+
+        let before = DateTime::parse_from_rfc3339("2026-06-29T07:59:59+08:00")
+            .unwrap()
+            .with_timezone(&signin_timezone());
+        assert!(!should_run_startup_catchup(8, before));
+    }
+
+    #[test]
+    fn detects_today_successful_signin_record() {
+        let now = DateTime::parse_from_rfc3339("2026-06-29T09:00:00+08:00")
+            .unwrap()
+            .timestamp();
+        let yesterday = DateTime::parse_from_rfc3339("2026-06-28T23:59:59+08:00")
+            .unwrap()
+            .timestamp();
+        let today = DateTime::parse_from_rfc3339("2026-06-29T00:00:01+08:00")
+            .unwrap()
+            .timestamp();
+
+        let notifications = vec![
+            Notification {
+                id: "old".to_string(),
+                level: "success".to_string(),
+                event: PushEvent::QuarkSignin.as_str().to_string(),
+                title: "夸克签到成功".to_string(),
+                message: String::new(),
+                meta: HashMap::new(),
+                read: false,
+                created_at: yesterday,
+            },
+            Notification {
+                id: "today".to_string(),
+                level: "success".to_string(),
+                event: PushEvent::QuarkSignin.as_str().to_string(),
+                title: "夸克签到成功".to_string(),
+                message: String::new(),
+                meta: HashMap::new(),
+                read: false,
+                created_at: today,
+            },
+        ];
+
+        assert!(successful_signin_recorded_today(&notifications, now));
     }
 
     #[test]

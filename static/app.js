@@ -215,7 +215,7 @@ function app() {
     aria2DirError: '',
     quarkSigninLoading: false,
     quarkHealthLoading: false,
-    quarkHealth: {status: 'unknown', message: '尚未检测', checkedAt: null, nickname: '', signinMessage: '', signinResult: null, issues: [], directories: {}, saveEnabled: false, signinEnabled: false, rootConfigured: false, strmReady: false, capacityBytes: 0, memberType: '', signProgress: 0, signTarget: 0},
+    quarkHealth: {status: 'unknown', message: '尚未检测', checkedAt: null, nickname: '', signinMessage: '', signinResult: null, issues: [], directories: {}, saveEnabled: false, signinEnabled: false, rootConfigured: false, strmReady: false, capacityBytes: 0, usedCapacityBytes: null, memberType: '', signProgress: 0, signTarget: 0},
 
     // 规则中心
     ruleCenter: {
@@ -3823,6 +3823,7 @@ function app() {
           this.quarkHealth.signinMessage = data.message || '夸克签到成功';
           this.quarkHealth.signinResult = data.result || null;
           this.quarkHealth.capacityBytes = Number((data.result || {}).total_capacity_bytes || this.quarkHealth.capacityBytes || 0);
+          this.quarkHealth.usedCapacityBytes = (data.result || {}).used_capacity_bytes ?? this.quarkHealth.usedCapacityBytes ?? null;
           this.quarkHealth.memberType = (data.result || {}).member_type || this.quarkHealth.memberType || '';
           this.quarkHealth.signProgress = Number((data.result || {}).sign_progress || this.quarkHealth.signProgress || 0);
           this.quarkHealth.signTarget = Number((data.result || {}).sign_target || this.quarkHealth.signTarget || 0);
@@ -3862,8 +3863,14 @@ function app() {
 
     quarkCapacityLabel() {
       const result = this.quarkHealth.signinResult || {};
-      const bytes = Number(this.quarkHealth.capacityBytes || result.total_capacity_bytes || 0);
-      return bytes > 0 ? this.formatSize(bytes) : '-';
+      const total = Number(this.quarkHealth.capacityBytes || result.total_capacity_bytes || 0);
+      const rawUsed = this.quarkHealth.usedCapacityBytes ?? result.used_capacity_bytes;
+      const used = rawUsed === null || rawUsed === undefined ? null : Number(rawUsed);
+      if (total > 0 && used !== null && Number.isFinite(used)) {
+        const percent = Math.min(999.9, Math.max(0, (used / total) * 100));
+        return `${this.formatSize(used)} / ${this.formatSize(total)} (${percent.toFixed(1)}%)`;
+      }
+      return total > 0 ? this.formatSize(total) : '-';
     },
 
     quarkHealthIssueText() {
@@ -3903,6 +3910,7 @@ function app() {
             rootConfigured: !!data.root_configured,
             strmReady: !!data.strm_ready,
             capacityBytes: Number(data.total_capacity_bytes || 0),
+            usedCapacityBytes: data.used_capacity_bytes ?? null,
             memberType: data.member_type || '',
             signProgress: Number(data.sign_progress || 0),
             signTarget: Number(data.sign_target || 0)
@@ -3922,6 +3930,7 @@ function app() {
             rootConfigured: !!data.root_configured,
             strmReady: !!data.strm_ready,
             capacityBytes: Number(data.total_capacity_bytes || 0),
+            usedCapacityBytes: data.used_capacity_bytes ?? null,
             memberType: data.member_type || '',
             signProgress: Number(data.sign_progress || 0),
             signTarget: Number(data.sign_target || 0)

@@ -53,6 +53,8 @@ pub struct QuarkSigninResult {
     pub already_signed: bool,
     pub daily_reward_bytes: i64,
     pub total_capacity_bytes: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub used_capacity_bytes: Option<i64>,
     pub sign_reward_bytes: i64,
     pub member_type: String,
     pub sign_progress: i64,
@@ -69,12 +71,19 @@ struct QuarkMobileParams {
 #[derive(Debug, Clone)]
 pub struct QuarkGrowthInfo {
     pub total_capacity_bytes: i64,
+    pub used_capacity_bytes: Option<i64>,
     pub sign_reward_bytes: i64,
     pub member_type: String,
     pub sign_daily: bool,
     pub sign_daily_reward_bytes: i64,
     pub sign_progress: i64,
     pub sign_target: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct QuarkStorageUsage {
+    pub total_capacity_bytes: Option<i64>,
+    pub used_capacity_bytes: Option<i64>,
 }
 
 impl QuarkSaveClient {
@@ -169,7 +178,16 @@ impl QuarkSaveClient {
     }
 
     async fn get(&self, path: &str, params: &[(&str, &str)]) -> Result<ApiResponse> {
-        let url = format!("{}{}", QUARK_API_BASE, path);
+        self.get_with_base(QUARK_API_BASE, path, params).await
+    }
+
+    async fn get_with_base(
+        &self,
+        base: &str,
+        path: &str,
+        params: &[(&str, &str)],
+    ) -> Result<ApiResponse> {
+        let url = format!("{}{}", base, path);
         let mut all_params = vec![("pr", "ucpro"), ("fr", "pc")];
         all_params.extend_from_slice(params);
 
@@ -325,6 +343,7 @@ impl QuarkSaveClient {
                 already_signed: true,
                 daily_reward_bytes: info.sign_daily_reward_bytes,
                 total_capacity_bytes: info.total_capacity_bytes,
+                used_capacity_bytes: info.used_capacity_bytes,
                 sign_reward_bytes: info.sign_reward_bytes,
                 member_type: info.member_type,
                 sign_progress: info.sign_progress,
@@ -354,6 +373,7 @@ impl QuarkSaveClient {
             already_signed: false,
             daily_reward_bytes,
             total_capacity_bytes: info.total_capacity_bytes,
+            used_capacity_bytes: info.used_capacity_bytes,
             sign_reward_bytes: info.sign_reward_bytes,
             member_type: info.member_type,
             sign_progress: info.sign_progress + 1,
@@ -374,6 +394,19 @@ impl QuarkSaveClient {
             .as_ref()
             .and_then(parse_growth_info)
             .ok_or_else(|| AppError::Http("读取夸克容量信息失败".to_string()))
+    }
+
+    pub async fn storage_usage(&self) -> Result<QuarkStorageUsage> {
+        let data = self
+            .get_with_base(QUARK_PC_API_BASE, "/member", &[])
+            .await?;
+        if let Some(err) = Self::api_error(&data) {
+            return Err(AppError::Http(err));
+        }
+        data.data
+            .as_ref()
+            .and_then(parse_storage_usage)
+            .ok_or_else(|| AppError::Http("读取夸克容量使用量失败".to_string()))
     }
 
     // ── 目录管理 ──────────────────────────────────────────
@@ -806,6 +839,17 @@ fn parse_growth_info(data: &Value) -> Option<QuarkGrowthInfo> {
             .get("total_capacity")
             .and_then(value_as_i64)
             .unwrap_or(0),
+        used_capacity_bytes: capacity_value(
+            data,
+            &[
+                "used_capacity",
+                "use_capacity",
+                "used_size",
+                "used_space",
+                "used",
+                "usage",
+            ],
+        ),
         sign_reward_bytes: cap_composition
             .and_then(|value| value.get("sign_reward"))
             .and_then(value_as_i64)
@@ -834,11 +878,64 @@ fn parse_growth_info(data: &Value) -> Option<QuarkGrowthInfo> {
     })
 }
 
+fn parse_storage_usage(data: &Value) -> Option<QuarkStorageUsage> {
+    let total_capacity_bytes = capacity_value(
+        data,
+        &[
+            "total_capacity",
+            "total_size",
+            "total_space",
+            "capacity",
+            "quota",
+        ],
+    );
+    let used_capacity_bytes = capacity_value(
+        data,
+        &[
+            "used_capacity",
+            "use_capacity",
+            "used_size",
+            "used_space",
+            "used",
+            "usage",
+        ],
+    );
+
+    if total_capacity_bytes.is_none() && used_capacity_bytes.is_none() {
+        None
+    } else {
+        Some(QuarkStorageUsage {
+            total_capacity_bytes,
+            used_capacity_bytes,
+        })
+    }
+}
+
+fn capacity_value(data: &Value, keys: &[&str]) -> Option<i64> {
+    for key in keys {
+        if let Some(value) = data.get(*key).and_then(value_as_i64) {
+            return Some(value);
+        }
+    }
+
+    for container in ["capacity", "quota", "storage", "space", "cap_usage"] {
+        if let Some(value) = data
+            .get(container)
+            .and_then(|nested| capacity_value(nested, keys))
+        {
+            return Some(value);
+        }
+    }
+
+    None
+}
+
 fn value_as_i64(value: &Value) -> Option<i64> {
     value
         .as_i64()
         .or_else(|| value.as_u64().and_then(|value| i64::try_from(value).ok()))
         .or_else(|| value.as_f64().map(|value| value as i64))
+        .or_else(|| value.as_str()?.parse::<i64>().ok())
 }
 
 #[cfg(test)]
@@ -946,6 +1043,7 @@ mod tests {
         let data = serde_json::json!({
             "member_type": "SUPER_VIP",
             "total_capacity": 1024,
+            "used_capacity": "256",
             "cap_composition": {"sign_reward": 512},
             "cap_sign": {
                 "sign_daily": true,
@@ -958,10 +1056,25 @@ mod tests {
         let info = parse_growth_info(&data).unwrap();
         assert_eq!(info.member_type, "SUPER_VIP");
         assert_eq!(info.total_capacity_bytes, 1024);
+        assert_eq!(info.used_capacity_bytes, Some(256));
         assert_eq!(info.sign_reward_bytes, 512);
         assert!(info.sign_daily);
         assert_eq!(info.sign_daily_reward_bytes, 1048576);
         assert_eq!(info.sign_progress, 3);
         assert_eq!(info.sign_target, 7);
+    }
+
+    #[test]
+    fn test_parse_storage_usage() {
+        let data = serde_json::json!({
+            "quota": {
+                "total_capacity": 4096,
+                "used_capacity": 1024
+            }
+        });
+
+        let usage = parse_storage_usage(&data).unwrap();
+        assert_eq!(usage.total_capacity_bytes, Some(4096));
+        assert_eq!(usage.used_capacity_bytes, Some(1024));
     }
 }
