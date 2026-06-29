@@ -1,6 +1,6 @@
 services:
   my-media-sub:
-    image: ghcr.io/hellomrli/my-media-sub:1.0.1
+    image: ghcr.io/hellomrli/my-media-sub:1.0.2
     # 如需本地源码构建，取消下面两行注释并注释 image。
     # build:
     #   context: .
@@ -12,27 +12,15 @@ services:
       # 数据持久化
       - ./data:/app/data
     environment:
-      # 服务器配置
+      # 基础服务配置
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=56001
       - SERVER_USERNAME=admin
       - SERVER_PASSWORD=replace-with-a-strong-password
+      - TZ=Asia/Shanghai
 
       # 数据目录
       - DATA_DIR=/app/data
-
-      # 夸克 Cookie（可选）
-      # - QUARK_COOKIE=your_cookie_here
-
-      # 推送配置（可选）
-      # - WECOM_BOT_URL=https://qyapi.weixin.qq.com/...
-      # - TELEGRAM_BOT_TOKEN=your_token
-      # - TELEGRAM_CHAT_ID=your_chat_id
-      # - BARK_URL=https://api.day.app/your_key
-      # - GOTIFY_URL=https://gotify.example.com
-      # - GOTIFY_TOKEN=your_token
-      # - PUSHPLUS_TOKEN=your_token
-      # - SERVERCHAN_KEY=your_key
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:56001/health"]
       interval: 30s

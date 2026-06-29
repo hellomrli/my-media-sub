@@ -678,6 +678,7 @@ async fn update_settings(
     if previous.quark_signin_enabled != updated.quark_signin_enabled
         || previous.quark_signin_hour != updated.quark_signin_hour
         || previous.quark_cookie != updated.quark_cookie
+        || previous.quark_signin_cookie != updated.quark_signin_cookie
     {
         state.quark_signin_scheduler.reload().await?;
     }

@@ -219,6 +219,8 @@ pub struct TestResponse {
     pub directories: HashMap<String, String>,
     pub issues: Vec<String>,
     pub total_capacity_bytes: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub used_capacity_bytes: Option<i64>,
     pub member_type: String,
     pub sign_progress: i64,
     pub sign_target: i64,
@@ -340,6 +342,7 @@ async fn test_quark(
         match capacity_client.growth_info().await {
             Ok(info) => {
                 health.total_capacity_bytes = info.total_capacity_bytes;
+                health.used_capacity_bytes = info.used_capacity_bytes;
                 health.member_type = info.member_type;
                 health.sign_progress = info.sign_progress;
                 health.sign_target = info.sign_target;
@@ -347,6 +350,19 @@ async fn test_quark(
             Err(err) => {
                 health.issues.push(format!("容量读取失败: {}", err));
             }
+        }
+    }
+    match client.storage_usage().await {
+        Ok(usage) => {
+            if let Some(total) = usage.total_capacity_bytes {
+                health.total_capacity_bytes = total;
+            }
+            if usage.used_capacity_bytes.is_some() {
+                health.used_capacity_bytes = usage.used_capacity_bytes;
+            }
+        }
+        Err(err) => {
+            tracing::debug!("读取夸克容量使用量失败: {}", err);
         }
     }
 
@@ -397,6 +413,7 @@ fn quark_health_snapshot(settings: &Settings) -> TestResponse {
         directories,
         issues,
         total_capacity_bytes: 0,
+        used_capacity_bytes: None,
         member_type: String::new(),
         sign_progress: 0,
         sign_target: 0,
