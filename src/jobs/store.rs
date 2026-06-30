@@ -52,12 +52,14 @@ impl JobStore {
     pub async fn add(&self, job: Job) -> Result<Job> {
         let _save_guard = self.save_lock.lock().await;
         let snapshot = {
-            let mut jobs = self.jobs.write().await;
-            jobs.push(job.clone());
-            truncate_jobs(&mut jobs);
-            jobs.clone()
+            let jobs = self.jobs.read().await;
+            let mut snapshot = jobs.clone();
+            snapshot.push(job.clone());
+            truncate_jobs(&mut snapshot);
+            snapshot
         };
         self.save_snapshot(&snapshot).await?;
+        *self.jobs.write().await = snapshot;
         self.emit(job.clone());
         Ok(job)
     }
@@ -99,11 +101,12 @@ impl JobStore {
     {
         let _save_guard = self.save_lock.lock().await;
         let updated = {
-            let mut jobs = self.jobs.write().await;
-            if let Some(job) = jobs.iter_mut().find(|job| job.id == id) {
+            let jobs = self.jobs.read().await;
+            let mut snapshot = jobs.clone();
+            if let Some(job) = snapshot.iter_mut().find(|job| job.id == id) {
                 updater(job)?;
                 job.updated_at = now();
-                Some((job.clone(), jobs.clone()))
+                Some((job.clone(), snapshot))
             } else {
                 None
             }
@@ -111,6 +114,7 @@ impl JobStore {
 
         if let Some((_, snapshot)) = &updated {
             self.save_snapshot(snapshot).await?;
+            *self.jobs.write().await = snapshot.clone();
         }
 
         if let Some((job, _)) = &updated {

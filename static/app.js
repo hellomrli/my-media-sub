@@ -251,7 +251,7 @@ function app() {
       custom_categories: [],
       aria2_rpc_url: '', aria2_secret: '', aria2_secret_configured: false,
       aria2_movie_dir: '', aria2_series_dir: '', aria2_anime_dir: '',
-      strm_enabled: false, strm_output_dir: '', strm_public_base_url: '', strm_access_token: '', strm_access_token_configured: false,
+      strm_enabled: false, strm_output_dir: '', strm_public_base_url: '', strm_access_token: '', strm_access_token_configured: false, strm_token_in_url: false,
       cloud_types: ['quark'], push_on_update: true, push_on_failed: true, push_on_completed: true, push_on_save: true, push_on_download_completed: true, push_on_quark_signin: true,
       metadata_provider: 'tmdb', tmdb_api_key: '', tmdb_api_key_configured: false, tmdb_language: 'zh-CN',
       wecom_bot_url: '', wecom_bot_url_configured: false, telegram_bot_token: '', telegram_bot_token_configured: false, telegram_chat_id: '', bark_url: '', bark_url_configured: false, serverchan_key: '', serverchan_key_configured: false,
@@ -3412,6 +3412,7 @@ function app() {
     selectedUpdateDescription() {
       const item = this.selectedUpdateRelease();
       if (!item) return '请选择一个 Release 版本。';
+      if (this.updateInfo && !this.updateInfo.online_update_enabled) return '在线更新已被 ONLINE_UPDATE_ENABLED=false 禁用。';
       if (!item.asset) return '该版本没有 Linux x86_64 二进制包，不能在线切换。';
       if (item.is_current) return '当前服务已经运行该版本。';
       const direction = item.is_newer ? '升级' : '回退';
@@ -3420,7 +3421,7 @@ function app() {
 
     canApplySelectedUpdate() {
       const item = this.selectedUpdateRelease();
-      return Boolean(item && item.asset && !item.is_current && !this.updateApplying);
+      return Boolean(item && item.asset && !item.is_current && this.updateInfo?.online_update_enabled && !this.updateApplying);
     },
 
     async applySelectedUpdate() {
@@ -3437,6 +3438,10 @@ function app() {
     },
 
     async applyUpdate(targetTag = null) {
+      if (this.updateInfo && !this.updateInfo.online_update_enabled) {
+        this.showNotification('info', '在线更新未启用');
+        return;
+      }
       if (!targetTag && (!this.updateInfo || !this.updateInfo.update_available)) {
         this.showNotification('info', '当前已是最新版本');
         return;
@@ -3663,11 +3668,13 @@ function app() {
 
     updateStatusLabel() {
       if (!this.updateInfo) return '未检查';
+      if (!this.updateInfo.online_update_enabled) return '未启用';
       return this.updateInfo.update_available ? '可更新' : '已最新';
     },
 
     updateStatusClass() {
       if (!this.updateInfo) return 'text-muted';
+      if (!this.updateInfo.online_update_enabled) return 'text-muted';
       return this.updateInfo.update_available ? 'text-warning' : 'text-success';
     },
 

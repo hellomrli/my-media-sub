@@ -149,6 +149,10 @@ pub struct Settings {
     #[serde(default = "default_strm_access_token")]
     pub strm_access_token: String,
 
+    /// 是否把 HTTPStrm Token 写入生成的 URL query。默认关闭，避免 token 进入访问日志。
+    #[serde(default)]
+    pub strm_token_in_url: bool,
+
     // ===== NAS 同步配置 =====
     /// NAS 同步是否启用
     #[serde(default)]
@@ -418,6 +422,7 @@ impl Default for Settings {
             strm_output_dir: String::new(),
             strm_public_base_url: String::new(),
             strm_access_token: default_strm_access_token(),
+            strm_token_in_url: false,
             nas_sync_enabled: false,
             nas_sync_source: String::new(),
             nas_sync_target: String::new(),

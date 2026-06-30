@@ -95,13 +95,22 @@ impl JobQueue {
     pub async fn cancel(&self, id: &str) -> Result<Job> {
         self.store
             .try_update(id, |job| {
-                if !matches!(job.status, JobStatus::Queued | JobStatus::Running) {
-                    return Err(AppError::Validation(match job.status {
-                        JobStatus::Succeeded => "已成功的任务不能取消".to_string(),
-                        JobStatus::Failed => "已失败的任务不能取消，可选择重试".to_string(),
-                        JobStatus::Canceled => "任务已经取消".to_string(),
-                        JobStatus::Queued | JobStatus::Running => unreachable!(),
-                    }));
+                match job.status {
+                    JobStatus::Queued => {}
+                    JobStatus::Running if job.kind == JobKind::MetadataScrape => {}
+                    JobStatus::Running => {
+                        return Err(AppError::Validation(
+                            "任务已开始执行，不能可靠取消；请等待任务完成后再处理结果".to_string(),
+                        ));
+                    }
+                    JobStatus::Succeeded | JobStatus::Failed | JobStatus::Canceled => {
+                        return Err(AppError::Validation(match job.status {
+                            JobStatus::Succeeded => "已成功的任务不能取消".to_string(),
+                            JobStatus::Failed => "已失败的任务不能取消，可选择重试".to_string(),
+                            JobStatus::Canceled => "任务已经取消".to_string(),
+                            JobStatus::Queued | JobStatus::Running => unreachable!(),
+                        }));
+                    }
                 }
 
                 job.status = JobStatus::Canceled;
@@ -331,6 +340,38 @@ mod tests {
         assert_eq!(canceled.status, JobStatus::Canceled);
         assert_eq!(canceled.progress, 100);
         assert!(canceled.finished_at.is_some());
+        let _ = std::fs::remove_file(tmp);
+    }
+
+    #[tokio::test]
+    async fn cancel_rejects_running_side_effect_jobs() {
+        let tmp = std::env::temp_dir().join(format!(
+            "my-media-sub-job-cancel-running-transfer-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let store = Arc::new(JobStore::new(&tmp));
+        store.load().await.unwrap();
+        store
+            .add(test_job_with_kind(
+                "running-transfer",
+                JobStatus::Running,
+                JobKind::SubscriptionTransfer,
+            ))
+            .await
+            .unwrap();
+        let (sender, _receiver) = mpsc::channel(1);
+        let queue = JobQueue {
+            store: store.clone(),
+            sender,
+        };
+
+        let error = queue.cancel("running-transfer").await.unwrap_err();
+
+        assert!(matches!(error, AppError::Validation(_)));
+        assert_eq!(
+            store.get("running-transfer").await.unwrap().status,
+            JobStatus::Running
+        );
         let _ = std::fs::remove_file(tmp);
     }
 

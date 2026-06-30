@@ -14,7 +14,7 @@ pub mod update;
 use axum::{
     body::Body,
     extract::State,
-    http::{header, Request, StatusCode},
+    http::{header, HeaderMap, Method, Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Json, Response},
     routing::get,
@@ -49,6 +49,11 @@ async fn basic_auth(
     req: Request<Body>,
     next: Next,
 ) -> Response {
+    if is_cross_site_state_change(&req) {
+        tracing::warn!("拒绝跨站状态修改请求: {} {}", req.method(), req.uri());
+        return forbidden_response();
+    }
+
     if req.uri().path() == "/health" || req.uri().path().starts_with("/strm/") {
         return next.run(req).await;
     }
@@ -89,6 +94,75 @@ fn unauthorized_response() -> Response {
         "Unauthorized",
     )
         .into_response()
+}
+
+fn forbidden_response() -> Response {
+    (StatusCode::FORBIDDEN, "Forbidden").into_response()
+}
+
+fn is_cross_site_state_change(req: &Request<Body>) -> bool {
+    if !is_state_changing_method(req.method()) {
+        return false;
+    }
+
+    let headers = req.headers();
+    if headers
+        .get("sec-fetch-site")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.eq_ignore_ascii_case("cross-site"))
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    let Some(origin) = headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+
+    let Some(origin_host) = host_from_origin(origin) else {
+        return true;
+    };
+    let Some(request_host) = request_host(headers) else {
+        return true;
+    };
+
+    origin_host != request_host
+}
+
+fn is_state_changing_method(method: &Method) -> bool {
+    matches!(
+        *method,
+        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
+    )
+}
+
+fn host_from_origin(origin: &str) -> Option<String> {
+    if origin.eq_ignore_ascii_case("null") {
+        return None;
+    }
+    let (_, rest) = origin.split_once("://")?;
+    let authority = rest.split('/').next()?.trim();
+    normalize_host(authority)
+}
+
+fn request_host(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .and_then(normalize_host)
+}
+
+fn normalize_host(host: &str) -> Option<String> {
+    let host = host.trim().trim_end_matches('.');
+    if host.is_empty() || host.contains('@') {
+        return None;
+    }
+    Some(host.to_ascii_lowercase())
 }
 
 /// 创建主应用路由
@@ -141,4 +215,60 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
         ))
         .fallback_service(serve_static)
         .layer(middleware::from_fn_with_state(auth_state, basic_auth))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::Request;
+
+    fn request(method: Method, origin: Option<&str>, fetch_site: Option<&str>) -> Request<Body> {
+        let mut builder = Request::builder()
+            .method(method)
+            .uri("/api/settings")
+            .header(header::HOST, "media.example.com");
+        if let Some(origin) = origin {
+            builder = builder.header(header::ORIGIN, origin);
+        }
+        if let Some(fetch_site) = fetch_site {
+            builder = builder.header("sec-fetch-site", fetch_site);
+        }
+        builder.body(Body::empty()).unwrap()
+    }
+
+    #[test]
+    fn csrf_allows_same_origin_state_change() {
+        let req = request(
+            Method::POST,
+            Some("https://media.example.com"),
+            Some("same-origin"),
+        );
+        assert!(!is_cross_site_state_change(&req));
+    }
+
+    #[test]
+    fn csrf_blocks_cross_site_state_change() {
+        let req = request(
+            Method::POST,
+            Some("https://evil.example.net"),
+            Some("cross-site"),
+        );
+        assert!(is_cross_site_state_change(&req));
+    }
+
+    #[test]
+    fn csrf_allows_cli_style_state_change_without_browser_headers() {
+        let req = request(Method::POST, None, None);
+        assert!(!is_cross_site_state_change(&req));
+    }
+
+    #[test]
+    fn csrf_does_not_block_reads() {
+        let req = request(
+            Method::GET,
+            Some("https://evil.example.net"),
+            Some("cross-site"),
+        );
+        assert!(!is_cross_site_state_change(&req));
+    }
 }

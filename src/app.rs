@@ -164,6 +164,7 @@ const SETTINGS_ENV_KEYS: &[&str] = &[
     "STRM_OUTPUT_DIR",
     "STRM_PUBLIC_BASE_URL",
     "STRM_ACCESS_TOKEN",
+    "STRM_TOKEN_IN_URL",
     "TMDB_API_KEY",
     "TMDB_LANGUAGE",
     "PANSOU_API_URL",
@@ -263,6 +264,9 @@ async fn apply_env_overrides(settings_store: &SettingsStore) -> Result<()> {
             }
             if let Some(value) = env_non_empty("STRM_ACCESS_TOKEN") {
                 settings.strm_access_token = value;
+            }
+            if let Some(value) = env_non_empty("STRM_TOKEN_IN_URL") {
+                settings.strm_token_in_url = parse_bool_env(&value);
             }
             if let Some(value) = env_non_empty("TMDB_API_KEY") {
                 settings.tmdb_api_key = value;

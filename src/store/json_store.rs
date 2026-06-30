@@ -91,11 +91,14 @@ where
     pub async fn add(&self, item: T) -> Result<()> {
         let _save_guard = self.save_lock.lock().await;
         let snapshot = {
-            let mut cache = self.cache.write().await;
-            cache.push(item);
-            cache.clone()
+            let cache = self.cache.read().await;
+            let mut snapshot = cache.clone();
+            snapshot.push(item);
+            snapshot
         };
-        self.write_snapshot(&snapshot).await
+        self.write_snapshot(&snapshot).await?;
+        *self.cache.write().await = snapshot;
+        Ok(())
     }
 
     /// 查找数据
@@ -127,10 +130,11 @@ where
     {
         let _save_guard = self.save_lock.lock().await;
         let snapshot = {
-            let mut cache = self.cache.write().await;
-            if let Some(item) = cache.iter_mut().find(|item| predicate(item)) {
+            let cache = self.cache.read().await;
+            let mut snapshot = cache.clone();
+            if let Some(item) = snapshot.iter_mut().find(|item| predicate(item)) {
                 updater(item);
-                Some(cache.clone())
+                Some(snapshot)
             } else {
                 None
             }
@@ -138,6 +142,7 @@ where
 
         if let Some(snapshot) = snapshot {
             self.write_snapshot(&snapshot).await?;
+            *self.cache.write().await = snapshot;
             Ok(true)
         } else {
             Ok(false)
@@ -151,11 +156,12 @@ where
     {
         let _save_guard = self.save_lock.lock().await;
         let snapshot = {
-            let mut cache = self.cache.write().await;
-            let initial_len = cache.len();
-            cache.retain(|item| !predicate(item));
-            if cache.len() != initial_len {
-                Some(cache.clone())
+            let cache = self.cache.read().await;
+            let mut snapshot = cache.clone();
+            let initial_len = snapshot.len();
+            snapshot.retain(|item| !predicate(item));
+            if snapshot.len() != initial_len {
+                Some(snapshot)
             } else {
                 None
             }
@@ -163,6 +169,7 @@ where
 
         if let Some(snapshot) = snapshot {
             self.write_snapshot(&snapshot).await?;
+            *self.cache.write().await = snapshot;
             Ok(true)
         } else {
             Ok(false)
@@ -172,12 +179,10 @@ where
     /// 清空所有数据
     pub async fn clear(&self) -> Result<()> {
         let _save_guard = self.save_lock.lock().await;
-        let snapshot = {
-            let mut cache = self.cache.write().await;
-            cache.clear();
-            cache.clone()
-        };
-        self.write_snapshot(&snapshot).await
+        let snapshot = Vec::new();
+        self.write_snapshot(&snapshot).await?;
+        *self.cache.write().await = snapshot;
+        Ok(())
     }
 
     /// 获取数据数量

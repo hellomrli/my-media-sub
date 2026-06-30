@@ -52,12 +52,14 @@ impl NotificationStore {
     pub async fn add(&self, notif: Notification) -> Result<Notification> {
         let _save_guard = self.save_lock.lock().await;
         let snapshot = {
-            let mut items = self.items.write().await;
-            items.push(notif.clone());
-            truncate_notifications(&mut items);
-            items.clone()
+            let items = self.items.read().await;
+            let mut snapshot = items.clone();
+            snapshot.push(notif.clone());
+            truncate_notifications(&mut snapshot);
+            snapshot
         };
         self.save(&snapshot).await?;
+        *self.items.write().await = snapshot;
         Ok(notif)
     }
 
@@ -67,11 +69,12 @@ impl NotificationStore {
     {
         let _save_guard = self.save_lock.lock().await;
         let updated = {
-            let mut items = self.items.write().await;
-            if let Some(item) = items.iter_mut().find(|item| item.id == id) {
+            let items = self.items.read().await;
+            let mut snapshot = items.clone();
+            if let Some(item) = snapshot.iter_mut().find(|item| item.id == id) {
                 updater(item);
                 let updated = item.clone();
-                Some((updated, items.clone()))
+                Some((updated, snapshot))
             } else {
                 None
             }
@@ -79,6 +82,7 @@ impl NotificationStore {
 
         if let Some((updated, snapshot)) = updated {
             self.save(&snapshot).await?;
+            *self.items.write().await = snapshot;
             Ok(Some(updated))
         } else {
             Ok(None)
@@ -100,27 +104,26 @@ impl NotificationStore {
     pub async fn mark_read(&self, id: Option<&str>) -> Result<()> {
         let _save_guard = self.save_lock.lock().await;
         let snapshot = {
-            let mut items = self.items.write().await;
-            for item in items.iter_mut() {
+            let items = self.items.read().await;
+            let mut snapshot = items.clone();
+            for item in snapshot.iter_mut() {
                 if id.is_none() || id == Some(item.id.as_str()) {
                     item.read = true;
                 }
             }
-            items.clone()
+            snapshot
         };
         self.save(&snapshot).await?;
+        *self.items.write().await = snapshot;
         Ok(())
     }
 
     /// 清空所有通知
     pub async fn clear(&self) -> Result<()> {
         let _save_guard = self.save_lock.lock().await;
-        let snapshot = {
-            let mut items = self.items.write().await;
-            items.clear();
-            items.clone()
-        };
+        let snapshot = Vec::new();
         self.save(&snapshot).await?;
+        *self.items.write().await = snapshot;
         Ok(())
     }
 }
