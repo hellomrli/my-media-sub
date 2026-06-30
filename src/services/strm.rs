@@ -126,12 +126,15 @@ pub fn httpstrm_url(settings: &Settings, fid: &str, file_name: &str) -> Result<S
         ));
     }
 
-    Ok(format!(
-        "{base}/strm/quark/{}/{}?token={}",
+    let url = format!(
+        "{base}/strm/quark/{}/{}",
         percent_encode_path_segment(fid),
-        percent_encode_path_segment(file_name),
-        percent_encode_query_value(token)
-    ))
+        percent_encode_path_segment(file_name)
+    );
+    if settings.strm_token_in_url {
+        return Ok(format!("{url}?token={}", percent_encode_query_value(token)));
+    }
+    Ok(url)
 }
 
 fn strm_file_name(file_name: &str) -> String {
@@ -276,6 +279,7 @@ mod tests {
         let settings = Settings {
             strm_public_base_url: "https://media.example.com/".to_string(),
             strm_access_token: "token with space".to_string(),
+            strm_token_in_url: true,
             ..Default::default()
         };
 
@@ -285,6 +289,19 @@ mod tests {
             url,
             "https://media.example.com/strm/quark/fid%2F1/%E5%BA%86%E4%BD%99%E5%B9%B4%20S01E01.mkv?token=token%20with%20space"
         );
+    }
+
+    #[test]
+    fn httpstrm_url_omits_query_token_by_default() {
+        let settings = Settings {
+            strm_public_base_url: "https://media.example.com/".to_string(),
+            strm_access_token: "token".to_string(),
+            ..Default::default()
+        };
+
+        let url = httpstrm_url(&settings, "fid1", "video.mkv").unwrap();
+
+        assert_eq!(url, "https://media.example.com/strm/quark/fid1/video.mkv");
     }
 
     #[test]

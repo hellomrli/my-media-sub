@@ -80,17 +80,19 @@ impl SubscriptionStore {
     pub async fn create(&self, sub: Subscription) -> Result<Subscription> {
         let _save_guard = self.save_lock.lock().await;
         let snapshot = {
-            let mut items = self.items.write().await;
+            let items = self.items.read().await;
             if items.iter().any(|s| s.id == sub.id) {
                 return Err(AppError::Validation(format!(
                     "订阅已存在（相同链接和标题）: {}",
                     sub.title
                 )));
             }
-            items.push(sub.clone());
-            items.clone()
+            let mut snapshot = items.clone();
+            snapshot.push(sub.clone());
+            snapshot
         };
         self.save(&snapshot).await?;
+        *self.items.write().await = snapshot;
         Ok(sub)
     }
 
@@ -101,11 +103,12 @@ impl SubscriptionStore {
     {
         let _save_guard = self.save_lock.lock().await;
         let updated = {
-            let mut items = self.items.write().await;
-            if let Some(sub) = items.iter_mut().find(|s| s.id == id) {
+            let items = self.items.read().await;
+            let mut snapshot = items.clone();
+            if let Some(sub) = snapshot.iter_mut().find(|s| s.id == id) {
                 updater(sub);
                 let updated = sub.clone();
-                Some((updated, items.clone()))
+                Some((updated, snapshot))
             } else {
                 None
             }
@@ -113,6 +116,7 @@ impl SubscriptionStore {
 
         if let Some((updated, snapshot)) = updated {
             self.save(&snapshot).await?;
+            *self.items.write().await = snapshot;
             Ok(Some(updated))
         } else {
             Ok(None)
@@ -123,11 +127,12 @@ impl SubscriptionStore {
     pub async fn delete(&self, id: &str) -> Result<bool> {
         let _save_guard = self.save_lock.lock().await;
         let snapshot = {
-            let mut items = self.items.write().await;
-            let before = items.len();
-            items.retain(|s| s.id != id);
-            if items.len() != before {
-                Some(items.clone())
+            let items = self.items.read().await;
+            let mut snapshot = items.clone();
+            let before = snapshot.len();
+            snapshot.retain(|s| s.id != id);
+            if snapshot.len() != before {
+                Some(snapshot)
             } else {
                 None
             }
@@ -135,6 +140,7 @@ impl SubscriptionStore {
 
         if let Some(snapshot) = snapshot {
             self.save(&snapshot).await?;
+            *self.items.write().await = snapshot;
             Ok(true)
         } else {
             Ok(false)
@@ -258,6 +264,31 @@ mod tests {
         assert_eq!(store.count().await, 1);
 
         let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[tokio::test]
+    async fn create_keeps_cache_unchanged_when_save_fails() {
+        let dir = std::env::temp_dir().join(format!(
+            "my-media-sub-subs-save-fail-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let path = dir.join("subscriptions.json");
+        let store = SubscriptionStore::new(&path);
+        store.load().await.unwrap();
+        store.create(make_sub("a1")).await.unwrap();
+
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_dir(&dir).unwrap();
+        std::fs::write(&dir, b"not a directory").unwrap();
+
+        let error = store.create(make_sub("a2")).await.unwrap_err();
+
+        assert!(matches!(error, AppError::Database(_)));
+        assert_eq!(store.count().await, 1);
+        assert!(store.get("a1").await.is_some());
+        assert!(store.get("a2").await.is_none());
+
+        let _ = std::fs::remove_file(dir);
     }
 
     #[tokio::test]

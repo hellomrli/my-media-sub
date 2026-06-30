@@ -98,7 +98,8 @@ impl SettingsStore {
     {
         let _save_guard = self.save_lock.lock().await;
         let updated = {
-            let mut settings = self.settings.write().await;
+            let settings = self.settings.read().await;
+            let mut settings = settings.clone();
             updater(&mut settings);
             settings.subscription_check_interval_minutes = normalize_check_interval_minutes(
                 i64::from(settings.subscription_check_interval_minutes),
@@ -113,9 +114,10 @@ impl SettingsStore {
             if settings.strm_access_token.trim().is_empty() {
                 settings.strm_access_token = uuid::Uuid::new_v4().to_string();
             }
-            settings.clone()
+            settings
         };
         self.write_to_disk(&updated).await?;
+        *self.settings.write().await = updated.clone();
         Ok(updated)
     }
 }

@@ -1264,6 +1264,7 @@
                     <input type="text" x-model="settings.strm_access_token" @focus="prepareSecretInput('strm_access_token')" placeholder="留空自动生成" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
                     <button type="button" @click="toggleSettingSecret('strm_access_token')" :disabled="secretToggleDisabled('strm_access_token')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('strm_access_token')"></button>
                   </div>
+                  <label class="mt-3 flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.strm_token_in_url" class="rounded" />兼容模式：把 Token 写入生成的 STRM URL</label>
                   <p class="text-xs text-muted/75 mt-2">生成的 .strm 内容会指向本服务的 HTTPStrm 链接；媒体服务器需要能访问上面的地址。</p>
                 </div>
               </div>
@@ -1612,7 +1613,7 @@
                       <span x-show="!updateLoading">检查更新</span>
                       <span x-show="updateLoading">检查中</span>
                     </button>
-                    <button @click="applyUpdate()" :disabled="!updateInfo || !updateInfo.update_available || updateApplying" class="btn-primary px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
+                    <button @click="applyUpdate()" :disabled="!updateInfo || !updateInfo.update_available || !updateInfo.online_update_enabled || updateApplying" class="btn-primary px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
                       <span x-show="!updateApplying">立即升级</span>
                       <span x-show="updateApplying">升级中</span>
                     </button>

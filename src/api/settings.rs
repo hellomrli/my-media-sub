@@ -169,6 +169,13 @@ fn settings_schema() -> SettingsSchemaResponse {
             "quark",
             ""
         ),
+        setting_field!(
+            "strm_token_in_url",
+            "Token 写入 STRM URL",
+            "boolean",
+            "quark",
+            false
+        ),
         setting_field!("push_on_update", "订阅更新推送", "boolean", "push", true),
         setting_field!("push_on_failed", "订阅失效推送", "boolean", "push", true),
         setting_field!("push_on_completed", "订阅完结推送", "boolean", "push", true),
@@ -575,6 +582,11 @@ async fn update_settings(
                     "strm_access_token" => {
                         if let Some(s) = non_mask_secret(&value) {
                             settings.strm_access_token = s;
+                        }
+                    }
+                    "strm_token_in_url" => {
+                        if let Some(b) = value.as_bool() {
+                            settings.strm_token_in_url = b;
                         }
                     }
                     "wecom_bot_url" => {
