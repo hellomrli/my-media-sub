@@ -421,7 +421,10 @@ fn quark_health_snapshot(settings: &Settings) -> TestResponse {
 }
 
 async fn quark_signin(State(state): State<Arc<DriveState>>) -> Result<Json<QuarkSigninResponse>> {
-    let result = state.quark_signin_service.signin().await?;
+    let result = state
+        .quark_signin_service
+        .signin_with_failure_notice()
+        .await?;
     let message = signin_message(&result);
     Ok(Json(QuarkSigninResponse {
         success: true,

@@ -225,7 +225,8 @@
                 </div>
                 <div class="rounded-lg border border-border bg-app p-3">
                   <div class="flex items-center gap-2 text-xs text-muted/75"><svg class="h-4 w-4 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7 3h10a2 2 0 012 2v14l-7-3-7 3V5a2 2 0 012-2z" /></svg>签到</div>
-                  <div class="mt-1 font-semibold" :class="settings.quark_signin_enabled ? 'text-success' : 'text-muted'" x-text="settings.quark_signin_enabled ? '自动' : '手动'"></div>
+                  <div class="mt-1 font-semibold" :class="quarkSigninTodayClass()" x-text="quarkSigninTodayLabel()"></div>
+                  <div class="mt-0.5 text-[11px] text-muted/60" x-text="settings.quark_signin_enabled ? ('自动 · 每天 ' + (settings.quark_signin_hour ?? 8) + ':00') : '手动'"></div>
                 </div>
                 <div class="rounded-lg border border-border bg-app p-3">
                   <div class="flex items-center gap-2 text-xs text-muted/75"><svg class="h-4 w-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V7zm4 5h8" /></svg>容量</div>

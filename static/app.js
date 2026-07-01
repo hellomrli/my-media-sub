@@ -140,6 +140,7 @@ function app() {
 
     // 通知
     notifications: [],
+    notificationsPoller: null,
     notificationFilter: 'all',
     notificationFilters: [
       {id: 'all', name: '全部'},
@@ -621,11 +622,24 @@ function app() {
     },
 
     runCurrentTabEffects() {
-      if (this.currentTab === 'downloads') {
-        this.loadDownloads();
+      if (this.currentTab === 'downloads' || this.currentTab === 'dashboard') {
+        this.loadDownloads(this.currentTab === 'dashboard');
         this.startDownloadsPolling();
       } else {
         this.stopDownloadsPolling();
+      }
+
+      if (this.currentTab === 'dashboard') {
+        this.loadNotifications();
+        this.startNotificationsPolling();
+      } else {
+        this.stopNotificationsPolling();
+      }
+
+      if (this.currentTab === 'drive') {
+        if (!this.driveLastLoadedAt && !this.driveLoading && !this.driveRefreshing) {
+          this.loadDrive();
+        }
       }
 
       if (this.currentTab === 'settings' && this.currentSettingsTab === 'update') {
@@ -668,7 +682,15 @@ function app() {
     },
 
     async refresh() {
-      if (this.currentTab === 'subscriptions') await this.loadSubscriptions();
+      if (this.currentTab === 'dashboard') {
+        await Promise.all([
+          this.loadSubscriptions(),
+          this.loadNotifications(),
+          this.loadJobs(),
+          this.loadDownloads(true)
+        ]);
+      }
+      else if (this.currentTab === 'subscriptions') await this.loadSubscriptions();
       else if (this.currentTab === 'transferHistory') {
         await this.loadJobs();
       }
@@ -2537,6 +2559,19 @@ function app() {
       }
     },
 
+    startNotificationsPolling() {
+      this.stopNotificationsPolling();
+      if (this.currentTab !== 'dashboard') return;
+      this.notificationsPoller = setInterval(() => this.loadNotifications(), 30000);
+    },
+
+    stopNotificationsPolling() {
+      if (this.notificationsPoller) {
+        clearInterval(this.notificationsPoller);
+        this.notificationsPoller = null;
+      }
+    },
+
     notificationFilterCount(filterId) {
       if (filterId === 'unread') return this.unreadNotifications;
       return this.notificationCenterNotifications.length;
@@ -3226,7 +3261,7 @@ function app() {
 
     startDownloadsPolling() {
       this.stopDownloadsPolling();
-      if (!this.downloadsAutoRefresh || this.currentTab !== 'downloads') return;
+      if (!this.downloadsAutoRefresh || (this.currentTab !== 'downloads' && this.currentTab !== 'dashboard')) return;
       this.downloadsPoller = setInterval(() => this.loadDownloads(true), 2000);
     },
 
@@ -3818,8 +3853,10 @@ function app() {
     },
 
     async runQuarkSignin() {
-      if (!this.settings.quark_cookie && !this.settings.quark_cookie_configured) {
-        this.showNotification('error', '请先在设置中配置夸克 Cookie');
+      const hasQuarkCookie = !!this.settings.quark_cookie || !!this.settings.quark_cookie_configured;
+      const hasSigninCookie = !!this.settings.quark_signin_cookie || !!this.settings.quark_signin_cookie_configured;
+      if (!hasQuarkCookie && !hasSigninCookie) {
+        this.showNotification('error', '请先在设置中配置夸克 Cookie 或签到 Cookie');
         return;
       }
       this.quarkSigninLoading = true;
@@ -3839,6 +3876,7 @@ function app() {
         } else {
           this.quarkHealth.signinMessage = data.message || data.error || '夸克签到失败';
           this.showNotification('error', data.message || data.error || '夸克签到失败');
+          await this.loadNotifications();
         }
       } catch (error) {
         console.error('夸克签到失败:', error);
@@ -3847,6 +3885,38 @@ function app() {
       } finally {
         this.quarkSigninLoading = false;
       }
+    },
+
+    // 上海时区（+8）的日索引，与后端 shanghai_day_index 保持一致
+    shanghaiDayIndex(unixSeconds) {
+      return Math.floor((Number(unixSeconds) + 8 * 3600) / 86400);
+    },
+
+    // 从已加载的通知里找出「今天」的夸克签到记录（成功优先）
+    todaysSigninNotification() {
+      const today = this.shanghaiDayIndex(Date.now() / 1000);
+      const items = (this.notifications || []).filter(n =>
+        n && n.event === 'quark_signin' && this.shanghaiDayIndex(n.created_at) === today
+      );
+      if (!items.length) return null;
+      const success = items.find(n => n.level === 'success');
+      if (success) return success;
+      return items.sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0))[0];
+    },
+
+    // 仪表盘签到卡片：今日签到状态标签
+    quarkSigninTodayLabel() {
+      const notif = this.todaysSigninNotification();
+      if (notif) return notif.level === 'success' ? '今日已签到' : '今日签到失败';
+      if (this.settings.quark_signin_enabled) return '今日待签到';
+      return '未开启自动';
+    },
+
+    // 今日签到状态对应的文字颜色
+    quarkSigninTodayClass() {
+      const notif = this.todaysSigninNotification();
+      if (notif) return notif.level === 'success' ? 'text-success' : 'text-danger';
+      return this.settings.quark_signin_enabled ? 'text-warning' : 'text-muted';
     },
 
     quarkHealthStatusLabel() {

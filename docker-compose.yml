@@ -1,6 +1,6 @@
 services:
   my-media-sub:
-    image: ghcr.io/hellomrli/my-media-sub:1.0.3
+    image: ghcr.io/hellomrli/my-media-sub:1.0.4
     # 如需本地源码构建，取消下面两行注释并注释 image。
     # build:
     #   context: .
