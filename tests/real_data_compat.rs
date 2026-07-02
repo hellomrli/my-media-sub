@@ -32,8 +32,8 @@ fn test_deserialize_subscriptions_fixture() {
 
 #[test]
 fn test_deserialize_settings_fixture() {
-    let content = fs::read_to_string("tests/fixtures/settings.json")
-        .expect("应该能读取设置兼容性测试样例");
+    let content =
+        fs::read_to_string("tests/fixtures/settings.json").expect("应该能读取设置兼容性测试样例");
 
     let settings: models::Settings =
         serde_json::from_str(&content).expect("应该能反序列化设置样例");
@@ -67,8 +67,7 @@ fn test_deserialize_jobs_fixture_with_all_current_kinds() {
     let content =
         fs::read_to_string("tests/fixtures/jobs.json").expect("应该能读取任务兼容性测试样例");
 
-    let jobs: Vec<job_model::Job> =
-        serde_json::from_str(&content).expect("应该能反序列化任务样例");
+    let jobs: Vec<job_model::Job> = serde_json::from_str(&content).expect("应该能反序列化任务样例");
 
     assert_eq!(jobs.len(), 4);
     assert!(jobs
@@ -116,8 +115,7 @@ fn test_deserialize_real_settings_if_present() {
         serde_json::from_str(&content).expect("应该能反序列化真实设置数据");
 
     let json = serde_json::to_string_pretty(&settings).unwrap();
-    let _reparsed: models::Settings =
-        serde_json::from_str(&json).expect("往返序列化应该成功");
+    let _reparsed: models::Settings = serde_json::from_str(&json).expect("往返序列化应该成功");
 }
 
 #[test]

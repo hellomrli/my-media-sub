@@ -1,7 +1,7 @@
-use std::sync::LazyLock;
 use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 #[derive(Debug, Default)]
 pub struct Metrics {

@@ -1,10 +1,10 @@
 use crate::error::{AppError, Result};
-use std::sync::LazyLock;
 use regex::Regex;
 use reqwest::header::HeaderValue;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 const QUARK_API_BASE: &str = "https://drive.quark.cn/1/clouddrive";
@@ -156,7 +156,8 @@ impl QuarkShareProbe {
 
     /// 从分享链接提取 pwd_id
     pub fn extract_pwd_id(url: &str) -> Option<String> {
-        static SHARE_ID_RE: LazyLock<Regex> = LazyLock::new(|| hardcoded_regex(r"/s/([A-Za-z0-9_-]+)"));
+        static SHARE_ID_RE: LazyLock<Regex> =
+            LazyLock::new(|| hardcoded_regex(r"/s/([A-Za-z0-9_-]+)"));
         SHARE_ID_RE
             .captures(url)
             .and_then(|c| c.get(1))
