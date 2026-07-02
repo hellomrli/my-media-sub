@@ -3,6 +3,7 @@
 *.env
 data/
 settings.json
+!tests/fixtures/settings.json
 test_settings.json
 *.db
 *.sqlite
