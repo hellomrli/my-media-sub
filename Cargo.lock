@@ -714,14 +714,13 @@ dependencies = [
 
 [[package]]
 name = "my-media-sub"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "anyhow",
  "axum",
  "base64",
  "chrono",
  "md5",
- "once_cell",
  "regex",
  "reqwest",
  "ring",

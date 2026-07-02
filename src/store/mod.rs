@@ -1,4 +1,3 @@
-pub mod json_store;
 pub mod notification;
 pub mod session;
 pub mod settings;

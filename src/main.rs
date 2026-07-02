@@ -1,26 +1,12 @@
-mod api;
-mod app;
-mod clients;
-mod config;
-mod error;
-mod jobs;
-mod models;
-mod services;
-mod store;
-mod utils;
-
-use app::AppContext;
-use error::Result;
+use my_media_sub::app::AppContext;
+use my_media_sub::error::Result;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 初始化日志
     tracing_subscriber::fmt::init();
-
     tracing::info!("🦀 Starting my-media-sub Rust v2...");
 
-    // 加载配置
-    let config = config::Config::load()?;
+    let config = my_media_sub::config::Config::load()?;
     tracing::info!("✅ Configuration loaded");
     tracing::info!("   Server: {}:{}", config.server.host, config.server.port);
     tracing::info!("   Data dir: {}", config.data_dir.display());
@@ -28,10 +14,8 @@ async fn main() -> Result<()> {
     let context = AppContext::new(&config).await?;
     context.start_background_services().await?;
 
-    // 创建应用
-    let app = api::create_app(context);
+    let app = my_media_sub::api::create_app(context);
 
-    // 绑定地址
     let addr = std::net::SocketAddr::from((
         config
             .server
@@ -42,11 +26,8 @@ async fn main() -> Result<()> {
     ));
 
     tracing::info!("🚀 Server starting on http://{}", addr);
-
-    // 启动服务器
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("✅ Server listening on http://{}", addr);
-
     axum::serve(listener, app).await?;
 
     Ok(())

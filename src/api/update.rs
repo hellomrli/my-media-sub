@@ -4,7 +4,7 @@ use axum::{
     Json, Router,
 };
 use chrono::Utc;
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use ring::digest;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -20,9 +20,9 @@ use crate::error::{AppError, Result};
 use crate::utils::constant_time_eq;
 
 const GITHUB_REPO: &str = "hellomrli/my-media-sub";
-static UPDATE_PROGRESS: Lazy<Mutex<UpdateProgressResponse>> =
-    Lazy::new(|| Mutex::new(UpdateProgressResponse::idle()));
-static PENDING_RESTART: Lazy<Mutex<Option<RestartPlan>>> = Lazy::new(|| Mutex::new(None));
+static UPDATE_PROGRESS: LazyLock<Mutex<UpdateProgressResponse>> =
+    LazyLock::new(|| Mutex::new(UpdateProgressResponse::idle()));
+static PENDING_RESTART: LazyLock<Mutex<Option<RestartPlan>>> = LazyLock::new(|| Mutex::new(None));
 
 #[derive(Serialize)]
 struct Response<T> {
@@ -77,7 +77,6 @@ pub struct UpdateCheckResponse {
     pub latest_version: String,
     pub latest_tag: String,
     pub update_available: bool,
-    pub online_update_enabled: bool,
     pub release_name: String,
     pub release_url: String,
     pub release_notes: String,
@@ -170,7 +169,6 @@ async fn check_update() -> Result<impl IntoResponse> {
         latest_version,
         latest_tag: release.tag_name.clone(),
         update_available,
-        online_update_enabled: online_update_enabled(),
         release_name: release.name.unwrap_or_else(|| release.tag_name.clone()),
         release_url: release.html_url,
         release_notes: release.body.unwrap_or_default(),
@@ -195,8 +193,6 @@ async fn list_releases() -> Result<impl IntoResponse> {
 }
 
 async fn apply_update(request: Option<Json<UpdateApplyRequest>>) -> Result<impl IntoResponse> {
-    ensure_online_update_enabled()?;
-
     let target_tag = request.and_then(|Json(req)| req.tag).and_then(|tag| {
         let tag = tag.trim().to_string();
         (!tag.is_empty()).then_some(tag)
@@ -221,8 +217,6 @@ async fn update_progress() -> Result<impl IntoResponse> {
 }
 
 async fn restart_update() -> Result<impl IntoResponse> {
-    ensure_online_update_enabled()?;
-
     let plan = PENDING_RESTART
         .lock()
         .map_err(|_| AppError::Internal("读取重启计划失败".to_string()))?
@@ -244,30 +238,6 @@ fn current_update_progress() -> UpdateProgressResponse {
         .lock()
         .map(|progress| progress.clone())
         .unwrap_or_else(|_| UpdateProgressResponse::idle())
-}
-
-fn ensure_online_update_enabled() -> Result<()> {
-    if online_update_enabled() {
-        Ok(())
-    } else {
-        Err(AppError::Validation(
-            "在线更新已禁用；请移除 ONLINE_UPDATE_ENABLED=false 或设置为 true 后重启服务"
-                .to_string(),
-        ))
-    }
-}
-
-fn online_update_enabled() -> bool {
-    parse_bool_env("ONLINE_UPDATE_ENABLED").unwrap_or(true)
-}
-
-fn parse_bool_env(key: &str) -> Option<bool> {
-    let value = std::env::var(key).ok()?;
-    match value.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "yes" | "on" => Some(true),
-        "0" | "false" | "no" | "off" => Some(false),
-        _ => None,
-    }
 }
 
 fn try_begin_update_progress(message: impl Into<String>) -> Result<()> {

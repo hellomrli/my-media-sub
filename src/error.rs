@@ -51,29 +51,25 @@ impl IntoResponse for AppError {
             AppError::Database(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "database_error",
-                String::new(),
+                "数据存储错误".to_string(),
             ),
-            AppError::Http(_) => (StatusCode::BAD_GATEWAY, "http_error", String::new()),
+            AppError::Http(_) => (
+                StatusCode::BAD_GATEWAY,
+                "http_error",
+                "上游服务请求失败".to_string(),
+            ),
             AppError::Config(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "config_error",
-                String::new(),
+                "服务配置错误".to_string(),
             ),
             AppError::Validation(msg) => (StatusCode::BAD_REQUEST, "validation_error", msg.clone()),
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, "not_found", msg.clone()),
             AppError::Internal(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "internal_error",
-                String::new(),
+                "服务内部错误".to_string(),
             ),
-        };
-
-        let message = match &self {
-            AppError::Database(_) => "数据存储错误".to_string(),
-            AppError::Http(_) => "上游服务请求失败".to_string(),
-            AppError::Config(_) => "服务配置错误".to_string(),
-            AppError::Validation(_) | AppError::NotFound(_) => message,
-            AppError::Internal(_) => "服务内部错误".to_string(),
         };
 
         if matches!(

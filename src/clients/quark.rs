@@ -1,5 +1,5 @@
 use crate::error::{AppError, Result};
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use regex::Regex;
 use reqwest::header::HeaderValue;
 use reqwest::Client;
@@ -156,7 +156,7 @@ impl QuarkShareProbe {
 
     /// 从分享链接提取 pwd_id
     pub fn extract_pwd_id(url: &str) -> Option<String> {
-        static SHARE_ID_RE: Lazy<Regex> = Lazy::new(|| hardcoded_regex(r"/s/([A-Za-z0-9_-]+)"));
+        static SHARE_ID_RE: LazyLock<Regex> = LazyLock::new(|| hardcoded_regex(r"/s/([A-Za-z0-9_-]+)"));
         SHARE_ID_RE
             .captures(url)
             .and_then(|c| c.get(1))
@@ -462,7 +462,7 @@ impl Default for QuarkShareProbe {
 
 /// 统计集数（简化版）
 fn count_episodes(files: &[QuarkFile]) -> usize {
-    static EPISODE_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+    static EPISODE_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
         vec![
             hardcoded_regex(r"(?i)(?:^|[^A-Za-z])S\d{1,2}E\d{1,3}(?:[^A-Za-z]|$)"),
             hardcoded_regex(r"(?:第\s*\d{1,3}\s*[集话])"),
