@@ -3,13 +3,13 @@ use crate::error::{AppError, Result};
 use crate::models::{Notification, Settings};
 use crate::store::NotificationStore;
 use crate::utils::metrics::global_metrics;
-use std::sync::LazyLock;
 use regex::Regex;
 use reqwest::Client;
 use serde_json::json;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::LazyLock;
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -544,7 +544,8 @@ where
 fn sanitize_push_error(value: &str) -> String {
     static TOKEN_RE: LazyLock<Regex> =
         LazyLock::new(|| hardcoded_regex(r"(?i)(token|key|sendkey|access_token)=([^&\s]+)"));
-    static BOT_RE: LazyLock<Regex> = LazyLock::new(|| hardcoded_regex(r"(?i)bot[0-9]+:[A-Za-z0-9_-]+"));
+    static BOT_RE: LazyLock<Regex> =
+        LazyLock::new(|| hardcoded_regex(r"(?i)bot[0-9]+:[A-Za-z0-9_-]+"));
     static SERVERCHAN_RE: LazyLock<Regex> = LazyLock::new(|| hardcoded_regex(r"SCT[A-Za-z0-9]+"));
 
     let sanitized = TOKEN_RE.replace_all(value, "$1=***");

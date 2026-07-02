@@ -14,10 +14,7 @@ use tower::ServiceExt;
 
 /// 创建使用临时目录的 AppContext（不启动后台调度器）
 async fn test_context() -> (Arc<AppContext>, PathBuf) {
-    let dir = std::env::temp_dir().join(format!(
-        "my-media-sub-api-test-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let dir = std::env::temp_dir().join(format!("my-media-sub-api-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
 
     let config = Config {
@@ -30,7 +27,9 @@ async fn test_context() -> (Arc<AppContext>, PathBuf) {
         data_dir: dir.clone(),
     };
 
-    let context = AppContext::new(&config).await.expect("test context init failed");
+    let context = AppContext::new(&config)
+        .await
+        .expect("test context init failed");
     (context, dir)
 }
 
@@ -46,12 +45,11 @@ async fn status(app: &axum::Router, req: Request<Body>) -> StatusCode {
 }
 
 /// 读取响应 body 为 JSON Value
-async fn json_body(
-    app: &axum::Router,
-    req: Request<Body>,
-) -> serde_json::Value {
+async fn json_body(app: &axum::Router, req: Request<Body>) -> serde_json::Value {
     let resp = app.clone().oneshot(req).await.unwrap();
-    let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20)
+        .await
+        .unwrap();
     serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null)
 }
 
@@ -238,7 +236,9 @@ async fn create_subscription_returns_201_and_can_be_fetched() {
         .await
         .unwrap();
     let created: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    let id = created["data"]["id"].as_str().expect("created sub should have id");
+    let id = created["data"]["id"]
+        .as_str()
+        .expect("created sub should have id");
     assert!(!id.is_empty());
 
     // 用 GET 能取回

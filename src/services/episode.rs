@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-use std::sync::LazyLock;
 use regex::Regex;
+use std::sync::LazyLock;
 
 /// 视频扩展名
 pub const VIDEO_EXTS: &[&str] = &[
