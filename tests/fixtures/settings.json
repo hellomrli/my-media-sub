@@ -1,0 +1,20 @@
+{
+  "app_username": "admin",
+  "app_password": "change-me",
+  "cloud_types": ["quark"],
+  "check_links": true,
+  "probe_quark_files": true,
+  "filter_bad_links": true,
+  "pansou_api_url": "",
+  "metadata_provider": "none",
+  "tmdb_api_key": "",
+  "tmdb_language": "zh-CN",
+  "quark_cookie": "",
+  "quark_signin_cookie": "",
+  "quark_save_enabled": false,
+  "quark_signin_enabled": false,
+  "quark_signin_hour": 8,
+  "quark_save_root": "",
+  "subscription_check_interval_minutes": 60,
+  "strm_access_token": "fixture-token-1234"
+}
