@@ -39,6 +39,9 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
+      - name: Run tests
+        run: cargo test --locked
+
       - name: Build release binary
         run: cargo build --release --locked
 
@@ -70,10 +73,12 @@ jobs:
           fi
           VERSION="${VERSION#v}"
           awk -v version="$VERSION" '
-            $0 == "### " version {capture=1; next}
-            capture && /^## / {exit}
-            capture && /^### / {exit}
-            capture {print}
+            /^#{2,} / {
+              v = substr($0, index($0, " ") + 1)
+              if (v == version) { capture = 1; next }
+              if (capture) exit
+            }
+            capture { print }
           ' README.md | sed '/^[[:space:]]*$/d' > release-notes.md
           if [ ! -s release-notes.md ]; then
             echo "README.md 中没有找到版本 ${VERSION} 的更新内容" >&2

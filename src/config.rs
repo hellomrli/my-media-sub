@@ -1,9 +1,9 @@
 use crate::error::{AppError, Result};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::path::PathBuf;
 
 /// 应用配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     /// 服务器配置
     pub server: ServerConfig,
@@ -12,7 +12,7 @@ pub struct Config {
 }
 
 /// 服务器配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
     /// 监听地址
     pub host: String,
@@ -29,7 +29,7 @@ impl Default for Config {
         Self {
             server: ServerConfig {
                 host: "0.0.0.0".to_string(),
-                port: 56001, // 修改为 56000 以后的端口
+                port: 56001,
                 username: "admin".to_string(),
                 password: "change-me".to_string(),
             },

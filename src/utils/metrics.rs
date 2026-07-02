@@ -1,4 +1,4 @@
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -21,7 +21,7 @@ pub struct MetricsSnapshot {
     pub push_failed: u64,
 }
 
-static GLOBAL_METRICS: Lazy<Arc<Metrics>> = Lazy::new(|| Arc::new(Metrics::default()));
+static GLOBAL_METRICS: LazyLock<Arc<Metrics>> = LazyLock::new(|| Arc::new(Metrics::default()));
 
 pub fn global_metrics() -> Arc<Metrics> {
     GLOBAL_METRICS.clone()

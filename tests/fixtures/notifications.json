@@ -1,0 +1,22 @@
+[
+  {
+    "id": "fixture-notif-001",
+    "level": "success",
+    "event": "subscription_updated",
+    "title": "订阅更新",
+    "message": "发现 2 个新文件",
+    "meta": {"subscription_id": "fixture-sub-001"},
+    "read": false,
+    "created_at": 1750000000
+  },
+  {
+    "id": "fixture-notif-002",
+    "level": "info",
+    "event": "system",
+    "title": "系统通知",
+    "message": "服务已启动",
+    "meta": {},
+    "read": true,
+    "created_at": 1750000060
+  }
+]

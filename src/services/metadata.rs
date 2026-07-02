@@ -426,6 +426,12 @@ fn metadata_score(query: &str, item: &MediaMetadata) -> i32 {
     score
 }
 
+impl Default for MetadataService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

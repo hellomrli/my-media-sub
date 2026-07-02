@@ -1,0 +1,26 @@
+[
+  {
+    "id": "fixture-sub-001",
+    "title": "测试剧集 第一季",
+    "url": "https://pan.quark.cn/s/fixture001",
+    "media_type": "series",
+    "season": 1,
+    "cloud_type": "quark",
+    "created_at": 1750000000,
+    "updated_at": 1750000000,
+    "last_checked_at": 0,
+    "rules": {}
+  },
+  {
+    "id": "fixture-sub-002",
+    "title": "测试电影",
+    "url": "https://pan.quark.cn/s/fixture002",
+    "media_type": "movie",
+    "season": 1,
+    "cloud_type": "quark",
+    "created_at": 1750000060,
+    "updated_at": 1750000060,
+    "last_checked_at": 0,
+    "rules": {}
+  }
+]

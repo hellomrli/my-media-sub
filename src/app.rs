@@ -440,6 +440,62 @@ mod tests {
         let _ = std::fs::remove_file(path);
     }
 
+    /// 确保 SETTINGS_ENV_KEYS 与 apply_env_overrides 中实际处理的 key 集合保持同步。
+    /// 如果你向 apply_env_overrides 新增了 env var，必须同时更新此测试和 SETTINGS_ENV_KEYS，
+    /// 否则前置检查会静默跳过该 key。
+    #[test]
+    fn settings_env_keys_covers_all_apply_override_keys() {
+        let handled_keys: &[&str] = &[
+            "APP_USERNAME",
+            "SERVER_USERNAME",
+            "APP_PASSWORD",
+            "SERVER_PASSWORD",
+            "QUARK_COOKIE",
+            "QUARK_SIGNIN_COOKIE",
+            "QUARK_SIGNIN_ENABLED",
+            "QUARK_SIGNIN_HOUR",
+            "WECOM_BOT_URL",
+            "WXPUSHER_APP_TOKEN",
+            "WXPUSHER_UIDS",
+            "TELEGRAM_BOT_TOKEN",
+            "TELEGRAM_CHAT_ID",
+            "BARK_URL",
+            "GOTIFY_URL",
+            "GOTIFY_TOKEN",
+            "PUSHPLUS_TOKEN",
+            "SERVERCHAN_KEY",
+            "ARIA2_RPC_URL",
+            "ARIA2_SECRET",
+            "ARIA2_MOVIE_DIR",
+            "ARIA2_SERIES_DIR",
+            "ARIA2_ANIME_DIR",
+            "STRM_ENABLED",
+            "STRM_OUTPUT_DIR",
+            "STRM_PUBLIC_BASE_URL",
+            "STRM_ACCESS_TOKEN",
+            "STRM_TOKEN_IN_URL",
+            "TMDB_API_KEY",
+            "TMDB_LANGUAGE",
+            "PANSOU_API_URL",
+        ];
+
+        for key in handled_keys {
+            assert!(
+                SETTINGS_ENV_KEYS.contains(key),
+                "apply_env_overrides 处理了 '{key}' 但 SETTINGS_ENV_KEYS 不含该 key \
+                 — 请将其加入 SETTINGS_ENV_KEYS，否则前置检查会漏掉它"
+            );
+        }
+
+        for key in SETTINGS_ENV_KEYS {
+            assert!(
+                handled_keys.contains(key),
+                "SETTINGS_ENV_KEYS 包含 '{key}' 但 apply_env_overrides 未处理该 key \
+                 — 请添加对应处理逻辑，或将其从 SETTINGS_ENV_KEYS 中移除"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn apply_env_overrides_applies_pansou_api_url_by_itself() {
         let _guard = env_lock().lock().await;

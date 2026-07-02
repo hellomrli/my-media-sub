@@ -1,13 +1,13 @@
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use reqwest::Client;
 use std::time::Duration;
 
-static DEFAULT_CLIENT: Lazy<Client> = Lazy::new(|| build_client(Duration::from_secs(30), "默认"));
-static SHORT_CLIENT: Lazy<Client> = Lazy::new(|| build_client(Duration::from_secs(10), "短超时"));
-static MEDIUM_CLIENT: Lazy<Client> =
-    Lazy::new(|| build_client(Duration::from_secs(20), "中等超时"));
-static STREAMING_CLIENT: Lazy<Client> =
-    Lazy::new(|| build_client(Duration::from_secs(300), "流式代理"));
+static DEFAULT_CLIENT: LazyLock<Client> = LazyLock::new(|| build_client(Duration::from_secs(30), "默认"));
+static SHORT_CLIENT: LazyLock<Client> = LazyLock::new(|| build_client(Duration::from_secs(10), "短超时"));
+static MEDIUM_CLIENT: LazyLock<Client> =
+    LazyLock::new(|| build_client(Duration::from_secs(20), "中等超时"));
+static STREAMING_CLIENT: LazyLock<Client> =
+    LazyLock::new(|| build_client(Duration::from_secs(300), "流式代理"));
 
 fn build_client(timeout: Duration, label: &str) -> Client {
     Client::builder()

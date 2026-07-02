@@ -3447,7 +3447,6 @@ function app() {
     selectedUpdateDescription() {
       const item = this.selectedUpdateRelease();
       if (!item) return '请选择一个 Release 版本。';
-      if (this.updateInfo && !this.updateInfo.online_update_enabled) return '在线更新已被 ONLINE_UPDATE_ENABLED=false 禁用。';
       if (!item.asset) return '该版本没有 Linux x86_64 二进制包，不能在线切换。';
       if (item.is_current) return '当前服务已经运行该版本。';
       const direction = item.is_newer ? '升级' : '回退';
@@ -3456,7 +3455,7 @@ function app() {
 
     canApplySelectedUpdate() {
       const item = this.selectedUpdateRelease();
-      return Boolean(item && item.asset && !item.is_current && this.updateInfo?.online_update_enabled && !this.updateApplying);
+      return Boolean(item && item.asset && !item.is_current && !this.updateApplying);
     },
 
     async applySelectedUpdate() {
@@ -3473,10 +3472,6 @@ function app() {
     },
 
     async applyUpdate(targetTag = null) {
-      if (this.updateInfo && !this.updateInfo.online_update_enabled) {
-        this.showNotification('info', '在线更新未启用');
-        return;
-      }
       if (!targetTag && (!this.updateInfo || !this.updateInfo.update_available)) {
         this.showNotification('info', '当前已是最新版本');
         return;
@@ -3703,13 +3698,11 @@ function app() {
 
     updateStatusLabel() {
       if (!this.updateInfo) return '未检查';
-      if (!this.updateInfo.online_update_enabled) return '未启用';
       return this.updateInfo.update_available ? '可更新' : '已最新';
     },
 
     updateStatusClass() {
       if (!this.updateInfo) return 'text-muted';
-      if (!this.updateInfo.online_update_enabled) return 'text-muted';
       return this.updateInfo.update_available ? 'text-warning' : 'text-success';
     },
 

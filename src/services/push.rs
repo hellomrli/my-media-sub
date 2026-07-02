@@ -3,7 +3,7 @@ use crate::error::{AppError, Result};
 use crate::models::{Notification, Settings};
 use crate::store::NotificationStore;
 use crate::utils::metrics::global_metrics;
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use regex::Regex;
 use reqwest::Client;
 use serde_json::json;
@@ -29,7 +29,7 @@ pub enum PushLevel {
 }
 
 impl PushLevel {
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub fn from_name(value: &str) -> Option<Self> {
         match value {
             "info" => Some(Self::Info),
             "success" => Some(Self::Success),
@@ -70,7 +70,7 @@ pub enum PushEvent {
 }
 
 impl PushEvent {
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub fn from_name(value: &str) -> Option<Self> {
         match value {
             "subscription_updated" => Some(Self::SubscriptionUpdated),
             "subscription_failed" => Some(Self::SubscriptionFailed),
@@ -542,10 +542,10 @@ where
 }
 
 fn sanitize_push_error(value: &str) -> String {
-    static TOKEN_RE: Lazy<Regex> =
-        Lazy::new(|| hardcoded_regex(r"(?i)(token|key|sendkey|access_token)=([^&\s]+)"));
-    static BOT_RE: Lazy<Regex> = Lazy::new(|| hardcoded_regex(r"(?i)bot[0-9]+:[A-Za-z0-9_-]+"));
-    static SERVERCHAN_RE: Lazy<Regex> = Lazy::new(|| hardcoded_regex(r"SCT[A-Za-z0-9]+"));
+    static TOKEN_RE: LazyLock<Regex> =
+        LazyLock::new(|| hardcoded_regex(r"(?i)(token|key|sendkey|access_token)=([^&\s]+)"));
+    static BOT_RE: LazyLock<Regex> = LazyLock::new(|| hardcoded_regex(r"(?i)bot[0-9]+:[A-Za-z0-9_-]+"));
+    static SERVERCHAN_RE: LazyLock<Regex> = LazyLock::new(|| hardcoded_regex(r"SCT[A-Za-z0-9]+"));
 
     let sanitized = TOKEN_RE.replace_all(value, "$1=***");
     let sanitized = BOT_RE.replace_all(&sanitized, "bot***");

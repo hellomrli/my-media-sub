@@ -135,12 +135,12 @@ impl JobWorker {
     async fn run_push_dispatch(&self, job_id: &str, payload: PushDispatchPayload) -> Result<()> {
         self.update_running(job_id, 10, "正在准备推送").await?;
 
-        let Some(event) = PushEvent::from_str(&payload.event) else {
+        let Some(event) = PushEvent::from_name(&payload.event) else {
             let message = format!("未知推送事件: {}", payload.event);
             self.fail_push_dispatch(job_id, message, None).await?;
             return Ok(());
         };
-        let Some(level) = PushLevel::from_str(&payload.level) else {
+        let Some(level) = PushLevel::from_name(&payload.level) else {
             let message = format!("未知推送级别: {}", payload.level);
             self.fail_push_dispatch(job_id, message, None).await?;
             return Ok(());

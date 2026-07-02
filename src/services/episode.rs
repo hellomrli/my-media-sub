@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use regex::Regex;
 
 /// 视频扩展名
@@ -26,7 +26,7 @@ fn hardcoded_regex(pattern: &str) -> Regex {
 }
 
 /// 集数提取正则模式。明确格式优先，裸数字只作为兜底并过滤年份/清晰度。
-static EPISODE_PATTERNS: Lazy<Vec<EpisodePattern>> = Lazy::new(|| {
+static EPISODE_PATTERNS: LazyLock<Vec<EpisodePattern>> = LazyLock::new(|| {
     vec![
         EpisodePattern {
             regex: hardcoded_regex(r"(?i)S(?P<season>\d{1,2})[._\-\s]*E(?P<episode>\d{1,4})"),
@@ -43,7 +43,7 @@ static EPISODE_PATTERNS: Lazy<Vec<EpisodePattern>> = Lazy::new(|| {
     ]
 });
 
-static QUALITY_PATTERNS: Lazy<Vec<(Regex, i64)>> = Lazy::new(|| {
+static QUALITY_PATTERNS: LazyLock<Vec<(Regex, i64)>> = LazyLock::new(|| {
     vec![
         (
             hardcoded_regex(r"(?i)(?:^|[^\p{L}\d])(?:8k|4320p)(?:$|[^\p{L}\d])"),
@@ -72,7 +72,7 @@ static QUALITY_PATTERNS: Lazy<Vec<(Regex, i64)>> = Lazy::new(|| {
     ]
 });
 
-static SEASON_HINT_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+static SEASON_HINT_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     vec![
         hardcoded_regex(r"(?i)S(?P<num>\d{1,2})[._\-\s]*E\d{1,4}"),
         hardcoded_regex(r"(?i)(?:^|[^\p{L}\d])S(?P<num>\d{1,2})(?:$|[^\p{L}\d])"),
@@ -82,7 +82,7 @@ static SEASON_HINT_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
     ]
 });
 
-static NON_CURRENT_COLLECTION_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+static NON_CURRENT_COLLECTION_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     vec![
         hardcoded_regex(r"(?i)(番外|剧场版|剧场|特别篇|特别版|special|ova|oad)"),
         hardcoded_regex(r"(?i)(?:^|[^\p{L}\d])sp(?:$|[^\p{L}\d])"),
