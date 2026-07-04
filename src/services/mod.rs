@@ -1,3 +1,4 @@
+pub mod download_monitor;
 pub mod episode;
 pub mod metadata;
 pub mod notification;
@@ -11,6 +12,7 @@ pub mod subscription_source_switch;
 pub mod subscription_transfer;
 pub mod transfer_rule;
 
+pub use download_monitor::DownloadMonitorService;
 pub use episode::{detect_episode, is_video_name};
 pub use metadata::MetadataService;
 pub use quark_signin::{QuarkSigninScheduler, QuarkSigninService};

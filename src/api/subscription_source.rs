@@ -71,6 +71,10 @@ pub struct ApplySourceSwitchRequest {
 pub struct ApplySourceSwitchResponse {
     success: bool,
     message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    check_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    check_error: Option<String>,
 }
 
 pub async fn apply_source_switch(
@@ -91,6 +95,8 @@ pub async fn apply_source_switch(
     let service = SubscriptionSourceSwitchService::new(quark_probe);
     service.apply_source_switch(&mut sub, &req.candidate_id)?;
 
+    sub.updated_at = crate::utils::unix_now();
+
     // 使用更新方法
     let sub_clone = sub.clone();
     ctx.subscription_store
@@ -102,10 +108,7 @@ pub async fn apply_source_switch(
     // 记录通知
     let message = format!("订阅「{}」已成功换源", sub.title);
     let mut meta: HashMap<String, Value> = HashMap::new();
-    meta.insert(
-        "subscription_id".to_string(),
-        Value::String(sub.id.clone()),
-    );
+    meta.insert("subscription_id".to_string(), Value::String(sub.id.clone()));
 
     add_notification(
         &ctx.notification_store,
@@ -117,9 +120,31 @@ pub async fn apply_source_switch(
     )
     .await?;
 
+    let (check_summary, check_error) = if cookie.trim().is_empty() {
+        (
+            None,
+            Some("未配置夸克 Cookie，已跳过换源后的立即检查".to_string()),
+        )
+    } else {
+        match ctx
+            .check_service
+            .check_subscription_with_options(&sub.id, cookie, false)
+            .await
+        {
+            Ok(result) => (Some(result.summary), None),
+            Err(error) => (None, Some(error.to_string())),
+        }
+    };
+
     Ok(Json(ApplySourceSwitchResponse {
         success: true,
-        message: "换源成功".to_string(),
+        message: if check_error.is_none() {
+            "换源成功，已立即检查订阅".to_string()
+        } else {
+            "换源成功，立即检查未完成".to_string()
+        },
+        check_summary,
+        check_error,
     }))
 }
 
@@ -159,19 +184,19 @@ pub fn routes(ctx: Arc<AppContext>) -> axum::Router {
 
     axum::Router::new()
         .route(
-            "/api/subscriptions/:id/source-candidates",
+            "/api/subscriptions/{id}/source-candidates",
             get(get_source_candidates),
         )
         .route(
-            "/api/subscriptions/:id/source-candidates/probe",
+            "/api/subscriptions/{id}/source-candidates/probe",
             post(probe_candidate),
         )
         .route(
-            "/api/subscriptions/:id/source-candidates/apply",
+            "/api/subscriptions/{id}/source-candidates/apply",
             post(apply_source_switch),
         )
         .route(
-            "/api/subscriptions/:id/source-candidates/search",
+            "/api/subscriptions/{id}/source-candidates/search",
             post(trigger_source_search),
         )
         .with_state(ctx)

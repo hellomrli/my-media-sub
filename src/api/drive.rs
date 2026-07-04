@@ -1,3 +1,14 @@
+use crate::clients::aria2::{Aria2Task, Aria2Version};
+use crate::clients::{Aria2Client, NormalizedItem, QuarkSaveClient, QuarkSigninResult};
+use crate::error::{AppError, Result};
+#[cfg(test)]
+use crate::models::Notification;
+use crate::models::Settings;
+#[cfg(test)]
+use crate::services::push::PushEvent;
+use crate::services::quark_signin::signin_message;
+use crate::services::{DownloadMonitorService, QuarkSigninService};
+use crate::store::SettingsStore;
 use axum::{
     extract::{Path as AxumPath, Query, State},
     response::IntoResponse,
@@ -5,41 +16,23 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use serde_json::{json, Value};
-use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
+#[cfg(test)]
+use std::collections::HashSet;
+use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use tracing::warn;
-
-use crate::clients::aria2::{Aria2Task, Aria2Version};
-use crate::clients::{Aria2Client, NormalizedItem, QuarkSaveClient, QuarkSigninResult};
-use crate::error::{AppError, Result};
-use crate::jobs::JobQueue;
-use crate::models::{Notification, Settings, Subscription};
-use crate::services::notification::{
-    add_notification, dispatch_push_event_for_notification, PushDispatchRequest,
-};
-use crate::services::push::{PushEvent, PushLevel};
-use crate::services::quark_signin::signin_message;
-use crate::services::subscription_progress::{
-    completion_target_episode, should_mark_completed_from_file_names,
-};
-use crate::services::QuarkSigninService;
-use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
-use crate::utils::unix_now;
 
 /// 网盘状态
 pub struct DriveState {
     pub settings_store: Arc<SettingsStore>,
-    pub subscription_store: Arc<SubscriptionStore>,
-    pub notification_store: Arc<NotificationStore>,
-    pub job_queue: Arc<JobQueue>,
     pub quark_signin_service: Arc<QuarkSigninService>,
+    pub download_monitor: Arc<DownloadMonitorService>,
     pub drive_cache: RwLock<HashMap<String, CachedDriveList>>,
-    pub notified_completed_downloads: RwLock<HashSet<String>>,
 }
 
 #[derive(Clone)]
@@ -584,7 +577,10 @@ async fn list_aria2_tasks(
 ) -> Result<Json<Aria2TasksResponse>> {
     let aria2 = aria2_client(&state.settings_store.get().await)?;
     let tasks = aria2.list_tasks(req.stopped_limit.clamp(1, 50)).await?;
-    notify_completed_downloads(&state, &tasks.stopped).await;
+    state
+        .download_monitor
+        .notify_completed_downloads(&tasks.stopped)
+        .await;
 
     Ok(Json(Aria2TasksResponse {
         success: true,
@@ -594,86 +590,7 @@ async fn list_aria2_tasks(
     }))
 }
 
-async fn notify_completed_downloads(state: &DriveState, tasks: &[Aria2Task]) {
-    let history = state.notification_store.list(true).await;
-    let pushed_downloads = state
-        .job_queue
-        .successful_push_dispatch_messages(PushEvent::DownloadCompleted.as_str())
-        .await;
-    let known_keys = state.notified_completed_downloads.read().await.clone();
-    let pending_tasks = tasks
-        .iter()
-        .filter(|task| task.status == "complete")
-        .filter(|task| !task.gid.trim().is_empty())
-        .filter(|task| {
-            download_completed_dedupe_keys(task)
-                .iter()
-                .all(|key| !known_keys.contains(key))
-        })
-        .filter(|task| !completed_download_already_recorded(&history, &pushed_downloads, task))
-        .collect::<Vec<_>>();
-
-    if pending_tasks.is_empty() {
-        return;
-    }
-
-    let mut inserted_gids = Vec::new();
-    {
-        let mut known = state.notified_completed_downloads.write().await;
-        for task in pending_tasks {
-            let keys = download_completed_dedupe_keys(task);
-            if keys.iter().any(|key| known.contains(key)) {
-                continue;
-            }
-            for key in keys {
-                known.insert(key);
-            }
-            inserted_gids.push(task.gid.clone());
-        }
-    }
-
-    for gid in inserted_gids {
-        if let Some(task) = tasks.iter().find(|task| task.gid == gid) {
-            if let Err(e) = notify_completed_download(state, task).await {
-                warn!("记录 Aria2 下载完成通知失败 {}: {}", task.gid, e);
-            }
-        }
-    }
-}
-
-async fn notify_completed_download(state: &DriveState, task: &Aria2Task) -> Result<()> {
-    let (title, message) = download_completed_title_message(task);
-    let meta = download_completed_meta(task);
-    let notification = add_notification(
-        &state.notification_store,
-        "success",
-        PushEvent::DownloadCompleted.as_str(),
-        title.clone(),
-        message.clone(),
-        meta,
-    )
-    .await?;
-    dispatch_push_event_for_notification(
-        state.settings_store.clone(),
-        state.notification_store.clone(),
-        Some(state.job_queue.clone()),
-        PushDispatchRequest {
-            notification_id: Some(notification.id),
-            event: PushEvent::DownloadCompleted,
-            title,
-            message,
-            level: PushLevel::Success,
-        },
-    )
-    .await;
-
-    if let Err(e) = complete_subscription_for_download(state, task).await {
-        warn!("根据下载完成更新订阅状态失败 {}: {}", task.gid, e);
-    }
-
-    Ok(())
-}
-
+#[cfg(test)]
 fn download_completed_title_message(task: &Aria2Task) -> (String, String) {
     let file_name = if task.file_name.trim().is_empty() {
         task.gid.as_str()
@@ -692,31 +609,7 @@ fn download_completed_title_message(task: &Aria2Task) -> (String, String) {
     (title, message)
 }
 
-fn download_completed_meta(task: &Aria2Task) -> HashMap<String, Value> {
-    HashMap::from([
-        ("gid".to_string(), json!(task.gid)),
-        ("file_name".to_string(), json!(task.file_name)),
-        ("dir".to_string(), json!(task.dir)),
-        ("total_length".to_string(), json!(task.total_length)),
-        ("completed_length".to_string(), json!(task.completed_length)),
-    ])
-}
-
-fn download_completed_dedupe_keys(task: &Aria2Task) -> Vec<String> {
-    let mut keys = Vec::with_capacity(2);
-    let gid = task.gid.trim();
-    if !gid.is_empty() {
-        keys.push(format!("gid:{}", gid));
-    }
-    keys.push(format!(
-        "file:{}\n{}\n{}",
-        task.file_name.trim(),
-        task.dir.trim(),
-        task.total_length
-    ));
-    keys
-}
-
+#[cfg(test)]
 fn completed_download_already_recorded(
     history: &[Notification],
     pushed_downloads: &HashSet<(String, String)>,
@@ -729,6 +622,7 @@ fn completed_download_already_recorded(
         })
 }
 
+#[cfg(test)]
 fn notification_matches_completed_download(
     notification: &Notification,
     task: &Aria2Task,
@@ -755,108 +649,7 @@ fn notification_matches_completed_download(
     same_file && same_dir && same_size
 }
 
-async fn complete_subscription_for_download(state: &DriveState, task: &Aria2Task) -> Result<()> {
-    let history = state.notification_store.list(true).await;
-    let gid = task.gid.trim();
-    if gid.is_empty() {
-        return Ok(());
-    }
-
-    let completed_gids = download_completed_gids(&history, gid);
-    let Some(subscription_id) = subscription_id_for_download_gid(&history, gid) else {
-        return Ok(());
-    };
-    let Some(sub) = state.subscription_store.get(&subscription_id).await else {
-        return Ok(());
-    };
-    if sub.completed || !sub.sync_download_enabled {
-        return Ok(());
-    }
-
-    let completed_files =
-        completed_subscription_download_files(&history, &subscription_id, &completed_gids);
-    if !should_mark_completed_from_file_names(&sub, &completed_files) {
-        return Ok(());
-    }
-
-    mark_subscription_completed_after_download(state, &sub, &completed_files).await?;
-    Ok(())
-}
-
-async fn mark_subscription_completed_after_download(
-    state: &DriveState,
-    sub: &Subscription,
-    completed_files: &[String],
-) -> Result<bool> {
-    let target_episode = completion_target_episode(sub);
-    let now = now_ts();
-    let updated = state
-        .subscription_store
-        .update(&sub.id, |sub| {
-            if sub.completed {
-                return;
-            }
-            sub.completed = true;
-            sub.status = "completed".to_string();
-            sub.invalid_since = None;
-            sub.last_error = String::new();
-            if let Some(target_episode) = target_episode {
-                sub.current_episode_number = sub.current_episode_number.max(target_episode);
-            }
-            if sub.total_episode_number.is_none() {
-                sub.total_episode_number = sub.rules.finish_after_episode;
-            }
-            sub.updated_at = now;
-        })
-        .await?
-        .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?;
-
-    if sub.completed || !updated.completed {
-        return Ok(false);
-    }
-
-    let total = completion_target_episode(&updated).unwrap_or(updated.current_episode_number);
-    let title = format!("订阅已完结: {}", updated.title);
-    let message = if total > 0 {
-        format!("已下载到第 {} 集", total)
-    } else {
-        "订阅已标记为完结".to_string()
-    };
-    let meta: HashMap<String, Value> = HashMap::from([
-        ("subscription_id".to_string(), json!(updated.id)),
-        ("subscription_title".to_string(), json!(updated.title)),
-        (
-            "completed_download_files".to_string(),
-            json!(completed_files),
-        ),
-    ]);
-
-    let notification = add_notification(
-        &state.notification_store,
-        "success",
-        PushEvent::SubscriptionCompleted.as_str(),
-        title.clone(),
-        message.clone(),
-        meta,
-    )
-    .await?;
-    dispatch_push_event_for_notification(
-        state.settings_store.clone(),
-        state.notification_store.clone(),
-        Some(state.job_queue.clone()),
-        PushDispatchRequest {
-            notification_id: Some(notification.id),
-            event: PushEvent::SubscriptionCompleted,
-            title,
-            message,
-            level: PushLevel::Success,
-        },
-    )
-    .await;
-
-    Ok(true)
-}
-
+#[cfg(test)]
 fn subscription_id_for_download_gid(history: &[Notification], gid: &str) -> Option<String> {
     history
         .iter()
@@ -877,17 +670,7 @@ fn subscription_id_for_download_gid(history: &[Notification], gid: &str) -> Opti
         })
 }
 
-fn download_completed_gids(history: &[Notification], current_gid: &str) -> HashSet<String> {
-    let mut gids = history
-        .iter()
-        .filter(|notification| notification.event == "download_completed")
-        .filter_map(|notification| notification.meta.get("gid").and_then(Value::as_str))
-        .map(ToString::to_string)
-        .collect::<HashSet<_>>();
-    gids.insert(current_gid.to_string());
-    gids
-}
-
+#[cfg(test)]
 fn completed_subscription_download_files(
     history: &[Notification],
     subscription_id: &str,
@@ -920,6 +703,7 @@ fn completed_subscription_download_files(
     files
 }
 
+#[cfg(test)]
 fn format_bytes(bytes: u64) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
     let mut size = bytes as f64;
@@ -934,10 +718,6 @@ fn format_bytes(bytes: u64) -> String {
     } else {
         format!("{:.2} {}", size, UNITS[unit])
     }
-}
-
-fn now_ts() -> i64 {
-    unix_now()
 }
 
 fn aria2_client(settings: &Settings) -> Result<Aria2Client> {
@@ -1212,19 +992,14 @@ async fn find_path(
 /// 创建网盘路由
 pub fn routes(
     settings_store: Arc<SettingsStore>,
-    subscription_store: Arc<SubscriptionStore>,
-    notification_store: Arc<NotificationStore>,
-    job_queue: Arc<JobQueue>,
     quark_signin_service: Arc<QuarkSigninService>,
+    download_monitor: Arc<DownloadMonitorService>,
 ) -> Router {
     let state = Arc::new(DriveState {
         settings_store,
-        subscription_store,
-        notification_store,
-        job_queue,
         quark_signin_service,
+        download_monitor,
         drive_cache: RwLock::new(HashMap::new()),
-        notified_completed_downloads: RwLock::new(HashSet::new()),
     });
 
     Router::new()

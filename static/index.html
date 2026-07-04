@@ -784,6 +784,7 @@
                       <button @click="generateSubscriptionStrm(sub.id); subscriptionActionMenuId = ''" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">生成 STRM</button>
                       <button @click="scrapeSubscriptionMetadata(sub.id); subscriptionActionMenuId = ''" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">自动刮削</button>
                       <button @click="openManualMetadataScrape(sub); subscriptionActionMenuId = ''" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">手动刮削</button>
+                      <button @click="openSourceSwitchDialog(sub); subscriptionActionMenuId = ''" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">换源</button>
                       <button @click="deleteSubscription(sub.id); subscriptionActionMenuId = ''" class="btn-danger px-3 py-1 rounded text-xs transition-colors">删除</button>
                     </div>
                   </div>
@@ -832,6 +833,7 @@
                     <button @click="generateSubscriptionStrm(sub.id); subscriptionActionMenuId = ''" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">STRM</button>
                     <button @click="scrapeSubscriptionMetadata(sub.id); subscriptionActionMenuId = ''" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">刮削</button>
                     <button @click="openManualMetadataScrape(sub); subscriptionActionMenuId = ''" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">手动</button>
+                    <button @click="openSourceSwitchDialog(sub); subscriptionActionMenuId = ''" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">换源</button>
                     <button @click="deleteSubscription(sub.id); subscriptionActionMenuId = ''" class="btn-danger col-span-2 px-2 py-1 rounded text-xs transition-colors">删除</button>
                   </div>
                 </div>
@@ -840,6 +842,55 @@
           </div>
           <div x-show="subscriptions.length === 0" class="app-panel empty-state">暂无订阅</div>
           <div x-show="subscriptions.length > 0 && filteredSubscriptions.length === 0" class="app-panel empty-state" x-text="'暂无' + subscriptionStatusLabel(subscriptionStatusTab) + '订阅'"></div>
+        </div>
+
+        <!-- 换源候选弹窗 -->
+        <div x-show="showSourceSwitchDialog" @click.self="closeSourceSwitchDialog()" @keydown.escape.window="closeSourceSwitchDialog()" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
+          <div class="app-panel dialog-panel p-6 max-w-3xl w-full max-h-[92vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="换源候选" tabindex="-1">
+            <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div class="min-w-0">
+                <h3 class="text-xl font-bold text-text">换源候选</h3>
+                <p class="mt-1 text-sm text-muted/75 truncate" x-text="sourceSwitchSubscriptionTitle"></p>
+              </div>
+              <div class="flex gap-2">
+                <button @click="loadSourceCandidates()" :disabled="sourceSwitchLoading || sourceSwitchSearching" class="btn-secondary px-3 py-2 rounded text-sm disabled:opacity-50">刷新</button>
+                <button @click="searchSourceCandidates()" :disabled="sourceSwitchSearching" class="btn-primary px-3 py-2 rounded text-sm disabled:opacity-50">
+                  <span x-show="!sourceSwitchSearching">搜索</span>
+                  <span x-show="sourceSwitchSearching">搜索中</span>
+                </button>
+              </div>
+            </div>
+
+            <div x-show="sourceSwitchError" class="mt-4 rounded border border-danger/30 bg-danger/5 p-3 text-sm text-danger break-all" x-text="sourceSwitchError"></div>
+
+            <div class="mt-5 space-y-3">
+              <div x-show="sourceSwitchLoading" class="app-panel-soft p-6 text-center text-sm text-muted/75">正在读取候选...</div>
+              <div x-show="!sourceSwitchLoading && sourceSwitchCandidates.length === 0" class="app-panel-soft p-6 text-center text-sm text-muted/75">暂无候选</div>
+              <template x-for="candidate in sourceSwitchCandidates" :key="candidate.id">
+                <div class="border border-border rounded-lg bg-app p-4">
+                  <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div class="min-w-0 space-y-2">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <span class="badge badge-primary" x-text="candidate.source || '来源'"></span>
+                        <span class="text-xs text-muted/75" x-text="sourceCandidateMeta(candidate)"></span>
+                      </div>
+                      <div class="text-sm font-medium text-text break-all" x-text="sourceCandidateNote(candidate)"></div>
+                      <div class="text-xs text-muted/75 break-all" x-text="candidate.url"></div>
+                      <div x-show="candidate.password" class="text-xs text-muted/75">提取码：<span x-text="candidate.password"></span></div>
+                    </div>
+                    <button @click="applySourceCandidate(candidate)" :disabled="sourceSwitchApplyingId === candidate.id" class="btn-primary px-3 py-2 rounded text-sm whitespace-nowrap disabled:opacity-50">
+                      <span x-show="sourceSwitchApplyingId !== candidate.id">应用</span>
+                      <span x-show="sourceSwitchApplyingId === candidate.id">应用中</span>
+                    </button>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <div class="mt-6 flex justify-end">
+              <button @click="closeSourceSwitchDialog()" class="btn-secondary px-4 py-2 rounded-lg transition-colors">关闭</button>
+            </div>
+          </div>
         </div>
 
         <!-- 后台日志页面 -->

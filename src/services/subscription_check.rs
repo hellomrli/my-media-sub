@@ -136,7 +136,8 @@ impl SubscriptionCheckService {
                         info!("为订阅 {} 找到 {} 个换源候选", sub.title, candidates.len());
 
                         // 发送通知
-                        if let Err(e) = self.notify_source_candidates_found(&sub, &candidates).await {
+                        if let Err(e) = self.notify_source_candidates_found(&sub, &candidates).await
+                        {
                             warn!("发送换源通知失败: {}", e);
                         }
 
@@ -164,7 +165,10 @@ impl SubscriptionCheckService {
                 became_invalid: true,
                 became_completed: false,
                 summary: if candidates_count > 0 {
-                    format!("链接失效: {}，已找到 {} 个替代源", probe_result.message, candidates_count)
+                    format!(
+                        "链接失效: {}，已找到 {} 个替代源",
+                        probe_result.message, candidates_count
+                    )
                 } else {
                     format!("链接失效: {}", probe_result.message)
                 },
@@ -623,9 +627,7 @@ impl SubscriptionCheckService {
 
         let quark_probe = Arc::new(crate::clients::quark::QuarkShareProbe::new(cookie));
         let source_switch_service = SubscriptionSourceSwitchService::new(quark_probe);
-        let candidates = source_switch_service
-            .search_source_candidates(sub)
-            .await?;
+        let candidates = source_switch_service.search_source_candidates(sub).await?;
 
         // 更新订阅
         let updated_candidates = candidates.clone();
