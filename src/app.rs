@@ -4,8 +4,8 @@ use crate::config::Config;
 use crate::error::Result;
 use crate::jobs::{JobQueue, JobStore};
 use crate::services::{
-    MetadataService, QuarkSigninScheduler, QuarkSigninService, SubscriptionCheckService,
-    SubscriptionScheduler, SubscriptionTransferService,
+    DownloadMonitorService, MetadataService, QuarkSigninScheduler, QuarkSigninService,
+    SubscriptionCheckService, SubscriptionScheduler, SubscriptionTransferService,
 };
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 use crate::utils::metrics::{global_metrics, Metrics};
@@ -26,6 +26,7 @@ pub struct AppContext {
     pub scheduler: Arc<SubscriptionScheduler>,
     pub quark_signin_service: Arc<QuarkSigninService>,
     pub quark_signin_scheduler: Arc<QuarkSigninScheduler>,
+    pub download_monitor: Arc<DownloadMonitorService>,
     pub metrics: Arc<Metrics>,
 }
 
@@ -101,6 +102,12 @@ impl AppContext {
         let quark_signin_scheduler = Arc::new(
             QuarkSigninScheduler::new(quark_signin_service.clone(), settings_store.clone()).await?,
         );
+        let download_monitor = Arc::new(DownloadMonitorService::new(
+            settings_store.clone(),
+            subscription_store.clone(),
+            notification_store.clone(),
+            job_queue.clone(),
+        ));
         Ok(Arc::new(Self {
             subscription_store,
             settings_store,
@@ -113,6 +120,7 @@ impl AppContext {
             scheduler,
             quark_signin_service,
             quark_signin_scheduler,
+            download_monitor,
             metrics,
         }))
     }
@@ -124,6 +132,7 @@ impl AppContext {
         if let Err(err) = self.quark_signin_scheduler.start().await {
             tracing::error!("启动夸克签到调度器失败: {}", err);
         }
+        self.download_monitor.clone().start();
         tracing::info!("✅ Services initialized");
         Ok(())
     }

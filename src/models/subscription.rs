@@ -379,6 +379,9 @@ mod tests {
             invalid_since: None,
             last_error: "".to_string(),
             rule_summary: "".to_string(),
+            source_candidates: vec![],
+            last_source_search_time: None,
+            previous_share_links: vec![],
         };
 
         let json = serde_json::to_string_pretty(&sub).unwrap();

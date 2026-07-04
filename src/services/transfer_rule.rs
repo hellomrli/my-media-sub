@@ -567,6 +567,9 @@ mod tests {
             invalid_since: None,
             last_error: String::new(),
             rule_summary: String::new(),
+            source_candidates: vec![],
+            last_source_search_time: None,
+            previous_share_links: vec![],
         }
     }
 

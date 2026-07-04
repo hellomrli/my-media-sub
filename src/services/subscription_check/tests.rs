@@ -57,6 +57,9 @@ mod tests {
             invalid_since: None,
             last_error: String::new(),
             rule_summary: String::new(),
+            source_candidates: vec![],
+            last_source_search_time: None,
+            previous_share_links: vec![],
         }
     }
 
@@ -661,6 +664,9 @@ mod tests {
             last_error: String::new(),
             rule_summary: String::new(),
             known_episodes: vec![1, 2, 11],
+            source_candidates: vec![],
+            last_source_search_time: None,
+            previous_share_links: vec![],
         };
 
         assert!(should_mark_completed_from_known_episodes(&sub, &[12]));

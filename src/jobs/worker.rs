@@ -976,6 +976,9 @@ mod tests {
             invalid_since: Some(1),
             last_error: "completed".to_string(),
             rule_summary: String::new(),
+            source_candidates: vec![],
+            last_source_search_time: None,
+            previous_share_links: vec![],
         }
     }
 

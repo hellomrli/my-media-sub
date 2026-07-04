@@ -83,6 +83,14 @@ function app() {
     subscriptionMode: 'once',  // 'once' 或 'continuous'
     subscriptionDialogTab: 'content',
     subscriptionEditingId: null,
+    showSourceSwitchDialog: false,
+    sourceSwitchSubscriptionId: '',
+    sourceSwitchSubscriptionTitle: '',
+    sourceSwitchCandidates: [],
+    sourceSwitchLoading: false,
+    sourceSwitchSearching: false,
+    sourceSwitchApplyingId: '',
+    sourceSwitchError: '',
     currentSearchResult: null,  // 当前操作的搜索结果
     metadataSearching: false,
     metadataResults: [],
@@ -2525,6 +2533,137 @@ function app() {
       } finally {
         this.scrapingAllMetadata = false;
       }
+    },
+
+    selectedSourceSwitchSubscription() {
+      return this.subscriptions.find(sub => sub.id === this.sourceSwitchSubscriptionId) || null;
+    },
+
+    async openSourceSwitchDialog(sub) {
+      this.sourceSwitchSubscriptionId = sub.id;
+      this.sourceSwitchSubscriptionTitle = this.subscriptionDisplayTitle(sub);
+      this.sourceSwitchCandidates = Array.isArray(sub.source_candidates) ? [...sub.source_candidates] : [];
+      this.sourceSwitchError = '';
+      this.sourceSwitchApplyingId = '';
+      this.showSourceSwitchDialog = true;
+      await this.loadSourceCandidates();
+    },
+
+    closeSourceSwitchDialog() {
+      this.showSourceSwitchDialog = false;
+      this.sourceSwitchSubscriptionId = '';
+      this.sourceSwitchSubscriptionTitle = '';
+      this.sourceSwitchCandidates = [];
+      this.sourceSwitchError = '';
+      this.sourceSwitchApplyingId = '';
+    },
+
+    normalizeSourceCandidatesPayload(payload) {
+      if (Array.isArray(payload)) return payload;
+      if (payload && Array.isArray(payload.data)) return payload.data;
+      return [];
+    },
+
+    async loadSourceCandidates() {
+      if (!this.sourceSwitchSubscriptionId) return;
+      this.sourceSwitchLoading = true;
+      this.sourceSwitchError = '';
+      try {
+        const response = await fetch(`/api/subscriptions/${this.sourceSwitchSubscriptionId}/source-candidates`, {cache: 'no-store'});
+        const result = await response.json().catch(() => ([]));
+        if (response.ok) {
+          this.sourceSwitchCandidates = this.normalizeSourceCandidatesPayload(result);
+        } else {
+          this.sourceSwitchError = result.message || result.error || '读取换源候选失败';
+        }
+      } catch (error) {
+        this.sourceSwitchError = '读取换源候选失败: ' + error.message;
+      } finally {
+        this.sourceSwitchLoading = false;
+      }
+    },
+
+    async searchSourceCandidates() {
+      if (!this.sourceSwitchSubscriptionId) return;
+      this.sourceSwitchSearching = true;
+      this.sourceSwitchError = '';
+      try {
+        const response = await fetch(`/api/subscriptions/${this.sourceSwitchSubscriptionId}/source-candidates/search`, {
+          method: 'POST'
+        });
+        const result = await response.json().catch(() => ([]));
+        if (response.ok) {
+          this.sourceSwitchCandidates = this.normalizeSourceCandidatesPayload(result);
+          if (this.sourceSwitchCandidates.length > 0) {
+            this.showNotification('success', `找到 ${this.sourceSwitchCandidates.length} 个换源候选`);
+          } else {
+            this.showNotification('warning', '未找到换源候选');
+          }
+          await this.loadSubscriptions();
+        } else {
+          this.sourceSwitchError = result.message || result.error || '搜索换源候选失败';
+          this.showNotification('error', this.sourceSwitchError);
+        }
+      } catch (error) {
+        this.sourceSwitchError = '搜索换源候选失败: ' + error.message;
+        this.showNotification('error', this.sourceSwitchError);
+      } finally {
+        this.sourceSwitchSearching = false;
+      }
+    },
+
+    async applySourceCandidate(candidate) {
+      if (!this.sourceSwitchSubscriptionId || !candidate || !candidate.id) return;
+      this.sourceSwitchApplyingId = candidate.id;
+      this.sourceSwitchError = '';
+      try {
+        const response = await fetch(`/api/subscriptions/${this.sourceSwitchSubscriptionId}/source-candidates/apply`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({candidate_id: candidate.id})
+        });
+        const result = await response.json().catch(() => ({}));
+        if (response.ok) {
+          this.showNotification('success', result.message || '换源成功');
+          if (result.check_summary) {
+            this.showNotification('info', result.check_summary);
+          }
+          if (result.check_error) {
+            this.showNotification('warning', result.check_error);
+          }
+          this.closeSourceSwitchDialog();
+          this.subscriptionActionMenuId = '';
+          await this.loadSubscriptions();
+          await this.loadNotifications();
+        } else {
+          this.sourceSwitchError = result.message || result.error || '应用换源失败';
+          this.showNotification('error', this.sourceSwitchError);
+        }
+      } catch (error) {
+        this.sourceSwitchError = '应用换源失败: ' + error.message;
+        this.showNotification('error', this.sourceSwitchError);
+      } finally {
+        this.sourceSwitchApplyingId = '';
+      }
+    },
+
+    sourceCandidateHost(candidate) {
+      try {
+        return new URL(candidate.url).host;
+      } catch (_) {
+        return candidate && candidate.url ? candidate.url : '-';
+      }
+    },
+
+    sourceCandidateNote(candidate) {
+      const note = (candidate && candidate.note || '').trim();
+      return note || this.sourceCandidateHost(candidate);
+    },
+
+    sourceCandidateMeta(candidate) {
+      const source = (candidate && candidate.source) || '未知来源';
+      const time = candidate && candidate.discovered_at ? this.formatTime(candidate.discovered_at) : '-';
+      return `${source} · ${time}`;
     },
 
     toggleSubscriptionActionMenu(id) {

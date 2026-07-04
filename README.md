@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/github/license/hellomrli/my-media-sub)](LICENSE)
 [![CI](https://github.com/hellomrli/my-media-sub/actions/workflows/ci.yml/badge.svg)](https://github.com/hellomrli/my-media-sub/actions/workflows/ci.yml)
 
-搜索资源、创建追更订阅、自动转存到夸克指定目录、按规则重命名、提交 Aria2 下载、生成 STRM 文件，并通过通知中心和7个推送渠道跟踪关键结果。
+搜索资源、创建追更订阅、自动转存到夸克指定目录、按规则重命名、提交 Aria2 下载、生成 STRM 文件，并在分享失效时辅助换源，通过通知中心和7个推送渠道跟踪关键结果。
 
 ---
 
@@ -16,12 +16,12 @@
 | 模块 | 能力 |
 |---|---|
 | 资源搜索 | PanSou 搜索、云盘类型过滤、失效链接过滤、夸克分享探测、一键转存或创建订阅 |
-| 订阅追更 | 手动/定时检查、起始集数过滤、同集多版本去重、完结判断与自动恢复 |
+| 订阅追更 | 手动/定时检查、起始集数过滤、同集多版本去重、完结判断与自动恢复、失效链接自动搜索换源 |
 | 自动转存 | 按媒体类型保存到电影/连续剧/动画/自定义目录，递归定位视频文件 |
 | 重命名规则 | 模板变量、正则替换、预设规则、转存前预览、已转存文件命名修复 |
 | 元数据 | TMDB 搜索、候选选择、批量刮削、年份/海报/评分/总集数同步 |
 | 夸克网盘 | Cookie 健康检测、容量读取、目录浏览/搜索/创建/重命名/删除、每日自动签到 |
-| Aria2 下载 | RPC 测试、夸克直链换取、Header 注入、提交/暂停/继续/停止/删除、下载完成通知 |
+| Aria2 下载 | RPC 测试、夸克直链换取、Header 注入、提交/暂停/继续/停止/删除、后台下载完成通知 |
 | STRM | 转存后生成本地 `.strm`，HTTPStrm 代理播放，支持 Range 请求与 Token 校验 |
 | 通知推送 | 企业微信、Telegram、WxPusher、Bark、Gotify、PushPlus、Server 酱 |
 | 后台任务 | 转存/刮削/推送统一进入任务队列，支持取消、重试、SSE 实时状态 |
@@ -53,15 +53,15 @@ docker run -d \
   ghcr.io/hellomrli/my-media-sub:latest
 ```
 
-常用镜像标签：`latest`（主分支最新）、`1.0.5`（当前稳定版）、`1.0`（1.0 系列）。
+常用镜像标签：`latest`（主分支最新）、`1.1.1`（当前稳定版）、`1.1`（1.1 系列）。
 
 ### 二进制部署
 
 从 [GitHub Releases](https://github.com/hellomrli/my-media-sub/releases/latest) 下载 Linux x86\_64 包：
 
 ```bash
-# 替换 VERSION 为实际版本号，例如 v1.0.5
-VERSION=v1.0.5
+# 替换 VERSION 为实际版本号，例如 v1.1.1
+VERSION=v1.1.1
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz"
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
 sha256sum -c "my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
@@ -238,15 +238,15 @@ MOCK_QUARK_SHARE_FIXTURE=tests/fixtures/mock_quark_share.json cargo run
 正式发布：更新 `Cargo.toml` 版本和 README 版本说明，提交后打 tag：
 
 ```bash
-git tag v1.0.5
+git tag v1.1.1
 git push origin main
-git push origin v1.0.5
+git push origin v1.1.1
 ```
 
 `v*` tag 触发：
 
 - **Release 工作流**：构建 Linux x86\_64 二进制包，打包 `static/` 和 README，生成 `.sha256`，运行测试，发布 GitHub Release。
-- **Docker 工作流**：构建并推送 `v1.0.5`、`1.0.5`、`1.0`、SHA 和 `latest` 标签镜像。
+- **Docker 工作流**：构建并推送 `v1.1.1`、`1.1.1`、`1.1`、SHA 和 `latest` 标签镜像。
 
 Release 正文从本 README 的"版本更新"中自动提取对应版本小节。
 
@@ -279,6 +279,21 @@ docs/
 ---
 
 ## 版本更新
+
+### 1.1.1
+
+- 完善失败链接自动换源闭环：订阅失效时自动保存换源候选，WebUI 可手动搜索候选并一键应用新分享链接。
+- 应用换源后服务端会立即触发一次订阅检查，不再等待 6 小时定时任务；检查仍遵守订阅和系统自动转存设置，不会强制转存。
+- 修复 Aria2 下载完成通知依赖打开网页的问题：新增后台下载完成监控服务，每 15 秒扫描 Aria2 stopped 任务并发送通知/推送。
+- Aria2 下载完成通知、订阅同步下载完结判断和下载页刷新共用同一套去重逻辑，避免后台监控和 WebUI 轮询重复通知。
+- 修复换源 API 在 Axum 0.8 下的路由参数格式，`/api/subscriptions/{id}/source-candidates/*` 可正常注册。
+- WebUI 订阅管理增加“换源”入口和候选弹窗，支持刷新候选、搜索候选、应用候选，并展示换源后立即检查结果。
+
+### 1.1.0
+
+- 新增订阅失效自动换源：失效分享会通过 PanSou 搜索替代源并保存候选。
+- 订阅模型新增 `source_candidates`、`last_source_search_time`、`previous_share_links` 字段，兼容旧数据自动补默认值。
+- 修复同集重复下载问题，已知集数和已转存集数会参与后续新增文件过滤。
 
 ### 1.0.5
 

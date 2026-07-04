@@ -80,9 +80,7 @@ impl SubscriptionSourceSwitchService {
 
         // 创建新的 probe 实例用于探测
         let probe = crate::clients::quark::QuarkShareProbe::new(cookie);
-        let share_info = probe
-            .probe(&candidate.url, &candidate.password, 100)
-            .await;
+        let share_info = probe.probe(&candidate.url, &candidate.password, 100).await;
 
         // 转换为 ProbeResult
         if share_info.ok {
@@ -125,13 +123,12 @@ impl SubscriptionSourceSwitchService {
             .find(|c| c.id == candidate_id)
             .ok_or_else(|| AppError::NotFound("候选项不存在".to_string()))?;
 
-        info!(
-            "应用换源: {} -> {}",
-            subscription.url, candidate.url
-        );
+        info!("应用换源: {} -> {}", subscription.url, candidate.url);
 
         // 保存旧链接到历史
-        subscription.previous_share_links.push(subscription.url.clone());
+        subscription
+            .previous_share_links
+            .push(subscription.url.clone());
 
         // 替换为新链接
         subscription.url = candidate.url.clone();
@@ -159,23 +156,58 @@ impl SubscriptionSourceSwitchService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
-    #[test]
-    fn test_search_keyword_with_season() {
-        let mut sub = Subscription {
+    fn test_subscription() -> Subscription {
+        Subscription {
             id: "test".to_string(),
             title: "测试剧集".to_string(),
             source_title: String::new(),
+            media_type: String::new(),
             season: 2,
+            start_episode_number: None,
+            current_episode_number: 0,
+            total_episode_number: None,
+            source_group: String::new(),
+            metadata: None,
+            cloud_type: "quark".to_string(),
             url: "".to_string(),
+            password: String::new(),
+            known_files: vec![],
+            known_file_keys: vec![],
+            known_episodes: vec![],
+            transferred_files: vec![],
+            transferred_file_keys: vec![],
+            last_probe: None,
+            last_plan_summary: String::new(),
+            notify_only: false,
+            sync_download_enabled: false,
+            sync_download_dir: String::new(),
+            strm_enabled: false,
+            enabled: true,
+            completed: false,
+            rules: Default::default(),
+            rule_preset_id: String::new(),
             created_at: 0,
             updated_at: 0,
             last_checked_at: 0,
+            last_new_files: vec![],
+            last_new_episodes: vec![],
+            last_check_summary: String::new(),
+            check_history: vec![],
+            status: "active".to_string(),
+            invalid_since: None,
+            last_error: String::new(),
+            rule_summary: String::new(),
             source_candidates: vec![],
+            last_source_search_time: None,
             previous_share_links: vec![],
-            ..Default::default()
-        };
+        }
+    }
 
+    #[test]
+    fn test_search_keyword_with_season() {
+        let sub = test_subscription();
         let keyword = if !sub.source_title.is_empty() {
             &sub.source_title
         } else {
@@ -189,5 +221,43 @@ mod tests {
         };
 
         assert_eq!(search_keyword, "测试剧集 S02");
+    }
+
+    #[test]
+    fn test_apply_source_switch_reactivates_subscription() {
+        let mut sub = test_subscription();
+        sub.url = "https://pan.quark.cn/s/old".to_string();
+        sub.password = "oldpwd".to_string();
+        sub.status = "invalid".to_string();
+        sub.invalid_since = Some(123);
+        sub.last_error = "分享已失效".to_string();
+        sub.known_files = vec!["old.mkv".to_string()];
+        sub.known_file_keys = vec!["old-key".to_string()];
+        sub.known_episodes = vec![1];
+        sub.source_candidates = vec![SourceCandidate {
+            id: "candidate-1".to_string(),
+            source: "pansou".to_string(),
+            url: "https://pan.quark.cn/s/new".to_string(),
+            password: "newpwd".to_string(),
+            note: "新资源".to_string(),
+            discovered_at: 456,
+            probe_info: None,
+        }];
+
+        let service = SubscriptionSourceSwitchService::new(Arc::new(QuarkShareProbe::new("")));
+        service
+            .apply_source_switch(&mut sub, "candidate-1")
+            .unwrap();
+
+        assert_eq!(sub.url, "https://pan.quark.cn/s/new");
+        assert_eq!(sub.password, "newpwd");
+        assert_eq!(sub.previous_share_links, vec!["https://pan.quark.cn/s/old"]);
+        assert_eq!(sub.status, "active");
+        assert_eq!(sub.invalid_since, None);
+        assert!(sub.last_error.is_empty());
+        assert!(sub.source_candidates.is_empty());
+        assert!(sub.known_files.is_empty());
+        assert!(sub.known_file_keys.is_empty());
+        assert!(sub.known_episodes.is_empty());
     }
 }
