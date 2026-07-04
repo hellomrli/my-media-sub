@@ -339,6 +339,13 @@ fn preview_subscription(req: &RenamePreviewRequest, base: Option<&Subscription>)
         invalid_since: None,
         last_error: String::new(),
         rule_summary: String::new(),
+        source_candidates: base
+            .map(|sub| sub.source_candidates.clone())
+            .unwrap_or_default(),
+        last_source_search_time: base.and_then(|sub| sub.last_source_search_time),
+        previous_share_links: base
+            .map(|sub| sub.previous_share_links.clone())
+            .unwrap_or_default(),
     }
 }
 
@@ -532,6 +539,9 @@ async fn create_subscription(
         invalid_since: None,
         last_error: String::new(),
         rule_summary,
+        source_candidates: vec![],
+        last_source_search_time: None,
+        previous_share_links: vec![],
     };
 
     let created = state.store.create(subscription).await?;

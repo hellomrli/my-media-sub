@@ -124,6 +124,32 @@ pub struct ProbeFile {
     pub file_key: String,
 }
 
+/// 换源候选项
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceCandidate {
+    /// 候选 ID
+    pub id: String,
+
+    /// 来源
+    pub source: String,
+
+    /// 分享链接
+    pub url: String,
+
+    /// 分享密码
+    pub password: String,
+
+    /// 备注信息
+    pub note: String,
+
+    /// 发现时间
+    pub discovered_at: i64,
+
+    /// 探测信息（可选）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub probe_info: Option<ProbeResult>,
+}
+
 /// 订阅（与 Python JSON 完全兼容）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Subscription {
@@ -276,6 +302,18 @@ pub struct Subscription {
     /// 规则摘要（视图字段，由 Python 动态生成）
     #[serde(default)]
     pub rule_summary: String,
+
+    /// 换源候选列表（链接失效时自动搜索并填充）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_candidates: Vec<SourceCandidate>,
+
+    /// 上次搜索换源时间
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_source_search_time: Option<i64>,
+
+    /// 历史分享链接（换源时保存旧链接）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_share_links: Vec<String>,
 }
 
 // 默认值辅助函数

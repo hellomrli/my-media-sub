@@ -7,6 +7,7 @@ pub mod push;
 pub mod search;
 pub mod settings;
 pub mod strm;
+pub mod subscription_source;
 pub mod subscriptions;
 pub mod transfer;
 pub mod update;
@@ -213,6 +214,7 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
             settings_store,
             context.notification_store.clone(),
         ))
+        .merge(subscription_source::routes(context.clone()))
         .fallback_service(serve_static)
         .layer(middleware::from_fn_with_state(auth_state, basic_auth))
 }

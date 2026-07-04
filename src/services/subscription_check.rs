@@ -128,6 +128,33 @@ impl SubscriptionCheckService {
             // 探测失败，标记为失效
             self.mark_subscription_invalid(&sub, &probe_result.message)
                 .await?;
+
+            // 【新增】自动搜索换源候选
+            let candidates_count = if self.should_search_source_candidates(&sub).await {
+                match self.search_and_save_candidates(&sub, cookie).await {
+                    Ok(candidates) if !candidates.is_empty() => {
+                        info!("为订阅 {} 找到 {} 个换源候选", sub.title, candidates.len());
+
+                        // 发送通知
+                        if let Err(e) = self.notify_source_candidates_found(&sub, &candidates).await {
+                            warn!("发送换源通知失败: {}", e);
+                        }
+
+                        candidates.len()
+                    }
+                    Ok(_) => {
+                        info!("未找到换源候选");
+                        0
+                    }
+                    Err(e) => {
+                        warn!("搜索换源候选失败: {}", e);
+                        0
+                    }
+                }
+            } else {
+                0
+            };
+
             return Ok(CheckResult {
                 subscription_id: sub.id.clone(),
                 subscription_title: sub.title.clone(),
@@ -136,7 +163,11 @@ impl SubscriptionCheckService {
                 details: CheckDetails::default(),
                 became_invalid: true,
                 became_completed: false,
-                summary: format!("链接失效: {}", probe_result.message),
+                summary: if candidates_count > 0 {
+                    format!("链接失效: {}，已找到 {} 个替代源", probe_result.message, candidates_count)
+                } else {
+                    format!("链接失效: {}", probe_result.message)
+                },
             });
         }
 
@@ -567,6 +598,96 @@ impl SubscriptionCheckService {
             },
         )
         .await;
+    }
+
+    /// 判断是否应该搜索换源候选
+    async fn should_search_source_candidates(&self, sub: &Subscription) -> bool {
+        // 如果最近 24 小时内已经搜索过，跳过
+        if let Some(last_search) = sub.last_source_search_time {
+            let now = unix_now();
+            if now - last_search < 86400 {
+                info!("订阅 {} 最近 24 小时内已搜索换源，跳过", sub.title);
+                return false;
+            }
+        }
+        true
+    }
+
+    /// 搜索并保存候选项
+    async fn search_and_save_candidates(
+        &self,
+        sub: &Subscription,
+        cookie: &str,
+    ) -> Result<Vec<crate::models::subscription::SourceCandidate>> {
+        use crate::services::subscription_source_switch::SubscriptionSourceSwitchService;
+
+        let quark_probe = Arc::new(crate::clients::quark::QuarkShareProbe::new(cookie));
+        let source_switch_service = SubscriptionSourceSwitchService::new(quark_probe);
+        let candidates = source_switch_service
+            .search_source_candidates(sub)
+            .await?;
+
+        // 更新订阅
+        let updated_candidates = candidates.clone();
+        let now = unix_now();
+        self.subscription_store
+            .update(&sub.id, |s| {
+                s.source_candidates = updated_candidates;
+                s.last_source_search_time = Some(now);
+            })
+            .await?;
+
+        Ok(candidates)
+    }
+
+    /// 发送换源候选通知
+    async fn notify_source_candidates_found(
+        &self,
+        sub: &Subscription,
+        candidates: &[crate::models::subscription::SourceCandidate],
+    ) -> Result<()> {
+        let title = format!("订阅链接失效: {}", sub.title);
+        let message = format!(
+            "订阅「{}」链接失效，已自动找到 {} 个替代源，请在 WebUI 中选择换源。",
+            sub.title,
+            candidates.len()
+        );
+
+        let mut meta = std::collections::HashMap::new();
+        meta.insert(
+            "subscription_id".to_string(),
+            serde_json::Value::String(sub.id.clone()),
+        );
+        meta.insert(
+            "candidates_count".to_string(),
+            serde_json::Value::String(candidates.len().to_string()),
+        );
+
+        let notification = add_notification(
+            &self.notification_store,
+            "warning",
+            "subscription_invalid_with_candidates",
+            title.clone(),
+            message.clone(),
+            meta,
+        )
+        .await;
+
+        dispatch_push_event_for_notification(
+            self.settings_store.clone(),
+            self.notification_store.clone(),
+            self.job_queue.clone(),
+            PushDispatchRequest {
+                notification_id: notification.ok().map(|n| n.id),
+                event: PushEvent::SubscriptionFailed,
+                title,
+                message,
+                level: PushLevel::Warning,
+            },
+        )
+        .await;
+
+        Ok(())
     }
 }
 
