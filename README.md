@@ -53,15 +53,15 @@ docker run -d \
   ghcr.io/hellomrli/my-media-sub:latest
 ```
 
-常用镜像标签：`latest`（主分支最新）、`1.1.1`（当前稳定版）、`1.1`（1.1 系列）。
+常用镜像标签：`latest`（主分支最新）、`1.1.2`（当前稳定版）、`1.1`（1.1 系列）。
 
 ### 二进制部署
 
 从 [GitHub Releases](https://github.com/hellomrli/my-media-sub/releases/latest) 下载 Linux x86\_64 包：
 
 ```bash
-# 替换 VERSION 为实际版本号，例如 v1.1.1
-VERSION=v1.1.1
+# 替换 VERSION 为实际版本号，例如 v1.1.2
+VERSION=v1.1.2
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz"
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
 sha256sum -c "my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
@@ -238,15 +238,15 @@ MOCK_QUARK_SHARE_FIXTURE=tests/fixtures/mock_quark_share.json cargo run
 正式发布：更新 `Cargo.toml` 版本和 README 版本说明，提交后打 tag：
 
 ```bash
-git tag v1.1.1
+git tag v1.1.2
 git push origin main
-git push origin v1.1.1
+git push origin v1.1.2
 ```
 
 `v*` tag 触发：
 
 - **Release 工作流**：构建 Linux x86\_64 二进制包，打包 `static/` 和 README，生成 `.sha256`，运行测试，发布 GitHub Release。
-- **Docker 工作流**：构建并推送 `v1.1.1`、`1.1.1`、`1.1`、SHA 和 `latest` 标签镜像。
+- **Docker 工作流**：构建并推送 `v1.1.2`、`1.1.2`、`1.1`、SHA 和 `latest` 标签镜像。
 
 Release 正文从本 README 的"版本更新"中自动提取对应版本小节。
 
@@ -279,6 +279,12 @@ docs/
 ---
 
 ## 版本更新
+
+### 1.1.2
+
+- 修复换源搜索没有使用自定义 PanSou API 地址的问题，手动搜索候选和订阅失效后的自动候选搜索都会读取 `pansou_api_url` 配置。
+- 优化换源搜索关键词：同时搜索原始标题、订阅标题、元数据标题和清洗后的标题，并补充 `S02`、`Season 2`、`第2季`、`第二季` 等季度变体。
+- 换源候选搜索会合并多轮 PanSou 结果并按链接去重，减少中文资源标题格式差异导致的无结果问题。
 
 ### 1.1.1
 
