@@ -2,15 +2,36 @@ macro_rules! subscription_check_file_filter_methods {
     () => {
     /// 找出新增文件
     fn find_new_files(&self, sub: &Subscription, files: &[ProbeFile]) -> Vec<ProbeFile> {
+        // 【新增】收集已转存的集数（包括 known_episodes 和 transferred_files）
+        let mut known_episode_set = sub.known_episodes.iter().copied().collect::<HashSet<i32>>();
+
+        // 从已转存文件名中提取集数，补充到 known_episode_set
+        if sub.media_type != "movie" {
+            for transferred_file in &sub.transferred_files {
+                if let Some(key) = episode_video_key(transferred_file, sub.season) {
+                    known_episode_set.insert(key.1);
+                }
+            }
+        }
+
         let eligible_indices: Vec<usize> = files
             .iter()
             .enumerate()
             .filter_map(|(index, file)| {
+                // 【修改】检查集数是否已在 known_episode_set 中
+                if sub.media_type != "movie" {
+                    if let Some(key) = episode_video_key(&file.name, sub.season) {
+                        if known_episode_set.contains(&key.1) {
+                            // 集数已转存，跳过
+                            return None;
+                        }
+                    }
+                }
+
                 (!file.is_dir
                     && Self::is_current_subscription_season_file(sub, file)
                     && !sub.known_file_keys.contains(&file.file_key)
-                    && !self.is_before_start_episode(sub, &file.name)
-                    && self.known_episode_video_reason(sub, file).is_none())
+                    && !self.is_before_start_episode(sub, &file.name))
                 .then_some(index)
             })
             .collect();
