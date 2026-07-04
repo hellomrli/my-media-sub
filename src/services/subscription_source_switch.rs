@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::info;
 
@@ -14,8 +15,15 @@ pub struct SubscriptionSourceSwitchService {
 
 impl SubscriptionSourceSwitchService {
     pub fn new(_quark_probe: Arc<QuarkShareProbe>) -> Self {
+        Self::with_pansou_api_url(_quark_probe, None)
+    }
+
+    pub fn with_pansou_api_url(
+        _quark_probe: Arc<QuarkShareProbe>,
+        pansou_api_url: Option<String>,
+    ) -> Self {
         Self {
-            pansou_client: PanSouClient::default(),
+            pansou_client: PanSouClient::new(pansou_api_url),
         }
     }
 
@@ -26,45 +34,42 @@ impl SubscriptionSourceSwitchService {
     ) -> Result<Vec<SourceCandidate>> {
         info!("为订阅 {} 搜索换源候选", subscription.title);
 
-        // 构建搜索关键词（优先使用原标题，回退到当前标题）
-        let keyword = if !subscription.source_title.is_empty() {
-            &subscription.source_title
-        } else {
-            &subscription.title
-        };
-
-        // 如果是剧集，添加季度信息
-        let search_keyword = if subscription.season > 0 {
-            format!("{} S{:02}", keyword, subscription.season)
-        } else {
-            keyword.to_string()
-        };
-
-        info!("搜索关键词: {}", search_keyword);
-
-        // 调用 PanSou 搜索
         let cloud_types = vec!["quark".to_string()];
-        let search_results = self
-            .pansou_client
-            .search(&search_keyword, &cloud_types, 10)
-            .await?;
-
-        info!("找到 {} 个搜索结果", search_results.len());
-
-        // 转换为候选项
         let mut candidates = Vec::new();
-        for result in search_results {
-            let candidate_id = result.unique_id.clone();
+        let mut seen_urls = HashSet::new();
 
-            candidates.push(SourceCandidate {
-                id: candidate_id,
-                source: result.source,
-                url: result.url,
-                password: result.password,
-                note: result.note,
-                discovered_at: unix_now(),
-                probe_info: None, // 稍后按需探测
-            });
+        for keyword in source_search_keywords(subscription) {
+            info!("PanSou 换源搜索关键词: {}", keyword);
+            let search_results = self
+                .pansou_client
+                .search(&keyword, &cloud_types, 20)
+                .await?;
+            info!(
+                "关键词 {} 找到 {} 个 PanSou 结果",
+                keyword,
+                search_results.len()
+            );
+
+            for result in search_results {
+                let url = result.url.trim().to_string();
+                if url.is_empty() || !seen_urls.insert(url.clone()) {
+                    continue;
+                }
+
+                candidates.push(SourceCandidate {
+                    id: result.unique_id,
+                    source: result.source,
+                    url,
+                    password: result.password,
+                    note: result.note,
+                    discovered_at: unix_now(),
+                    probe_info: None,
+                });
+
+                if candidates.len() >= 20 {
+                    return Ok(candidates);
+                }
+            }
         }
 
         Ok(candidates)
@@ -153,6 +158,89 @@ impl SubscriptionSourceSwitchService {
     }
 }
 
+fn source_search_keywords(subscription: &Subscription) -> Vec<String> {
+    let mut titles = Vec::new();
+    push_unique(&mut titles, &subscription.source_title);
+    push_unique(&mut titles, &subscription.title);
+    if let Some(metadata) = &subscription.metadata {
+        push_unique(&mut titles, &metadata.title);
+        push_unique(&mut titles, &metadata.original_title);
+    }
+
+    let mut base_titles = Vec::new();
+    for title in titles {
+        push_unique(&mut base_titles, &clean_search_title(&title));
+        push_unique(&mut base_titles, &title);
+    }
+
+    let season = if subscription.media_type == "movie" {
+        0
+    } else {
+        subscription.season.max(1)
+    };
+    let mut keywords = Vec::new();
+    for title in base_titles {
+        push_unique(&mut keywords, &title);
+        if season > 0 {
+            push_unique(&mut keywords, &format!("{} S{:02}", title, season));
+            push_unique(&mut keywords, &format!("{} Season {}", title, season));
+            push_unique(&mut keywords, &format!("{} 第{}季", title, season));
+            if let Some(chinese) = chinese_season_number(season) {
+                push_unique(&mut keywords, &format!("{} 第{}季", title, chinese));
+            }
+        }
+    }
+
+    keywords
+}
+
+fn clean_search_title(title: &str) -> String {
+    let mut output = String::new();
+    let mut bracket_depth = 0usize;
+    for ch in title.chars() {
+        match ch {
+            '[' | '【' | '(' | '（' => bracket_depth += 1,
+            ']' | '】' | ')' | '）' => bracket_depth = bracket_depth.saturating_sub(1),
+            '.' | '_' | '-' => {
+                if bracket_depth == 0 {
+                    output.push(' ');
+                }
+            }
+            _ if bracket_depth == 0 => output.push(ch),
+            _ => {}
+        }
+    }
+    normalize_spaces(&output)
+}
+
+fn normalize_spaces(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn push_unique(items: &mut Vec<String>, value: &str) {
+    let value = normalize_spaces(value);
+    if value.is_empty() || items.iter().any(|item| item == &value) {
+        return;
+    }
+    items.push(value);
+}
+
+fn chinese_season_number(season: i32) -> Option<&'static str> {
+    match season {
+        1 => Some("一"),
+        2 => Some("二"),
+        3 => Some("三"),
+        4 => Some("四"),
+        5 => Some("五"),
+        6 => Some("六"),
+        7 => Some("七"),
+        8 => Some("八"),
+        9 => Some("九"),
+        10 => Some("十"),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,21 +294,24 @@ mod tests {
     }
 
     #[test]
-    fn test_search_keyword_with_season() {
+    fn test_source_search_keywords_include_plain_title_before_season_variants() {
         let sub = test_subscription();
-        let keyword = if !sub.source_title.is_empty() {
-            &sub.source_title
-        } else {
-            &sub.title
-        };
+        let keywords = source_search_keywords(&sub);
 
-        let search_keyword = if sub.season > 0 {
-            format!("{} S{:02}", keyword, sub.season)
-        } else {
-            keyword.to_string()
-        };
+        assert_eq!(keywords[0], "测试剧集");
+        assert!(keywords.contains(&"测试剧集 S02".to_string()));
+        assert!(keywords.contains(&"测试剧集 第二季".to_string()));
+    }
 
-        assert_eq!(search_keyword, "测试剧集 S02");
+    #[test]
+    fn test_source_search_keywords_clean_subtitle_group() {
+        let mut sub = test_subscription();
+        sub.source_title = "【字幕组】 测试剧集 - 1080p".to_string();
+
+        let keywords = source_search_keywords(&sub);
+
+        assert!(keywords.contains(&"测试剧集 1080p".to_string()));
+        assert!(keywords.contains(&"测试剧集 1080p S02".to_string()));
     }
 
     #[test]

@@ -155,6 +155,7 @@ pub async fn trigger_source_search(
 ) -> Result<Json<Vec<SourceCandidate>>> {
     let settings = ctx.settings_store.get().await;
     let cookie = &settings.quark_cookie;
+    let pansou_api_url = pansou_api_url_option(&settings.pansou_api_url);
 
     let sub = ctx
         .subscription_store
@@ -163,7 +164,7 @@ pub async fn trigger_source_search(
         .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?;
 
     let quark_probe = Arc::new(QuarkShareProbe::new(cookie.clone()));
-    let service = SubscriptionSourceSwitchService::new(quark_probe);
+    let service = SubscriptionSourceSwitchService::with_pansou_api_url(quark_probe, pansou_api_url);
     let candidates = service.search_source_candidates(&sub).await?;
 
     // 更新订阅
@@ -200,4 +201,13 @@ pub fn routes(ctx: Arc<AppContext>) -> axum::Router {
             post(trigger_source_search),
         )
         .with_state(ctx)
+}
+
+fn pansou_api_url_option(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
 }
