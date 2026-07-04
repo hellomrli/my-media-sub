@@ -625,8 +625,11 @@ impl SubscriptionCheckService {
     ) -> Result<Vec<crate::models::subscription::SourceCandidate>> {
         use crate::services::subscription_source_switch::SubscriptionSourceSwitchService;
 
+        let settings = self.settings_store.get().await;
+        let pansou_api_url = pansou_api_url_option(&settings.pansou_api_url);
         let quark_probe = Arc::new(crate::clients::quark::QuarkShareProbe::new(cookie));
-        let source_switch_service = SubscriptionSourceSwitchService::new(quark_probe);
+        let source_switch_service =
+            SubscriptionSourceSwitchService::with_pansou_api_url(quark_probe, pansou_api_url);
         let candidates = source_switch_service.search_source_candidates(sub).await?;
 
         // 更新订阅
@@ -690,6 +693,15 @@ impl SubscriptionCheckService {
         .await;
 
         Ok(())
+    }
+}
+
+fn pansou_api_url_option(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
     }
 }
 
