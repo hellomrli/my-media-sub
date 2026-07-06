@@ -8,8 +8,8 @@ use crate::error::{AppError, Result};
 use crate::jobs::{JobQueue, SubscriptionTransferPayload};
 use crate::models::subscription::{CheckHistoryItem, ProbeFile, ProbeResult, Subscription};
 use crate::services::episode::{
-    episode_video_key, is_better_episode_duplicate_candidate, matches_subscription_season,
-    normalize_duplicate_episode_strategy, EpisodeDuplicateCandidate,
+    episode_video_key, is_better_episode_duplicate_candidate, is_video_name,
+    matches_subscription_season, normalize_duplicate_episode_strategy, EpisodeDuplicateCandidate,
 };
 use crate::services::notification::{
     add_notification, dispatch_push_event_for_notification, PushDispatchRequest,
