@@ -541,10 +541,17 @@ async fn collect_share_transfer_files(
                 continue;
             }
 
-            if sub.media_type != "movie"
-                && !matches_subscription_season(&name, &parent_path, sub.season)
-            {
+            if !crate::services::is_video_name(&name) {
                 continue;
+            }
+
+            if sub.media_type != "movie" {
+                if !matches_subscription_season(&name, &parent_path, sub.season) {
+                    continue;
+                }
+                if episode_video_key(&name, sub.season).is_none() {
+                    continue;
+                }
             }
 
             if !targets.matches_name(sub, &name) {

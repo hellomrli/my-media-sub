@@ -139,20 +139,26 @@ impl SubscriptionSourceSwitchService {
         subscription.url = candidate.url.clone();
         subscription.password = candidate.password.clone();
 
-        // 重置失效状态
+        // 重置失效状态，并保留追更/转存进度。
+        // 候选换源会在应用后立即触发一次订阅检查；如果此处清空 known_episodes，
+        // 新源中的历史集数会被识别为新增并进入自动转存队列。默认与手动编辑
+        // 分享链接的换源行为保持一致：连续剧/动画从当前进度的下一集继续。
         subscription.status = "active".to_string();
         subscription.invalid_since = None;
         subscription.last_error = String::new();
+        subscription.completed = false;
+        subscription.last_probe = None;
+        subscription.last_new_files.clear();
+        subscription.last_new_episodes.clear();
+        subscription.last_check_summary = "已更换订阅资源，等待下次检查".to_string();
+        if subscription.media_type != "movie" && subscription.current_episode_number > 0 {
+            subscription.start_episode_number = Some(subscription.current_episode_number + 1);
+        }
 
         // 清空候选列表
         subscription.source_candidates.clear();
 
-        // 清空已知文件（因为换了新源，需要重新检查）
-        subscription.known_files.clear();
-        subscription.known_file_keys.clear();
-        subscription.known_episodes.clear();
-
-        info!("换源成功，已重置订阅状态");
+        info!("换源成功，已保留追更进度并重置订阅状态");
 
         Ok(())
     }
@@ -322,9 +328,23 @@ mod tests {
         sub.status = "invalid".to_string();
         sub.invalid_since = Some(123);
         sub.last_error = "分享已失效".to_string();
+        sub.media_type = "anime".to_string();
+        sub.current_episode_number = 12;
+        sub.start_episode_number = Some(10);
         sub.known_files = vec!["old.mkv".to_string()];
         sub.known_file_keys = vec!["old-key".to_string()];
-        sub.known_episodes = vec![1];
+        sub.known_episodes = vec![1, 12];
+        sub.transferred_files = vec!["old.mkv".to_string()];
+        sub.transferred_file_keys = vec!["ep:12".to_string()];
+        sub.last_probe = Some(ProbeResult {
+            ok: true,
+            state: "success".to_string(),
+            message: "old".to_string(),
+            files: vec![],
+        });
+        sub.last_new_files = vec!["old.mkv".to_string()];
+        sub.last_new_episodes = vec![12];
+        sub.last_check_summary = "旧检查结果".to_string();
         sub.source_candidates = vec![SourceCandidate {
             id: "candidate-1".to_string(),
             source: "pansou".to_string(),
@@ -346,9 +366,16 @@ mod tests {
         assert_eq!(sub.status, "active");
         assert_eq!(sub.invalid_since, None);
         assert!(sub.last_error.is_empty());
+        assert!(!sub.completed);
+        assert_eq!(sub.start_episode_number, Some(13));
         assert!(sub.source_candidates.is_empty());
-        assert!(sub.known_files.is_empty());
-        assert!(sub.known_file_keys.is_empty());
-        assert!(sub.known_episodes.is_empty());
+        assert_eq!(sub.known_files, vec!["old.mkv"]);
+        assert_eq!(sub.known_file_keys, vec!["old-key"]);
+        assert_eq!(sub.known_episodes, vec![1, 12]);
+        assert_eq!(sub.transferred_file_keys, vec!["ep:12"]);
+        assert!(sub.last_probe.is_none());
+        assert!(sub.last_new_files.is_empty());
+        assert!(sub.last_new_episodes.is_empty());
+        assert_eq!(sub.last_check_summary, "已更换订阅资源，等待下次检查");
     }
 }

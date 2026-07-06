@@ -161,7 +161,7 @@ mod tests {
             .map(|file| file.name)
             .collect::<Vec<_>>();
 
-        assert_eq!(new_names, vec!["Show.S01E05.mkv", "special.mkv"]);
+        assert_eq!(new_names, vec!["Show.S01E05.mkv"]);
     }
 
     #[test]
@@ -213,6 +213,73 @@ mod tests {
         let new_files = service.find_new_files(&sub, &files);
 
         assert!(new_files.is_empty());
+    }
+
+    #[test]
+    fn test_find_new_files_skips_non_episode_extras_and_non_videos() {
+        let (service, _, _) = make_service();
+        let mut sub = make_subscription();
+        sub.media_type = "anime".to_string();
+        sub.start_episode_number = Some(181);
+
+        let files = vec![
+            probe_file("181 4K.mp4", "", "ep181-4k"),
+            probe_file("《不凡》MV：管它快意或失落 重要的是 我还是我.mp4", "", "mv1"),
+            probe_file("不凡-王铮亮【《魔道争锋》片头】.修炼尘世中 千万年仿佛一刹.mp4", "", "op1"),
+            probe_file("Show.S01E182.OP1.mp4", "", "op-with-episode"),
+            probe_file("Show.S01E183.片尾曲.mp4", "", "ed-song"),
+            probe_file("4K.mp4", "", "quality-only"),
+            probe_file("欢迎各大影视站长来谈商务《网盘推广》.txt", "", "ad-txt"),
+        ];
+
+        let new_names = service
+            .find_new_files(&sub, &files)
+            .into_iter()
+            .map(|file| file.name)
+            .collect::<Vec<_>>();
+
+        assert_eq!(new_names, vec!["181 4K.mp4"]);
+    }
+
+    #[test]
+    fn test_find_new_files_respects_exclude_keywords() {
+        let (service, _, _) = make_service();
+        let mut sub = make_subscription();
+        sub.rules.exclude_keywords.push("特别篇".to_string());
+
+        let files = vec![
+            probe_file("Show.S01E05.mkv", "", "ep5"),
+            probe_file("Show.S01E06.特别篇.mkv", "", "special-ep6"),
+        ];
+
+        let new_names = service
+            .find_new_files(&sub, &files)
+            .into_iter()
+            .map(|file| file.name)
+            .collect::<Vec<_>>();
+
+        assert_eq!(new_names, vec!["Show.S01E05.mkv"]);
+    }
+
+    #[test]
+    fn test_derived_content_filter_does_not_match_plain_substrings() {
+        let (service, _, _) = make_service();
+        let sub = make_subscription();
+        let files = vec![
+            probe_file("Show.S01E05.Encoded.WEB-DL.mkv", "", "encoded"),
+            probe_file("Show.S01E06.Topaz.WEB-DL.mkv", "", "topaz"),
+        ];
+
+        let new_names = service
+            .find_new_files(&sub, &files)
+            .into_iter()
+            .map(|file| file.name)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            new_names,
+            vec!["Show.S01E05.Encoded.WEB-DL.mkv", "Show.S01E06.Topaz.WEB-DL.mkv"]
+        );
     }
 
     #[test]

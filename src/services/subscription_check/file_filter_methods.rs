@@ -1,5 +1,97 @@
 macro_rules! subscription_check_file_filter_methods {
     () => {
+    fn rule_display_name(name: &str, ignore_extensions: bool) -> String {
+        if !ignore_extensions {
+            return name.to_string();
+        }
+
+        std::path::Path::new(name)
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or(name)
+            .to_string()
+    }
+
+    fn normalized_rule_words(words: &[String]) -> Vec<String> {
+        words
+            .iter()
+            .map(|word| word.trim().to_ascii_lowercase())
+            .filter(|word| !word.is_empty())
+            .collect()
+    }
+
+    fn contains_any_rule_word(value: &str, words: &[String]) -> bool {
+        words.iter().any(|word| value.contains(word))
+    }
+
+    fn looks_like_derived_content(value: &str) -> bool {
+        const CJK_DERIVED_KEYWORDS: &[&str] = &[
+            "片头", "片尾", "片花", "插曲", "主题曲", "片尾曲", "片头曲", "花絮",
+            "预告", "彩蛋", "特辑",
+        ];
+        if CJK_DERIVED_KEYWORDS
+            .iter()
+            .any(|keyword| value.contains(keyword))
+        {
+            return true;
+        }
+
+        value
+            .split(|ch: char| !ch.is_ascii_alphanumeric())
+            .filter(|token| !token.is_empty())
+            .any(|token| {
+                matches!(
+                    token,
+                    "mv" | "ost" | "op" | "ed" | "reaction" | "trailer" | "preview"
+                ) || token.strip_prefix("op").is_some_and(|suffix| {
+                    !suffix.is_empty() && suffix.chars().all(|ch| ch.is_ascii_digit())
+                }) || token.strip_prefix("ed").is_some_and(|suffix| {
+                    !suffix.is_empty() && suffix.chars().all(|ch| ch.is_ascii_digit())
+                })
+            })
+    }
+
+
+    fn transfer_rule_skip_reason(&self, sub: &Subscription, file: &ProbeFile) -> Option<String> {
+        if !is_video_name(&file.name) {
+            return Some("非视频文件".to_string());
+        }
+
+        let comparable = Self::rule_display_name(&file.name, sub.rules.ignore_extensions)
+            .to_ascii_lowercase();
+
+        if sub.media_type != "movie" && Self::looks_like_derived_content(&comparable) {
+            return Some("疑似衍生内容".to_string());
+        }
+
+        if sub.media_type != "movie" && episode_video_key(&file.name, sub.season).is_none() {
+            return Some("无法识别剧集集数".to_string());
+        }
+
+        let include_words = Self::normalized_rule_words(&sub.rules.include_keywords);
+        if !include_words.is_empty() && !Self::contains_any_rule_word(&comparable, &include_words) {
+            return Some("不含包含关键词".to_string());
+        }
+
+        let exclude_words = Self::normalized_rule_words(&sub.rules.exclude_keywords);
+        if !exclude_words.is_empty() && Self::contains_any_rule_word(&comparable, &exclude_words) {
+            return Some("命中排除关键词".to_string());
+        }
+
+        let match_regex = sub.rules.match_regex.trim();
+        if !match_regex.is_empty() {
+            match regex::Regex::new(match_regex) {
+                Ok(re) if !re.is_match(&comparable) => {
+                    return Some("未命中匹配正则".to_string());
+                }
+                Err(err) => return Some(format!("match_regex 无效：{}", err)),
+                _ => {}
+            }
+        }
+
+        None
+    }
+
     /// 找出新增文件
     fn find_new_files(&self, sub: &Subscription, files: &[ProbeFile]) -> Vec<ProbeFile> {
         // 【新增】收集已转存的集数（包括 known_episodes 和 transferred_files）
@@ -31,7 +123,8 @@ macro_rules! subscription_check_file_filter_methods {
                 (!file.is_dir
                     && Self::is_current_subscription_season_file(sub, file)
                     && !sub.known_file_keys.contains(&file.file_key)
-                    && !self.is_before_start_episode(sub, &file.name))
+                    && !self.is_before_start_episode(sub, &file.name)
+                    && self.transfer_rule_skip_reason(sub, file).is_none())
                 .then_some(index)
             })
             .collect();
@@ -71,6 +164,9 @@ macro_rules! subscription_check_file_filter_methods {
                 continue;
             }
             if self.is_before_start_episode(sub, &file.name) {
+                continue;
+            }
+            if self.transfer_rule_skip_reason(sub, file).is_some() {
                 continue;
             }
             let episode = extract_episode_number(&file.name);
@@ -225,7 +321,8 @@ macro_rules! subscription_check_file_filter_methods {
                     && Self::is_current_subscription_season_file(sub, file)
                     && !sub.known_file_keys.contains(&file.file_key)
                     && !self.is_before_start_episode(sub, &file.name)
-                    && self.known_episode_video_reason(sub, file).is_none())
+                    && self.known_episode_video_reason(sub, file).is_none()
+                    && self.transfer_rule_skip_reason(sub, file).is_none())
                 .then_some(index)
             })
             .collect();
@@ -236,25 +333,27 @@ macro_rules! subscription_check_file_filter_methods {
             let episode = extract_episode_number(&file.name);
             let (action, reason) = if file.is_dir {
                 details.skipped_directory_count += 1;
-                ("skip", "目录不参与订阅检查")
+                ("skip", "目录不参与订阅检查".to_string())
             } else if sub.known_file_keys.contains(&file.file_key) {
                 details.known_count += 1;
-                ("known", "已知文件")
+                ("known", "已知文件".to_string())
             } else if !Self::is_current_subscription_season_file(sub, file) {
                 details.skipped_other_season_count += 1;
-                ("skip", "非当前订阅季")
+                ("skip", "非当前订阅季".to_string())
             } else if self.is_before_start_episode(sub, &file.name) {
                 details.skipped_before_start_count += 1;
-                ("skip", "低于起始转存集数")
+                ("skip", "低于起始转存集数".to_string())
+            } else if let Some(reason) = self.transfer_rule_skip_reason(sub, file) {
+                ("skip", reason.to_string())
             } else if let Some(reason) = self.known_episode_video_reason(sub, file) {
                 details.skipped_duplicate_episode_count += 1;
-                ("skip", reason)
+                ("skip", reason.to_string())
             } else if !self.keep_episode_video_index(sub, file, index, &selected_episode_videos) {
                 details.skipped_duplicate_episode_count += 1;
-                ("skip", self.duplicate_episode_skip_reason(sub))
+                ("skip", self.duplicate_episode_skip_reason(sub).to_string())
             } else {
                 details.new_count += 1;
-                ("new", "新增文件")
+                ("new", "新增文件".to_string())
             };
 
             details.items.push(CheckDetailItem {
@@ -264,7 +363,7 @@ macro_rules! subscription_check_file_filter_methods {
                 parent_path: file.parent_path.clone(),
                 file_key: file.file_key.clone(),
                 action: action.to_string(),
-                reason: reason.to_string(),
+                reason,
             });
         }
 
