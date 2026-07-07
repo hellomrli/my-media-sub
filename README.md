@@ -107,6 +107,21 @@ DATA_DIR/
 
 读取到损坏 JSON 时，服务会把原文件隔离为 `.corrupt-<timestamp>`，不会静默覆盖数据。
 
+
+## 部署安全清单
+
+- 首次启动后立即修改默认账号密码，不要在公网暴露默认 `admin` / `change-me`。
+- `DATA_DIR` 必须挂载到持久化目录；Docker 部署请保留 `./data:/app/data`。
+- `settings.json` 中会保存夸克 Cookie、推送 Token、TMDB Key、Aria2 信息等敏感配置，禁止提交到 Git。
+- HTTPStrm Token 默认不写入 `.strm` URL；只有为了兼容旧播放器时才启用 `STRM_TOKEN_IN_URL=true`。
+- 升级前建议备份 `DATA_DIR`，尤其是 `settings.json`、`subscriptions.json`、`jobs.json` 和 `notifications.json`。
+
+常用备份示例：
+
+```bash
+tar -czf my-media-sub-data-$(date +%Y%m%d-%H%M%S).tar.gz data/
+```
+
 ---
 
 ## 使用流程
