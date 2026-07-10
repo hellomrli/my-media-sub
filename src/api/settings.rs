@@ -7,8 +7,15 @@ use axum::{
 use serde::Serialize;
 use std::sync::Arc;
 
+use super::response::ApiResponse as Response;
 use crate::error::Result;
-use crate::models::{settings::normalize_check_interval_minutes, CustomCategory, RulePreset};
+use crate::models::{
+    settings::{
+        normalize_aria2_batch_submit_limit, normalize_check_interval_minutes,
+        normalize_external_api_max_concurrency, normalize_subscription_check_max_concurrency,
+    },
+    CustomCategory, RulePreset,
+};
 use crate::services::{QuarkSigninScheduler, SubscriptionScheduler};
 use crate::store::{
     settings::{SECRET_KEYS, SUPPORTED_CLOUD_TYPES},
@@ -20,19 +27,6 @@ pub struct SettingsState {
     pub store: Arc<SettingsStore>,
     pub scheduler: Arc<SubscriptionScheduler>,
     pub quark_signin_scheduler: Arc<QuarkSigninScheduler>,
-}
-
-/// 通用响应
-#[derive(Serialize)]
-struct Response<T> {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    data: Option<T>,
-}
-
-impl<T> Response<T> {
-    fn ok(data: T) -> Self {
-        Self { data: Some(data) }
-    }
 }
 
 #[derive(Serialize)]
@@ -225,6 +219,27 @@ fn settings_schema() -> SettingsSchemaResponse {
             60
         ),
         setting_field!(
+            "subscription_check_max_concurrency",
+            "订阅检查最大并发",
+            "number",
+            "automation",
+            4
+        ),
+        setting_field!(
+            "external_api_max_concurrency",
+            "外部 API 最大并发",
+            "number",
+            "automation",
+            8
+        ),
+        setting_field!(
+            "aria2_batch_submit_limit",
+            "Aria2 单批提交上限",
+            "number",
+            "automation",
+            20
+        ),
+        setting_field!(
             "subscription_scheduler_enabled",
             "启用自动检查",
             "boolean",
@@ -237,6 +252,49 @@ fn settings_schema() -> SettingsSchemaResponse {
             "boolean",
             "automation",
             false
+        ),
+        setting_field!(
+            "auto_source_switch_enabled",
+            "允许自动应用换源",
+            "boolean",
+            "automation",
+            false
+        ),
+        setting_field!(
+            "auto_source_switch_mode",
+            "自动换源模式",
+            "select",
+            "automation",
+            "search_only",
+            ["search_only", "apply"]
+        ),
+        setting_field!(
+            "source_switch_min_score",
+            "候选最低质量分",
+            "number",
+            "automation",
+            70
+        ),
+        setting_field!(
+            "source_switch_min_score_delta",
+            "最低质量分差",
+            "number",
+            "automation",
+            10
+        ),
+        setting_field!(
+            "source_switch_failure_threshold",
+            "连续失效阈值",
+            "number",
+            "automation",
+            2
+        ),
+        setting_field!(
+            "source_switch_cooldown_hours",
+            "换源冷却小时",
+            "number",
+            "automation",
+            24
         ),
         setting_field!(
             "default_rename_template",
@@ -328,9 +386,6 @@ fn public_settings(settings: crate::models::Settings) -> Result<serde_json::Valu
             "supported_cloud_types".to_string(),
             serde_json::json!(SUPPORTED_CLOUD_TYPES),
         );
-        obj.remove("nas_sync_enabled");
-        obj.remove("nas_sync_source");
-        obj.remove("nas_sync_target");
     }
 
     Ok(value)
@@ -460,6 +515,24 @@ async fn update_settings(
                                 normalize_check_interval_minutes(n);
                         }
                     }
+                    "subscription_check_max_concurrency" => {
+                        if let Some(n) = value.as_i64() {
+                            settings.subscription_check_max_concurrency =
+                                normalize_subscription_check_max_concurrency(n);
+                        }
+                    }
+                    "external_api_max_concurrency" => {
+                        if let Some(n) = value.as_i64() {
+                            settings.external_api_max_concurrency =
+                                normalize_external_api_max_concurrency(n);
+                        }
+                    }
+                    "aria2_batch_submit_limit" => {
+                        if let Some(n) = value.as_i64() {
+                            settings.aria2_batch_submit_limit =
+                                normalize_aria2_batch_submit_limit(n);
+                        }
+                    }
                     "subscription_scheduler_enabled" => {
                         if let Some(b) = value.as_bool() {
                             settings.subscription_scheduler_enabled = b;
@@ -468,6 +541,40 @@ async fn update_settings(
                     "auto_download_new_subscription_items" => {
                         if let Some(b) = value.as_bool() {
                             settings.auto_download_new_subscription_items = b;
+                        }
+                    }
+                    "auto_source_switch_enabled" => {
+                        if let Some(b) = value.as_bool() {
+                            settings.auto_source_switch_enabled = b;
+                        }
+                    }
+                    "auto_source_switch_mode" => {
+                        if let Some(mode) = value.as_str() {
+                            settings.auto_source_switch_mode = if mode == "apply" {
+                                "apply".to_string()
+                            } else {
+                                "search_only".to_string()
+                            };
+                        }
+                    }
+                    "source_switch_min_score" => {
+                        if let Some(n) = value.as_i64() {
+                            settings.source_switch_min_score = n.clamp(0, 100) as i32;
+                        }
+                    }
+                    "source_switch_min_score_delta" => {
+                        if let Some(n) = value.as_i64() {
+                            settings.source_switch_min_score_delta = n.clamp(0, 100) as i32;
+                        }
+                    }
+                    "source_switch_failure_threshold" => {
+                        if let Some(n) = value.as_i64() {
+                            settings.source_switch_failure_threshold = n.clamp(1, 20) as i32;
+                        }
+                    }
+                    "source_switch_cooldown_hours" => {
+                        if let Some(n) = value.as_i64() {
+                            settings.source_switch_cooldown_hours = n.clamp(1, 24 * 30) as i32;
                         }
                     }
                     "default_rename_template" => {

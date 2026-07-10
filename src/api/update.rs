@@ -15,6 +15,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 
+use super::response::ApiResponse as Response;
 use crate::clients::http_pool;
 use crate::error::{AppError, Result};
 use crate::utils::constant_time_eq;
@@ -23,18 +24,6 @@ const GITHUB_REPO: &str = "hellomrli/my-media-sub";
 static UPDATE_PROGRESS: LazyLock<Mutex<UpdateProgressResponse>> =
     LazyLock::new(|| Mutex::new(UpdateProgressResponse::idle()));
 static PENDING_RESTART: LazyLock<Mutex<Option<RestartPlan>>> = LazyLock::new(|| Mutex::new(None));
-
-#[derive(Serialize)]
-struct Response<T> {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    data: Option<T>,
-}
-
-impl<T> Response<T> {
-    fn ok(data: T) -> Self {
-        Self { data: Some(data) }
-    }
-}
 
 #[derive(Debug, Clone, Deserialize)]
 struct GithubRelease {

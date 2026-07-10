@@ -4,6 +4,7 @@
 
 use std::fs;
 
+#[allow(dead_code)]
 #[path = "../src/models/mod.rs"]
 mod models;
 
@@ -88,6 +89,15 @@ fn test_deserialize_jobs_fixture_with_all_current_kinds() {
         serde_json::from_str(&json).expect("任务样例往返序列化应该成功");
 }
 
+fn persisted_data(content: &str) -> serde_json::Value {
+    let value: serde_json::Value = serde_json::from_str(content).expect("存储 JSON 应该有效");
+    if value.get("schema_version").is_some() {
+        value.get("data").cloned().expect("版本化存储应该包含 data")
+    } else {
+        value
+    }
+}
+
 // ─── 真实数据测试（仅本机有数据时运行）──────────────────────────────────────
 
 #[test]
@@ -97,7 +107,7 @@ fn test_deserialize_real_subscriptions_if_present() {
     };
 
     let subs: Vec<models::Subscription> =
-        serde_json::from_str(&content).expect("应该能反序列化真实订阅数据");
+        serde_json::from_value(persisted_data(&content)).expect("应该能反序列化真实订阅数据");
 
     assert!(!subs.is_empty(), "应该至少有一个订阅");
     let json = serde_json::to_string_pretty(&subs).unwrap();
@@ -112,7 +122,7 @@ fn test_deserialize_real_settings_if_present() {
     };
 
     let settings: models::Settings =
-        serde_json::from_str(&content).expect("应该能反序列化真实设置数据");
+        serde_json::from_value(persisted_data(&content)).expect("应该能反序列化真实设置数据");
 
     let json = serde_json::to_string_pretty(&settings).unwrap();
     let _reparsed: models::Settings = serde_json::from_str(&json).expect("往返序列化应该成功");
@@ -125,7 +135,7 @@ fn test_deserialize_real_notifications_if_present() {
     };
 
     let notifs: Vec<models::Notification> =
-        serde_json::from_str(&content).expect("应该能反序列化真实通知数据");
+        serde_json::from_value(persisted_data(&content)).expect("应该能反序列化真实通知数据");
 
     assert!(!notifs.is_empty());
     let json = serde_json::to_string_pretty(&notifs).unwrap();

@@ -1,9 +1,12 @@
+pub mod automation;
+pub mod calendar;
 pub mod drive;
 pub mod jobs;
 pub mod metadata;
 pub mod metrics;
 pub mod notifications;
 pub mod push;
+pub mod response;
 pub mod search;
 pub mod settings;
 pub mod strm;
@@ -18,7 +21,7 @@ use axum::{
     http::{header, HeaderMap, Method, Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Json, Response},
-    routing::get,
+    routing::{any, get},
     Router,
 };
 use base64::{engine::general_purpose, Engine as _};
@@ -27,6 +30,7 @@ use std::sync::Arc;
 use tower_http::services::ServeDir;
 
 use crate::app::AppContext;
+use crate::error::json_error_response;
 use crate::store::SettingsStore;
 use crate::utils::constant_time_eq;
 
@@ -89,16 +93,28 @@ async fn basic_auth(
 }
 
 fn unauthorized_response() -> Response {
-    (
+    let mut response = json_error_response(
         StatusCode::UNAUTHORIZED,
-        [(header::WWW_AUTHENTICATE, r#"Basic realm="my-media-sub""#)],
-        "Unauthorized",
-    )
-        .into_response()
+        "unauthorized",
+        "认证失败，请提供有效的用户名和密码",
+    );
+    response.headers_mut().insert(
+        header::WWW_AUTHENTICATE,
+        r#"Basic realm="my-media-sub""#.parse().unwrap(),
+    );
+    response
 }
 
 fn forbidden_response() -> Response {
-    (StatusCode::FORBIDDEN, "Forbidden").into_response()
+    json_error_response(
+        StatusCode::FORBIDDEN,
+        "csrf_forbidden",
+        "拒绝跨站状态修改请求",
+    )
+}
+
+async fn api_not_found() -> Response {
+    json_error_response(StatusCode::NOT_FOUND, "not_found", "请求的 API 不存在")
 }
 
 fn is_cross_site_state_change(req: &Request<Body>) -> bool {
@@ -142,6 +158,47 @@ fn is_state_changing_method(method: &Method) -> bool {
     )
 }
 
+async fn normalize_api_error_response(req: Request<Body>, next: Next) -> Response {
+    let path = req.uri().path();
+    let is_api = path == "/api" || path.starts_with("/api/");
+    let response = next.run(req).await;
+    if !is_api || !response.status().is_client_error() && !response.status().is_server_error() {
+        return response;
+    }
+
+    let already_json = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.contains("json"));
+    if already_json {
+        return response;
+    }
+
+    let status = response.status();
+    let preserved_headers = response.headers().clone();
+    let (error, message) = match status {
+        StatusCode::BAD_REQUEST => ("bad_request", "请求参数不正确"),
+        StatusCode::UNAUTHORIZED => ("unauthorized", "认证失败"),
+        StatusCode::FORBIDDEN => ("forbidden", "请求被拒绝"),
+        StatusCode::NOT_FOUND => ("not_found", "请求的 API 不存在"),
+        StatusCode::METHOD_NOT_ALLOWED => ("method_not_allowed", "请求方法不受支持"),
+        StatusCode::PAYLOAD_TOO_LARGE => ("payload_too_large", "请求内容过大"),
+        StatusCode::UNSUPPORTED_MEDIA_TYPE => ("unsupported_media_type", "请求内容类型不受支持"),
+        StatusCode::UNPROCESSABLE_ENTITY => ("invalid_request", "请求内容无法解析"),
+        StatusCode::TOO_MANY_REQUESTS => ("rate_limited", "请求过于频繁"),
+        _ if status.is_server_error() => ("internal_error", "服务内部错误"),
+        _ => ("request_failed", "请求失败"),
+    };
+    let mut normalized = json_error_response(status, error, message);
+    for (name, value) in &preserved_headers {
+        if name != header::CONTENT_TYPE && name != header::CONTENT_LENGTH {
+            normalized.headers_mut().insert(name.clone(), value.clone());
+        }
+    }
+    normalized
+}
+
 fn host_from_origin(origin: &str) -> Option<String> {
     if origin.eq_ignore_ascii_case("null") {
         return None;
@@ -183,6 +240,9 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
             context.check_service.clone(),
             context.transfer_service.clone(),
             context.job_queue.clone(),
+            context.job_store.clone(),
+            context.notification_store.clone(),
+            context.automation_event_store.clone(),
         ))
         .merge(settings::routes(
             settings_store.clone(),
@@ -194,6 +254,14 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
             settings_store.clone(),
             context.metadata_service.clone(),
         ))
+        .merge(automation::routes(context.clone()))
+        .merge(calendar::routes(
+            context.subscription_store.clone(),
+            settings_store.clone(),
+            context.job_store.clone(),
+            context.notification_store.clone(),
+            context.automation_event_store.clone(),
+        ))
         .merge(metrics::routes(context.metrics.clone()))
         .merge(jobs::routes(
             context.job_store.clone(),
@@ -204,6 +272,8 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
             settings_store.clone(),
             context.quark_signin_service.clone(),
             context.download_monitor.clone(),
+            context.subscription_store.clone(),
+            context.notification_store.clone(),
         ))
         .merge(strm::routes(settings_store.clone()))
         .merge(transfer::routes(context.job_queue.clone()))
@@ -213,7 +283,9 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
             context.notification_store.clone(),
         ))
         .merge(subscription_source::routes(context.clone()))
+        .route("/api/{*path}", any(api_not_found))
         .fallback_service(serve_static)
+        .layer(middleware::from_fn(normalize_api_error_response))
         .layer(middleware::from_fn_with_state(auth_state, basic_auth))
 }
 

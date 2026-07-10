@@ -76,6 +76,11 @@ impl SubscriptionTransferService {
                 push_title: None,
                 push_message: None,
                 push_notification_id: None,
+                renamed_count: 0,
+                strm_generated_count: 0,
+                strm_error: None,
+                aria2_submitted_count: 0,
+                aria2_error: None,
             });
         }
 
@@ -95,6 +100,11 @@ impl SubscriptionTransferService {
                 push_title: None,
                 push_message: None,
                 push_notification_id: None,
+                renamed_count: 0,
+                strm_generated_count: 0,
+                strm_error: None,
+                aria2_submitted_count: 0,
+                aria2_error: None,
             });
         }
 
@@ -107,6 +117,11 @@ impl SubscriptionTransferService {
                 push_title: None,
                 push_message: None,
                 push_notification_id: None,
+                renamed_count: 0,
+                strm_generated_count: 0,
+                strm_error: None,
+                aria2_submitted_count: 0,
+                aria2_error: None,
             });
         }
 
@@ -120,6 +135,11 @@ impl SubscriptionTransferService {
                 push_title: None,
                 push_message: None,
                 push_notification_id: None,
+                renamed_count: 0,
+                strm_generated_count: 0,
+                strm_error: None,
+                aria2_submitted_count: 0,
+                aria2_error: None,
             });
         }
 
@@ -132,6 +152,11 @@ impl SubscriptionTransferService {
                 push_title: None,
                 push_message: None,
                 push_notification_id: None,
+                renamed_count: 0,
+                strm_generated_count: 0,
+                strm_error: None,
+                aria2_submitted_count: 0,
+                aria2_error: None,
             });
         }
 
@@ -172,6 +197,11 @@ impl SubscriptionTransferService {
                 push_title: None,
                 push_message: None,
                 push_notification_id: None,
+                renamed_count: 0,
+                strm_generated_count: 0,
+                strm_error: None,
+                aria2_submitted_count: 0,
+                aria2_error: None,
             });
         }
 
@@ -235,25 +265,27 @@ impl SubscriptionTransferService {
             .await?;
 
         // 9. 等待转存文件落盘，并按规则重命名
-        let transferred_files = if has_rename_rules(&sub.rules) {
+        let (renamed_count, transferred_files) = if has_rename_rules(&sub.rules) {
             info!("开始按订阅规则重命名文件");
-            self.rename_transferred_files(
-                &save_client,
-                &target_fid,
-                &sub,
-                Some(&transfer_file_names),
-            )
-            .await?
-            .files
+            let result = self
+                .rename_transferred_files(
+                    &save_client,
+                    &target_fid,
+                    &sub,
+                    Some(&transfer_file_names),
+                )
+                .await?;
+            (result.renamed_count, result.files)
         } else {
             let expected_names = expected_video_names(&transfer_file_names);
-            wait_for_rename_candidates(
+            let files = wait_for_rename_candidates(
                 || collect_video_files_recursive(&save_client, &target_fid),
                 Some(&expected_names),
                 30,
                 Duration::from_secs(2),
             )
-            .await?
+            .await?;
+            (0, files)
         };
 
         // 10. 更新订阅的 transferred_files
@@ -296,6 +328,17 @@ impl SubscriptionTransferService {
             push_title: Some(push_title),
             push_message: Some(push_message),
             push_notification_id,
+            renamed_count,
+            strm_generated_count: strm_report
+                .as_ref()
+                .map(|report| report.generated_count)
+                .unwrap_or_default(),
+            strm_error: strm_report.as_ref().and_then(|report| report.error.clone()),
+            aria2_submitted_count: sync_report
+                .as_ref()
+                .map(|report| report.submitted_count)
+                .unwrap_or_default(),
+            aria2_error: sync_report.as_ref().and_then(|report| report.error.clone()),
         })
     }
 
@@ -499,6 +542,8 @@ impl SubscriptionTransferService {
             .collect();
         fids.sort();
         fids.dedup();
+        let omitted_count = fids.len().saturating_sub(settings.aria2_batch_submit_limit);
+        fids.truncate(settings.aria2_batch_submit_limit);
 
         if fids.is_empty() {
             let error = "没有可同步下载的视频文件".to_string();
@@ -532,7 +577,12 @@ impl SubscriptionTransferService {
         };
 
         let mut submitted_count = 0usize;
-        let mut last_error = None;
+        let mut last_error = (omitted_count > 0).then(|| {
+            format!(
+                "达到 Aria2 单批提交上限 {}，另有 {} 个文件留待下次提交",
+                settings.aria2_batch_submit_limit, omitted_count
+            )
+        });
         let mut items = Vec::new();
         for info in download_infos {
             match aria2

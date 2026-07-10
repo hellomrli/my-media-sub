@@ -1,5 +1,5 @@
 use super::rules::TransferRules;
-use super::MediaMetadata;
+use super::{MediaMetadata, MediaScheduleOverride, SourceQuality};
 use serde::{Deserialize, Serialize};
 
 /// 订阅状态
@@ -146,8 +146,42 @@ pub struct SourceCandidate {
     pub discovered_at: i64,
 
     /// 探测信息（可选）
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub probe_info: Option<ProbeResult>,
+
+    /// 后端权威资源质量评分；旧候选缺少该字段时使用兼容默认值。
+    #[serde(default)]
+    pub quality: SourceQuality,
+}
+
+/// 单次来源切换或候选失败的审计记录。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceSwitchHistoryItem {
+    pub id: String,
+    #[serde(default)]
+    pub candidate_id: String,
+    #[serde(default)]
+    pub from_url: String,
+    #[serde(default)]
+    pub from_password: String,
+    #[serde(default)]
+    pub to_url: String,
+    #[serde(default)]
+    pub to_password: String,
+    #[serde(default)]
+    pub quality: SourceQuality,
+    #[serde(default)]
+    pub reason: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub error: String,
+    #[serde(default)]
+    pub automatic: bool,
+    #[serde(default)]
+    pub created_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rolled_back_at: Option<i64>,
 }
 
 /// 订阅（与 Python JSON 完全兼容）
@@ -190,6 +224,10 @@ pub struct Subscription {
     /// 刮削到的媒体元数据
     #[serde(default)]
     pub metadata: Option<MediaMetadata>,
+
+    /// 手动播出排期；存在时优先于元数据和推断排期。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manual_schedule: Option<MediaScheduleOverride>,
 
     /// 云盘类型
     #[serde(default = "default_cloud_type")]
@@ -314,6 +352,18 @@ pub struct Subscription {
     /// 历史分享链接（换源时保存旧链接）
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_share_links: Vec<String>,
+
+    /// 连续来源失效次数；成功检查后清零。
+    #[serde(default)]
+    pub source_failure_count: u32,
+
+    /// 最近一次成功换源时间。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_source_switch_at: Option<i64>,
+
+    /// 换源与候选失败审计历史。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_switch_history: Vec<SourceSwitchHistoryItem>,
 }
 
 // 默认值辅助函数
@@ -350,6 +400,7 @@ mod tests {
             total_episode_number: Some(24),
             source_group: "某字幕组".to_string(),
             metadata: None,
+            manual_schedule: None,
             cloud_type: "quark".to_string(),
             url: "https://pan.quark.cn/s/test".to_string(),
             password: "".to_string(),
@@ -382,6 +433,9 @@ mod tests {
             source_candidates: vec![],
             last_source_search_time: None,
             previous_share_links: vec![],
+            source_failure_count: 0,
+            last_source_switch_at: None,
+            source_switch_history: vec![],
         };
 
         let json = serde_json::to_string_pretty(&sub).unwrap();

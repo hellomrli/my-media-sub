@@ -7,11 +7,11 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde::Serialize;
 use std::convert::Infallible;
 use std::sync::Arc;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 
+use super::response::ApiResponse as Response;
 use crate::error::{AppError, Result};
 use crate::jobs::{Job, JobQueue, JobStore};
 
@@ -24,18 +24,6 @@ pub struct JobState {
 struct ListQuery {
     offset: Option<usize>,
     limit: Option<usize>,
-}
-
-#[derive(Serialize)]
-struct Response<T> {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    data: Option<T>,
-}
-
-impl<T> Response<T> {
-    fn ok(data: T) -> Self {
-        Self { data: Some(data) }
-    }
 }
 
 async fn list_jobs(

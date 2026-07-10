@@ -10,8 +10,8 @@ use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 use crate::utils::metrics::global_metrics;
 
 use super::model::{
-    now, Job, JobKind, JobStatus, ManualTransferPayload, MetadataScrapePayload,
-    PushDispatchPayload, SubscriptionTransferPayload,
+    job_idempotency_key, now, Job, JobKind, JobStatus, ManualTransferPayload,
+    MetadataScrapePayload, PushDispatchPayload, SubscriptionTransferPayload,
 };
 use super::store::JobStore;
 use super::worker::JobWorker;
@@ -173,6 +173,7 @@ impl JobQueue {
     ) -> Result<Job> {
         let id = uuid::Uuid::new_v4().to_string();
         let created_at = now();
+        let idempotency_key = job_idempotency_key(&kind, &payload);
         let job = Job {
             id: id.clone(),
             kind,
@@ -180,6 +181,7 @@ impl JobQueue {
             progress: 0,
             title: title.into(),
             message: "等待后台任务执行".to_string(),
+            idempotency_key: Some(idempotency_key),
             payload,
             result: None,
             error: None,
@@ -189,7 +191,10 @@ impl JobQueue {
             finished_at: None,
         };
 
-        let job = self.store.add(job).await?;
+        let (job, created) = self.store.add_idempotent(job).await?;
+        if !created {
+            return Ok(job);
+        }
         let job_kind = job.kind.clone();
         if self.sender.send(id.clone()).await.is_err() {
             mark_queue_unavailable(&self.store, &id).await?;
@@ -207,10 +212,17 @@ impl JobQueue {
 }
 
 pub(crate) async fn recover_jobs(store: Arc<JobStore>, sender: mpsc::Sender<String>) {
-    let jobs = store.list().await;
+    let mut jobs = store.list().await;
+    jobs.sort_by_key(|job| job.created_at);
     let mut queued = Vec::new();
     let mut interrupted = 0usize;
     let mut skipped_push_dispatch = 0usize;
+    let mut seen_idempotency_keys = HashSet::new();
+    let interrupted_idempotency_keys = jobs
+        .iter()
+        .filter(|job| job.status == JobStatus::Running && job.kind != JobKind::PushDispatch)
+        .filter_map(|job| job.idempotency_key.clone())
+        .collect::<HashSet<_>>();
 
     for job in jobs {
         match job.status {
@@ -220,7 +232,19 @@ pub(crate) async fn recover_jobs(store: Arc<JobStore>, sender: mpsc::Sender<Stri
                     warn!("跳过重启前推送任务 {} 失败: {}", job.id, e);
                 }
             }
-            JobStatus::Queued => queued.push(job),
+            JobStatus::Queued => {
+                let duplicate = job.idempotency_key.as_ref().is_some_and(|key| {
+                    interrupted_idempotency_keys.contains(key)
+                        || !seen_idempotency_keys.insert(key.clone())
+                });
+                if duplicate {
+                    if let Err(error) = mark_duplicate_after_restart(&store, &job.id).await {
+                        warn!("标记重启重复任务 {} 失败: {}", job.id, error);
+                    }
+                } else {
+                    queued.push(job);
+                }
+            }
             JobStatus::Running if job.kind == JobKind::PushDispatch => {
                 skipped_push_dispatch += 1;
                 if let Err(e) = mark_push_dispatch_skipped_after_restart(&store, &job.id).await {
@@ -276,6 +300,19 @@ async fn mark_push_dispatch_skipped_after_restart(store: &JobStore, id: &str) ->
     Ok(())
 }
 
+async fn mark_duplicate_after_restart(store: &JobStore, id: &str) -> Result<()> {
+    store
+        .update(id, |job| {
+            job.status = JobStatus::Canceled;
+            job.progress = 100;
+            job.message = "服务重启，已跳过重复幂等任务".to_string();
+            job.error = None;
+            job.finished_at = Some(now());
+        })
+        .await?;
+    Ok(())
+}
+
 async fn mark_queue_unavailable(store: &JobStore, id: &str) -> Result<()> {
     store
         .update(id, |job| {
@@ -310,6 +347,7 @@ mod tests {
             progress: 30,
             title: "测试任务".to_string(),
             message: "running".to_string(),
+            idempotency_key: None,
             payload: json!({"overwrite": false}),
             result: None,
             error: None,
@@ -409,6 +447,71 @@ mod tests {
         assert!(skipped.message.contains("避免重复发送"));
         assert_eq!(receiver.try_recv().unwrap(), "metadata");
         assert!(receiver.try_recv().is_err());
+
+        let _ = std::fs::remove_file(tmp);
+    }
+
+    #[tokio::test]
+    async fn recover_jobs_keeps_oldest_queued_idempotent_task() {
+        let tmp = std::env::temp_dir().join(format!(
+            "my-media-sub-job-recover-idempotent-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let store = Arc::new(JobStore::new(&tmp));
+        store.load().await.unwrap();
+
+        let mut oldest = test_job("oldest", JobStatus::Queued);
+        oldest.created_at = 1;
+        oldest.idempotency_key = Some("same-work".to_string());
+        let mut newest = test_job("newest", JobStatus::Queued);
+        newest.created_at = 2;
+        newest.idempotency_key = Some("same-work".to_string());
+        store.add(oldest).await.unwrap();
+        store.add(newest).await.unwrap();
+
+        let (sender, mut receiver) = mpsc::channel(4);
+        recover_jobs(store.clone(), sender).await;
+
+        assert_eq!(receiver.try_recv().unwrap(), "oldest");
+        assert!(receiver.try_recv().is_err());
+        assert_eq!(store.get("oldest").await.unwrap().status, JobStatus::Queued);
+        let duplicate = store.get("newest").await.unwrap();
+        assert_eq!(duplicate.status, JobStatus::Canceled);
+        assert!(duplicate.message.contains("重复幂等任务"));
+
+        let _ = std::fs::remove_file(tmp);
+    }
+
+    #[tokio::test]
+    async fn recover_jobs_does_not_requeue_duplicate_of_interrupted_task() {
+        let tmp = std::env::temp_dir().join(format!(
+            "my-media-sub-job-recover-interrupted-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let store = Arc::new(JobStore::new(&tmp));
+        store.load().await.unwrap();
+
+        let mut running = test_job("running", JobStatus::Running);
+        running.created_at = 1;
+        running.idempotency_key = Some("same-work".to_string());
+        let mut queued = test_job("queued", JobStatus::Queued);
+        queued.created_at = 2;
+        queued.idempotency_key = Some("same-work".to_string());
+        store.add(running).await.unwrap();
+        store.add(queued).await.unwrap();
+
+        let (sender, mut receiver) = mpsc::channel(4);
+        recover_jobs(store.clone(), sender).await;
+
+        assert!(receiver.try_recv().is_err());
+        assert_eq!(
+            store.get("running").await.unwrap().status,
+            JobStatus::Failed
+        );
+        assert_eq!(
+            store.get("queued").await.unwrap().status,
+            JobStatus::Canceled
+        );
 
         let _ = std::fs::remove_file(tmp);
     }

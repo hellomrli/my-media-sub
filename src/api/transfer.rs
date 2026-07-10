@@ -2,6 +2,7 @@ use axum::{extract::State, response::IntoResponse, routing::post, Json, Router};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+use super::response::json_ok;
 use crate::error::Result;
 use crate::jobs::{JobQueue, ManualTransferPayload};
 
@@ -44,7 +45,7 @@ async fn transfer_share(
         })
         .await?;
 
-    Ok(Json(TransferResponse {
+    Ok(json_ok(TransferResponse {
         success: true,
         message: Some("转存任务已创建，正在后台执行".to_string()),
         job_id: Some(job.id),

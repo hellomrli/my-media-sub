@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use super::response::{json_ok, ApiResponse as Response};
 use crate::error::Result;
 use crate::services::push::{record_push_message_with_errors, PushLevel, PushService};
 use crate::store::{NotificationStore, SettingsStore};
@@ -52,7 +53,7 @@ struct PushTestResponse {
 async fn test_push(
     State(state): State<Arc<PushState>>,
     Json(req): Json<PushTestRequest>,
-) -> Result<Json<PushTestResponse>> {
+) -> Result<Json<Response<PushTestResponse>>> {
     // 读取当前设置
     let settings = state.settings_store.get().await;
 
@@ -94,7 +95,7 @@ async fn test_push(
     let success_count = report.results.values().filter(|&&v| v).count();
     let failed_count = report.results.len() - success_count;
 
-    Ok(Json(PushTestResponse {
+    Ok(json_ok(PushTestResponse {
         enabled_channels,
         results: report.results,
         errors: report.errors,
@@ -104,7 +105,9 @@ async fn test_push(
 }
 
 /// 获取推送状态
-async fn push_status(State(state): State<Arc<PushState>>) -> Result<Json<PushStatusResponse>> {
+async fn push_status(
+    State(state): State<Arc<PushState>>,
+) -> Result<Json<Response<PushStatusResponse>>> {
     let settings = state.settings_store.get().await;
     let push_service = PushService::new(settings.clone());
 
@@ -190,7 +193,7 @@ async fn push_status(State(state): State<Arc<PushState>>) -> Result<Json<PushSta
         );
     }
 
-    Ok(Json(PushStatusResponse {
+    Ok(json_ok(PushStatusResponse {
         enabled_channels,
         channel_configs,
         push_on_update: settings.push_on_update,

@@ -1,9 +1,11 @@
 use axum::{extract::State, response::IntoResponse, routing::post, Json, Router};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::sync::Arc;
 
+use super::response::ApiResponse as Response;
 use crate::clients::{PanSouClient, QuarkShareProbe};
 use crate::error::Result;
+use crate::services::source_quality::{score_source, SourceQualityFile, SourceQualityInput};
 use crate::store::SettingsStore;
 
 /// 搜索路由状态
@@ -37,19 +39,6 @@ fn default_limit() -> usize {
 
 fn default_max_files() -> usize {
     50
-}
-
-/// 通用响应
-#[derive(Serialize)]
-struct Response<T> {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    data: Option<T>,
-}
-
-impl<T> Response<T> {
-    fn ok(data: T) -> Self {
-        Self { data: Some(data) }
-    }
 }
 
 /// 搜索资源
@@ -98,6 +87,37 @@ async fn search(
         }
 
         results = processed_results;
+    }
+
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    for result in &mut results {
+        let probe = result.probe_info.as_ref();
+        result.quality = score_source(
+            &SourceQualityInput {
+                title: result.note.clone(),
+                datetime: result.datetime.clone(),
+                validity: result.is_valid,
+                probe_ok: probe.map(|probe| probe.ok),
+                probe_file_count: probe.map(|probe| probe.file_count).unwrap_or_default(),
+                probe_episode_count: probe.map(|probe| probe.episode_count).unwrap_or_default(),
+                files: probe
+                    .map(|probe| {
+                        probe
+                            .files
+                            .iter()
+                            .map(|file| SourceQualityFile {
+                                name: file.name.clone(),
+                                is_dir: file.is_dir,
+                                size: file.size,
+                                updated_at: file.updated_at.clone(),
+                                category: file.category.clone(),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            },
+            now_ms,
+        );
     }
 
     Ok(Json(Response::ok(results)))

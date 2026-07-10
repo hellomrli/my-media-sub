@@ -1,0 +1,71 @@
+[
+  {
+    "name": "flagship episodic resource",
+    "now_ms": 1783656000000,
+    "input": {
+      "title": "示例剧 S01 2160P WEB-DL HDR H265",
+      "datetime": "2026-07-09T12:00:00+08:00",
+      "validity": null,
+      "probe_ok": true,
+      "probe_file_count": 3,
+      "probe_episode_count": 2,
+      "files": [
+        {"name": "Show.S01E01.2160p.HDR.HEVC.mkv", "is_dir": false, "size": 4000000000, "updated_at": "2026-07-09T12:00:00+08:00", "category": "video"},
+        {"name": "Show.S01E02.2160p.HDR.HEVC.mkv", "is_dir": false, "size": 4100000000, "updated_at": "2026-07-09T12:00:00+08:00", "category": "video"},
+        {"name": "Season 1", "is_dir": true, "size": 0, "updated_at": null, "category": null}
+      ]
+    },
+    "expected": {
+      "score": 100,
+      "grade": "旗舰",
+      "resolution": "4K",
+      "video_count": 2,
+      "episode_count": 2,
+      "risks": []
+    }
+  },
+  {
+    "name": "invalid advertising collection",
+    "now_ms": 1783656000000,
+    "input": {
+      "title": "前五季大合集 公众号推广",
+      "datetime": "2026-07-10T08:00:00+08:00",
+      "validity": false,
+      "probe_ok": null,
+      "probe_file_count": 0,
+      "probe_episode_count": 0,
+      "files": []
+    },
+    "expected": {
+      "score": 0,
+      "grade": "谨慎",
+      "resolution": "未知清晰度",
+      "video_count": 0,
+      "episode_count": 0,
+      "risks": ["链接已失效", "疑似广告内容", "合集或跨季风险"]
+    }
+  },
+  {
+    "name": "ordinary recent 1080p movie",
+    "now_ms": 1783656000000,
+    "input": {
+      "title": "示例电影 1080P WEB-DL H264",
+      "datetime": "2026-07-08T12:00:00+08:00",
+      "validity": true,
+      "probe_ok": null,
+      "probe_file_count": 1,
+      "probe_episode_count": 0,
+      "files": [
+        {"name": "Movie.2026.1080p.WEB-DL.H264.mkv", "is_dir": false, "size": 2200000000, "updated_at": "2026-07-08T12:00:00+08:00", "category": "video"}
+      ]
+    },
+    "expected": {
+      "score": 85,
+      "grade": "旗舰",
+      "resolution": "1080P",
+      "video_count": 1,
+      "episode_count": 0,
+      "risks": []
+    }
+  }
+]
