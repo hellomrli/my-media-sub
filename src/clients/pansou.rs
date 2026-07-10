@@ -1,5 +1,6 @@
 use super::http_pool;
 use crate::error::{AppError, Result};
+use crate::models::SourceQuality;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
@@ -50,6 +51,9 @@ pub struct SearchResult {
     /// 链接是否有效（可选）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_valid: Option<bool>,
+    /// 后端权威资源质量评分。
+    #[serde(default)]
+    pub quality: SourceQuality,
 }
 
 /// Remote PanSou 客户端
@@ -129,6 +133,7 @@ impl PanSouClient {
                 cloud_type: "quark".to_string(),
                 probe_info: None,
                 is_valid: None,
+                quality: SourceQuality::default(),
             });
 
             if results.len() >= limit {

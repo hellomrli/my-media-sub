@@ -1,3 +1,4 @@
+use super::ensure_upstream_status;
 use crate::error::{AppError, Result};
 use regex::Regex;
 use reqwest::header::HeaderValue;
@@ -184,6 +185,7 @@ impl QuarkShareProbe {
             .send()
             .await
             .map_err(|e| AppError::Http(format!("请求夸克 token 失败: {}", e)))?;
+        ensure_upstream_status(&resp, "请求夸克 token")?;
 
         let data: TokenResponse = resp
             .json()
@@ -240,6 +242,7 @@ impl QuarkShareProbe {
             .send()
             .await
             .map_err(|e| AppError::Http(format!("请求夸克文件列表失败: {}", e)))?;
+        ensure_upstream_status(&resp, "请求夸克文件列表")?;
 
         let data: FileListResponse = resp
             .json()
@@ -278,14 +281,18 @@ impl QuarkShareProbe {
         let (stoken, err) = match self.get_share_token(&pwd_id, passcode).await {
             Ok(result) => result,
             Err(e) => {
+                let (state, message) = match e {
+                    AppError::RateLimited(message) => ("rate_limited", message),
+                    error => ("error", error.to_string()),
+                };
                 return QuarkShareInfo {
                     ok: false,
-                    state: "error".to_string(),
-                    message: e.to_string(),
+                    state: state.to_string(),
+                    message,
                     files: vec![],
                     file_count: 0,
                     episode_count: 0,
-                }
+                };
             }
         };
 
@@ -326,14 +333,18 @@ impl QuarkShareProbe {
         let (raw, err) = match self.list_files(&pwd_id, &stoken, "0").await {
             Ok(result) => result,
             Err(e) => {
+                let (state, message) = match e {
+                    AppError::RateLimited(message) => ("rate_limited", message),
+                    error => ("error", error.to_string()),
+                };
                 return QuarkShareInfo {
                     ok: false,
-                    state: "error".to_string(),
-                    message: e.to_string(),
+                    state: state.to_string(),
+                    message,
                     files: vec![],
                     file_count: 0,
                     episode_count: 0,
-                }
+                };
             }
         };
 

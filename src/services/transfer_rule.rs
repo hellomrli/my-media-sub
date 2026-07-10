@@ -538,6 +538,7 @@ mod tests {
             total_episode_number: None,
             source_group: String::new(),
             metadata: None,
+            manual_schedule: None,
             cloud_type: "quark".to_string(),
             url: "https://test".to_string(),
             password: String::new(),
@@ -570,6 +571,9 @@ mod tests {
             source_candidates: vec![],
             last_source_search_time: None,
             previous_share_links: vec![],
+            source_failure_count: 0,
+            last_source_switch_at: None,
+            source_switch_history: vec![],
         }
     }
 

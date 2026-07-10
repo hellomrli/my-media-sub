@@ -1,6 +1,6 @@
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use tracing::{info, warn};
 
 use crate::clients::quark::QuarkShareProbe;
@@ -22,18 +22,23 @@ use crate::services::subscription_progress::{
 };
 use crate::services::transfer_rule::transfer_state_key;
 use crate::services::SubscriptionTransferService;
-use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
+use crate::store::{AutomationEventStore, NotificationStore, SettingsStore, SubscriptionStore};
 use crate::utils::{metrics::global_metrics, unix_now};
 
 include!("subscription_check/file_filter_methods.rs");
 
 /// 订阅检查服务
+#[derive(Clone)]
 pub struct SubscriptionCheckService {
     subscription_store: Arc<SubscriptionStore>,
     settings_store: Arc<SettingsStore>,
     notification_store: Arc<NotificationStore>,
+    automation_event_store: Option<Arc<AutomationEventStore>>,
     job_queue: Option<Arc<JobQueue>>,
     transfer_service: Option<Arc<SubscriptionTransferService>>,
+    subscription_locks: Arc<tokio::sync::Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>>,
+    share_locks: Arc<tokio::sync::Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>>,
+    batch_probe_cache: Option<Arc<tokio::sync::Mutex<HashMap<String, ProbeResult>>>>,
 }
 
 impl SubscriptionCheckService {
@@ -46,9 +51,37 @@ impl SubscriptionCheckService {
             subscription_store,
             settings_store,
             notification_store,
+            automation_event_store: None,
             job_queue: None,
             transfer_service: None,
+            subscription_locks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            share_locks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            batch_probe_cache: None,
         }
+    }
+
+    fn with_subscription_store(&self, subscription_store: Arc<SubscriptionStore>) -> Self {
+        Self {
+            subscription_store,
+            settings_store: self.settings_store.clone(),
+            notification_store: self.notification_store.clone(),
+            automation_event_store: self.automation_event_store.clone(),
+            job_queue: self.job_queue.clone(),
+            transfer_service: self.transfer_service.clone(),
+            subscription_locks: self.subscription_locks.clone(),
+            share_locks: self.share_locks.clone(),
+            batch_probe_cache: self.batch_probe_cache.clone(),
+        }
+    }
+
+    fn with_batch_probe_cache(mut self) -> Self {
+        self.batch_probe_cache = Some(Arc::new(tokio::sync::Mutex::new(HashMap::new())));
+        self
+    }
+
+    pub fn with_event_store(mut self, store: Arc<AutomationEventStore>) -> Self {
+        self.automation_event_store = Some(store);
+        self
     }
 
     /// 设置后台任务队列，用于异步自动转存。
@@ -67,6 +100,20 @@ impl SubscriptionCheckService {
         self
     }
 
+    async fn named_lock(
+        locks: &tokio::sync::Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>,
+        key: &str,
+    ) -> Arc<tokio::sync::Mutex<()>> {
+        let mut locks = locks.lock().await;
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        if let Some(lock) = locks.get(key).and_then(Weak::upgrade) {
+            return lock;
+        }
+        let lock = Arc::new(tokio::sync::Mutex::new(()));
+        locks.insert(key.to_string(), Arc::downgrade(&lock));
+        lock
+    }
+
     /// 检查单个订阅
     pub async fn check_subscription(
         &self,
@@ -83,6 +130,8 @@ impl SubscriptionCheckService {
         cookie: &str,
         force_transfer: bool,
     ) -> Result<CheckResult> {
+        let subscription_lock = Self::named_lock(&self.subscription_locks, subscription_id).await;
+        let _subscription_guard = subscription_lock.lock().await;
         let metrics = global_metrics();
         metrics.increment_subscription_checks();
         let result = self
@@ -120,11 +169,57 @@ impl SubscriptionCheckService {
             return Err(AppError::Validation("订阅已完成".to_string()));
         }
 
+        let correlation_id = format!("check:{}:{}", sub.id, unix_now());
+        crate::services::automation_events::record_stage_event(
+            self.automation_event_store.as_ref(),
+            &correlation_id,
+            Some(&sub.id),
+            None,
+            None,
+            crate::models::AutomationStage::SourceCheck,
+            crate::models::AutomationStatus::Running,
+            "正在探测订阅来源",
+            "",
+            std::collections::BTreeMap::new(),
+        )
+        .await;
+
         // 1. 探测分享链接
         info!("检查订阅: {} ({})", sub.title, sub.id);
-        let probe_result = self.probe_share(&sub, cookie).await?;
+        let probe_result = match self.probe_share(&sub, cookie).await {
+            Ok(result) => result,
+            Err(error) => {
+                crate::services::automation_events::record_stage_event(
+                    self.automation_event_store.as_ref(),
+                    &correlation_id,
+                    Some(&sub.id),
+                    None,
+                    None,
+                    crate::models::AutomationStage::SourceCheck,
+                    crate::models::AutomationStatus::Failed,
+                    "订阅来源探测异常",
+                    error.to_string(),
+                    std::collections::BTreeMap::new(),
+                )
+                .await;
+                return Err(error);
+            }
+        };
 
         if !probe_result.ok {
+            crate::services::automation_events::record_stage_event(
+                self.automation_event_store.as_ref(),
+                &correlation_id,
+                Some(&sub.id),
+                None,
+                None,
+                crate::models::AutomationStage::SourceCheck,
+                crate::models::AutomationStatus::Failed,
+                "订阅来源探测失败",
+                &probe_result.message,
+                std::collections::BTreeMap::new(),
+            )
+            .await;
             // 探测失败，标记为失效
             self.mark_subscription_invalid(&sub, &probe_result.message)
                 .await?;
@@ -135,10 +230,29 @@ impl SubscriptionCheckService {
                     Ok(candidates) if !candidates.is_empty() => {
                         info!("为订阅 {} 找到 {} 个换源候选", sub.title, candidates.len());
 
-                        // 发送通知
                         if let Err(e) = self.notify_source_candidates_found(&sub, &candidates).await
                         {
                             warn!("发送换源通知失败: {}", e);
+                        }
+
+                        match self
+                            .try_auto_apply_source_candidate(&sub.id, &candidates, cookie)
+                            .await
+                        {
+                            Ok(Some(candidate_id)) => {
+                                info!(
+                                    "订阅 {} 已自动应用候选 {}，立即重新检查",
+                                    sub.title, candidate_id
+                                );
+                                return Box::pin(self.do_check_subscription_with_options(
+                                    subscription_id,
+                                    cookie,
+                                    force_transfer,
+                                ))
+                                .await;
+                            }
+                            Ok(None) => {}
+                            Err(error) => warn!("自动换源失败: {}", error),
                         }
 
                         candidates.len()
@@ -155,6 +269,30 @@ impl SubscriptionCheckService {
             } else {
                 0
             };
+
+            if let Some(latest) = self.subscription_store.get(&sub.id).await {
+                if !latest.source_candidates.is_empty() {
+                    match self
+                        .try_auto_apply_source_candidate(&sub.id, &latest.source_candidates, cookie)
+                        .await
+                    {
+                        Ok(Some(candidate_id)) => {
+                            info!(
+                                "订阅 {} 已从冷却期候选中自动应用 {}，立即重新检查",
+                                sub.title, candidate_id
+                            );
+                            return Box::pin(self.do_check_subscription_with_options(
+                                subscription_id,
+                                cookie,
+                                force_transfer,
+                            ))
+                            .await;
+                        }
+                        Ok(None) => {}
+                        Err(error) => warn!("应用已有换源候选失败: {}", error),
+                    }
+                }
+            }
 
             return Ok(CheckResult {
                 subscription_id: sub.id.clone(),
@@ -175,6 +313,20 @@ impl SubscriptionCheckService {
             });
         }
 
+        crate::services::automation_events::record_stage_event(
+            self.automation_event_store.as_ref(),
+            &correlation_id,
+            Some(&sub.id),
+            None,
+            None,
+            crate::models::AutomationStage::SourceCheck,
+            crate::models::AutomationStatus::Succeeded,
+            format!("来源探测成功，共 {} 个项目", probe_result.files.len()),
+            "",
+            std::collections::BTreeMap::new(),
+        )
+        .await;
+
         let auto_transfer_enabled = self
             .auto_transfer_disabled_reason(&sub, force_transfer)
             .await;
@@ -191,6 +343,60 @@ impl SubscriptionCheckService {
         // 3. 解析集数
         let new_episodes = self.parse_episodes(&new_file_names);
         let details = self.build_check_details(&sub, &probe_result.files);
+        crate::services::automation_events::record_stage_event(
+            self.automation_event_store.as_ref(),
+            &correlation_id,
+            Some(&sub.id),
+            None,
+            None,
+            crate::models::AutomationStage::FileFilter,
+            crate::models::AutomationStatus::Succeeded,
+            format!(
+                "扫描 {} 项，识别 {} 个新增文件",
+                details.scanned_count, details.new_count
+            ),
+            "",
+            std::collections::BTreeMap::from([
+                (
+                    "scanned_count".to_string(),
+                    serde_json::json!(details.scanned_count),
+                ),
+                (
+                    "new_count".to_string(),
+                    serde_json::json!(details.new_count),
+                ),
+                (
+                    "known_count".to_string(),
+                    serde_json::json!(details.known_count),
+                ),
+            ]),
+        )
+        .await;
+
+        crate::services::automation_events::record_stage_event(
+            self.automation_event_store.as_ref(),
+            &correlation_id,
+            Some(&sub.id),
+            None,
+            None,
+            crate::models::AutomationStage::VersionSelect,
+            if transfer_file_names.is_empty() {
+                crate::models::AutomationStatus::Skipped
+            } else {
+                crate::models::AutomationStatus::Succeeded
+            },
+            if transfer_file_names.is_empty() {
+                "没有需要选择的新增版本".to_string()
+            } else {
+                format!("已选择 {} 个待转存版本", transfer_file_names.len())
+            },
+            "",
+            std::collections::BTreeMap::from([(
+                "selected_count".to_string(),
+                serde_json::json!(transfer_file_names.len()),
+            )]),
+        )
+        .await;
         let became_completed = if sub.notify_only {
             should_mark_completed_from_known_episodes(&sub, &new_episodes)
         } else if sub.sync_download_enabled {
@@ -235,6 +441,7 @@ impl SubscriptionCheckService {
                         subscription_id: sub.id.clone(),
                         file_names: transfer_file_names.clone(),
                         force_transfer,
+                        correlation_id: correlation_id.clone(),
                     })
                     .await
                 {
@@ -326,35 +533,93 @@ impl SubscriptionCheckService {
     /// 检查所有启用的订阅
     pub async fn check_all_subscriptions(&self, cookie: &str) -> Result<Vec<CheckResult>> {
         let subscriptions = self.subscription_store.list().await;
-        let mut results = Vec::new();
-
-        for sub in subscriptions {
-            if !sub.enabled {
-                continue;
-            }
-            if sub.completed && !should_reopen_completed_subscription(&sub) {
-                continue;
-            }
-
-            match self.check_subscription(&sub.id, cookie).await {
-                Ok(result) => results.push(result),
-                Err(e) => {
-                    warn!("检查订阅 {} 失败: {}", sub.id, e);
-                }
-            }
+        let eligible_ids = subscriptions
+            .iter()
+            .filter(|sub| sub.enabled)
+            .filter(|sub| !sub.completed || should_reopen_completed_subscription(sub))
+            .map(|sub| sub.id.clone())
+            .collect::<Vec<_>>();
+        if eligible_ids.is_empty() {
+            return Ok(Vec::new());
         }
 
+        // 批量检查在内存快照中执行；所有订阅完成后再一次性写回真实 Store。
+        let batch_store = Arc::new(SubscriptionStore::from_snapshot(subscriptions));
+        let batch_service = self
+            .with_subscription_store(batch_store.clone())
+            .with_batch_probe_cache();
+        let settings = self.settings_store.get().await;
+        let concurrency = settings
+            .subscription_check_max_concurrency
+            .min(settings.external_api_max_concurrency)
+            .max(1);
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
+        let mut tasks = tokio::task::JoinSet::new();
+        for (index, subscription_id) in eligible_ids.iter().cloned().enumerate() {
+            let service = batch_service.clone();
+            let cookie = cookie.to_string();
+            let semaphore = semaphore.clone();
+            tasks.spawn(async move {
+                let _permit = semaphore.acquire_owned().await.expect("semaphore closed");
+                let result = service.check_subscription(&subscription_id, &cookie).await;
+                (index, subscription_id, result)
+            });
+        }
+
+        let mut indexed_results = Vec::new();
+        while let Some(joined) = tasks.join_next().await {
+            match joined {
+                Ok((index, _, Ok(result))) => indexed_results.push((index, result)),
+                Ok((_, subscription_id, Err(error))) => {
+                    warn!("检查订阅 {} 失败: {}", subscription_id, error);
+                }
+                Err(error) => warn!("订阅检查任务异常结束: {}", error),
+            }
+        }
+        indexed_results.sort_by_key(|(index, _)| *index);
+        let results = indexed_results
+            .into_iter()
+            .map(|(_, result)| result)
+            .collect::<Vec<_>>();
+
+        let updates = batch_store
+            .list()
+            .await
+            .into_iter()
+            .filter(|sub| eligible_ids.contains(&sub.id))
+            .collect();
+        self.subscription_store.update_many(updates).await?;
         Ok(results)
     }
 
     /// 探测分享链接
     async fn probe_share(&self, sub: &Subscription, cookie: &str) -> Result<ProbeResult> {
+        let share_lock = Self::named_lock(&self.share_locks, &sub.url).await;
+        let _share_guard = share_lock.lock().await;
+        let cache_key = format!("{}\0{}", sub.url.trim(), sub.password);
+        if let Some(cache) = self.batch_probe_cache.as_ref() {
+            if let Some(cached) = cache.lock().await.get(&cache_key).cloned() {
+                return Ok(cached);
+            }
+        }
+
+        let result = self.probe_share_uncached(sub, cookie).await?;
+        if let Some(cache) = self.batch_probe_cache.as_ref() {
+            cache.lock().await.insert(cache_key, result.clone());
+        }
+        Ok(result)
+    }
+
+    async fn probe_share_uncached(&self, sub: &Subscription, cookie: &str) -> Result<ProbeResult> {
         if let Some(mock_result) = mock_probe_result(&sub.url)? {
             return Ok(mock_result);
         }
 
         let probe = QuarkShareProbe::new(cookie.to_string());
         let share_info = probe.probe(&sub.url, &sub.password, 200).await;
+        if share_info.state == "rate_limited" {
+            return Err(AppError::RateLimited(share_info.message));
+        }
 
         let files: Vec<ProbeFile> = share_info
             .files
@@ -430,6 +695,7 @@ impl SubscriptionCheckService {
                 if probe.ok {
                     s.last_error = String::new();
                     s.invalid_since = None;
+                    s.source_failure_count = 0;
                     s.status = if completed {
                         "completed".to_string()
                     } else {
@@ -490,6 +756,7 @@ impl SubscriptionCheckService {
                 if s.invalid_since.is_none() {
                     s.invalid_since = Some(now);
                 }
+                s.source_failure_count = s.source_failure_count.saturating_add(1);
             })
             .await?;
 
@@ -606,11 +873,12 @@ impl SubscriptionCheckService {
 
     /// 判断是否应该搜索换源候选
     async fn should_search_source_candidates(&self, sub: &Subscription) -> bool {
-        // 如果最近 24 小时内已经搜索过，跳过
+        let settings = self.settings_store.get().await;
+        let cooldown = i64::from(settings.source_switch_cooldown_hours.max(1)) * 3600;
         if let Some(last_search) = sub.last_source_search_time {
             let now = unix_now();
-            if now - last_search < 86400 {
-                info!("订阅 {} 最近 24 小时内已搜索换源，跳过", sub.title);
+            if now.saturating_sub(last_search) < cooldown {
+                info!("订阅 {} 仍在换源搜索冷却期，跳过", sub.title);
                 return false;
             }
         }
@@ -643,6 +911,115 @@ impl SubscriptionCheckService {
             .await?;
 
         Ok(candidates)
+    }
+
+    async fn try_auto_apply_source_candidate(
+        &self,
+        subscription_id: &str,
+        candidates: &[crate::models::subscription::SourceCandidate],
+        cookie: &str,
+    ) -> Result<Option<String>> {
+        use crate::services::subscription_source_switch::SubscriptionSourceSwitchService;
+
+        let settings = self.settings_store.get().await;
+        if !settings.auto_source_switch_enabled || settings.auto_source_switch_mode != "apply" {
+            return Ok(None);
+        }
+        let mut subscription = self
+            .subscription_store
+            .get(subscription_id)
+            .await
+            .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?;
+        if subscription.source_failure_count
+            < settings.source_switch_failure_threshold.max(1) as u32
+        {
+            return Ok(None);
+        }
+
+        let service = SubscriptionSourceSwitchService::with_pansou_api_url(
+            Arc::new(crate::clients::quark::QuarkShareProbe::new(cookie)),
+            pansou_api_url_option(&settings.pansou_api_url),
+        );
+        let now = unix_now();
+        let mut scored_candidates = Vec::new();
+
+        for candidate in candidates.iter().take(5) {
+            let scored = service
+                .probe_and_score_candidate(candidate, cookie, now * 1000)
+                .await?;
+            let preview = service.preview_candidate(&subscription, scored.clone(), &settings, now);
+            if !preview.probe_ok {
+                service.record_candidate_failure(
+                    &mut subscription,
+                    &scored,
+                    scored
+                        .probe_info
+                        .as_ref()
+                        .map(|probe| probe.message.as_str())
+                        .unwrap_or("候选探测失败"),
+                    true,
+                );
+            }
+            scored_candidates.push(scored);
+        }
+        subscription.source_candidates = scored_candidates;
+
+        let Some(preview) = service.best_auto_candidate(
+            &subscription,
+            &subscription.source_candidates,
+            &settings,
+            now,
+        ) else {
+            let snapshot = subscription.clone();
+            self.subscription_store
+                .update(subscription_id, |current| *current = snapshot)
+                .await?;
+            return Ok(None);
+        };
+        let candidate = preview.candidate.clone();
+
+        service.apply_source_switch_with_audit(
+            &mut subscription,
+            &candidate.id,
+            true,
+            &format!(
+                "连续失效达到阈值，候选 {} 分，分差 {}",
+                candidate.quality.score, preview.score_delta
+            ),
+        )?;
+        subscription.updated_at = now;
+        let snapshot = subscription.clone();
+        self.subscription_store
+            .update(subscription_id, |current| *current = snapshot)
+            .await?;
+
+        let mut meta = HashMap::new();
+        meta.insert(
+            "subscription_id".to_string(),
+            serde_json::Value::String(subscription.id.clone()),
+        );
+        meta.insert(
+            "candidate_id".to_string(),
+            serde_json::Value::String(candidate.id.clone()),
+        );
+        meta.insert(
+            "quality_score".to_string(),
+            serde_json::Value::from(candidate.quality.score),
+        );
+        meta.insert("automatic".to_string(), serde_json::Value::Bool(true));
+        let _ = add_notification(
+            &self.notification_store,
+            "success",
+            "subscription_source_switched",
+            "自动换源成功".to_string(),
+            format!(
+                "订阅「{}」已自动切换到质量分 {} 的候选来源",
+                subscription.title, candidate.quality.score
+            ),
+            meta,
+        )
+        .await;
+        Ok(Some(candidate.id))
     }
 
     /// 发送换源候选通知

@@ -7,7 +7,7 @@ use crate::services::{
     DownloadMonitorService, MetadataService, QuarkSigninScheduler, QuarkSigninService,
     SubscriptionCheckService, SubscriptionScheduler, SubscriptionTransferService,
 };
-use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
+use crate::store::{AutomationEventStore, NotificationStore, SettingsStore, SubscriptionStore};
 use crate::utils::metrics::{global_metrics, Metrics};
 
 /// 应用级依赖上下文。
@@ -18,6 +18,7 @@ pub struct AppContext {
     pub subscription_store: Arc<SubscriptionStore>,
     pub settings_store: Arc<SettingsStore>,
     pub notification_store: Arc<NotificationStore>,
+    pub automation_event_store: Arc<AutomationEventStore>,
     pub job_store: Arc<JobStore>,
     pub job_queue: Arc<JobQueue>,
     pub metadata_service: Arc<MetadataService>,
@@ -53,6 +54,12 @@ impl AppContext {
         notification_store.load().await?;
         tracing::info!("✅ Loaded notifications");
 
+        let automation_event_store = Arc::new(AutomationEventStore::new(
+            config.data_dir.join("automation_events.json"),
+        ));
+        automation_event_store.load().await?;
+        tracing::info!("✅ Loaded automation events");
+
         let job_store = Arc::new(JobStore::new(config.data_dir.join("jobs.json")));
         job_store.load().await?;
         tracing::info!("✅ Loaded jobs");
@@ -76,12 +83,18 @@ impl AppContext {
             transfer_service.clone(),
         ));
 
+        crate::services::automation_events::start_job_event_projection(
+            job_store.clone(),
+            automation_event_store.clone(),
+        );
+
         let check_service = Arc::new(
             SubscriptionCheckService::new(
                 subscription_store.clone(),
                 settings_store.clone(),
                 notification_store.clone(),
             )
+            .with_event_store(automation_event_store.clone())
             .with_job_queue(job_queue.clone()),
         );
 
@@ -112,6 +125,7 @@ impl AppContext {
             subscription_store,
             settings_store,
             notification_store,
+            automation_event_store,
             job_store,
             job_queue,
             metadata_service,

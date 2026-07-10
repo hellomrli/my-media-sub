@@ -1,6 +1,10 @@
 use crate::error::{AppError, Result};
 use crate::models::Notification;
-use crate::utils::{quarantine_corrupt_file, write_json_atomic_async};
+use crate::store::schema::{
+    backup_store_before_migration, decode_store_json, write_versioned_json_atomic_async, StoreKind,
+    StoreSchemaError,
+};
+use crate::utils::{quarantine_corrupt_file, set_file_mode};
 use std::path::PathBuf;
 use tokio::sync::{Mutex, RwLock};
 
@@ -30,13 +34,26 @@ impl NotificationStore {
         }
         let content = std::fs::read_to_string(&self.path)
             .map_err(|e| AppError::Database(format!("读取通知文件失败: {}", e)))?;
-        match serde_json::from_str(&content) {
-            Ok(mut parsed) => {
+        set_file_mode(&self.path, 0o600)?;
+        match decode_store_json::<Vec<Notification>>(&content, StoreKind::Notifications) {
+            Ok(decoded) => {
+                backup_store_before_migration(&self.path, &content, decoded.source_version)?;
+                let mut parsed = decoded.data;
+                let original_len = parsed.len();
                 truncate_notifications(&mut parsed);
+                if decoded.needs_write || parsed.len() != original_len {
+                    write_versioned_json_atomic_async(&self.path, &parsed, 0o600).await?;
+                }
                 *items = parsed;
             }
-            Err(e) => {
-                tracing::warn!("解析通知 JSON 失败，已隔离损坏文件并使用空通知: {}", e);
+            Err(StoreSchemaError::UnsupportedVersion { found, current }) => {
+                return Err(AppError::Database(format!(
+                    "通知存储 schema 版本 {} 高于当前支持版本 {}，请升级程序后重试",
+                    found, current
+                )));
+            }
+            Err(error) => {
+                tracing::warn!("解析通知 JSON 失败，已隔离损坏文件并使用空通知: {}", error);
                 quarantine_corrupt_file(&self.path);
                 *items = Vec::new();
             }
@@ -45,7 +62,7 @@ impl NotificationStore {
     }
 
     async fn save(&self, items: &[Notification]) -> Result<()> {
-        write_json_atomic_async(&self.path, &items, 0o600).await
+        write_versioned_json_atomic_async(&self.path, &items, 0o600).await
     }
 
     /// 添加通知
@@ -138,6 +155,7 @@ fn truncate_notifications(items: &mut Vec<Notification>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::schema::migration_backup_path;
     use std::collections::HashMap;
 
     fn temp_path(name: &str) -> PathBuf {
@@ -159,6 +177,31 @@ mod tests {
             read,
             created_at: 1,
         }
+    }
+
+    #[cfg(unix)]
+    fn assert_private_file_mode(path: &std::path::Path) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mode = std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    #[cfg(not(unix))]
+    fn assert_private_file_mode(_path: &std::path::Path) {}
+
+    fn quarantine_path(path: &std::path::Path) -> Option<PathBuf> {
+        let file_name = path.file_name()?.to_string_lossy();
+        std::fs::read_dir(path.parent()?)
+            .ok()?
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .find(|candidate| {
+                candidate.file_name().is_some_and(|name| {
+                    name.to_string_lossy()
+                        .starts_with(&format!("{}.corrupt-", file_name))
+                })
+            })
     }
 
     #[tokio::test]
@@ -219,9 +262,11 @@ mod tests {
         assert_eq!(all.last().unwrap().id, "n5");
 
         let persisted = std::fs::read_to_string(&tmp).unwrap();
-        let persisted_items: Vec<Notification> = serde_json::from_str(&persisted).unwrap();
-        assert_eq!(persisted_items.len(), MAX_NOTIFICATIONS);
-        assert_eq!(persisted_items.first().unwrap().id, "n5");
+        let decoded =
+            decode_store_json::<Vec<Notification>>(&persisted, StoreKind::Notifications).unwrap();
+        assert!(!decoded.needs_write);
+        assert_eq!(decoded.data.len(), MAX_NOTIFICATIONS);
+        assert_eq!(decoded.data.first().unwrap().id, "n5");
 
         let _ = std::fs::remove_file(&tmp);
     }
@@ -245,7 +290,86 @@ mod tests {
         );
         assert_eq!(all.last().unwrap().id, "n2");
 
+        let _ = std::fs::remove_file(migration_backup_path(&tmp, 0));
         let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[tokio::test]
+    async fn load_migrates_legacy_notifications_to_envelope() {
+        let tmp = temp_path("notif-legacy");
+        let original = serde_json::to_vec_pretty(&vec![make_notif("legacy", false)]).unwrap();
+        std::fs::write(&tmp, &original).unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+
+        let store = NotificationStore::new(&tmp);
+        store.load().await.unwrap();
+
+        assert_eq!(store.list(true).await[0].id, "legacy");
+        let persisted: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&tmp).unwrap()).unwrap();
+        assert_eq!(persisted["schema_version"], 1);
+        assert_eq!(persisted["data"][0]["id"], "legacy");
+        assert_private_file_mode(&tmp);
+
+        let backup = migration_backup_path(&tmp, 0);
+        assert_eq!(std::fs::read(&backup).unwrap(), original);
+        assert_private_file_mode(&backup);
+
+        let _ = std::fs::remove_file(tmp);
+        let _ = std::fs::remove_file(backup);
+    }
+
+    #[tokio::test]
+    async fn future_notification_schema_is_preserved() {
+        let tmp = temp_path("notif-future");
+        let original = serde_json::json!({"schema_version": 99, "data": []}).to_string();
+        std::fs::write(&tmp, &original).unwrap();
+
+        let store = NotificationStore::new(&tmp);
+        let error = store.load().await.unwrap_err();
+
+        assert!(matches!(error, AppError::Database(_)));
+        assert_eq!(std::fs::read_to_string(&tmp).unwrap(), original);
+        assert!(quarantine_path(&tmp).is_none());
+        assert_private_file_mode(&tmp);
+
+        let _ = std::fs::remove_file(tmp);
+    }
+
+    #[tokio::test]
+    async fn load_quarantines_corrupt_notification_file() {
+        let tmp = temp_path("notif-corrupt");
+        std::fs::write(&tmp, b"{not-valid-json").unwrap();
+
+        let store = NotificationStore::new(&tmp);
+        store.load().await.unwrap();
+
+        assert!(store.list(true).await.is_empty());
+        assert!(!tmp.exists());
+        let quarantined =
+            quarantine_path(&tmp).expect("corrupt notification file was not quarantined");
+        let _ = std::fs::remove_file(quarantined);
+    }
+
+    #[tokio::test]
+    async fn add_keeps_notifications_unchanged_when_save_fails() {
+        let blocker = temp_path("notif-save-blocker");
+        std::fs::write(&blocker, b"not-a-directory").unwrap();
+        let path = blocker.join("notifications.json");
+        let store = NotificationStore::new(&path);
+        store.load().await.unwrap();
+
+        let result = store.add(make_notif("should-not-stick", false)).await;
+
+        assert!(matches!(result, Err(AppError::Database(_))));
+        assert!(store.list(true).await.is_empty());
+
+        let _ = std::fs::remove_file(blocker);
     }
 
     #[tokio::test]

@@ -1,48 +1,124 @@
 use crate::error::{AppError, Result};
 use crate::models::Subscription;
-use crate::utils::{quarantine_corrupt_file, write_json_atomic_async};
+use crate::store::schema::{
+    backup_store_before_migration, decode_store_json, write_versioned_json_atomic_async, StoreKind,
+    StoreSchemaError,
+};
+use crate::utils::{quarantine_corrupt_file, set_file_mode};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{Mutex, RwLock};
 
 /// 订阅存储（JSON 文件，原子写入）
 pub struct SubscriptionStore {
-    path: PathBuf,
+    path: Option<PathBuf>,
     items: RwLock<Vec<Subscription>>,
     save_lock: Mutex<()>,
+    save_count: AtomicU64,
 }
 
 impl SubscriptionStore {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
-            path: path.into(),
+            path: Some(path.into()),
             items: RwLock::new(Vec::new()),
             save_lock: Mutex::new(()),
+            save_count: AtomicU64::new(0),
+        }
+    }
+
+    /// 创建仅驻留内存的快照 Store，用于批量计算后一次性提交。
+    pub fn from_snapshot(items: Vec<Subscription>) -> Self {
+        Self {
+            path: None,
+            items: RwLock::new(items),
+            save_lock: Mutex::new(()),
+            save_count: AtomicU64::new(0),
         }
     }
 
     /// 从文件加载
     pub async fn load(&self) -> Result<()> {
+        let Some(path) = self.path.as_ref() else {
+            return Ok(());
+        };
         let mut items = self.items.write().await;
-        if !self.path.exists() {
+        if !path.exists() {
             *items = Vec::new();
             return Ok(());
         }
-        let content = std::fs::read_to_string(&self.path)
+        let content = std::fs::read_to_string(path)
             .map_err(|e| AppError::Database(format!("读取订阅文件失败: {}", e)))?;
-        match serde_json::from_str(&content) {
-            Ok(parsed) => *items = parsed,
-            Err(e) => {
-                tracing::warn!("解析订阅 JSON 失败，已隔离损坏文件并使用空订阅: {}", e);
-                quarantine_corrupt_file(&self.path);
+        set_file_mode(path, 0o600)?;
+        match decode_store_json::<Vec<Subscription>>(&content, StoreKind::Subscriptions) {
+            Ok(decoded) => {
+                backup_store_before_migration(path, &content, decoded.source_version)?;
+                if decoded.needs_write {
+                    write_versioned_json_atomic_async(path, &decoded.data, 0o600).await?;
+                }
+                *items = decoded.data;
+            }
+            Err(StoreSchemaError::UnsupportedVersion { found, current }) => {
+                return Err(AppError::Database(format!(
+                    "订阅存储 schema 版本 {} 高于当前支持版本 {}，请升级程序后重试",
+                    found, current
+                )));
+            }
+            Err(error) => {
+                tracing::warn!("解析订阅 JSON 失败，已隔离损坏文件并使用空订阅: {}", error);
+                quarantine_corrupt_file(path);
                 *items = Vec::new();
             }
         }
         Ok(())
     }
 
-    /// 原子保存到文件
+    /// 原子保存到文件。内存快照 Store 不执行磁盘写入。
     async fn save(&self, items: &[Subscription]) -> Result<()> {
-        write_json_atomic_async(&self.path, &items, 0o600).await
+        let Some(path) = self.path.as_ref() else {
+            return Ok(());
+        };
+        write_versioned_json_atomic_async(path, &items, 0o600).await?;
+        self.save_count.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// 已成功执行的持久化次数。
+    pub fn save_count(&self) -> u64 {
+        self.save_count.load(Ordering::Relaxed)
+    }
+
+    /// 在独占保存锁内修改完整快照；磁盘写入成功后才替换内存。
+    pub async fn mutate_snapshot<F, R>(&self, mutate: F) -> Result<R>
+    where
+        F: FnOnce(&mut Vec<Subscription>) -> Result<R>,
+    {
+        let _save_guard = self.save_lock.lock().await;
+        let mut snapshot = self.items.read().await.clone();
+        let result = mutate(&mut snapshot)?;
+        self.save(&snapshot).await?;
+        *self.items.write().await = snapshot;
+        Ok(result)
+    }
+
+    /// 原子替换多个订阅；未包含的订阅保持当前值，整批只落盘一次。
+    pub async fn update_many(&self, updates: Vec<Subscription>) -> Result<Vec<Subscription>> {
+        if updates.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.mutate_snapshot(|snapshot| {
+            let mut applied = Vec::with_capacity(updates.len());
+            for update in updates {
+                let current = snapshot
+                    .iter_mut()
+                    .find(|item| item.id == update.id)
+                    .ok_or_else(|| AppError::NotFound(format!("订阅不存在: {}", update.id)))?;
+                *current = update.clone();
+                applied.push(update);
+            }
+            Ok(applied)
+        })
+        .await
     }
 
     /// 列出所有订阅
@@ -157,6 +233,7 @@ impl SubscriptionStore {
 mod tests {
     use super::*;
     use crate::models::Subscription;
+    use crate::store::schema::migration_backup_path;
 
     fn temp_path(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
@@ -178,6 +255,7 @@ mod tests {
             total_episode_number: None,
             source_group: String::new(),
             metadata: None,
+            manual_schedule: None,
             cloud_type: "quark".to_string(),
             url: "https://pan.quark.cn/s/test".to_string(),
             password: String::new(),
@@ -210,8 +288,22 @@ mod tests {
             source_candidates: vec![],
             last_source_search_time: None,
             previous_share_links: vec![],
+            source_failure_count: 0,
+            last_source_switch_at: None,
+            source_switch_history: vec![],
         }
     }
+
+    #[cfg(unix)]
+    fn assert_private_file_mode(path: &std::path::Path) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mode = std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    #[cfg(not(unix))]
+    fn assert_private_file_mode(_path: &std::path::Path) {}
 
     #[tokio::test]
     async fn test_subscription_store_crud() {
@@ -295,6 +387,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn load_migrates_legacy_subscription_array_to_envelope() {
+        let tmp = temp_path("subs-legacy");
+        let original = serde_json::to_vec(&vec![make_sub("legacy")]).unwrap();
+        std::fs::write(&tmp, &original).unwrap();
+
+        let store = SubscriptionStore::new(&tmp);
+        store.load().await.unwrap();
+        assert!(store.get("legacy").await.is_some());
+
+        let persisted: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&tmp).unwrap()).unwrap();
+        assert_eq!(persisted["schema_version"], 1);
+        assert_eq!(persisted["data"].as_array().unwrap().len(), 1);
+        assert_private_file_mode(&tmp);
+
+        let backup = migration_backup_path(&tmp, 0);
+        assert_eq!(std::fs::read(&backup).unwrap(), original);
+        assert_private_file_mode(&backup);
+
+        let _ = std::fs::remove_file(&tmp);
+        let _ = std::fs::remove_file(backup);
+    }
+
+    #[tokio::test]
+    async fn future_subscription_schema_is_preserved() {
+        let tmp = temp_path("subs-future");
+        let original = serde_json::json!({"schema_version": 99, "data": []}).to_string();
+        std::fs::write(&tmp, &original).unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+
+        let store = SubscriptionStore::new(&tmp);
+        let error = store.load().await.unwrap_err();
+        assert!(matches!(error, AppError::Database(_)));
+        assert_eq!(std::fs::read_to_string(&tmp).unwrap(), original);
+        assert_private_file_mode(&tmp);
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[tokio::test]
     async fn load_quarantines_corrupt_subscription_file() {
         let tmp = temp_path("subs-corrupt");
         std::fs::write(&tmp, b"{not-valid-json").unwrap();
@@ -330,5 +466,81 @@ mod tests {
                 let _ = std::fs::remove_file(entry.path());
             }
         }
+    }
+
+    #[tokio::test]
+    async fn update_many_persists_once_and_updates_all_items_atomically() {
+        let tmp = temp_path("subs-update-many");
+        let store = SubscriptionStore::new(&tmp);
+        store.load().await.unwrap();
+        store.create(make_sub("a1")).await.unwrap();
+        store.create(make_sub("a2")).await.unwrap();
+        let before = store.save_count();
+
+        let mut a1 = store.get("a1").await.unwrap();
+        let mut a2 = store.get("a2").await.unwrap();
+        a1.title = "A1 updated".to_string();
+        a2.title = "A2 updated".to_string();
+        store.update_many(vec![a1, a2]).await.unwrap();
+
+        assert_eq!(store.save_count(), before + 1);
+        assert_eq!(store.get("a1").await.unwrap().title, "A1 updated");
+        assert_eq!(store.get("a2").await.unwrap().title, "A2 updated");
+        let _ = std::fs::remove_file(tmp);
+    }
+
+    #[tokio::test]
+    async fn mutate_snapshot_failure_does_not_change_memory_or_disk() {
+        let tmp = temp_path("subs-mutate-fail");
+        let store = SubscriptionStore::new(&tmp);
+        store.load().await.unwrap();
+        store.create(make_sub("a1")).await.unwrap();
+        let before_bytes = std::fs::read(&tmp).unwrap();
+        let before_saves = store.save_count();
+
+        let error = store
+            .mutate_snapshot(|items| {
+                items[0].title = "should not persist".to_string();
+                Err::<(), _>(AppError::Validation("abort".to_string()))
+            })
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, AppError::Validation(_)));
+        assert_eq!(store.get("a1").await.unwrap().title, "测试");
+        assert_eq!(std::fs::read(&tmp).unwrap(), before_bytes);
+        assert_eq!(store.save_count(), before_saves);
+        let _ = std::fs::remove_file(tmp);
+    }
+
+    #[tokio::test]
+    async fn concurrent_update_many_preserves_disjoint_updates() {
+        let tmp = temp_path("subs-update-many-concurrent");
+        let store = std::sync::Arc::new(SubscriptionStore::new(&tmp));
+        store.load().await.unwrap();
+        store.create(make_sub("a1")).await.unwrap();
+        store.create(make_sub("a2")).await.unwrap();
+
+        let mut a1 = store.get("a1").await.unwrap();
+        let mut a2 = store.get("a2").await.unwrap();
+        a1.title = "first".to_string();
+        a2.title = "second".to_string();
+        let left = {
+            let store = store.clone();
+            tokio::spawn(async move { store.update_many(vec![a1]).await })
+        };
+        let right = {
+            let store = store.clone();
+            tokio::spawn(async move { store.update_many(vec![a2]).await })
+        };
+        left.await.unwrap().unwrap();
+        right.await.unwrap().unwrap();
+
+        assert_eq!(store.get("a1").await.unwrap().title, "first");
+        assert_eq!(store.get("a2").await.unwrap().title, "second");
+        let persisted: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&tmp).unwrap()).unwrap();
+        assert_eq!(persisted["data"].as_array().unwrap().len(), 2);
+        let _ = std::fs::remove_file(tmp);
     }
 }

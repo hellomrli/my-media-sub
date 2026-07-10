@@ -1,3 +1,4 @@
+use super::ensure_upstream_status;
 use crate::error::{AppError, Result};
 use reqwest::header::{HeaderValue, SET_COOKIE};
 use reqwest::{Client, Url};
@@ -198,6 +199,7 @@ impl QuarkSaveClient {
             .send()
             .await
             .map_err(|e| AppError::Http(format!("夸克 GET 请求失败: {}", e)))?;
+        ensure_upstream_status(&resp, "夸克 GET")?;
 
         resp.json()
             .await
@@ -231,6 +233,7 @@ impl QuarkSaveClient {
             .send()
             .await
             .map_err(|e| AppError::Http(format!("夸克 POST 请求失败: {}", e)))?;
+        ensure_upstream_status(&resp, "夸克 POST")?;
 
         let set_cookies = resp
             .headers()
@@ -288,7 +291,8 @@ impl QuarkSaveClient {
 
     async fn mobile_get(&self, path: &str, params: &QuarkMobileParams) -> Result<ApiResponse> {
         let url = format!("{}{}", QUARK_MOBILE_API_BASE, path);
-        self.mobile_client
+        let response = self
+            .mobile_client
             .get(&url)
             .query(&[
                 ("pr", "ucpro"),
@@ -299,7 +303,9 @@ impl QuarkSaveClient {
             ])
             .send()
             .await
-            .map_err(|e| AppError::Http(format!("夸克移动端 GET 请求失败: {}", e)))?
+            .map_err(|e| AppError::Http(format!("夸克移动端 GET 请求失败: {}", e)))?;
+        ensure_upstream_status(&response, "夸克移动端 GET")?;
+        response
             .json()
             .await
             .map_err(|e| AppError::Http(format!("解析夸克移动端响应失败: {}", e)))
@@ -312,7 +318,8 @@ impl QuarkSaveClient {
         payload: &Value,
     ) -> Result<ApiResponse> {
         let url = format!("{}{}", QUARK_MOBILE_API_BASE, path);
-        self.mobile_client
+        let response = self
+            .mobile_client
             .post(&url)
             .query(&[
                 ("pr", "ucpro"),
@@ -324,7 +331,9 @@ impl QuarkSaveClient {
             .json(payload)
             .send()
             .await
-            .map_err(|e| AppError::Http(format!("夸克移动端 POST 请求失败: {}", e)))?
+            .map_err(|e| AppError::Http(format!("夸克移动端 POST 请求失败: {}", e)))?;
+        ensure_upstream_status(&response, "夸克移动端 POST")?;
+        response
             .json()
             .await
             .map_err(|e| AppError::Http(format!("解析夸克移动端响应失败: {}", e)))

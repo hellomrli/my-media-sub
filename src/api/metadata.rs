@@ -3,9 +3,10 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::sync::Arc;
 
+use super::response::ApiResponse as Response;
 use crate::error::Result;
 use crate::models::MediaMetadata;
 use crate::services::MetadataService;
@@ -23,11 +24,6 @@ struct MetadataSearchQuery {
     media_type: Option<String>,
 }
 
-#[derive(Serialize)]
-struct Response<T> {
-    data: T,
-}
-
 async fn search_metadata(
     State(state): State<Arc<MetadataState>>,
     Query(query): Query<MetadataSearchQuery>,
@@ -41,7 +37,7 @@ async fn search_metadata(
         )
         .await?;
 
-    Ok(Json(Response { data: results }))
+    Ok(Json(Response::ok(results)))
 }
 
 pub fn routes(

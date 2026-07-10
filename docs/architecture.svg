@@ -1,124 +1,588 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900">
-  <defs>
-    <style>
-      .bg { fill: #f7fafc; }
-      .title { font: 700 34px sans-serif; fill: #0f172a; }
-      .subtitle { font: 16px sans-serif; fill: #475569; }
-      .box { fill: #ffffff; stroke: #2563eb; stroke-width: 2; rx: 10; }
-      .box2 { fill: #eff6ff; stroke: #1d4ed8; stroke-width: 2; rx: 10; }
-      .box3 { fill: #f0fdf4; stroke: #16a34a; stroke-width: 2; rx: 10; }
-      .box4 { fill: #fff7ed; stroke: #ea580c; stroke-width: 2; rx: 10; }
-      .box5 { fill: #f8fafc; stroke: #64748b; stroke-width: 2; rx: 10; }
-      .label { font: 700 17px sans-serif; fill: #0f172a; }
-      .text { font: 13px sans-serif; fill: #334155; }
-      .small { font: 12px sans-serif; fill: #64748b; }
-      .arrow { stroke: #2563eb; stroke-width: 2.5; marker-end: url(#arrow); fill: none; }
-      .arrow2 { stroke: #64748b; stroke-width: 2; marker-end: url(#arrow-gray); fill: none; stroke-dasharray: 7 6; }
-    </style>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb"/>
-    </marker>
-    <marker id="arrow-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
-    </marker>
-  </defs>
-
-  <rect class="bg" x="0" y="0" width="1400" height="900"/>
-  <text class="title" x="60" y="70">My Media Sub 1.0 架构图</text>
-  <text class="subtitle" x="60" y="100">Rust + Axum 单体服务，JSON 存储，后台任务队列，静态 WebUI</text>
-
-  <rect class="box2" x="60" y="150" width="190" height="92"/>
-  <text class="label" x="85" y="184">浏览器用户</text>
-  <text class="text" x="85" y="210">WebUI / Basic Auth</text>
-
-  <rect class="box" x="320" y="135" width="230" height="122"/>
-  <text class="label" x="350" y="170">静态 WebUI</text>
-  <text class="text" x="350" y="198">static/index.html</text>
-  <text class="text" x="350" y="218">static/app.js</text>
-  <text class="text" x="350" y="238">static/styles.css</text>
-
-  <rect class="box" x="620" y="135" width="230" height="122"/>
-  <text class="label" x="648" y="170">Axum HTTP Server</text>
-  <text class="text" x="648" y="198">src/main.rs</text>
-  <text class="text" x="648" y="218">src/api/mod.rs</text>
-  <text class="text" x="648" y="238">静态资源 + API 路由</text>
-
-  <rect class="box3" x="920" y="135" width="240" height="122"/>
-  <text class="label" x="950" y="170">AppContext</text>
-  <text class="text" x="950" y="198">Store / Service / Queue</text>
-  <text class="text" x="950" y="218">Scheduler / Metrics</text>
-  <text class="text" x="950" y="238">src/app.rs</text>
-
-  <path class="arrow" d="M250 196 H320"/>
-  <path class="arrow" d="M550 196 H620"/>
-  <path class="arrow" d="M850 196 H920"/>
-
-  <rect class="box" x="80" y="340" width="240" height="138"/>
-  <text class="label" x="108" y="375">API 路由层</text>
-  <text class="text" x="108" y="403">订阅 / 网盘 / 搜索</text>
-  <text class="text" x="108" y="423">任务 / 推送 / 更新</text>
-  <text class="text" x="108" y="443">指标 / STRM</text>
-  <text class="small" x="108" y="464">src/api/*</text>
-
-  <rect class="box3" x="400" y="340" width="240" height="138"/>
-  <text class="label" x="428" y="375">业务服务层</text>
-  <text class="text" x="428" y="403">订阅检查 / 转存</text>
-  <text class="text" x="428" y="423">规则 / 推送 / STRM</text>
-  <text class="text" x="428" y="443">元数据 / 签到</text>
-  <text class="small" x="428" y="464">src/services/*</text>
-
-  <rect class="box4" x="720" y="340" width="240" height="138"/>
-  <text class="label" x="748" y="375">后台任务队列</text>
-  <text class="text" x="748" y="403">转存 / 刮削 / 推送</text>
-  <text class="text" x="748" y="423">取消 / 重试 / SSE</text>
-  <text class="text" x="748" y="443">JobWorker</text>
-  <text class="small" x="748" y="464">src/jobs/*</text>
-
-  <rect class="box5" x="1040" y="340" width="240" height="138"/>
-  <text class="label" x="1068" y="375">JSON Store</text>
-  <text class="text" x="1068" y="403">settings.json</text>
-  <text class="text" x="1068" y="423">subscriptions.json</text>
-  <text class="text" x="1068" y="443">notifications / jobs</text>
-  <text class="small" x="1068" y="464">src/store/*</text>
-
-  <path class="arrow" d="M1040 257 C980 300 890 315 640 360"/>
-  <path class="arrow" d="M1040 257 C1065 290 1128 310 1160 340"/>
-  <path class="arrow" d="M920 257 C690 300 450 312 320 360"/>
-  <path class="arrow" d="M320 409 H400"/>
-  <path class="arrow" d="M640 409 H720"/>
-  <path class="arrow" d="M960 409 H1040"/>
-  <path class="arrow" d="M720 455 C655 522 562 522 520 478"/>
-
-  <rect class="box" x="80" y="600" width="240" height="138"/>
-  <text class="label" x="108" y="635">外部客户端</text>
-  <text class="text" x="108" y="663">PanSou / 夸克</text>
-  <text class="text" x="108" y="683">TMDB / Aria2</text>
-  <text class="text" x="108" y="703">共享 HTTP client 池</text>
-  <text class="small" x="108" y="724">src/clients/*</text>
-
-  <rect class="box3" x="400" y="600" width="240" height="138"/>
-  <text class="label" x="428" y="635">外部服务</text>
-  <text class="text" x="428" y="663">PanSou Search API</text>
-  <text class="text" x="428" y="683">Quark Drive API</text>
-  <text class="text" x="428" y="703">TMDB / Aria2 RPC</text>
-
-  <rect class="box4" x="720" y="600" width="240" height="138"/>
-  <text class="label" x="748" y="635">推送渠道</text>
-  <text class="text" x="748" y="663">PushChannel trait</text>
-  <text class="text" x="748" y="683">Telegram / Bark</text>
-  <text class="text" x="748" y="703">WxPusher / Gotify 等</text>
-
-  <rect class="box5" x="1040" y="600" width="240" height="138"/>
-  <text class="label" x="1068" y="635">运维接口</text>
-  <text class="text" x="1068" y="663">/api/jobs/events</text>
-  <text class="text" x="1068" y="683">/api/metrics</text>
-  <text class="text" x="1068" y="703">/api/update/*</text>
-
-  <path class="arrow" d="M400 455 C300 520 240 545 200 600"/>
-  <path class="arrow" d="M320 669 H400"/>
-  <path class="arrow" d="M640 455 C712 520 790 545 840 600"/>
-  <path class="arrow2" d="M550 257 C735 520 960 560 1040 640"/>
-
-  <text class="small" x="60" y="830">实线：主要同步/异步调用方向。虚线：前端通过 SSE/指标接口观察服务状态。</text>
-  <text class="small" x="60" y="854">Telegram 主动控制未包含在 1.0.0 当前运行架构中，后续可作为独立服务接入 AppContext 和 JobQueue。</text>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 14.1.2 (0)
+ -->
+<!-- Title: MyMediaSub Pages: 1 -->
+<svg width="3121pt" height="899pt"
+ viewBox="0.00 0.00 3121.00 899.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(25.2 874.2)">
+<title>MyMediaSub</title>
+<polygon fill="#08111f" stroke="none" points="-25.2,25.2 -25.2,-874.2 3095.62,-874.2 3095.62,25.2 -25.2,25.2"/>
+<text xml:space="preserve" text-anchor="middle" x="1535.21" y="-824.1" font-family="Noto Sans CJK SC" font-size="22.00" fill="#dbeafe">my&#45;media&#45;sub v1.3.0 开发基线架构</text>
+<g id="clust1" class="cluster">
+<title>cluster_client</title>
+<path fill="#08111f" stroke="#1e3a5f" stroke-dasharray="5,2" d="M20,-362C20,-362 921.37,-362 921.37,-362 927.37,-362 933.37,-368 933.37,-374 933.37,-374 933.37,-487 933.37,-487 933.37,-493 927.37,-499 921.37,-499 921.37,-499 20,-499 20,-499 14,-499 8,-493 8,-487 8,-487 8,-374 8,-374 8,-368 14,-362 20,-362"/>
+<text xml:space="preserve" text-anchor="middle" x="470.68" y="-474.1" font-family="Noto Sans CJK SC" font-size="22.00" fill="#dbeafe">客户端</text>
+</g>
+<g id="clust2" class="cluster">
+<title>cluster_http</title>
+<path fill="#08111f" stroke="#4c1d95" stroke-dasharray="5,2" d="M170.65,-54C170.65,-54 1402.05,-54 1402.05,-54 1408.05,-54 1414.05,-60 1414.05,-66 1414.05,-66 1414.05,-342 1414.05,-342 1414.05,-348 1408.05,-354 1402.05,-354 1402.05,-354 170.65,-354 170.65,-354 164.65,-354 158.65,-348 158.65,-342 158.65,-342 158.65,-66 158.65,-66 158.65,-60 164.65,-54 170.65,-54"/>
+<text xml:space="preserve" text-anchor="middle" x="786.35" y="-329.1" font-family="Noto Sans CJK SC" font-size="22.00" fill="#dbeafe">Axum HTTP 层</text>
+</g>
+<g id="clust3" class="cluster">
+<title>cluster_core</title>
+<path fill="#08111f" stroke="#14532d" stroke-dasharray="5,2" d="M1046.74,-362C1046.74,-362 2375.58,-362 2375.58,-362 2381.58,-362 2387.58,-368 2387.58,-374 2387.58,-374 2387.58,-632 2387.58,-632 2387.58,-638 2381.58,-644 2375.58,-644 2375.58,-644 1046.74,-644 1046.74,-644 1040.74,-644 1034.74,-638 1034.74,-632 1034.74,-632 1034.74,-374 1034.74,-374 1034.74,-368 1040.74,-362 1046.74,-362"/>
+<text xml:space="preserve" text-anchor="middle" x="1711.16" y="-619.1" font-family="Noto Sans CJK SC" font-size="22.00" fill="#dbeafe">应用核心</text>
+</g>
+<g id="clust4" class="cluster">
+<title>cluster_store</title>
+<path fill="#08111f" stroke="#713f12" stroke-dasharray="5,2" d="M2483.33,-610C2483.33,-610 3050.42,-610 3050.42,-610 3056.42,-610 3062.42,-616 3062.42,-622 3062.42,-622 3062.42,-788 3062.42,-788 3062.42,-794 3056.42,-800 3050.42,-800 3050.42,-800 2483.33,-800 2483.33,-800 2477.33,-800 2471.33,-794 2471.33,-788 2471.33,-788 2471.33,-622 2471.33,-622 2471.33,-616 2477.33,-610 2483.33,-610"/>
+<text xml:space="preserve" text-anchor="middle" x="2766.87" y="-775.1" font-family="Noto Sans CJK SC" font-size="22.00" fill="#dbeafe">持久化</text>
+</g>
+<g id="clust5" class="cluster">
+<title>cluster_clients</title>
+<path fill="#08111f" stroke="#7f1d1d" stroke-dasharray="5,2" d="M2473.58,-332C2473.58,-332 2848.76,-332 2848.76,-332 2854.76,-332 2860.76,-338 2860.76,-344 2860.76,-344 2860.76,-590 2860.76,-590 2860.76,-596 2854.76,-602 2848.76,-602 2848.76,-602 2473.58,-602 2473.58,-602 2467.58,-602 2461.58,-596 2461.58,-590 2461.58,-590 2461.58,-344 2461.58,-344 2461.58,-338 2467.58,-332 2473.58,-332"/>
+<text xml:space="preserve" text-anchor="middle" x="2661.17" y="-577.1" font-family="Noto Sans CJK SC" font-size="22.00" fill="#dbeafe">外部适配</text>
+</g>
+<!-- Browser -->
+<g id="node1" class="node">
+<title>Browser</title>
+<path fill="#172554" stroke="#3b82f6" d="M97.78,-411C97.78,-411 28,-411 28,-411 22,-411 16,-405 16,-399 16,-399 16,-387 16,-387 16,-381 22,-375 28,-375 28,-375 97.78,-375 97.78,-375 103.78,-375 109.78,-381 109.78,-387 109.78,-387 109.78,-399 109.78,-399 109.78,-405 103.78,-411 97.78,-411"/>
+<text xml:space="preserve" text-anchor="middle" x="62.89" y="-391.18" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">浏览器 / 移动端</text>
+</g>
+<!-- WebUI -->
+<g id="node2" class="node">
+<title>WebUI</title>
+<path fill="#1e293b" stroke="#334155" d="M281.06,-416.01C281.06,-416.01 176.78,-416.01 176.78,-416.01 170.78,-416.01 164.78,-410.01 164.78,-404.01 164.78,-404.01 164.78,-381.99 164.78,-381.99 164.78,-375.99 170.78,-369.99 176.78,-369.99 176.78,-369.99 281.06,-369.99 281.06,-369.99 287.06,-369.99 293.06,-375.99 293.06,-381.99 293.06,-381.99 293.06,-404.01 293.06,-404.01 293.06,-410.01 287.06,-416.01 281.06,-416.01"/>
+<text xml:space="preserve" text-anchor="middle" x="228.92" y="-399.8" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">Media Deck WebUI</text>
+<text xml:space="preserve" text-anchor="middle" x="228.92" y="-382.55" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">Alpine.js + 纯静态资源</text>
+</g>
+<!-- Browser&#45;&gt;WebUI -->
+<g id="edge1" class="edge">
+<title>Browser&#45;&gt;WebUI</title>
+<path fill="none" stroke="#64748b" d="M110.02,-393C124.38,-393 140.57,-393 156.25,-393"/>
+<polygon fill="#64748b" stroke="#64748b" points="155.88,-395.45 162.88,-393 155.88,-390.55 155.88,-395.45"/>
+</g>
+<!-- FrontModules -->
+<g id="node3" class="node">
+<title>FrontModules</title>
+<path fill="#1e293b" stroke="#334155" d="M665.84,-450.26C665.84,-450.26 416.06,-450.26 416.06,-450.26 410.06,-450.26 404.06,-444.26 404.06,-438.26 404.06,-438.26 404.06,-381.74 404.06,-381.74 404.06,-375.74 410.06,-369.74 416.06,-369.74 416.06,-369.74 665.84,-369.74 665.84,-369.74 671.84,-369.74 677.84,-375.74 677.84,-381.74 677.84,-381.74 677.84,-438.26 677.84,-438.26 677.84,-444.26 671.84,-450.26 665.84,-450.26"/>
+<text xml:space="preserve" text-anchor="middle" x="540.95" y="-434.05" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">前端模块</text>
+<text xml:space="preserve" text-anchor="middle" x="540.95" y="-416.8" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">core: api / router / polling / notifications</text>
+<text xml:space="preserve" text-anchor="middle" x="540.95" y="-399.55" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">stores: subscriptions / jobs / drive / downloads</text>
+<text xml:space="preserve" text-anchor="middle" x="540.95" y="-382.3" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">features: calendar / updates / settings / dashboard</text>
+</g>
+<!-- WebUI&#45;&gt;FrontModules -->
+<g id="edge2" class="edge">
+<title>WebUI&#45;&gt;FrontModules</title>
+<path fill="none" stroke="#64748b" d="M301.8,-396.94C329.78,-398.48 362.88,-400.29 395.38,-402.07"/>
+<polygon fill="#64748b" stroke="#64748b" points="302.04,-394.5 294.92,-396.56 301.77,-399.39 302.04,-394.5"/>
+<polygon fill="#64748b" stroke="#64748b" points="394.99,-404.5 402.11,-402.44 395.25,-399.61 394.99,-404.5"/>
+<text xml:space="preserve" text-anchor="middle" x="348.56" y="-405.94" font-family="Noto Sans CJK SC" font-size="9.00" fill="#a5b4fc">状态 / 工具</text>
+</g>
+<!-- Auth -->
+<g id="node5" class="node">
+<title>Auth</title>
+<path fill="#2e1065" stroke="#8b5cf6" d="M279.18,-241.01C279.18,-241.01 178.65,-241.01 178.65,-241.01 172.65,-241.01 166.65,-235.01 166.65,-229.01 166.65,-229.01 166.65,-206.99 166.65,-206.99 166.65,-200.99 172.65,-194.99 178.65,-194.99 178.65,-194.99 279.18,-194.99 279.18,-194.99 285.18,-194.99 291.18,-200.99 291.18,-206.99 291.18,-206.99 291.18,-229.01 291.18,-229.01 291.18,-235.01 285.18,-241.01 279.18,-241.01"/>
+<text xml:space="preserve" text-anchor="middle" x="228.92" y="-224.8" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">Basic Auth + CSRF</text>
+<text xml:space="preserve" text-anchor="middle" x="228.92" y="-207.55" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">/health 与 /strm 例外</text>
+</g>
+<!-- WebUI&#45;&gt;Auth -->
+<g id="edge28" class="edge">
+<title>WebUI&#45;&gt;Auth</title>
+<path fill="none" stroke="#64748b" d="M228.92,-369.67C228.92,-338.76 228.92,-284.14 228.92,-249.57"/>
+<polygon fill="#64748b" stroke="#64748b" points="231.37,-249.75 228.92,-242.75 226.47,-249.75 231.37,-249.75"/>
+<text xml:space="preserve" text-anchor="middle" x="219.17" y="-303.7" font-family="Noto Sans CJK SC" font-size="9.00" fill="#a5b4fc">HTTP + Basic Auth</text>
+</g>
+<!-- CalendarViews -->
+<g id="node4" class="node">
+<title>CalendarViews</title>
+<path fill="#172554" stroke="#3b82f6" d="M913.37,-437.63C913.37,-437.63 819.59,-437.63 819.59,-437.63 813.59,-437.63 807.59,-431.63 807.59,-425.63 807.59,-425.63 807.59,-386.37 807.59,-386.37 807.59,-380.37 813.59,-374.37 819.59,-374.37 819.59,-374.37 913.37,-374.37 913.37,-374.37 919.37,-374.37 925.37,-380.37 925.37,-386.37 925.37,-386.37 925.37,-425.63 925.37,-425.63 925.37,-431.63 919.37,-437.63 913.37,-437.63"/>
+<text xml:space="preserve" text-anchor="middle" x="866.48" y="-421.43" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">更新日历</text>
+<text xml:space="preserve" text-anchor="middle" x="866.48" y="-404.18" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">周 / 月 / 列表</text>
+<text xml:space="preserve" text-anchor="middle" x="866.48" y="-386.93" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">筛选 + 手动排期编辑</text>
+</g>
+<!-- FrontModules&#45;&gt;CalendarViews -->
+<g id="edge3" class="edge">
+<title>FrontModules&#45;&gt;CalendarViews</title>
+<path fill="none" stroke="#64748b" d="M686.73,-408.21C726.08,-407.72 766.78,-407.22 799.39,-406.82"/>
+<polygon fill="#64748b" stroke="#64748b" points="686.7,-405.76 679.73,-408.3 686.76,-410.66 686.7,-405.76"/>
+<polygon fill="#64748b" stroke="#64748b" points="799.02,-409.27 805.99,-406.74 798.96,-404.37 799.02,-409.27"/>
+<text xml:space="preserve" text-anchor="middle" x="742.71" y="-412.83" font-family="Noto Sans CJK SC" font-size="9.00" fill="#a5b4fc">布局 / 标签</text>
+</g>
+<!-- ApiRoutes -->
+<g id="node7" class="node">
+<title>ApiRoutes</title>
+<path fill="#312e81" stroke="#6366f1" d="M890.12,-236.01C890.12,-236.01 842.84,-236.01 842.84,-236.01 836.84,-236.01 830.84,-230.01 830.84,-224.01 830.84,-224.01 830.84,-201.99 830.84,-201.99 830.84,-195.99 836.84,-189.99 842.84,-189.99 842.84,-189.99 890.12,-189.99 890.12,-189.99 896.12,-189.99 902.12,-195.99 902.12,-201.99 902.12,-201.99 902.12,-224.01 902.12,-224.01 902.12,-230.01 896.12,-236.01 890.12,-236.01"/>
+<text xml:space="preserve" text-anchor="middle" x="866.48" y="-219.8" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">API Routes</text>
+<text xml:space="preserve" text-anchor="middle" x="866.48" y="-202.55" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">src/api/*</text>
+</g>
+<!-- FrontModules&#45;&gt;ApiRoutes -->
+<g id="edge32" class="edge">
+<title>FrontModules&#45;&gt;ApiRoutes</title>
+<path fill="none" stroke="#64748b" d="M650.34,-369.32C666.49,-363.26 677.84,-359 677.84,-359 677.84,-359 704.84,-240.5 704.84,-240.5 704.84,-240.5 774.73,-228.53 822.31,-220.39"/>
+<polygon fill="#64748b" stroke="#64748b" points="822.65,-222.82 829.13,-219.22 821.82,-217.99 822.65,-222.82"/>
+<text xml:space="preserve" text-anchor="middle" x="742.71" y="-245.45" font-family="Noto Sans CJK SC" font-size="9.00" fill="#a5b4fc">apiData / apiFetch</text>
+</g>
+<!-- SSE -->
+<g id="node11" class="node">
+<title>SSE</title>
+<path fill="#1e293b" stroke="#334155" d="M267.18,-140.01C267.18,-140.01 190.65,-140.01 190.65,-140.01 184.65,-140.01 178.65,-134.01 178.65,-128.01 178.65,-128.01 178.65,-105.99 178.65,-105.99 178.65,-99.99 184.65,-93.99 190.65,-93.99 190.65,-93.99 267.18,-93.99 267.18,-93.99 273.18,-93.99 279.18,-99.99 279.18,-105.99 279.18,-105.99 279.18,-128.01 279.18,-128.01 279.18,-134.01 273.18,-140.01 267.18,-140.01"/>
+<text xml:space="preserve" text-anchor="middle" x="228.92" y="-123.8" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">Job SSE</text>
+<text xml:space="preserve" text-anchor="middle" x="228.92" y="-106.55" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">/api/jobs/events</text>
+</g>
+<!-- FrontModules&#45;&gt;SSE -->
+<g id="edge35" class="edge">
+<title>FrontModules&#45;&gt;SSE</title>
+<path fill="none" stroke="#64748b" stroke-dasharray="5,2" d="M431.56,-369.32C415.41,-363.26 404.06,-359 404.06,-359 404.06,-359 320.06,-323 320.06,-323 320.06,-323 293.06,-183 293.06,-183 293.06,-183 274.86,-163.97 258,-146.35"/>
+<polygon fill="#64748b" stroke="#64748b" points="260.01,-144.91 253.4,-141.55 256.47,-148.3 260.01,-144.91"/>
+<text xml:space="preserve" text-anchor="middle" x="348.56" y="-352.31" font-family="Noto Sans CJK SC" font-size="9.00" fill="#a5b4fc">EventSource</text>
+</g>
+<!-- CalendarApi -->
+<g id="node8" class="node">
+<title>CalendarApi</title>
+<path fill="#312e81" stroke="#8b5cf6" d="M1168.4,-305.01C1168.4,-305.01 1035.62,-305.01 1035.62,-305.01 1029.62,-305.01 1023.62,-299.01 1023.62,-293.01 1023.62,-293.01 1023.62,-270.99 1023.62,-270.99 1023.62,-264.99 1029.62,-258.99 1035.62,-258.99 1035.62,-258.99 1168.4,-258.99 1168.4,-258.99 1174.4,-258.99 1180.4,-264.99 1180.4,-270.99 1180.4,-270.99 1180.4,-293.01 1180.4,-293.01 1180.4,-299.01 1174.4,-305.01 1168.4,-305.01"/>
+<text xml:space="preserve" text-anchor="middle" x="1102.01" y="-288.8" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">GET /api/calendar</text>
+<text xml:space="preserve" text-anchor="middle" x="1102.01" y="-271.55" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">日期 / 状态 / 媒体 / 订阅筛选</text>
+</g>
+<!-- CalendarViews&#45;&gt;CalendarApi -->
+<g id="edge33" class="edge">
+<title>CalendarViews&#45;&gt;CalendarApi</title>
+<path fill="none" stroke="#64748b" d="M925.81,-375.03C963.93,-354.79 1013.25,-328.6 1049.85,-309.17"/>
+<polygon fill="#64748b" stroke="#64748b" points="1050.62,-311.53 1055.65,-306.09 1048.32,-307.2 1050.62,-311.53"/>
+<text xml:space="preserve" text-anchor="middle" x="974.49" y="-363.7" font-family="Noto Sans CJK SC" font-size="9.00" fill="#a5b4fc">范围 / 筛选</text>
+</g>
+<!-- ErrorNormalize -->
+<g id="node6" class="node">
+<title>ErrorNormalize</title>
+<path fill="#2e1065" stroke="#334155" d="M605.46,-177.01C605.46,-177.01 476.43,-177.01 476.43,-177.01 470.43,-177.01 464.43,-171.01 464.43,-165.01 464.43,-165.01 464.43,-142.99 464.43,-142.99 464.43,-136.99 470.43,-130.99 476.43,-130.99 476.43,-130.99 605.46,-130.99 605.46,-130.99 611.46,-130.99 617.46,-136.99 617.46,-142.99 617.46,-142.99 617.46,-165.01 617.46,-165.01 617.46,-171.01 611.46,-177.01 605.46,-177.01"/>
+<text xml:space="preserve" text-anchor="middle" x="540.95" y="-160.8" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">API 错误规范化</text>
+<text xml:space="preserve" text-anchor="middle" x="540.95" y="-143.55" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">401/403/404/405/Extractor</text>
+</g>
+<!-- Auth&#45;&gt;ErrorNormalize -->
+<g id="edge4" class="edge">
+<title>Auth&#45;&gt;ErrorNormalize</title>
+<path fill="none" stroke="#64748b" d="M291.54,-205.28C338.64,-195.56 404.09,-182.05 455.98,-171.33"/>
+<polygon fill="#64748b" stroke="#64748b" points="456.34,-173.76 462.7,-169.95 455.35,-168.96 456.34,-173.76"/>
+</g>
+<!-- Static -->
+<g id="node10" class="node">
+<title>Static</title>
+<path fill="#1e293b" stroke="#334155" d="M578.09,-305.01C578.09,-305.01 503.81,-305.01 503.81,-305.01 497.81,-305.01 491.81,-299.01 491.81,-293.01 491.81,-293.01 491.81,-270.99 491.81,-270.99 491.81,-264.99 497.81,-258.99 503.81,-258.99 503.81,-258.99 578.09,-258.99 578.09,-258.99 584.09,-258.99 590.09,-264.99 590.09,-270.99 590.09,-270.99 590.09,-293.01 590.09,-293.01 590.09,-299.01 584.09,-305.01 578.09,-305.01"/>
+<text xml:space="preserve" text-anchor="middle" x="540.95" y="-288.8" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">ServeDir static/</text>
+<text xml:space="preserve" text-anchor="middle" x="540.95" y="-271.55" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">HTML / JS / CSS</text>
+</g>
+<!-- Auth&#45;&gt;Static -->
+<g id="edge29" class="edge">
+<title>Auth&#45;&gt;Static</title>
+<path fill="none" stroke="#64748b" d="M291.54,-230.72C347.48,-242.27 429.27,-259.15 483.53,-270.35"/>
+<polygon fill="#64748b" stroke="#64748b" points="482.82,-272.71 490.17,-271.72 483.81,-267.91 482.82,-272.71"/>
+<text xml:space="preserve" text-anchor="middle" x="348.56" y="-253.03" font-family="Noto Sans CJK SC" font-size="9.00" fill="#a5b4fc">静态资源</text>
+</g>
+<!-- StrmRoute -->
+<g id="node12" class="node">
+<title>StrmRoute</title>
+<path fill="#1e293b" stroke="#334155" d="M573.96,-108.01C573.96,-108.01 507.93,-108.01 507.93,-108.01 501.93,-108.01 495.93,-102.01 495.93,-96.01 495.93,-96.01 495.93,-73.99 495.93,-73.99 495.93,-67.99 501.93,-61.99 507.93,-61.99 507.93,-61.99 573.96,-61.99 573.96,-61.99 579.96,-61.99 585.96,-67.99 585.96,-73.99 585.96,-73.99 585.96,-96.01 585.96,-96.01 585.96,-102.01 579.96,-108.01 573.96,-108.01"/>
+<text xml:space="preserve" text-anchor="middle" x="540.95" y="-91.8" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">HTTPStrm</text>
+<text xml:space="preserve" text-anchor="middle" x="540.95" y="-74.55" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">/strm/quark/*</text>
+</g>
+<!-- Auth&#45;&gt;StrmRoute -->
+<g id="edge31" class="edge">
+<title>Auth&#45;&gt;StrmRoute</title>
+<path fill="none" stroke="#64748b" stroke-dasharray="5,2" d="M271.19,-194.54C322.68,-165.26 404.06,-119 404.06,-119 404.06,-119 449.18,-107.71 487.42,-98.14"/>
+<polygon fill="#64748b" stroke="#64748b" points="487.79,-100.58 493.99,-96.5 486.6,-95.82 487.79,-100.58"/>
+<text xml:space="preserve" text-anchor="middle" x="348.56" y="-170.48" font-family="Noto Sans CJK SC" font-size="9.00" fill="#a5b4fc">STRM Token</text>
+</g>
+<!-- Health -->
+<g id="node13" class="node">
+<title>Health</title>
+<path fill="#1e293b" stroke="#334155" d="M556.34,-236C556.34,-236 525.56,-236 525.56,-236 519.56,-236 513.56,-230 513.56,-224 513.56,-224 513.56,-212 513.56,-212 513.56,-206 519.56,-200 525.56,-200 525.56,-200 556.34,-200 556.34,-200 562.34,-200 568.34,-206 568.34,-212 568.34,-212 568.34,-224 568.34,-224 568.34,-230 562.34,-236 556.34,-236"/>
+<text xml:space="preserve" text-anchor="middle" x="540.95" y="-216.18" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">/health</text>
+</g>
+<!-- Auth&#45;&gt;Health -->
+<g id="edge30" class="edge">
+<title>Auth&#45;&gt;Health</title>
+<path fill="none" stroke="#64748b" stroke-dasharray="5,2" d="M291.54,-218C355.44,-218 453.1,-218 504.88,-218"/>
+<polygon fill="#64748b" stroke="#64748b" points="504.57,-220.45 511.57,-218 504.57,-215.55 504.57,-220.45"/>
+<text xml:space="preserve" text-anchor="middle" x="348.56" y="-222.95" font-family="Noto Sans CJK SC" font-size="9.00" fill="#a5b4fc">免鉴权</text>
+</g>
+<!-- ErrorNormalize&#45;&gt;ApiRoutes -->
+<g id="edge5" class="edge">
+<title>ErrorNormalize&#45;&gt;ApiRoutes</title>
+<path fill="none" stroke="#64748b" d="M617.8,-167.83C681.49,-179.45 770.22,-195.63 822.37,-205.14"/>
+<polygon fill="#64748b" stroke="#64748b" points="821.92,-207.55 829.24,-206.39 822.8,-202.73 821.92,-207.55"/>
+</g>
+<!-- ApiRoutes&#45;&gt;CalendarApi -->
+<g id="edge6" class="edge">
+<title>ApiRoutes&#45;&gt;CalendarApi</title>
+<path fill="none" stroke="#64748b" d="M902.5,-222.9C925.88,-229.51 952.37,-237 952.37,-237 952.37,-237 996.62,-247 996.62,-247 996.62,-247 1008.03,-250.83 1023.31,-255.95"/>
+<polygon fill="#64748b" stroke="#64748b" points="1022.24,-258.17 1029.66,-258.08 1023.8,-253.53 1022.24,-258.17"/>
+</g>
+<!-- ApiEnvelope -->
+<g id="node9" class="node">
+<title>ApiEnvelope</title>
+<path fill="#312e81" stroke="#334155" d="M1394.05,-258.01C1394.05,-258.01 1249.27,-258.01 1249.27,-258.01 1243.27,-258.01 1237.27,-252.01 1237.27,-246.01 1237.27,-246.01 1237.27,-223.99 1237.27,-223.99 1237.27,-217.99 1243.27,-211.99 1249.27,-211.99 1249.27,-211.99 1394.05,-211.99 1394.05,-211.99 1400.05,-211.99 1406.05,-217.99 1406.05,-223.99 1406.05,-223.99 1406.05,-246.01 1406.05,-246.01 1406.05,-252.01 1400.05,-258.01 1394.05,-258.01"/>
+<text xml:space="preserve" text-anchor="middle" x="1321.66" y="-241.8" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">统一 JSON 信封</text>
+<text xml:space="preserve" text-anchor="middle" x="1321.66" y="-224.55" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">{ok,data} / {ok,error,message}</text>
+</g>
+<!-- ApiRoutes&#45;&gt;ApiEnvelope -->
+<g id="edge7" class="edge">
+<title>ApiRoutes&#45;&gt;ApiEnvelope</title>
+<path fill="none" stroke="#64748b" d="M902.29,-214.69C971.33,-218.04 1127.65,-225.63 1228.44,-230.52"/>
+<polygon fill="#64748b" stroke="#64748b" points="1228.18,-232.96 1235.29,-230.86 1228.42,-228.07 1228.18,-232.96"/>
+</g>
+<!-- Context -->
+<g id="node14" class="node">
+<title>Context</title>
+<path fill="#052e16" stroke="#22c55e" d="M1149.27,-523.01C1149.27,-523.01 1054.74,-523.01 1054.74,-523.01 1048.74,-523.01 1042.74,-517.01 1042.74,-511.01 1042.74,-511.01 1042.74,-488.99 1042.74,-488.99 1042.74,-482.99 1048.74,-476.99 1054.74,-476.99 1054.74,-476.99 1149.27,-476.99 1149.27,-476.99 1155.27,-476.99 1161.27,-482.99 1161.27,-488.99 1161.27,-488.99 1161.27,-511.01 1161.27,-511.01 1161.27,-517.01 1155.27,-523.01 1149.27,-523.01"/>
+<text xml:space="preserve" text-anchor="middle" x="1102.01" y="-506.8" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">AppContext</text>
+<text xml:space="preserve" text-anchor="middle" x="1102.01" y="-489.55" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">依赖装配与生命周期</text>
+</g>
+<!-- ApiRoutes&#45;&gt;Context -->
+<g id="edge37" class="edge">
+<title>ApiRoutes&#45;&gt;Context</title>
+<path fill="none" stroke="#64748b" d="M879.64,-236.5C903.12,-281.84 952.37,-377 952.37,-377 952.37,-377 1022.22,-434.8 1066.15,-471.16"/>
+<polygon fill="#64748b" stroke="#64748b" points="1064.58,-473.04 1071.54,-475.61 1067.7,-469.26 1064.58,-473.04"/>
+</g>
+<!-- Services -->
+<g id="node15" class="node">
+<title>Services</title>
+<path fill="#064e3b" stroke="#334155" d="M2367.58,-546.63C2367.58,-546.63 2246.05,-546.63 2246.05,-546.63 2240.05,-546.63 2234.05,-540.63 2234.05,-534.63 2234.05,-534.63 2234.05,-495.37 2234.05,-495.37 2234.05,-489.37 2240.05,-483.37 2246.05,-483.37 2246.05,-483.37 2367.58,-483.37 2367.58,-483.37 2373.58,-483.37 2379.58,-489.37 2379.58,-495.37 2379.58,-495.37 2379.58,-534.63 2379.58,-534.63 2379.58,-540.63 2373.58,-546.63 2367.58,-546.63"/>
+<text xml:space="preserve" text-anchor="middle" x="2306.81" y="-530.42" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">业务 Services</text>
+<text xml:space="preserve" text-anchor="middle" x="2306.81" y="-513.17" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">检查 / 转存 / 元数据 / 推送</text>
+<text xml:space="preserve" text-anchor="middle" x="2306.81" y="-495.93" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">签到 / 下载监控</text>
+</g>
+<!-- ApiRoutes&#45;&gt;Services -->
+<g id="edge38" class="edge">
+<title>ApiRoutes&#45;&gt;Services</title>
+<path fill="none" stroke="#64748b" d="M902.44,-196.83C967.59,-166.7 1101.01,-105 1101.01,-105 1101.01,-105 1101.01,-105 2142.91,-105 2142.91,-105 2249.28,-372.71 2290.11,-475.48"/>
+<polygon fill="#64748b" stroke="#64748b" points="2287.75,-476.16 2292.61,-481.76 2292.3,-474.35 2287.75,-476.16"/>
+<text xml:space="preserve" text-anchor="middle" x="1684.35" y="-109.95" font-family="Noto Sans CJK SC" font-size="9.00" fill="#a5b4fc">短请求</text>
+</g>
+<!-- JobQueue -->
+<g id="node21" class="node">
+<title>JobQueue</title>
+<path fill="#134e4a" stroke="#334155" d="M2002.77,-416.01C2002.77,-416.01 1892.49,-416.01 1892.49,-416.01 1886.49,-416.01 1880.49,-410.01 1880.49,-404.01 1880.49,-404.01 1880.49,-381.99 1880.49,-381.99 1880.49,-375.99 1886.49,-369.99 1892.49,-369.99 1892.49,-369.99 2002.77,-369.99 2002.77,-369.99 2008.77,-369.99 2014.77,-375.99 2014.77,-381.99 2014.77,-381.99 2014.77,-404.01 2014.77,-404.01 2014.77,-410.01 2008.77,-416.01 2002.77,-416.01"/>
+<text xml:space="preserve" text-anchor="middle" x="1947.63" y="-399.8" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">JobQueue</text>
+<text xml:space="preserve" text-anchor="middle" x="1947.63" y="-382.55" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">提交 / 取消 / 重试 / 恢复</text>
+</g>
+<!-- ApiRoutes&#45;&gt;JobQueue -->
+<g id="edge39" class="edge">
+<title>ApiRoutes&#45;&gt;JobQueue</title>
+<path fill="none" stroke="#64748b" d="M902.42,-210.48C994.26,-203.87 1235.4,-186.5 1235.4,-186.5 1235.4,-186.5 1414.05,-186.5 1414.05,-186.5 1414.05,-186.5 1734.88,-310.9 1878.52,-366.59"/>
+<polygon fill="#64748b" stroke="#64748b" points="1877.23,-368.72 1884.64,-368.97 1879,-364.15 1877.23,-368.72"/>
+<text xml:space="preserve" text-anchor="middle" x="1321.66" y="-191.45" font-family="Noto Sans CJK SC" font-size="9.00" fill="#a5b4fc">长任务入队</text>
+</g>
+<!-- CalendarApi&#45;&gt;ApiEnvelope -->
+<g id="edge8" class="edge">
+<title>CalendarApi&#45;&gt;ApiEnvelope</title>
+<path fill="none" stroke="#64748b" d="M1180.67,-265.23C1196.4,-261.83 1213.09,-258.23 1229.25,-254.74"/>
+<polygon fill="#64748b" stroke="#64748b" points="1229.33,-257.23 1235.66,-253.36 1228.3,-252.44 1229.33,-257.23"/>
+</g>
+<!-- Calendar -->
+<g id="node17" class="node">
+<title>Calendar</title>
+<path fill="#064e3b" stroke="#22c55e" d="M1395.93,-458.63C1395.93,-458.63 1247.4,-458.63 1247.4,-458.63 1241.4,-458.63 1235.4,-452.63 1235.4,-446.63 1235.4,-446.63 1235.4,-407.37 1235.4,-407.37 1235.4,-401.37 1241.4,-395.37 1247.4,-395.37 1247.4,-395.37 1395.93,-395.37 1395.93,-395.37 1401.93,-395.37 1407.93,-401.37 1407.93,-407.37 1407.93,-407.37 1407.93,-446.63 1407.93,-446.63 1407.93,-452.63 1401.93,-458.63 1395.93,-458.63"/>
+<text xml:space="preserve" text-anchor="middle" x="1321.66" y="-442.43" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">Media Calendar 纯计算</text>
+<text xml:space="preserve" text-anchor="middle" x="1321.66" y="-425.18" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">手动排期 → 元数据 → 周期推断</text>
+<text xml:space="preserve" text-anchor="middle" x="1321.66" y="-407.93" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">上海时区 / 状态 / 可信度</text>
+</g>
+<!-- CalendarApi&#45;&gt;Calendar -->
+<g id="edge40" class="edge">
+<title>CalendarApi&#45;&gt;Calendar</title>
+<path fill="none" stroke="#64748b" d="M1137.98,-305.3C1172.51,-328.3 1225.83,-363.82 1265.97,-390.56"/>
+<polygon fill="#64748b" stroke="#64748b" points="1264.36,-392.43 1271.54,-394.27 1267.07,-388.35 1264.36,-392.43"/>
+</g>
+<!-- ApiEnvelope&#45;&gt;FrontModules -->
+<g id="edge34" class="edge">
+<title>ApiEnvelope&#45;&gt;FrontModules</title>
+<path fill="none" stroke="#64748b" d="M1237.13,-238.37C1149.27,-241.92 1023.62,-247 1023.62,-247 1023.62,-247 812.96,-318.29 670.27,-366.58"/>
+<polygon fill="#64748b" stroke="#64748b" points="669.53,-364.24 663.69,-368.8 671.1,-368.88 669.53,-364.24"/>
+<text xml:space="preserve" text-anchor="middle" x="974.49" y="-276.02" font-family="Noto Sans CJK SC" font-size="9.00" fill="#a5b4fc">JSON</text>
+</g>
+<!-- Static&#45;&gt;WebUI -->
+<g id="edge49" class="edge">
+<title>Static&#45;&gt;WebUI</title>
+<path fill="none" stroke="#64748b" d="M491.42,-287.85C426.67,-295.65 320.06,-308.5 320.06,-308.5 320.06,-308.5 293.06,-359 293.06,-359 293.06,-359 287.96,-361.74 280.67,-365.67"/>
+<polygon fill="#64748b" stroke="#64748b" points="279.76,-363.38 274.76,-368.85 282.09,-367.69 279.76,-363.38"/>
+<text xml:space="preserve" text-anchor="middle" x="348.56" y="-313.45" font-family="Noto Sans CJK SC" font-size="9.00" fill="#a5b4fc">HTML/JS/CSS</text>
+</g>
+<!-- SSE&#45;&gt;JobQueue -->
+<g id="edge36" class="edge">
+<title>SSE&#45;&gt;JobQueue</title>
+<path fill="none" stroke="#64748b" d="M279.36,-97.98C330.84,-78.17 404.06,-50 404.06,-50 404.06,-50 539.95,0 539.95,0 539.95,0 539.95,0 1494.07,0 1494.07,0 1790.49,-77 1790.49,-77 1790.49,-77 1892.17,-282.78 1931.42,-362.22"/>
+<polygon fill="#64748b" stroke="#64748b" points="1929.05,-362.96 1934.35,-368.15 1933.45,-360.79 1929.05,-362.96"/>
+<text xml:space="preserve" text-anchor="middle" x="1102.01" y="-4.95" font-family="Noto Sans CJK SC" font-size="9.00" fill="#a5b4fc">快照 + 更新</text>
+</g>
+<!-- Quark -->
+<g id="node30" class="node">
+<title>Quark</title>
+<path fill="#111d2c" stroke="#334155" d="M2840.76,-376C2840.76,-376 2739.48,-376 2739.48,-376 2733.48,-376 2727.48,-370 2727.48,-364 2727.48,-364 2727.48,-352 2727.48,-352 2727.48,-346 2733.48,-340 2739.48,-340 2739.48,-340 2840.76,-340 2840.76,-340 2846.76,-340 2852.76,-346 2852.76,-352 2852.76,-352 2852.76,-364 2852.76,-364 2852.76,-370 2846.76,-376 2840.76,-376"/>
+<text xml:space="preserve" text-anchor="middle" x="2790.12" y="-356.18" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">夸克分享 / 网盘 / 签到</text>
+</g>
+<!-- StrmRoute&#45;&gt;Quark -->
+<g id="edge48" class="edge">
+<title>StrmRoute&#45;&gt;Quark</title>
+<path fill="none" stroke="#64748b" d="M586.34,-83.52C796.74,-76.52 1683.35,-47 1683.35,-47 1683.35,-47 1683.35,-47 2550.09,-47 2550.09,-47 2713.51,-259.62 2770.11,-333.25"/>
+<polygon fill="#64748b" stroke="#64748b" points="2768.11,-334.68 2774.32,-338.74 2772,-331.69 2768.11,-334.68"/>
+<text xml:space="preserve" text-anchor="middle" x="1835.49" y="-51.95" font-family="Noto Sans CJK SC" font-size="9.00" fill="#a5b4fc">媒体代理</text>
+</g>
+<!-- Context&#45;&gt;Services -->
+<g id="edge9" class="edge">
+<title>Context&#45;&gt;Services</title>
+<path fill="none" stroke="#64748b" d="M1161.61,-516.84C1185.41,-523.68 1207.4,-530 1207.4,-530 1207.4,-530 1235.4,-536 1235.4,-536 1235.4,-536 1551.21,-548 1551.21,-548 1551.21,-548 1578.21,-556 1578.21,-556 1578.21,-556 1834.49,-569 1834.49,-569 1834.49,-569 1834.49,-569 2142.91,-569 2142.91,-569 2184.69,-555.15 2225.93,-541.48"/>
+<polygon fill="#64748b" stroke="#64748b" points="2226.58,-543.85 2232.45,-539.32 2225.04,-539.2 2226.58,-543.85"/>
+</g>
+<!-- Status -->
+<g id="node16" class="node">
+<title>Status</title>
+<path fill="#064e3b" stroke="#334155" d="M1744.36,-544.63C1744.36,-544.63 1624.33,-544.63 1624.33,-544.63 1618.33,-544.63 1612.33,-538.63 1612.33,-532.63 1612.33,-532.63 1612.33,-493.37 1612.33,-493.37 1612.33,-487.37 1618.33,-481.37 1624.33,-481.37 1624.33,-481.37 1744.36,-481.37 1744.36,-481.37 1750.36,-481.37 1756.36,-487.37 1756.36,-493.37 1756.36,-493.37 1756.36,-532.63 1756.36,-532.63 1756.36,-538.63 1750.36,-544.63 1744.36,-544.63"/>
+<text xml:space="preserve" text-anchor="middle" x="1684.35" y="-528.42" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">Subscription Status 聚合</text>
+<text xml:space="preserve" text-anchor="middle" x="1684.35" y="-511.18" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">剧集 / 缺集 / STRM / Aria2</text>
+<text xml:space="preserve" text-anchor="middle" x="1684.35" y="-493.93" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">流水线 / 活动</text>
+</g>
+<!-- Context&#45;&gt;Status -->
+<g id="edge10" class="edge">
+<title>Context&#45;&gt;Status</title>
+<path fill="none" stroke="#64748b" d="M1161.46,-513.25C1196.93,-521.28 1235.4,-530 1235.4,-530 1235.4,-530 1414.05,-530 1414.05,-530 1414.05,-530 1524.4,-523.03 1603.82,-518.02"/>
+<polygon fill="#64748b" stroke="#64748b" points="1603.55,-520.49 1610.38,-517.61 1603.24,-515.6 1603.55,-520.49"/>
+</g>
+<!-- Context&#45;&gt;Calendar -->
+<g id="edge11" class="edge">
+<title>Context&#45;&gt;Calendar</title>
+<path fill="none" stroke="#64748b" d="M1161.62,-480.34C1181.78,-473.58 1204.89,-465.83 1227.13,-458.37"/>
+<polygon fill="#64748b" stroke="#64748b" points="1227.66,-460.78 1233.52,-456.23 1226.1,-456.13 1227.66,-460.78"/>
+</g>
+<!-- Schedulers -->
+<g id="node19" class="node">
+<title>Schedulers</title>
+<path fill="#064e3b" stroke="#334155" d="M1539.21,-595.01C1539.21,-595.01 1446.93,-595.01 1446.93,-595.01 1440.93,-595.01 1434.93,-589.01 1434.93,-583.01 1434.93,-583.01 1434.93,-560.99 1434.93,-560.99 1434.93,-554.99 1440.93,-548.99 1446.93,-548.99 1446.93,-548.99 1539.21,-548.99 1539.21,-548.99 1545.21,-548.99 1551.21,-554.99 1551.21,-560.99 1551.21,-560.99 1551.21,-583.01 1551.21,-583.01 1551.21,-589.01 1545.21,-595.01 1539.21,-595.01"/>
+<text xml:space="preserve" text-anchor="middle" x="1493.07" y="-578.8" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">后台调度器</text>
+<text xml:space="preserve" text-anchor="middle" x="1493.07" y="-561.55" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">订阅检查 / 夸克签到</text>
+</g>
+<!-- Context&#45;&gt;Schedulers -->
+<g id="edge12" class="edge">
+<title>Context&#45;&gt;Schedulers</title>
+<path fill="none" stroke="#64748b" d="M1136.61,-523.5C1167.13,-544.84 1207.4,-573 1207.4,-573 1207.4,-573 1414.05,-573 1414.05,-573 1414.05,-573 1419.01,-572.94 1426.42,-572.84"/>
+<polygon fill="#64748b" stroke="#64748b" points="1426.07,-575.3 1433.04,-572.76 1426.01,-570.4 1426.07,-575.3"/>
+</g>
+<!-- Metrics -->
+<g id="node20" class="node">
+<title>Metrics</title>
+<path fill="#064e3b" stroke="#334155" d="M1349.43,-518C1349.43,-518 1293.9,-518 1293.9,-518 1287.9,-518 1281.9,-512 1281.9,-506 1281.9,-506 1281.9,-494 1281.9,-494 1281.9,-488 1287.9,-482 1293.9,-482 1293.9,-482 1349.43,-482 1349.43,-482 1355.43,-482 1361.43,-488 1361.43,-494 1361.43,-494 1361.43,-506 1361.43,-506 1361.43,-512 1355.43,-518 1349.43,-518"/>
+<text xml:space="preserve" text-anchor="middle" x="1321.66" y="-498.18" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">轻量 Metrics</text>
+</g>
+<!-- Context&#45;&gt;Metrics -->
+<g id="edge13" class="edge">
+<title>Context&#45;&gt;Metrics</title>
+<path fill="none" stroke="#64748b" d="M1161.62,-500C1196.53,-500 1240.26,-500 1273.03,-500"/>
+<polygon fill="#64748b" stroke="#64748b" points="1273.02,-502.45 1280.02,-500 1273.02,-497.55 1273.02,-502.45"/>
+</g>
+<!-- Context&#45;&gt;JobQueue -->
+<g id="edge14" class="edge">
+<title>Context&#45;&gt;JobQueue</title>
+<path fill="none" stroke="#64748b" d="M1129.8,-476.53C1168.49,-442.63 1235.4,-384 1235.4,-384 1235.4,-384 1790.49,-384 1790.49,-384 1790.49,-384 1831.95,-386.39 1872.14,-388.71"/>
+<polygon fill="#64748b" stroke="#64748b" points="1871.77,-391.14 1878.9,-389.1 1872.05,-386.25 1871.77,-391.14"/>
+</g>
+<!-- Stores -->
+<g id="node23" class="node">
+<title>Stores</title>
+<path fill="#422006" stroke="#f59e0b" d="M2606.86,-681.63C2606.86,-681.63 2491.33,-681.63 2491.33,-681.63 2485.33,-681.63 2479.33,-675.63 2479.33,-669.63 2479.33,-669.63 2479.33,-630.37 2479.33,-630.37 2479.33,-624.37 2485.33,-618.37 2491.33,-618.37 2491.33,-618.37 2606.86,-618.37 2606.86,-618.37 2612.86,-618.37 2618.86,-624.37 2618.86,-630.37 2618.86,-630.37 2618.86,-669.63 2618.86,-669.63 2618.86,-675.63 2612.86,-681.63 2606.86,-681.63"/>
+<text xml:space="preserve" text-anchor="middle" x="2549.09" y="-665.42" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">JSON Stores</text>
+<text xml:space="preserve" text-anchor="middle" x="2549.09" y="-648.17" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">Settings / Subscriptions</text>
+<text xml:space="preserve" text-anchor="middle" x="2549.09" y="-630.92" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">Notifications / Jobs</text>
+</g>
+<!-- Services&#45;&gt;Stores -->
+<g id="edge42" class="edge">
+<title>Services&#45;&gt;Stores</title>
+<path fill="none" stroke="#64748b" d="M2368.5,-546.97C2404.27,-565.81 2442.58,-586 2442.58,-586 2442.58,-586 2461.58,-607 2461.58,-607 2461.58,-607 2467.52,-609.95 2476.28,-614.31"/>
+<polygon fill="#64748b" stroke="#64748b" points="2475.15,-616.48 2482.5,-617.4 2477.33,-612.09 2475.15,-616.48"/>
+</g>
+<!-- Clients -->
+<g id="node28" class="node">
+<title>Clients</title>
+<path fill="#450a0a" stroke="#ef4444" d="M2585.11,-513.01C2585.11,-513.01 2513.08,-513.01 2513.08,-513.01 2507.08,-513.01 2501.08,-507.01 2501.08,-501.01 2501.08,-501.01 2501.08,-478.99 2501.08,-478.99 2501.08,-472.99 2507.08,-466.99 2513.08,-466.99 2513.08,-466.99 2585.11,-466.99 2585.11,-466.99 2591.11,-466.99 2597.11,-472.99 2597.11,-478.99 2597.11,-478.99 2597.11,-501.01 2597.11,-501.01 2597.11,-507.01 2591.11,-513.01 2585.11,-513.01"/>
+<text xml:space="preserve" text-anchor="middle" x="2549.09" y="-496.8" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">Clients</text>
+<text xml:space="preserve" text-anchor="middle" x="2549.09" y="-479.55" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">共享 HTTP Pool</text>
+</g>
+<!-- Services&#45;&gt;Clients -->
+<g id="edge47" class="edge">
+<title>Services&#45;&gt;Clients</title>
+<path fill="none" stroke="#64748b" d="M2379.91,-507.5C2415.97,-503.75 2458.95,-499.28 2492.43,-495.79"/>
+<polygon fill="#64748b" stroke="#64748b" points="2492.52,-498.25 2499.23,-495.08 2492.01,-493.37 2492.52,-498.25"/>
+</g>
+<!-- Push -->
+<g id="node33" class="node">
+<title>Push</title>
+<path fill="#111d2c" stroke="#334155" d="M2616.61,-444.01C2616.61,-444.01 2481.58,-444.01 2481.58,-444.01 2475.58,-444.01 2469.58,-438.01 2469.58,-432.01 2469.58,-432.01 2469.58,-409.99 2469.58,-409.99 2469.58,-403.99 2475.58,-397.99 2481.58,-397.99 2481.58,-397.99 2616.61,-397.99 2616.61,-397.99 2622.61,-397.99 2628.61,-403.99 2628.61,-409.99 2628.61,-409.99 2628.61,-432.01 2628.61,-432.01 2628.61,-438.01 2622.61,-444.01 2616.61,-444.01"/>
+<text xml:space="preserve" text-anchor="middle" x="2549.09" y="-427.8" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">企业微信 / Telegram / Bark</text>
+<text xml:space="preserve" text-anchor="middle" x="2549.09" y="-410.55" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">Gotify / PushPlus / Server酱</text>
+</g>
+<!-- Services&#45;&gt;Push -->
+<g id="edge27" class="edge">
+<title>Services&#45;&gt;Push</title>
+<path fill="none" stroke="#64748b" d="M2379.91,-486.8C2411.77,-474.33 2449.02,-459.76 2480.36,-447.5"/>
+<polygon fill="#64748b" stroke="#64748b" points="2481.16,-449.82 2486.78,-444.99 2479.37,-445.25 2481.16,-449.82"/>
+<text xml:space="preserve" text-anchor="middle" x="2424.58" y="-478.58" font-family="Noto Sans CJK SC" font-size="9.00" fill="#a5b4fc">异步推送</text>
+</g>
+<!-- Status&#45;&gt;JobQueue -->
+<g id="edge44" class="edge">
+<title>Status&#45;&gt;JobQueue</title>
+<path fill="none" stroke="#64748b" d="M1756.64,-483.84C1775.4,-476.17 1790.49,-470 1790.49,-470 1790.49,-470 1846.94,-442.16 1891.96,-419.96"/>
+<polygon fill="#64748b" stroke="#64748b" points="1892.81,-422.27 1898,-416.98 1890.64,-417.88 1892.81,-422.27"/>
+<text xml:space="preserve" text-anchor="middle" x="1835.49" y="-460.22" font-family="Noto Sans CJK SC" font-size="9.00" fill="#a5b4fc">任务历史</text>
+</g>
+<!-- Status&#45;&gt;Stores -->
+<g id="edge43" class="edge">
+<title>Status&#45;&gt;Stores</title>
+<path fill="none" stroke="#64748b" d="M1746.61,-545.12C1823.84,-585.61 1946.63,-650 1946.63,-650 1946.63,-650 1946.63,-650 2307.81,-650 2307.81,-650 2400.27,-650 2470.47,-650"/>
+<polygon fill="#64748b" stroke="#64748b" points="2470.4,-652.45 2477.4,-650 2470.4,-647.55 2470.4,-652.45"/>
+<text xml:space="preserve" text-anchor="middle" x="2141.91" y="-654.95" font-family="Noto Sans CJK SC" font-size="9.00" fill="#a5b4fc">订阅 / 通知</text>
+</g>
+<!-- Calendar&#45;&gt;Status -->
+<g id="edge16" class="edge">
+<title>Calendar&#45;&gt;Status</title>
+<path fill="none" stroke="#64748b" d="M1408.14,-447.38C1467.43,-461.52 1545.85,-480.21 1603.8,-494.03"/>
+<polygon fill="#64748b" stroke="#64748b" points="1602.99,-496.36 1610.37,-495.6 1604.13,-491.59 1602.99,-496.36"/>
+<text xml:space="preserve" text-anchor="middle" x="1493.07" y="-485.18" font-family="Noto Sans CJK SC" font-size="9.00" fill="#a5b4fc">复用逐集状态</text>
+</g>
+<!-- CalendarModel -->
+<g id="node18" class="node">
+<title>CalendarModel</title>
+<path fill="#064e3b" stroke="#334155" d="M1778.49,-458.63C1778.49,-458.63 1590.21,-458.63 1590.21,-458.63 1584.21,-458.63 1578.21,-452.63 1578.21,-446.63 1578.21,-446.63 1578.21,-407.37 1578.21,-407.37 1578.21,-401.37 1584.21,-395.37 1590.21,-395.37 1590.21,-395.37 1778.49,-395.37 1778.49,-395.37 1784.49,-395.37 1790.49,-401.37 1790.49,-407.37 1790.49,-407.37 1790.49,-446.63 1790.49,-446.63 1790.49,-452.63 1784.49,-458.63 1778.49,-458.63"/>
+<text xml:space="preserve" text-anchor="middle" x="1684.35" y="-442.43" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">Calendar Model</text>
+<text xml:space="preserve" text-anchor="middle" x="1684.35" y="-425.18" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">Item / Summary / Source / Confidence</text>
+<text xml:space="preserve" text-anchor="middle" x="1684.35" y="-407.93" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">MediaScheduleOverride</text>
+</g>
+<!-- Calendar&#45;&gt;CalendarModel -->
+<g id="edge15" class="edge">
+<title>Calendar&#45;&gt;CalendarModel</title>
+<path fill="none" stroke="#64748b" d="M1408.14,-427C1456.39,-427 1517.3,-427 1569.55,-427"/>
+<polygon fill="#64748b" stroke="#64748b" points="1569.34,-429.45 1576.34,-427 1569.34,-424.55 1569.34,-429.45"/>
+</g>
+<!-- Calendar&#45;&gt;Stores -->
+<g id="edge41" class="edge">
+<title>Calendar&#45;&gt;Stores</title>
+<path fill="none" stroke="#64748b" d="M1389.08,-458.98C1403.26,-465.8 1414.05,-471 1414.05,-471 1414.05,-471 1434.93,-607 1434.93,-607 1434.93,-607 1683.35,-699 1683.35,-699 1683.35,-699 1683.35,-699 2307.81,-699 2307.81,-699 2400.64,-680.07 2470.9,-665.74"/>
+<polygon fill="#64748b" stroke="#64748b" points="2471.07,-668.21 2477.44,-664.41 2470.09,-663.41 2471.07,-668.21"/>
+<text xml:space="preserve" text-anchor="middle" x="2059.77" y="-703.95" font-family="Noto Sans CJK SC" font-size="9.00" fill="#a5b4fc">只读快照</text>
+</g>
+<!-- Schedulers&#45;&gt;Services -->
+<g id="edge46" class="edge">
+<title>Schedulers&#45;&gt;Services</title>
+<path fill="none" stroke="#64748b" d="M1551.59,-574.05C1566.38,-574.58 1578.21,-575 1578.21,-575 1578.21,-575 2207.05,-575 2207.05,-575 2207.05,-575 2225.16,-564 2245.86,-551.42"/>
+<polygon fill="#64748b" stroke="#64748b" points="2246.96,-553.62 2251.67,-547.89 2244.41,-549.43 2246.96,-553.62"/>
+</g>
+<!-- Worker -->
+<g id="node22" class="node">
+<title>Worker</title>
+<path fill="#134e4a" stroke="#334155" d="M2167.05,-538.01C2167.05,-538.01 2116.77,-538.01 2116.77,-538.01 2110.77,-538.01 2104.77,-532.01 2104.77,-526.01 2104.77,-526.01 2104.77,-503.99 2104.77,-503.99 2104.77,-497.99 2110.77,-491.99 2116.77,-491.99 2116.77,-491.99 2167.05,-491.99 2167.05,-491.99 2173.05,-491.99 2179.05,-497.99 2179.05,-503.99 2179.05,-503.99 2179.05,-526.01 2179.05,-526.01 2179.05,-532.01 2173.05,-538.01 2167.05,-538.01"/>
+<text xml:space="preserve" text-anchor="middle" x="2141.91" y="-521.8" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">JobWorker</text>
+<text xml:space="preserve" text-anchor="middle" x="2141.91" y="-504.55" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">长任务执行</text>
+</g>
+<!-- JobQueue&#45;&gt;Worker -->
+<g id="edge17" class="edge">
+<title>JobQueue&#45;&gt;Worker</title>
+<path fill="none" stroke="#64748b" d="M1985.25,-416.23C2017.19,-436.5 2063.58,-465.94 2097.41,-487.4"/>
+<polygon fill="#64748b" stroke="#64748b" points="2095.93,-489.36 2103.15,-491.04 2098.55,-485.22 2095.93,-489.36"/>
+</g>
+<!-- Worker&#45;&gt;Services -->
+<g id="edge18" class="edge">
+<title>Worker&#45;&gt;Services</title>
+<path fill="none" stroke="#64748b" d="M2179.47,-515C2193.13,-515 2209.24,-515 2225.3,-515"/>
+<polygon fill="#64748b" stroke="#64748b" points="2225.17,-517.45 2232.17,-515 2225.17,-512.55 2225.17,-517.45"/>
+</g>
+<!-- Worker&#45;&gt;Stores -->
+<g id="edge45" class="edge">
+<title>Worker&#45;&gt;Stores</title>
+<path fill="none" stroke="#64748b" d="M2179.45,-532.24C2204.81,-544.2 2234.05,-558 2234.05,-558 2234.05,-558 2378.21,-600.23 2471.18,-627.47"/>
+<polygon fill="#64748b" stroke="#64748b" points="2470.32,-629.77 2477.72,-629.38 2471.7,-625.07 2470.32,-629.77"/>
+</g>
+<!-- SubscriptionData -->
+<g id="node24" class="node">
+<title>SubscriptionData</title>
+<path fill="#422006" stroke="#334155" d="M2884.64,-751.01C2884.64,-751.01 2695.61,-751.01 2695.61,-751.01 2689.61,-751.01 2683.61,-745.01 2683.61,-739.01 2683.61,-739.01 2683.61,-716.99 2683.61,-716.99 2683.61,-710.99 2689.61,-704.99 2695.61,-704.99 2695.61,-704.99 2884.64,-704.99 2884.64,-704.99 2890.64,-704.99 2896.64,-710.99 2896.64,-716.99 2896.64,-716.99 2896.64,-739.01 2896.64,-739.01 2896.64,-745.01 2890.64,-751.01 2884.64,-751.01"/>
+<text xml:space="preserve" text-anchor="middle" x="2790.12" y="-734.8" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">Subscription</text>
+<text xml:space="preserve" text-anchor="middle" x="2790.12" y="-717.55" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">metadata + optional manual_schedule</text>
+</g>
+<!-- Stores&#45;&gt;SubscriptionData -->
+<g id="edge19" class="edge">
+<title>Stores&#45;&gt;SubscriptionData</title>
+<path fill="none" stroke="#64748b" d="M2619.23,-672.56C2647.46,-681.77 2680.27,-692.48 2709.49,-702.01"/>
+<polygon fill="#64748b" stroke="#64748b" points="2708.38,-704.23 2715.79,-704.07 2709.9,-699.57 2708.38,-704.23"/>
+</g>
+<!-- Schema -->
+<g id="node25" class="node">
+<title>Schema</title>
+<path fill="#451a03" stroke="#334155" d="M2853.14,-681.63C2853.14,-681.63 2727.11,-681.63 2727.11,-681.63 2721.11,-681.63 2715.11,-675.63 2715.11,-669.63 2715.11,-669.63 2715.11,-630.37 2715.11,-630.37 2715.11,-624.37 2721.11,-618.37 2727.11,-618.37 2727.11,-618.37 2853.14,-618.37 2853.14,-618.37 2859.14,-618.37 2865.14,-624.37 2865.14,-630.37 2865.14,-630.37 2865.14,-669.63 2865.14,-669.63 2865.14,-675.63 2859.14,-681.63 2853.14,-681.63"/>
+<text xml:space="preserve" text-anchor="middle" x="2790.12" y="-665.42" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">schema_version: 1</text>
+<text xml:space="preserve" text-anchor="middle" x="2790.12" y="-648.17" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">旧数据迁移 / 未来版本拒绝</text>
+<text xml:space="preserve" text-anchor="middle" x="2790.12" y="-630.92" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">原子写入 / 0600</text>
+</g>
+<!-- Stores&#45;&gt;Schema -->
+<g id="edge20" class="edge">
+<title>Stores&#45;&gt;Schema</title>
+<path fill="none" stroke="#64748b" d="M2619.23,-650C2646.46,-650 2677.97,-650 2706.39,-650"/>
+<polygon fill="#64748b" stroke="#64748b" points="2706.2,-652.45 2713.2,-650 2706.2,-647.55 2706.2,-652.45"/>
+</g>
+<!-- Backup -->
+<g id="node26" class="node">
+<title>Backup</title>
+<path fill="#451a03" stroke="#334155" d="M3042.42,-665.01C3042.42,-665.01 2963.64,-665.01 2963.64,-665.01 2957.64,-665.01 2951.64,-659.01 2951.64,-653.01 2951.64,-653.01 2951.64,-630.99 2951.64,-630.99 2951.64,-624.99 2957.64,-618.99 2963.64,-618.99 2963.64,-618.99 3042.42,-618.99 3042.42,-618.99 3048.42,-618.99 3054.42,-624.99 3054.42,-630.99 3054.42,-630.99 3054.42,-653.01 3054.42,-653.01 3054.42,-659.01 3048.42,-665.01 3042.42,-665.01"/>
+<text xml:space="preserve" text-anchor="middle" x="3003.03" y="-648.8" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">迁移原始备份</text>
+<text xml:space="preserve" text-anchor="middle" x="3003.03" y="-631.55" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">*.schema&#45;v0.bak</text>
+</g>
+<!-- Schema&#45;&gt;Backup -->
+<g id="edge22" class="edge">
+<title>Schema&#45;&gt;Backup</title>
+<path fill="none" stroke="#64748b" d="M2865.48,-647.18C2890.84,-646.22 2918.83,-645.16 2942.83,-644.25"/>
+<polygon fill="#64748b" stroke="#64748b" points="2942.73,-646.7 2949.63,-643.99 2942.54,-641.8 2942.73,-646.7"/>
+</g>
+<!-- DataDir -->
+<g id="node27" class="node">
+<title>DataDir</title>
+<path fill="#422006" stroke="#334155" d="M3036.42,-724.18C3036.42,-726.17 3021.45,-727.78 3003.03,-727.78 2984.61,-727.78 2969.64,-726.17 2969.64,-724.18 2969.64,-724.18 2969.64,-691.82 2969.64,-691.82 2969.64,-689.83 2984.61,-688.22 3003.03,-688.22 3021.45,-688.22 3036.42,-689.83 3036.42,-691.82 3036.42,-691.82 3036.42,-724.18 3036.42,-724.18"/>
+<path fill="none" stroke="#334155" d="M3036.42,-724.18C3036.42,-722.2 3021.45,-720.59 3003.03,-720.59 2984.61,-720.59 2969.64,-722.2 2969.64,-724.18"/>
+<text xml:space="preserve" text-anchor="middle" x="3003.03" y="-706.17" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">DATA_DIR</text>
+</g>
+<!-- Schema&#45;&gt;DataDir -->
+<g id="edge21" class="edge">
+<title>Schema&#45;&gt;DataDir</title>
+<path fill="none" stroke="#64748b" d="M2865.48,-670.45C2897.62,-679.29 2933.98,-689.29 2961.1,-696.74"/>
+<polygon fill="#64748b" stroke="#64748b" points="2960.35,-699.08 2967.75,-698.57 2961.65,-694.35 2960.35,-699.08"/>
+</g>
+<!-- PanSou -->
+<g id="node29" class="node">
+<title>PanSou</title>
+<path fill="#111d2c" stroke="#334155" d="M2806.64,-494C2806.64,-494 2773.61,-494 2773.61,-494 2767.61,-494 2761.61,-488 2761.61,-482 2761.61,-482 2761.61,-470 2761.61,-470 2761.61,-464 2767.61,-458 2773.61,-458 2773.61,-458 2806.64,-458 2806.64,-458 2812.64,-458 2818.64,-464 2818.64,-470 2818.64,-470 2818.64,-482 2818.64,-482 2818.64,-488 2812.64,-494 2806.64,-494"/>
+<text xml:space="preserve" text-anchor="middle" x="2790.12" y="-474.18" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">PanSou</text>
+</g>
+<!-- Clients&#45;&gt;PanSou -->
+<g id="edge23" class="edge">
+<title>Clients&#45;&gt;PanSou</title>
+<path fill="none" stroke="#64748b" d="M2597.61,-487.22C2643.24,-484.54 2711.2,-480.56 2752.7,-478.13"/>
+<polygon fill="#64748b" stroke="#64748b" points="2752.78,-480.58 2759.62,-477.73 2752.49,-475.69 2752.78,-480.58"/>
+</g>
+<!-- Clients&#45;&gt;Quark -->
+<g id="edge24" class="edge">
+<title>Clients&#45;&gt;Quark</title>
+<path fill="none" stroke="#64748b" d="M2597.58,-469.44C2614.11,-462.28 2628.61,-456 2628.61,-456 2628.61,-456 2683.61,-388 2683.61,-388 2683.61,-388 2699.63,-383.44 2719.19,-377.88"/>
+<polygon fill="#64748b" stroke="#64748b" points="2719.62,-380.31 2725.68,-376.04 2718.28,-375.6 2719.62,-380.31"/>
+</g>
+<!-- TMDB -->
+<g id="node31" class="node">
+<title>TMDB</title>
+<path fill="#111d2c" stroke="#334155" d="M2805.12,-553C2805.12,-553 2775.12,-553 2775.12,-553 2769.12,-553 2763.12,-547 2763.12,-541 2763.12,-541 2763.12,-529 2763.12,-529 2763.12,-523 2769.12,-517 2775.12,-517 2775.12,-517 2805.12,-517 2805.12,-517 2811.12,-517 2817.12,-523 2817.12,-529 2817.12,-529 2817.12,-541 2817.12,-541 2817.12,-547 2811.12,-553 2805.12,-553"/>
+<text xml:space="preserve" text-anchor="middle" x="2790.12" y="-533.17" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">TMDB</text>
+</g>
+<!-- Clients&#45;&gt;TMDB -->
+<g id="edge25" class="edge">
+<title>Clients&#45;&gt;TMDB</title>
+<path fill="none" stroke="#64748b" d="M2597.61,-498.94C2643.97,-507.67 2713.38,-520.74 2754.67,-528.51"/>
+<polygon fill="#64748b" stroke="#64748b" points="2753.97,-530.87 2761.3,-529.76 2754.88,-526.06 2753.97,-530.87"/>
+</g>
+<!-- Aria2 -->
+<g id="node32" class="node">
+<title>Aria2</title>
+<path fill="#111d2c" stroke="#334155" d="M2827.64,-435C2827.64,-435 2752.61,-435 2752.61,-435 2746.61,-435 2740.61,-429 2740.61,-423 2740.61,-423 2740.61,-411 2740.61,-411 2740.61,-405 2746.61,-399 2752.61,-399 2752.61,-399 2827.64,-399 2827.64,-399 2833.64,-399 2839.64,-405 2839.64,-411 2839.64,-411 2839.64,-423 2839.64,-423 2839.64,-429 2833.64,-435 2827.64,-435"/>
+<text xml:space="preserve" text-anchor="middle" x="2790.12" y="-415.18" font-family="Noto Sans CJK SC" font-size="11.00" fill="#e2e8f0">Aria2 JSON&#45;RPC</text>
+</g>
+<!-- Clients&#45;&gt;Aria2 -->
+<g id="edge26" class="edge">
+<title>Clients&#45;&gt;Aria2</title>
+<path fill="none" stroke="#64748b" d="M2597.54,-474.72C2635.92,-462.36 2683.61,-447 2683.61,-447 2683.61,-447 2707.32,-440.26 2732.27,-433.17"/>
+<polygon fill="#64748b" stroke="#64748b" points="2732.86,-435.54 2738.93,-431.27 2731.52,-430.83 2732.86,-435.54"/>
+</g>
+</g>
 </svg>

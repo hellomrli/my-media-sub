@@ -2,7 +2,12 @@
 mod tests {
     use super::*;
     use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
-    use std::sync::Arc;
+    use std::sync::{Arc, OnceLock};
+
+    fn mock_env_lock() -> &'static tokio::sync::Mutex<()> {
+        static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+    }
 
     fn test_path(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!(
@@ -28,6 +33,7 @@ mod tests {
             total_episode_number: None,
             source_group: String::new(),
             metadata: None,
+            manual_schedule: None,
             cloud_type: "quark".to_string(),
             url: "https://pan.quark.cn/s/test".to_string(),
             password: String::new(),
@@ -60,6 +66,9 @@ mod tests {
             source_candidates: vec![],
             last_source_search_time: None,
             previous_share_links: vec![],
+            source_failure_count: 0,
+            last_source_switch_at: None,
+            source_switch_history: vec![],
         }
     }
 
@@ -453,8 +462,9 @@ mod tests {
         assert_eq!(candidates, vec!["147.mp4".to_string()]);
     }
 
-    #[test]
-    fn test_mock_probe_result_reads_fixture() {
+    #[tokio::test]
+    async fn test_mock_probe_result_reads_fixture() {
+        let _guard = mock_env_lock().lock().await;
         let path = test_path("mock_probe");
         let fixture = r#"{
             "https://pan.quark.cn/s/mock": {
@@ -483,6 +493,132 @@ mod tests {
         assert_eq!(result.files.len(), 1);
         assert!(!missing.ok);
         assert_eq!(missing.state, "mock_missing");
+    }
+
+    #[tokio::test]
+    async fn check_all_subscriptions_persists_real_store_once() {
+        let _guard = mock_env_lock().lock().await;
+        let path = test_path("mock_batch_probe");
+        let fixture = r#"{
+            "https://pan.quark.cn/s/batch": {
+                "ok": true,
+                "state": "ok",
+                "message": "",
+                "files": [
+                    {"name": "Show.S01E01.mkv", "size": 1, "file_key": "fid1"}
+                ]
+            }
+        }"#;
+        std::fs::write(&path, fixture).unwrap();
+        std::env::set_var("MOCK_QUARK_SHARE_FIXTURE", &path);
+
+        let (service, store, _) = make_service();
+        let mut first = make_subscription();
+        first.id = "batch-1".to_string();
+        first.url = "https://pan.quark.cn/s/batch".to_string();
+        let mut second = make_subscription();
+        second.id = "batch-2".to_string();
+        second.url = "https://pan.quark.cn/s/batch".to_string();
+        store.create(first).await.unwrap();
+        store.create(second).await.unwrap();
+        let before = store.save_count();
+
+        let results = service.check_all_subscriptions("cookie").await.unwrap();
+
+        std::env::remove_var("MOCK_QUARK_SHARE_FIXTURE");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(results.len(), 2);
+        assert_eq!(store.save_count(), before + 1);
+        assert_eq!(store.get("batch-1").await.unwrap().known_episodes, vec![1]);
+        assert_eq!(store.get("batch-2").await.unwrap().known_episodes, vec![1]);
+    }
+
+    #[tokio::test]
+    async fn concurrent_checks_for_same_subscription_share_one_mutex() {
+        let _guard = mock_env_lock().lock().await;
+        let path = test_path("mock_subscription_mutex");
+        std::fs::write(
+            &path,
+            r#"{
+                "https://pan.quark.cn/s/mutex": {
+                    "ok": true,
+                    "state": "ok",
+                    "message": "",
+                    "files": []
+                }
+            }"#,
+        )
+        .unwrap();
+        std::env::set_var("MOCK_QUARK_SHARE_FIXTURE", &path);
+
+        let (service, store, _) = make_service();
+        let mut sub = make_subscription();
+        sub.id = "mutex-sub".to_string();
+        sub.url = "https://pan.quark.cn/s/mutex".to_string();
+        store.create(sub).await.unwrap();
+
+        let lock = SubscriptionCheckService::named_lock(
+            &service.subscription_locks,
+            "mutex-sub",
+        )
+        .await;
+        let guard = lock.lock().await;
+        let runner = service.clone();
+        let mut handle = tokio::spawn(async move {
+            runner.check_subscription("mutex-sub", "cookie").await
+        });
+
+        assert!(tokio::time::timeout(
+            std::time::Duration::from_millis(20),
+            &mut handle
+        )
+        .await
+        .is_err());
+        drop(guard);
+        let result = tokio::time::timeout(std::time::Duration::from_secs(1), handle)
+            .await
+            .unwrap()
+            .unwrap();
+
+        std::env::remove_var("MOCK_QUARK_SHARE_FIXTURE");
+        let _ = std::fs::remove_file(&path);
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn batch_probe_cache_deduplicates_same_share_link() {
+        let _guard = mock_env_lock().lock().await;
+        let path = test_path("mock_share_dedup");
+        std::fs::write(
+            &path,
+            r#"{
+                "https://pan.quark.cn/s/shared": {
+                    "ok": true,
+                    "state": "ok",
+                    "message": "",
+                    "files": [
+                        {"name": "Show.S01E01.mkv", "size": 1, "file_key": "fid1"}
+                    ]
+                }
+            }"#,
+        )
+        .unwrap();
+        std::env::set_var("MOCK_QUARK_SHARE_FIXTURE", &path);
+
+        let (service, _, _) = make_service();
+        let service = service.with_batch_probe_cache();
+        let mut sub = make_subscription();
+        sub.url = "https://pan.quark.cn/s/shared".to_string();
+
+        let first = service.probe_share(&sub, "cookie").await.unwrap();
+        std::fs::write(&path, b"not-valid-json").unwrap();
+        let second = service.probe_share(&sub, "cookie").await.unwrap();
+
+        std::env::remove_var("MOCK_QUARK_SHARE_FIXTURE");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(first.files.len(), 1);
+        assert_eq!(second.files.len(), 1);
+        assert_eq!(second.files[0].file_key, "fid1");
     }
 
     #[tokio::test]
@@ -684,6 +820,7 @@ mod tests {
         assert_eq!(updated.status, "invalid");
         assert_eq!(updated.last_error, "invalid share");
         assert!(updated.invalid_since.is_some());
+        assert_eq!(updated.source_failure_count, 1);
     }
 
     #[test]
@@ -699,6 +836,7 @@ mod tests {
             total_episode_number: None,
             source_group: String::new(),
             metadata: None,
+            manual_schedule: None,
             cloud_type: "quark".to_string(),
             url: "https://pan.quark.cn/s/test".to_string(),
             password: String::new(),
@@ -734,6 +872,9 @@ mod tests {
             source_candidates: vec![],
             last_source_search_time: None,
             previous_share_links: vec![],
+            source_failure_count: 0,
+            last_source_switch_at: None,
+            source_switch_history: vec![],
         };
 
         assert!(should_mark_completed_from_known_episodes(&sub, &[12]));

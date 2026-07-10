@@ -1,0 +1,138 @@
+# HTTP API 响应契约
+
+> 适用于 v1.2.0 起的统一响应契约，并包含 v1.3.0 日历接口。本文用于约束后端路由、WebUI 请求层和外部脚本，新增接口不得绕过本契约。
+
+## 1. JSON 成功响应
+
+除下文登记的例外外，成功响应统一为：
+
+```json
+{
+  "ok": true,
+  "data": {}
+}
+```
+
+可选的人类可读提示位于顶层 `message`；业务对象自身也可以包含业务 `message` 字段。
+
+## 2. JSON 错误响应
+
+业务错误、中间件拒绝和 Axum 框架请求拒绝统一为：
+
+```json
+{
+  "ok": false,
+  "error": "validation_error",
+  "message": "可安全展示给用户的错误信息"
+}
+```
+
+要求：
+
+- `Content-Type` 必须是 `application/json`；
+- `error` 是稳定、机器可读的 snake_case 代码；
+- `message` 不得包含 Cookie、Token、密码、内部路径或上游完整响应；
+- 5xx 的内部细节只写服务端日志；
+- 401 必须保留 `WWW-Authenticate: Basic realm="my-media-sub"`；
+- 405 等框架响应应保留 `Allow` 等有效响应头。
+
+当前通用错误代码：
+
+| HTTP | error | 说明 |
+|---|---|---|
+| 400 | `bad_request` / `validation_error` | 参数或业务校验失败 |
+| 401 | `unauthorized` | Basic Auth 失败 |
+| 403 | `csrf_forbidden` / `forbidden` | 跨站修改或访问被拒绝 |
+| 404 | `not_found` | 资源或 API 不存在 |
+| 405 | `method_not_allowed` | HTTP 方法不支持 |
+| 413 | `payload_too_large` | 请求体过大 |
+| 415 | `unsupported_media_type` | Content-Type 不支持 |
+| 422 | `invalid_request` | JSON 等请求内容无法解析 |
+| 429 | `rate_limited` | 请求频率受限 |
+| 500 | `internal_error` / `database_error` / `config_error` | 服务内部错误 |
+| 502 | `http_error` | 上游服务失败 |
+
+## 3. 响应例外登记
+
+以下响应不使用普通 JSON 信封：
+
+| 接口 | 类型 | 原因 |
+|---|---|---|
+| `GET /health` | 裸 JSON `{status, version}` | 免鉴权健康检查，供容器和探针使用 |
+| `GET /strm/quark/{fid}/{file_name}` | 媒体流或文本错误 | 直接代理媒体内容，依赖 STRM Token |
+| `GET /api/jobs/events` | `text/event-stream` | Job SSE 实时事件流 |
+| `DELETE /api/subscriptions/{id}` | `204 No Content` | 删除成功无需响应体 |
+| `POST /api/notifications/{id}/read` | `204 No Content` | 状态操作成功无需响应体 |
+| `POST /api/notifications/read-all` | `204 No Content` | 状态操作成功无需响应体 |
+| `POST /api/notifications/clear` | `204 No Content` | 状态操作成功无需响应体 |
+
+新增例外必须同时更新本文、README、前端请求处理和集成测试。
+
+### 结构化自动化事件接口
+
+以下接口使用标准 JSON 信封：
+
+- `GET /api/automation/events`；
+- `GET /api/automation/summary`；
+- `GET /api/subscriptions/{id}/pipeline`，可选 `episode` 查询参数；
+- `GET /api/jobs/{id}/pipeline`；
+- `POST /api/automation/events/{id}/retry`。
+
+事件阶段、状态机、保留和安全重试规则见 [`automation-events.md`](automation-events.md)。
+
+### 来源质量与安全换源接口
+
+搜索结果和 `SourceCandidate` 可以返回后端权威 `quality` 对象。换源预览、应用、历史和回滚接口均使用标准 JSON 信封：
+
+- `POST /api/subscriptions/{id}/source-candidates/preview`；
+- `POST /api/subscriptions/{id}/source-candidates/apply`；
+- `GET /api/subscriptions/{id}/source-history`；
+- `POST /api/subscriptions/{id}/source-history/rollback`。
+
+手动应用也必须通过候选探测、季度匹配、进度覆盖和历史失败检查。详细规则见 [`source-quality.md`](source-quality.md)。
+
+### 日历接口
+
+`GET /api/calendar` 使用标准成功信封，支持 `from`、`to`、`status`、
+`media_type` 和 `subscription` 查询参数。日期统一使用 `YYYY-MM-DD`，
+排期时间按 `Asia/Shanghai` 返回，默认范围是当前自然周，闭区间最长 367 个自然日。状态、数据优先级和可信度规则见
+`docs/media-calendar.md`。
+
+## 4. WebUI 兼容策略
+
+`static/js/core/api.js` 提供：
+
+- `apiFetch()`：保留原生 Response，统一 HTTP/网络错误；
+- `apiJson()`：读取完整 JSON；
+- `apiData()`：读取业务数据。
+
+`apiData()` 在升级过渡期兼容：
+
+1. 当前 `{ok:true,data:...}`；
+2. 历史 `{data:...}`；
+3. 更早的裸 JSON 对象或数组。
+
+新前端代码优先使用 `apiData()`；只有需要状态码、响应头、顶层 `message` 或 204 语义时才使用 `apiFetch()`/`apiJson()`。
+
+## 5. 路由兜底和框架拒绝
+
+- 已认证的未知 `/api/*` 路由返回 JSON 404；
+- Basic Auth 和 CSRF 在进入业务路由前返回统一 JSON；
+- 非 JSON 的 Axum extractor、405 和其他框架错误由 API 错误规范化中间件转换；
+- 非 `/api` 静态资源错误不被转换；
+- 已经是 JSON 的 AppError 响应不会被二次包装。
+
+## 6. 测试要求
+
+`tests/api_integration.rs` 至少覆盖：
+
+- 成功信封；
+- 业务验证错误；
+- 未登录和错误密码；
+- CSRF 403；
+- 已知资源 404；
+- 未知 API 404；
+- malformed JSON；
+- 405 及 `Allow` 响应头；
+- 204 例外；
+- 静态资源和健康检查不被错误转换。

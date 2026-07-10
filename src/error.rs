@@ -17,6 +17,8 @@ pub enum AppError {
     Config(String),
     /// 验证错误
     Validation(String),
+    /// 上游或本地并发保护触发
+    RateLimited(String),
     /// 未找到
     NotFound(String),
     /// 内部错误
@@ -30,6 +32,7 @@ impl fmt::Display for AppError {
             AppError::Http(msg) => write!(f, "HTTP error: {}", msg),
             AppError::Config(msg) => write!(f, "Config error: {}", msg),
             AppError::Validation(msg) => write!(f, "Validation error: {}", msg),
+            AppError::RateLimited(msg) => write!(f, "Rate limited: {}", msg),
             AppError::NotFound(msg) => write!(f, "Not found: {}", msg),
             AppError::Internal(msg) => write!(f, "Internal error: {}", msg),
         }
@@ -39,10 +42,29 @@ impl fmt::Display for AppError {
 impl std::error::Error for AppError {}
 
 /// 错误响应
-#[derive(Serialize)]
-struct ErrorResponse {
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct ErrorResponse {
+    ok: bool,
     error: String,
     message: String,
+}
+
+impl ErrorResponse {
+    pub(crate) fn new(error: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            ok: false,
+            error: error.into(),
+            message: message.into(),
+        }
+    }
+}
+
+pub(crate) fn json_error_response(
+    status: StatusCode,
+    error: impl Into<String>,
+    message: impl Into<String>,
+) -> Response {
+    (status, Json(ErrorResponse::new(error, message))).into_response()
 }
 
 impl IntoResponse for AppError {
@@ -64,6 +86,9 @@ impl IntoResponse for AppError {
                 "服务配置错误".to_string(),
             ),
             AppError::Validation(msg) => (StatusCode::BAD_REQUEST, "validation_error", msg.clone()),
+            AppError::RateLimited(msg) => {
+                (StatusCode::TOO_MANY_REQUESTS, "rate_limited", msg.clone())
+            }
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, "not_found", msg.clone()),
             AppError::Internal(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -79,12 +104,7 @@ impl IntoResponse for AppError {
             tracing::error!("请求处理失败: {}", self);
         }
 
-        let body = Json(ErrorResponse {
-            error: error_type.to_string(),
-            message,
-        });
-
-        (status, body).into_response()
+        json_error_response(status, error_type, message)
     }
 }
 

@@ -5,9 +5,9 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde::Serialize;
 use std::sync::Arc;
 
+use super::response::ApiResponse as Response;
 use crate::error::Result;
 use crate::models::Notification;
 use crate::store::NotificationStore;
@@ -15,19 +15,6 @@ use crate::store::NotificationStore;
 /// 通知路由状态
 pub struct NotificationState {
     pub store: Arc<NotificationStore>,
-}
-
-/// 通用响应
-#[derive(Serialize)]
-struct Response<T> {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    data: Option<T>,
-}
-
-impl<T> Response<T> {
-    fn ok(data: T) -> Self {
-        Self { data: Some(data) }
-    }
 }
 
 /// 列出通知

@@ -1,0 +1,70 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+
+for (const file of [
+  '../static/js/core/api.js',
+  '../static/js/core/formatters.js',
+  '../static/js/features/search-results.js',
+  '../static/js/features/subscription-detail.js',
+  '../static/js/features/calendar.js',
+  '../static/js/features/source-switch.js',
+  '../static/js/features/automation-events.js',
+  '../static/js/core/polling.js',
+  '../static/js/core/router.js',
+  '../static/js/core/notifications.js',
+  '../static/js/stores/downloads.js',
+  '../static/js/stores/drive.js',
+  '../static/js/stores/jobs.js',
+  '../static/js/stores/subscriptions.js',
+  '../static/js/features/updates.js',
+  '../static/js/features/settings.js',
+  '../static/js/features/dashboard.js',
+  '../static/js/features/search-page.js',
+  '../static/js/features/calendar-page.js',
+  '../static/js/core/shell.js'
+]) require(file);
+
+const {app} = require('../static/app.js');
+
+test('app assembly preserves store getters and exposes every P4 domain module', () => {
+  const store = app();
+  assert.equal(store.currentTab, 'dashboard');
+  assert.equal(typeof store.initNavigation, 'function');
+  assert.equal(typeof store.showNotification, 'function');
+  assert.equal(typeof store.loadDownloads, 'function');
+  assert.equal(typeof store.loadDrive, 'function');
+  assert.equal(typeof store.loadSubscriptions, 'function');
+  assert.equal(typeof store.loadSettings, 'function');
+  assert.equal(typeof store.checkUpdate, 'function');
+  assert.equal(typeof store.destroy, 'function');
+  assert.equal(typeof Object.getOwnPropertyDescriptor(store, 'filteredDriveItems').get, 'function');
+  assert.deepEqual(store.filteredDriveItems, []);
+});
+
+test('page navigation stops page-bound pollers before applying the next page effects', () => {
+  const store = app();
+  const stopped = [];
+  store.aria2Configured = () => false;
+  store.stopDownloadsPolling = () => stopped.push('downloads');
+  store.stopNotificationsPolling = () => stopped.push('notifications');
+  store.stopSearchProgressTimer = () => stopped.push('search');
+  store.stopUpdateProgressPolling = () => stopped.push('update');
+  store.loadCalendar = () => stopped.push('calendar-load');
+  store.loadDrive = () => {};
+  store.loadDownloads = () => {};
+  store.loadNotifications = () => {};
+  store.loadAutomationSummary = () => {};
+  store.checkUpdate = () => {};
+  store.loadUpdateReleases = () => {};
+  store.loadUpdateProgress = async () => null;
+
+  store.currentTab = 'search';
+  store.selectTab('calendar', false);
+  assert.deepEqual(stopped, ['search', 'update', 'downloads', 'notifications', 'calendar-load']);
+
+  stopped.length = 0;
+  store.currentTab = 'settings';
+  store.currentSettingsTab = 'maintenance';
+  store.selectSettingsTab('connections', false);
+  assert.deepEqual(stopped, ['search', 'update', 'downloads', 'notifications']);
+});

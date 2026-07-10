@@ -29,6 +29,8 @@ pub struct Job {
     pub message: String,
     pub payload: serde_json::Value,
     #[serde(default)]
+    pub idempotency_key: Option<String>,
+    #[serde(default)]
     pub result: Option<serde_json::Value>,
     #[serde(default)]
     pub error: Option<String>,
@@ -55,6 +57,8 @@ pub struct SubscriptionTransferPayload {
     pub file_names: Vec<String>,
     #[serde(default)]
     pub force_transfer: bool,
+    #[serde(default)]
+    pub correlation_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +77,17 @@ pub struct PushDispatchPayload {
     pub level: String,
     #[serde(default)]
     pub notification_id: Option<String>,
+    #[serde(default)]
+    pub correlation_id: String,
+    #[serde(default)]
+    pub subscription_id: Option<String>,
+    #[serde(default)]
+    pub episode: Option<i32>,
+}
+
+pub(crate) fn job_idempotency_key(kind: &JobKind, payload: &serde_json::Value) -> String {
+    let material = format!("{:?}:{}", kind, payload);
+    format!("{:x}", md5::compute(material))
 }
 
 pub(crate) fn now() -> i64 {

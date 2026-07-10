@@ -108,6 +108,22 @@ macro_rules! subscription_transfer_notification_methods {
                 ),
             );
         }
+        if let Some(report) = strm_report {
+            meta.insert(
+                "strm_generated_count".to_string(),
+                serde_json::json!(report.generated_count),
+            );
+            meta.insert(
+                "strm_dir".to_string(),
+                serde_json::Value::String(report.dir.clone()),
+            );
+            if let Some(error) = &report.error {
+                meta.insert(
+                    "strm_error".to_string(),
+                    serde_json::Value::String(error.clone()),
+                );
+            }
+        }
 
         let title = format!("订阅自动转存: {}", sub.title);
         let notification = add_notification(

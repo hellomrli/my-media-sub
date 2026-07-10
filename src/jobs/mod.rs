@@ -4,7 +4,7 @@ mod store;
 mod worker;
 
 pub use model::{
-    Job, ManualTransferPayload, MetadataScrapePayload, PushDispatchPayload,
+    Job, JobKind, JobStatus, ManualTransferPayload, MetadataScrapePayload, PushDispatchPayload,
     SubscriptionTransferPayload,
 };
 pub use queue::JobQueue;
@@ -35,6 +35,7 @@ mod tests {
             progress: 0,
             title: "测试任务".to_string(),
             message: "queued".to_string(),
+            idempotency_key: None,
             payload: json!({"url": "https://pan.quark.cn/s/test"}),
             result: None,
             error: None,
@@ -56,6 +57,10 @@ mod tests {
         let loaded = store.get("job1").await.unwrap();
         assert_eq!(loaded.status, JobStatus::Succeeded);
         assert_eq!(store.list().await.len(), 1);
+        let persisted: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&tmp).unwrap()).unwrap();
+        assert_eq!(persisted["schema_version"], 1);
+        assert_eq!(persisted["data"].as_array().unwrap().len(), 1);
 
         let _ = std::fs::remove_file(tmp);
     }
@@ -75,6 +80,7 @@ mod tests {
                 progress: 50,
                 title: "运行中".to_string(),
                 message: "running".to_string(),
+                idempotency_key: None,
                 payload: json!({"url": "https://pan.quark.cn/s/running"}),
                 result: None,
                 error: None,
@@ -93,6 +99,7 @@ mod tests {
                 progress: 0,
                 title: "排队中".to_string(),
                 message: "queued".to_string(),
+                idempotency_key: None,
                 payload: json!({"url": "https://pan.quark.cn/s/queued"}),
                 result: None,
                 error: None,

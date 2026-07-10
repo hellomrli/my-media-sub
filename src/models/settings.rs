@@ -99,9 +99,45 @@ pub struct Settings {
     #[serde(default = "default_check_interval")]
     pub subscription_check_interval_minutes: i32,
 
+    /// 批量订阅检查最大并发数。
+    #[serde(default = "default_subscription_check_max_concurrency")]
+    pub subscription_check_max_concurrency: usize,
+
+    /// 共享外部 API 最大并发数。
+    #[serde(default = "default_external_api_max_concurrency")]
+    pub external_api_max_concurrency: usize,
+
+    /// 单次提交到 Aria2 的最大文件数。
+    #[serde(default = "default_aria2_batch_submit_limit")]
+    pub aria2_batch_submit_limit: usize,
+
     /// 自动下载新订阅项
     #[serde(default)]
     pub auto_download_new_subscription_items: bool,
+
+    /// 是否允许自动应用换源。默认关闭；关闭时仍可按策略仅搜索候选。
+    #[serde(default)]
+    pub auto_source_switch_enabled: bool,
+
+    /// search_only / apply，默认 search_only。
+    #[serde(default = "default_source_switch_mode")]
+    pub auto_source_switch_mode: String,
+
+    /// 自动应用候选的最低质量分。
+    #[serde(default = "default_source_switch_min_score")]
+    pub source_switch_min_score: i32,
+
+    /// 候选相对当前来源的最低分差。
+    #[serde(default = "default_source_switch_min_score_delta")]
+    pub source_switch_min_score_delta: i32,
+
+    /// 连续失效多少次后才允许自动应用。
+    #[serde(default = "default_source_switch_failure_threshold")]
+    pub source_switch_failure_threshold: i32,
+
+    /// 搜索、应用和失败候选的冷却时间。
+    #[serde(default = "default_source_switch_cooldown_hours")]
+    pub source_switch_cooldown_hours: i32,
 
     /// 连续剧/动画新订阅默认重命名模板；为空时使用内置默认模板
     #[serde(default)]
@@ -152,19 +188,6 @@ pub struct Settings {
     /// 是否把 HTTPStrm Token 写入生成的 URL query。默认关闭，避免 token 进入访问日志。
     #[serde(default)]
     pub strm_token_in_url: bool,
-
-    // ===== NAS 同步配置 =====
-    /// NAS 同步是否启用
-    #[serde(default)]
-    pub nas_sync_enabled: bool,
-
-    /// NAS 源目录
-    #[serde(default)]
-    pub nas_sync_source: String,
-
-    /// NAS 目标目录
-    #[serde(default)]
-    pub nas_sync_target: String,
 
     // ===== 推送配置 =====
     /// Telegram Bot Token
@@ -294,6 +317,26 @@ fn default_anime_dir() -> String {
     "/动画".to_string()
 }
 
+fn default_source_switch_mode() -> String {
+    "search_only".to_string()
+}
+
+fn default_source_switch_min_score() -> i32 {
+    70
+}
+
+fn default_source_switch_min_score_delta() -> i32 {
+    10
+}
+
+fn default_source_switch_failure_threshold() -> i32 {
+    2
+}
+
+fn default_source_switch_cooldown_hours() -> i32 {
+    24
+}
+
 fn default_check_interval() -> i32 {
     60
 }
@@ -362,6 +405,26 @@ fn default_rule_presets() -> Vec<RulePreset> {
     ]
 }
 
+fn default_subscription_check_max_concurrency() -> usize {
+    4
+}
+fn default_external_api_max_concurrency() -> usize {
+    8
+}
+fn default_aria2_batch_submit_limit() -> usize {
+    20
+}
+
+pub fn normalize_subscription_check_max_concurrency(value: i64) -> usize {
+    value.clamp(1, 32) as usize
+}
+pub fn normalize_external_api_max_concurrency(value: i64) -> usize {
+    value.clamp(1, 64) as usize
+}
+pub fn normalize_aria2_batch_submit_limit(value: i64) -> usize {
+    value.clamp(1, 100) as usize
+}
+
 pub fn normalize_check_interval_minutes(minutes: i64) -> i32 {
     minutes.clamp(
         MIN_SUBSCRIPTION_CHECK_INTERVAL_MINUTES as i64,
@@ -410,7 +473,16 @@ impl Default for Settings {
             custom_categories: vec![],
             subscription_scheduler_enabled: false,
             subscription_check_interval_minutes: default_check_interval(),
+            subscription_check_max_concurrency: default_subscription_check_max_concurrency(),
+            external_api_max_concurrency: default_external_api_max_concurrency(),
+            aria2_batch_submit_limit: default_aria2_batch_submit_limit(),
             auto_download_new_subscription_items: false,
+            auto_source_switch_enabled: false,
+            auto_source_switch_mode: default_source_switch_mode(),
+            source_switch_min_score: default_source_switch_min_score(),
+            source_switch_min_score_delta: default_source_switch_min_score_delta(),
+            source_switch_failure_threshold: default_source_switch_failure_threshold(),
+            source_switch_cooldown_hours: default_source_switch_cooldown_hours(),
             default_rename_template: String::new(),
             rule_presets: default_rule_presets(),
             aria2_rpc_url: String::new(),
@@ -423,9 +495,6 @@ impl Default for Settings {
             strm_public_base_url: String::new(),
             strm_access_token: default_strm_access_token(),
             strm_token_in_url: false,
-            nas_sync_enabled: false,
-            nas_sync_source: String::new(),
-            nas_sync_target: String::new(),
             telegram_bot_token: String::new(),
             telegram_chat_id: String::new(),
             bark_url: String::new(),
@@ -504,5 +573,23 @@ mod tests {
         assert_eq!(settings.quark_cookie, "test_cookie");
         assert_eq!(settings.app_password, "change-me"); // 默认值
         assert!(settings.check_links); // 默认值
+    }
+
+    #[test]
+    fn legacy_unused_nas_fields_are_ignored_and_not_persisted_again() {
+        let json = r#"{
+            "app_username": "legacy",
+            "nas_sync_enabled": true,
+            "nas_sync_source": "/old/source",
+            "nas_sync_target": "/old/target"
+        }"#;
+
+        let settings: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.app_username, "legacy");
+
+        let serialized = serde_json::to_value(settings).unwrap();
+        assert!(serialized.get("nas_sync_enabled").is_none());
+        assert!(serialized.get("nas_sync_source").is_none());
+        assert!(serialized.get("nas_sync_target").is_none());
     }
 }

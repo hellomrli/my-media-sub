@@ -95,6 +95,9 @@ pub async fn dispatch_push_event_for_notification(
                 message: message.clone(),
                 level: level.as_str().to_string(),
                 notification_id: notification_id.clone(),
+                correlation_id: String::new(),
+                subscription_id: None,
+                episode: None,
             })
             .await
         {
