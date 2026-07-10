@@ -28,48 +28,69 @@
   <div class="app-shell lg:flex">
 
     <!-- 侧边栏 -->
-    <aside class="app-sidebar hidden lg:flex lg:sticky lg:top-0 h-screen w-56 border-r border-border flex-col">
-      <div class="px-4 py-4 border-b border-border">
-        <h1 class="text-lg font-semibold text-text flex items-center gap-3">
-          <span class="grid h-9 w-9 place-items-center rounded-lg bg-primary/15 border border-cyan/25">
-            <svg class="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
-            </svg>
+    <aside class="app-sidebar hidden lg:flex lg:sticky lg:top-0 h-screen w-64 flex-col">
+      <div class="brand-block">
+        <button @click="selectTab('dashboard')" class="brand-mark" aria-label="返回工作台">
+          <span class="brand-symbol" aria-hidden="true">
+            <svg viewBox="0 0 32 32" fill="none"><path d="M7 8.5h18v15H7z" stroke="currentColor" stroke-width="1.8"/><path d="M11 5v22M21 5v22M7 13h4m10 0h4M7 19h4m10 0h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
           </span>
-          <span>
-            <span class="block leading-5">媒体订阅</span>
-            <span class="block text-xs font-normal text-muted/75 mt-1">Rust Edition</span>
+          <span class="min-w-0 text-left">
+            <span class="brand-name">MEDIA<span>/SUB</span></span>
+            <span class="brand-caption">个人媒体自动化中心</span>
           </span>
-        </h1>
+        </button>
+        <div class="brand-status"><span class="status-pulse"></span><span>服务在线</span></div>
       </div>
 
-      <nav class="flex-1 p-3 space-y-1">
-        <template x-for="tab in tabs" :key="tab.id">
-          <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : 'text-muted'" class="nav-button w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors duration-150 text-left">
-            <span x-html="tab.icon" class="w-5 h-5 flex-shrink-0"></span>
-            <span class="min-w-0">
-              <span x-text="tab.name" class="block text-sm font-medium"></span>
-              <span x-text="tab.description" class="block truncate text-xs text-muted/75 mt-0.5"></span>
-            </span>
-          </button>
-        </template>
+      <nav class="sidebar-nav flex-1 overflow-y-auto">
+        <div class="nav-group">
+          <div class="nav-group-label">媒体中心</div>
+          <template x-for="tab in tabs.filter(item => ['dashboard', 'search', 'subscriptions', 'drive', 'downloads'].includes(item.id))" :key="tab.id">
+            <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : ''" class="nav-button">
+              <span x-html="tab.icon" class="nav-icon"></span>
+              <span class="min-w-0 flex-1 text-left">
+                <span x-text="tab.name" class="nav-title"></span>
+                <span x-text="tab.description" class="nav-description"></span>
+              </span>
+              <span class="nav-indicator"></span>
+            </button>
+          </template>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-label">运行记录</div>
+          <template x-for="tab in tabs.filter(item => ['transferHistory', 'notifications'].includes(item.id))" :key="tab.id">
+            <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : ''" class="nav-button">
+              <span x-html="tab.icon" class="nav-icon"></span>
+              <span class="min-w-0 flex-1 text-left">
+                <span x-text="tab.name" class="nav-title"></span>
+                <span x-text="tab.description" class="nav-description"></span>
+              </span>
+              <span x-show="tab.id === 'notifications' && unreadNotifications" class="nav-count" x-text="unreadNotifications"></span>
+              <span class="nav-indicator"></span>
+            </button>
+          </template>
+        </div>
       </nav>
 
-      <div class="px-3 py-3 border-t border-border">
-        <div class="grid grid-cols-2 gap-2">
-          <div class="rounded-lg border border-border bg-app p-2">
-            <div class="text-[11px] text-muted/75">订阅</div>
-            <div class="mt-1 text-sm font-semibold text-primary" x-text="subscriptions.length"></div>
+      <div class="sidebar-footer">
+        <button @click="selectTab('settings')" :class="currentTab === 'settings' ? 'is-active' : ''" class="nav-button settings-entry">
+          <span x-html="tabs.find(tab => tab.id === 'settings')?.icon" class="nav-icon"></span>
+          <span class="min-w-0 flex-1 text-left">
+            <span class="nav-title">系统设置</span>
+            <span class="nav-description">连接与自动化配置</span>
+          </span>
+          <span class="nav-indicator"></span>
+        </button>
+        <div class="automation-card">
+          <div class="automation-card-head">
+            <span>自动化节点</span>
+            <span class="automation-dot" :class="settings.subscription_scheduler_enabled ? 'is-on' : ''"></span>
           </div>
-          <div class="rounded-lg border border-border bg-app p-2">
-            <div class="text-[11px] text-muted/75">未读</div>
-            <div class="mt-1 text-sm font-semibold text-warning" x-text="unreadNotifications"></div>
-          </div>
-          <div class="col-span-2 rounded-lg border border-border bg-app p-2">
-            <div class="flex items-center justify-between gap-2 text-[11px]">
-              <span class="text-muted/75">自动检查</span>
-              <span :class="settings.subscription_scheduler_enabled ? 'text-success' : 'text-muted/75'" x-text="settings.subscription_scheduler_enabled ? '已启用' : '未启用'"></span>
-            </div>
+          <div class="automation-value" x-text="settings.subscription_scheduler_enabled ? '正在运行' : '等待启用'"></div>
+          <div class="automation-meta">
+            <span><strong x-text="subscriptions.length"></strong> 个订阅</span>
+            <span><strong x-text="dashboardStats.runningJobs"></strong> 个任务</span>
           </div>
         </div>
       </div>
@@ -77,28 +98,36 @@
 
     <!-- 主内容区 -->
     <main class="min-w-0 flex-1 flex flex-col lg:h-screen">
-      <header class="app-header sticky top-0 z-30 border-b border-border px-4 sm:px-5 py-3">
-        <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div class="min-w-0">
-            <h2 class="text-lg sm:text-xl font-semibold text-text" x-text="tabs.find(t => t.id === currentTab)?.name"></h2>
-            <p x-show="tabs.find(t => t.id === currentTab)?.description" class="text-sm text-muted/75 mt-1" x-text="tabs.find(t => t.id === currentTab)?.description"></p>
+      <header class="app-header sticky top-0 z-30 px-4 sm:px-6 py-3">
+        <div class="header-row">
+          <div class="page-heading min-w-0">
+            <div class="eyebrow">PERSONAL MEDIA OPS <span>/</span> <span x-text="tabs.find(t => t.id === currentTab)?.name"></span></div>
+            <div class="flex items-end gap-3 min-w-0">
+              <h2 class="page-title" x-text="tabs.find(t => t.id === currentTab)?.name"></h2>
+              <span class="page-description hidden sm:block" x-text="tabs.find(t => t.id === currentTab)?.description"></span>
+            </div>
           </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <span class="badge badge-primary">订阅 <strong x-text="subscriptions.length"></strong></span>
-            <span class="badge" :class="unreadNotifications ? 'badge-warning' : 'badge-muted'">未读 <strong x-text="unreadNotifications"></strong></span>
-            <span class="badge" :class="settings.subscription_scheduler_enabled ? 'badge-success' : 'badge-muted'">调度 <strong x-text="settings.subscription_scheduler_enabled ? '开启' : '关闭'"></strong></span>
-            <button @click="toggleTheme()" class="btn-secondary h-10 w-10 grid place-items-center rounded-lg transition-colors" :aria-label="themeToggleLabel()" :title="themeToggleLabel()">
-              <svg x-show="theme === 'dark'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.364-6.364-1.414 1.414M7.05 16.95l-1.414 1.414m12.728 0-1.414-1.414M7.05 7.05 5.636 5.636M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
-              <svg x-show="theme === 'light'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12.79A8.5 8.5 0 1111.21 3 6.5 6.5 0 0021 12.79z" /></svg>
+          <div class="header-actions">
+            <button @click="selectTab('search')" class="command-button hidden md:flex" title="搜索媒体资源">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5-5m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+              <span>搜索资源</span><kbd>/</kbd>
             </button>
-            <button @click="refresh()" class="btn-secondary h-10 w-10 grid place-items-center rounded-lg transition-colors" aria-label="刷新当前页面" title="刷新当前页面">
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+            <div class="header-health hidden sm:flex">
+              <span class="status-pulse"></span>
+              <span x-text="dashboardStats.runningJobs ? dashboardStats.runningJobs + ' 项运行中' : '系统空闲'"></span>
+            </div>
+            <button @click="toggleTheme()" class="icon-button" :aria-label="themeToggleLabel()" :title="themeToggleLabel()">
+              <svg x-show="theme === 'dark'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.4-6.4-1.4 1.4M7 17l-1.4 1.4m12.8 0L17 17M7 7 5.6 5.6M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+              <svg x-show="theme === 'light'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12.8A8.5 8.5 0 1111.2 3 6.5 6.5 0 0021 12.8z"/></svg>
+            </button>
+            <button @click="refresh()" class="icon-button" aria-label="刷新当前页面" title="刷新当前页面">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5m11 11v-5h-5M5.1 9A8 8 0 0119 6.3M18.9 15A8 8 0 015 17.7"/></svg>
             </button>
           </div>
         </div>
         <nav class="mobile-tab-grid mt-3 lg:hidden flex gap-2 overflow-x-auto pb-1">
           <template x-for="tab in tabs" :key="tab.id">
-            <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : 'text-muted'" class="nav-button flex min-w-[4.75rem] flex-none flex-col items-center justify-center gap-1 px-2 py-2 rounded-lg transition-colors">
+            <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : ''" class="nav-button flex min-w-[4.75rem] flex-none flex-col items-center justify-center gap-1 px-2 py-2 rounded-lg">
               <span x-html="tab.icon" class="w-4 h-4"></span>
               <span x-text="tab.name" class="text-xs leading-4 text-center"></span>
             </button>
@@ -109,173 +138,157 @@
       <div class="app-content flex-1 overflow-y-auto px-4 sm:px-5 py-4 sm:py-5">
 
         <!-- 工作台 -->
-        <div x-show="currentTab === 'dashboard'" class="page-stack">
-          <div class="metric-grid">
-            <button @click="selectTab('subscriptions')" class="stat-tile p-3 text-left">
-              <div class="flex items-center justify-between gap-3">
-                <div class="text-xs text-muted/75">追更订阅</div>
-                <span class="grid h-8 w-8 place-items-center rounded-lg bg-primary/15 text-primary">
-                  <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4h10a2 2 0 012 2v14l-7-3-7 3V6a2 2 0 012-2z" /></svg>
-                </span>
+        <div x-show="currentTab === 'dashboard'" class="page-stack dashboard-page">
+          <section class="dashboard-hero">
+            <div class="hero-copy">
+              <div class="hero-kicker"><span class="status-pulse"></span><span x-text="dashboardDateLabel()"></span></div>
+              <h1>你的媒体库，<br><span>正在自动生长。</span></h1>
+              <p>搜索、追更、转存与下载都汇集在这里。保持订阅运行，其余交给自动化。</p>
+              <div class="hero-actions">
+                <button @click="selectTab('search')" class="btn-primary hero-primary-action">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5-5m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                  寻找新内容
+                </button>
+                <button @click="checkAllSubscriptions()" :disabled="checkingAllSubscriptions" class="hero-secondary-action">
+                  <svg class="w-4 h-4" :class="checkingAllSubscriptions ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5m11 11v-5h-5M5.1 9A8 8 0 0119 6.3M18.9 15A8 8 0 015 17.7"/></svg>
+                  <span x-text="checkingAllSubscriptions ? '检查中' : '检查全部订阅'"></span>
+                </button>
               </div>
-              <div class="mt-2 text-2xl font-semibold text-text" x-text="dashboardStats.activeSubs"></div>
-            </button>
-            <button @click="selectTab('subscriptions'); subscriptionStatusTab = 'invalid'" class="stat-tile p-3 text-left">
-              <div class="flex items-center justify-between gap-3">
-                <div class="text-xs text-muted/75">失效订阅</div>
-                <span class="grid h-8 w-8 place-items-center rounded-lg bg-danger/15 text-danger">
-                  <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
-                </span>
+              <div class="hero-facts">
+                <div><strong x-text="dashboardStats.activeSubs"></strong><span>追更中</span></div>
+                <div><strong x-text="dashboardStats.completedSubs"></strong><span>已完结</span></div>
+                <div><strong x-text="dashboardStats.runningJobs"></strong><span>任务运行</span></div>
               </div>
-              <div class="mt-2 text-2xl font-semibold" :class="dashboardStats.invalidSubs ? 'text-danger' : 'text-text'" x-text="dashboardStats.invalidSubs"></div>
-            </button>
-            <button @click="selectTab('transferHistory'); backgroundJobFilterStatus = 'running'" class="stat-tile p-3 text-left">
-              <div class="flex items-center justify-between gap-3">
-                <div class="text-xs text-muted/75">后台运行</div>
-                <span class="grid h-8 w-8 place-items-center rounded-lg bg-cyan/15 text-cyan">
-                  <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0019 5" /></svg>
-                </span>
-              </div>
-              <div class="mt-2 text-2xl font-semibold text-cyan" x-text="dashboardStats.runningJobs"></div>
-            </button>
-            <button @click="selectTab('transferHistory'); backgroundJobFilterStatus = 'failed'" class="stat-tile p-3 text-left">
-              <div class="flex items-center justify-between gap-3">
-                <div class="text-xs text-muted/75">失败任务</div>
-                <span class="grid h-8 w-8 place-items-center rounded-lg bg-warning/15 text-warning">
-                  <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 11V6h2v7H7v-2h4zm1 10a9 9 0 100-18 9 9 0 000 18z" /></svg>
-                </span>
-              </div>
-              <div class="mt-2 text-2xl font-semibold" :class="dashboardStats.failedJobs ? 'text-warning' : 'text-text'" x-text="dashboardStats.failedJobs"></div>
-            </button>
-            <button @click="selectTab('notifications'); notificationFilter = 'unread'" class="stat-tile p-3 text-left">
-              <div class="flex items-center justify-between gap-3">
-                <div class="text-xs text-muted/75">未读通知</div>
-                <span class="grid h-8 w-8 place-items-center rounded-lg bg-violet/15 text-violet">
-                  <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0a3 3 0 11-6 0" /></svg>
-                </span>
-              </div>
-              <div class="mt-2 text-2xl font-semibold text-text" x-text="dashboardStats.unreadNotifications"></div>
-            </button>
-            <button @click="selectTab('downloads')" class="stat-tile p-3 text-left">
-              <div class="flex items-center justify-between gap-3">
-                <div class="text-xs text-muted/75">下载速度</div>
-                <span class="grid h-8 w-8 place-items-center rounded-lg bg-success/15 text-success">
-                  <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l4-4m-4 4l-4-4M5 21h14" /></svg>
-                </span>
-              </div>
-              <div class="mt-2 text-2xl font-semibold text-text" x-text="formatSpeed(dashboardStats.downloadSpeed)"></div>
-            </button>
-          </div>
+            </div>
 
-          <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_22rem] gap-4">
-            <div class="app-panel p-3 min-h-[520px]">
-              <div class="flex items-center justify-between gap-3 mb-3">
-                <h3 class="section-title">订阅总览</h3>
-                <button @click="selectTab('subscriptions')" class="btn-secondary px-3 py-2 rounded text-sm">进入订阅</button>
+            <div class="hero-visual" aria-hidden="true">
+              <div class="hero-orbit orbit-one"></div>
+              <div class="hero-orbit orbit-two"></div>
+              <div class="library-progress-ring" :style="'--progress:' + dashboardLibraryProgress + '%'">
+                <div>
+                  <strong x-text="Math.round(dashboardLibraryProgress) + '%'">0%</strong>
+                  <span>媒体进度</span>
+                </div>
               </div>
-              <div class="data-table min-h-[390px]">
-                <div class="data-table-scroll">
-                  <div class="data-table-head grid-cols-[minmax(260px,1.8fr)_110px_140px_110px_150px] px-3">
-                    <div>标题</div>
-                    <div>状态</div>
-                    <div>进度</div>
-                    <div>评分</div>
-                    <div class="text-right">最近检查</div>
-                  </div>
-                  <template x-for="sub in dashboardRecentSubscriptions" :key="sub.id">
-                    <div class="data-table-row min-h-20 grid-cols-[minmax(260px,1.8fr)_110px_140px_110px_150px] px-3 py-2">
-                      <div class="flex min-w-0 items-center gap-3">
-                        <div class="h-20 w-14 shrink-0 overflow-hidden rounded border border-border bg-surface-2 grid place-items-center">
-                          <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" class="h-full w-full object-cover" />
-                          <span x-show="!subscriptionPoster(sub)" class="text-[10px] text-muted/60">N/A</span>
-                        </div>
-                        <div class="min-w-0">
-                          <div class="truncate text-sm font-medium text-text" x-text="subscriptionDisplayTitle(sub)"></div>
-                          <div class="truncate text-xs text-muted/75" x-text="mediaTypeLabel(sub.media_type) + (sub.media_type !== 'movie' ? ' · ' + subscriptionSeasonLabel(sub) : '')"></div>
-                        </div>
-                      </div>
-                      <div><span :class="subscriptionStatusBadgeClass(sub)" x-text="subscriptionStatusLabel(sub)"></span></div>
-                      <div class="space-y-1">
-                        <div class="progress-inline"><span :style="'width:' + subscriptionProgressPercent(sub) + '%'"></span></div>
-                        <div class="text-xs text-muted/75 tabular-nums" x-text="subscriptionProgressLabel(sub)"></div>
-                      </div>
-                      <div><span class="badge badge-muted" x-text="subscriptionRatingLabel(sub)"></span></div>
-                      <div class="text-right text-xs text-muted/75" x-text="formatTime(sub.last_checked_at || sub.updated_at)"></div>
+              <div class="poster-stack">
+                <template x-for="(sub, index) in dashboardRecentSubscriptions.slice(0, 4)" :key="sub.id">
+                  <div class="poster-card" :style="'--poster-index:' + index">
+                    <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" />
+                    <div x-show="!subscriptionPoster(sub)" class="poster-fallback">
+                      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16v12H4zM8 4v16m8-16v16M4 10h4m8 0h4M4 14h4m8 0h4"/></svg>
+                      <span x-text="subscriptionDisplayTitle(sub).slice(0, 4)"></span>
                     </div>
+                  </div>
+                </template>
+                <div x-show="dashboardRecentSubscriptions.length === 0" class="poster-card poster-empty">
+                  <div class="poster-fallback"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16v12H4zM8 4v16m8-16v16"/></svg><span>等待添加</span></div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="dashboard-kpi-grid">
+            <button @click="selectTab('subscriptions')" class="dashboard-kpi kpi-primary">
+              <span class="kpi-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 4h10a2 2 0 012 2v14l-7-3-7 3V6a2 2 0 012-2z"/></svg></span>
+              <span class="kpi-copy"><small>活跃订阅</small><strong x-text="dashboardStats.activeSubs"></strong><em>持续追踪更新</em></span>
+              <span class="kpi-arrow">↗</span>
+            </button>
+            <button @click="selectTab('transferHistory')" class="dashboard-kpi kpi-cyan">
+              <span class="kpi-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0019 5"/></svg></span>
+              <span class="kpi-copy"><small>后台任务</small><strong x-text="dashboardStats.runningJobs"></strong><em x-text="dashboardStats.failedJobs ? dashboardStats.failedJobs + ' 个需要关注' : '运行状态良好'"></em></span>
+              <span class="kpi-arrow">↗</span>
+            </button>
+            <button @click="selectTab('downloads')" class="dashboard-kpi kpi-success">
+              <span class="kpi-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 3v12m0 0l4-4m-4 4l-4-4M5 21h14"/></svg></span>
+              <span class="kpi-copy"><small>实时下载</small><strong class="kpi-speed" x-text="formatSpeed(dashboardStats.downloadSpeed)"></strong><em>Aria2 当前速度</em></span>
+              <span class="kpi-arrow">↗</span>
+            </button>
+            <button @click="selectTab('notifications')" class="dashboard-kpi kpi-violet">
+              <span class="kpi-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0a3 3 0 11-6 0"/></svg></span>
+              <span class="kpi-copy"><small>通知收件箱</small><strong x-text="dashboardStats.unreadNotifications"></strong><em>条未读消息</em></span>
+              <span class="kpi-arrow">↗</span>
+            </button>
+          </section>
+
+          <div class="dashboard-main-grid">
+            <section class="media-shelf app-panel">
+              <div class="panel-heading">
+                <div><span class="panel-eyebrow">LIBRARY PULSE</span><h3>最近追更</h3><p>按最近检查时间排列的媒体内容</p></div>
+                <button @click="selectTab('subscriptions')" class="text-action">查看全部 <span>→</span></button>
+              </div>
+              <div class="media-card-grid">
+                <template x-for="sub in dashboardRecentSubscriptions.slice(0, 6)" :key="sub.id">
+                  <button @click="selectTab('subscriptions')" class="media-card">
+                    <div class="media-poster">
+                      <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" />
+                      <div x-show="!subscriptionPoster(sub)" class="media-poster-fallback">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16v12H4zM8 4v16m8-16v16M4 10h4m8 0h4"/></svg>
+                        <span x-text="mediaTypeLabel(sub.media_type)"></span>
+                      </div>
+                      <span class="media-status" :class="subscriptionStatusKey(sub)" x-text="subscriptionStatusLabel(sub)"></span>
+                      <div class="media-poster-shade"></div>
+                      <div class="media-rating" x-text="subscriptionRatingLabel(sub)"></div>
+                    </div>
+                    <div class="media-card-body">
+                      <h4 x-text="subscriptionDisplayTitle(sub)"></h4>
+                      <div class="media-meta"><span x-text="sub.media_type === 'movie' ? mediaTypeLabel(sub.media_type) : subscriptionSeasonLabel(sub)"></span><span x-text="subscriptionProgressLabel(sub)"></span></div>
+                      <div class="progress-inline"><span :style="'width:' + subscriptionProgressPercent(sub) + '%'"></span></div>
+                    </div>
+                  </button>
+                </template>
+                <button x-show="dashboardRecentSubscriptions.length === 0" @click="selectTab('search')" class="media-card media-card-add">
+                  <span>＋</span><strong>添加第一部媒体</strong><small>从资源搜索开始</small>
+                </button>
+              </div>
+            </section>
+
+            <aside class="operations-column">
+              <section class="app-panel operations-panel">
+                <div class="panel-heading compact">
+                  <div><span class="panel-eyebrow">QUARK CLOUD</span><h3>网盘健康</h3></div>
+                  <button @click="refreshQuarkHealth()" :disabled="quarkHealthLoading" class="icon-button small" title="检测夸克状态">
+                    <svg class="w-4 h-4" :class="quarkHealthLoading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5m11 11v-5h-5M5.1 9A8 8 0 0119 6.3M18.9 15A8 8 0 015 17.7"/></svg>
+                  </button>
+                </div>
+                <div class="cloud-health-head">
+                  <div class="cloud-health-icon" :class="quarkHealthStatusClass()"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M7 18h10a4 4 0 10-.8-7.9A6 6 0 105.4 15 3 3 0 007 18z"/></svg></div>
+                  <div><strong :class="quarkHealthStatusClass()" x-text="quarkHealthStatusLabel()"></strong><span x-text="quarkHealth.message || '等待检测账号状态'"></span></div>
+                </div>
+                <div class="cloud-metrics">
+                  <div><span>自动转存</span><strong :class="settings.quark_save_enabled ? 'text-success' : 'text-muted'" x-text="settings.quark_save_enabled ? '开启' : '关闭'"></strong></div>
+                  <div><span>今日签到</span><strong :class="quarkSigninTodayClass()" x-text="quarkSigninTodayLabel()"></strong></div>
+                  <div><span>网盘容量</span><strong x-text="quarkCapacityLabel()"></strong></div>
+                </div>
+                <div class="health-note" :class="(quarkHealth.issues || []).length ? 'has-issue' : ''"><span></span><p x-text="quarkHealthIssueText()"></p></div>
+              </section>
+
+              <section class="app-panel activity-panel">
+                <div class="panel-heading compact"><div><span class="panel-eyebrow">ACTIVITY</span><h3>最新动态</h3></div><button @click="selectTab('transferHistory')" class="text-action">日志 →</button></div>
+                <div class="activity-list">
+                  <template x-for="job in dashboardRecentJobs.slice(0, 4)" :key="job.id">
+                    <button @click="selectTab('transferHistory')" class="activity-item">
+                      <span class="activity-dot" :class="job.status"></span>
+                      <span class="activity-copy"><strong x-text="job.title || jobKindLabel(job.kind)"></strong><small x-text="job.message || job.error || jobKindLabel(job.kind)"></small></span>
+                      <time x-text="formatTime(job.updated_at || job.created_at)"></time>
+                    </button>
                   </template>
+                  <template x-if="dashboardRecentJobs.length === 0"><div class="activity-empty">暂无后台任务</div></template>
                 </div>
-              </div>
-              <div x-show="dashboardRecentSubscriptions.length === 0" class="empty-state min-h-[390px] border border-border rounded-lg mt-3">暂无订阅</div>
-            </div>
+              </section>
 
-            <div class="space-y-3">
-            <div class="app-panel p-3 space-y-3">
-              <div class="flex items-center justify-between gap-3">
-                <h3 class="section-title">夸克健康</h3>
-                <button @click="refreshQuarkHealth()" :disabled="quarkHealthLoading" class="btn-secondary px-3 py-2 rounded text-sm disabled:opacity-50">检测</button>
-              </div>
-              <div class="grid grid-cols-2 gap-2 text-sm">
-                <div class="rounded-lg border border-border bg-app p-3">
-                  <div class="flex items-center gap-2 text-xs text-muted/75"><svg class="h-4 w-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 12a4 4 0 100-8 4 4 0 000 8zm-7 9a7 7 0 0114 0" /></svg>账号</div>
-                  <div class="mt-1 font-semibold" :class="quarkHealthStatusClass()" x-text="quarkHealthStatusLabel()"></div>
+              <section class="app-panel inbox-panel">
+                <div class="panel-heading compact"><div><span class="panel-eyebrow">INBOX</span><h3>通知</h3></div><button @click="selectTab('notifications')" class="text-action">全部 →</button></div>
+                <div class="inbox-list">
+                  <template x-for="notif in dashboardRecentNotifications.slice(0, 3)" :key="notif.id">
+                    <button @click="selectTab('notifications')" class="inbox-item">
+                      <span class="inbox-level" :class="notif.level"></span>
+                      <span><strong x-text="notif.title"></strong><small x-text="notif.message"></small></span>
+                    </button>
+                  </template>
+                  <template x-if="dashboardRecentNotifications.length === 0"><div class="activity-empty">暂无通知</div></template>
                 </div>
-                <div class="rounded-lg border border-border bg-app p-3">
-                  <div class="flex items-center gap-2 text-xs text-muted/75"><svg class="h-4 w-4 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" /></svg>自动转存</div>
-                  <div class="mt-1 font-semibold" :class="settings.quark_save_enabled ? 'text-success' : 'text-muted'" x-text="settings.quark_save_enabled ? '已启用' : '未启用'"></div>
-                </div>
-                <div class="rounded-lg border border-border bg-app p-3">
-                  <div class="flex items-center gap-2 text-xs text-muted/75"><svg class="h-4 w-4 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7 3h10a2 2 0 012 2v14l-7-3-7 3V5a2 2 0 012-2z" /></svg>签到</div>
-                  <div class="mt-1 font-semibold" :class="quarkSigninTodayClass()" x-text="quarkSigninTodayLabel()"></div>
-                  <div class="mt-0.5 text-[11px] text-muted/60" x-text="settings.quark_signin_enabled ? ('自动 · 每天 ' + (settings.quark_signin_hour ?? 8) + ':00') : '手动'"></div>
-                </div>
-                <div class="rounded-lg border border-border bg-app p-3">
-                  <div class="flex items-center gap-2 text-xs text-muted/75"><svg class="h-4 w-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V7zm4 5h8" /></svg>容量</div>
-                  <div class="mt-1 font-semibold text-text" x-text="quarkCapacityLabel()"></div>
-                </div>
-              </div>
-              <div class="text-sm text-text/80 break-words" x-text="quarkHealth.message"></div>
-              <div class="text-xs" :class="(quarkHealth.issues || []).length ? 'text-warning' : 'text-success'" x-text="quarkHealthIssueText()"></div>
-              <div class="text-xs text-muted/75" x-text="quarkHealth.checkedAt ? '检测时间 ' + formatTime(quarkHealth.checkedAt) : '尚未检测'"></div>
-            </div>
-
-            <div class="app-panel p-3">
-              <div class="flex items-center justify-between gap-3 mb-3">
-                <h3 class="section-title">后台任务</h3>
-                <button @click="selectTab('transferHistory')" class="btn-secondary px-3 py-2 rounded text-sm">查看日志</button>
-              </div>
-              <div class="space-y-2">
-                <template x-for="job in dashboardRecentJobs" :key="job.id">
-                  <div class="flex items-center justify-between gap-3 rounded-lg border border-border bg-app px-3 py-3">
-                    <div class="min-w-0">
-                      <div class="text-sm text-text truncate" x-text="job.title || jobKindLabel(job.kind)"></div>
-                      <div class="text-xs text-muted/75 truncate" x-text="job.message || job.error || jobKindLabel(job.kind)"></div>
-                    </div>
-                    <span :class="jobStatusBadgeClass(job.status)" x-text="jobStatusLabel(job.status)"></span>
-                  </div>
-                </template>
-                <div x-show="dashboardRecentJobs.length === 0" class="empty-state border border-border rounded-lg">暂无后台任务</div>
-              </div>
-            </div>
-
-            <div class="app-panel p-3">
-              <div class="flex items-center justify-between gap-3 mb-3">
-                <h3 class="section-title">最近通知</h3>
-                <button @click="selectTab('notifications')" class="btn-secondary px-3 py-2 rounded text-sm">通知中心</button>
-              </div>
-              <div class="space-y-2">
-                <template x-for="notif in dashboardRecentNotifications" :key="notif.id">
-                  <div class="rounded-lg border border-border bg-app px-3 py-3">
-                    <div class="flex items-center justify-between gap-3">
-                      <div class="min-w-0 text-sm text-text truncate" x-text="notif.title"></div>
-                      <span :class="notificationLevelBadgeClass(notif.level)" x-text="notificationLevelLabel(notif.level)"></span>
-                    </div>
-                    <div class="mt-1 text-xs text-muted/75 truncate" x-text="notif.message"></div>
-                  </div>
-                </template>
-                <div x-show="dashboardRecentNotifications.length === 0" class="empty-state border border-border rounded-lg">暂无通知</div>
-              </div>
-            </div>
-            </div>
+              </section>
+            </aside>
           </div>
         </div>
 
@@ -302,7 +315,7 @@
               <span class="chip" x-show="searching">正在处理</span>
             </div>
             <div class="flex flex-col sm:flex-row gap-3 mb-4">
-              <input type="text" x-model="searchQuery" @keyup.enter="search()" placeholder="输入影片名称、年份或版本..." class="flex-1 px-4 py-3 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text placeholder:text-muted/70" list="searchHistoryList" />
+              <input type="text" x-ref="globalSearchInput" x-model="searchQuery" @keyup.enter="search()" placeholder="输入影片名称、年份或版本..." class="flex-1 px-4 py-3 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text placeholder:text-muted/70" list="searchHistoryList" />
               <datalist id="searchHistoryList">
                 <template x-for="item in searchHistory" :key="item">
                   <option :value="item"></option>

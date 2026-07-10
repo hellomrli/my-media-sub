@@ -340,16 +340,33 @@ function app() {
     get dashboardStats() {
       const activeSubs = this.subscriptions.filter(sub => this.subscriptionStatusKey(sub) === 'active').length;
       const invalidSubs = this.subscriptions.filter(sub => this.subscriptionStatusKey(sub) === 'invalid').length;
+      const completedSubs = this.subscriptions.filter(sub => this.subscriptionStatusKey(sub) === 'completed').length;
       const runningJobs = this.jobs.filter(job => ['queued', 'running'].includes(job.status)).length;
       const failedJobs = this.jobs.filter(job => job.status === 'failed').length;
       return {
         activeSubs,
         invalidSubs,
+        completedSubs,
         runningJobs,
         failedJobs,
         unreadNotifications: this.unreadNotifications,
         downloadSpeed: this.downloadStats.speed
       };
+    },
+
+    get dashboardLibraryProgress() {
+      const episodic = this.subscriptions.filter(sub => sub.media_type !== 'movie');
+      if (!episodic.length) return this.subscriptions.length ? 100 : 0;
+      const values = episodic.map(sub => this.subscriptionProgressPercent(sub)).filter(value => Number.isFinite(value));
+      return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+    },
+
+    dashboardDateLabel() {
+      return new Intl.DateTimeFormat('zh-CN', {
+        month: 'long',
+        day: 'numeric',
+        weekday: 'long'
+      }).format(new Date());
     },
 
     get dashboardRecentSubscriptions() {
@@ -500,8 +517,21 @@ function app() {
       await this.loadSettings();
       await this.loadSettingsSchema();
       this.setupJobEvents();
+      this.setupGlobalShortcuts();
       this.loadSearchHistory();
       this.runCurrentTabEffects();
+    },
+
+    setupGlobalShortcuts() {
+      window.addEventListener('keydown', event => {
+        const target = event.target;
+        const isTyping = target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
+        if (event.key === '/' && !isTyping && !event.metaKey && !event.ctrlKey && !event.altKey) {
+          event.preventDefault();
+          this.selectTab('search');
+          this.$nextTick(() => this.$refs.globalSearchInput && this.$refs.globalSearchInput.focus());
+        }
+      });
     },
 
     resolveInitialTheme() {
