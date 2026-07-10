@@ -52,12 +52,9 @@ impl SessionStore {
         // 先读检查
         {
             let sessions = self.sessions.read().await;
-            if let Some(sess) = sessions.get(key) {
-                if now_secs().saturating_sub(sess.created_at) <= self.ttl_seconds {
-                    return Some(sess.clone());
-                }
-            } else {
-                return None;
+            let sess = sessions.get(key)?;
+            if now_secs().saturating_sub(sess.created_at) <= self.ttl_seconds {
+                return Some(sess.clone());
             }
         }
         // 过期，清除
