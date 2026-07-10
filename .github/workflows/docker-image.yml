@@ -19,6 +19,8 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  # build-push-action 的 .dockerbuild 记录仅用于临时调试，会长期堆积为 Actions artifacts。
+  DOCKER_BUILD_RECORD_UPLOAD: false
 
 jobs:
   build-and-push:
