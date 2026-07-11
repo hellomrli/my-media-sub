@@ -1154,6 +1154,8 @@ pub struct CheckDetails {
 pub struct CheckDetailItem {
     pub name: String,
     pub episode: Option<i32>,
+    pub detection_method: String,
+    pub detection_confidence: String,
     pub is_dir: bool,
     pub parent_path: String,
     pub file_key: String,

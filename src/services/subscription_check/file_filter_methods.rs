@@ -340,7 +340,8 @@ macro_rules! subscription_check_file_filter_methods {
             self.selected_episode_video_indices(sub, files, &detail_candidate_indices);
 
         for (index, file) in files.iter().enumerate() {
-            let episode = extract_episode_number(&file.name);
+            let detection = crate::services::episode::detect_episode_explained(&file.name);
+            let episode = detection.episode;
             let (action, reason) = if file.is_dir {
                 details.skipped_directory_count += 1;
                 ("skip", "目录不参与订阅检查".to_string())
@@ -369,6 +370,8 @@ macro_rules! subscription_check_file_filter_methods {
             details.items.push(CheckDetailItem {
                 name: file.name.clone(),
                 episode,
+                detection_method: detection.method.to_string(),
+                detection_confidence: detection.confidence.to_string(),
                 is_dir: file.is_dir,
                 parent_path: file.parent_path.clone(),
                 file_key: file.file_key.clone(),
