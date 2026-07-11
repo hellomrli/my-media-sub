@@ -13,6 +13,7 @@
   const calendarTools = root.MediaSubCalendar || {};
   const sourceSwitchTools = root.MediaSubSourceSwitch || {};
   const automationEventTools = root.MediaSubAutomationEvents || {};
+  const ux = root.MediaSubUx || {};
 
   function createStore() {
     return {
@@ -23,6 +24,9 @@
     showSubscriptionDialog: false,
     subscriptionStatusTab: 'active',
     subscriptionViewMode: 'table',
+    subscriptionVisibleLimit: 100,
+    selectedSubscriptionIds: [],
+    subscriptionBatchLoading: false,
     subscriptionActionMenuId: '',
     selectedSubscriptionId: '',
     subscriptionDetail: null,
@@ -826,7 +830,7 @@
     },
 
     async deleteRulePreset(id) {
-      if (!id || !confirm('确定删除这个规则预设？')) return;
+      if (!id || !await this.requestDangerConfirmation({title:'删除规则预设', message:'该预设将被永久删除。'})) return;
       this.settings.rule_presets = this.rulePresets.filter(item => item.id !== id);
       if (this.ruleCenter.preset_id === id) {
         this.ruleCenter.preset_id = '';
@@ -1806,6 +1810,11 @@
     automationStatusTone(status) { return automationEventTools.statusTone(status); },
     automationEventDuration(event) { return automationEventTools.duration(event); },
     automationCanRetry(event) { return automationEventTools.canRetry(event); },
+    get subscriptionAutomationTimeline() { return automationEventTools.timeline ? automationEventTools.timeline((this.subscriptionAutomationPipeline && this.subscriptionAutomationPipeline.events) || [], 100) : []; },
+    async copySubscriptionAutomationTimeline() {
+      const value = ux.safeJson ? ux.safeJson(this.subscriptionAutomationTimeline) : JSON.stringify(this.subscriptionAutomationTimeline, null, 2);
+      await this.copyText(value);
+    },
 
     async retryAutomationEvent(event) {
       if (!event || !event.id || !this.automationCanRetry(event)) return;
@@ -1877,6 +1886,8 @@
         const response = await apiFetch('/api/subscriptions');
         const data = await response.json();
         this.subscriptions = data.data || [];
+        const currentIds = new Set(this.subscriptions.map(sub => sub.id));
+        this.selectedSubscriptionIds = this.selectedSubscriptionIds.filter(id => currentIds.has(id));
         if (this.selectedSubscriptionId && !this.subscriptions.some(sub => sub.id === this.selectedSubscriptionId)) {
           this.closeSubscriptionDetail(false);
           this.replaceRouteState();
@@ -1888,7 +1899,7 @@
 
     async checkSubscription(id, options = {}) {
       try {
-        this.showNotification('info', '正在检查订阅...');
+        if (!options.silent) this.showNotification('info', '正在检查订阅...');
         const response = await apiFetch(`/api/subscriptions/${id}/check`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
@@ -1900,20 +1911,22 @@
           const result = data.data;
           this.lastCheckResult = result;
           if (result.new_files.length > 0) {
-            this.showNotification('success', `发现 ${result.new_files.length} 个新文件`);
+            if (!options.silent) this.showNotification('success', `发现 ${result.new_files.length} 个新文件`);
           } else {
-            this.showNotification('info', '无更新');
+            if (!options.silent) this.showNotification('info', '无更新');
           }
+          if (options.deferReload) return true;
           await this.loadSubscriptions();
           await this.loadJobs();
           await this.loadNotifications();
           if (this.selectedSubscriptionId === id) await this.loadSubscriptionDetail(id);
         } else {
-          this.showNotification('error', data.message || '检查失败');
+          if (!options.silent) this.showNotification('error', data.message || '检查失败');
         }
       } catch (error) {
         console.error('检查订阅失败:', error);
-        this.showNotification('error', this.apiErrorMessage(error, '检查订阅失败'));
+        if (!options.silent) this.showNotification('error', this.apiErrorMessage(error, '检查订阅失败'));
+        return false;
       }
     },
 
@@ -2226,7 +2239,7 @@
 
     async rollbackSourceSwitch() {
       if (!this.sourceSwitchSubscriptionId || this.sourceSwitchRollbackLoading) return;
-      if (!confirm('确认回滚到上一来源？回滚会保留当前追更和转存记录，并立即检查旧来源。')) return;
+      if (!await this.requestDangerConfirmation({title:'回滚订阅来源', message:'回滚会保留当前追更和转存记录，并立即检查旧来源。'})) return;
       this.sourceSwitchRollbackLoading = true;
       this.sourceSwitchError = '';
       try {
@@ -2320,7 +2333,7 @@
     },
 
     async deleteSubscription(id) {
-      if (!confirm('确定删除？')) return;
+      if (this.requestDangerConfirmation && !await this.requestDangerConfirmation({title:'删除订阅', message:'订阅配置将被永久删除，媒体文件不会删除。', phrase:'DELETE'})) return;
       try {
         const response = await apiFetch(`/api/subscriptions/${id}?confirm=${encodeURIComponent(id)}`, {method: 'DELETE'});
         if (response.ok) {
@@ -2341,6 +2354,60 @@
     // ===== 通知 =====
     get filteredSubscriptions() {
       return this.subscriptions.filter(sub => this.subscriptionStatusKey(sub) === this.subscriptionStatusTab);
+    },
+
+    get visibleFilteredSubscriptions() {
+      return ux.visibleWindow ? ux.visibleWindow(this.filteredSubscriptions, this.subscriptionVisibleLimit, 1000) : this.filteredSubscriptions.slice(0, this.subscriptionVisibleLimit);
+    },
+
+    get hasMoreSubscriptions() { return this.visibleFilteredSubscriptions.length < this.filteredSubscriptions.length; },
+    get allVisibleSubscriptionsSelected() {
+      return this.visibleFilteredSubscriptions.length > 0 && this.visibleFilteredSubscriptions.every(sub => this.selectedSubscriptionIds.includes(sub.id));
+    },
+
+    setSubscriptionStatusTab(value) {
+      if (!['active','invalid','completed'].includes(value)) return;
+      this.subscriptionStatusTab = value; this.subscriptionVisibleLimit = 100;
+      if (ux.writePreference) ux.writePreference('subscriptions.status', value);
+    },
+    setSubscriptionViewMode(value) {
+      if (!['table','poster'].includes(value)) return;
+      this.subscriptionViewMode = value;
+      if (ux.writePreference) ux.writePreference('subscriptions.view', value);
+    },
+    loadSubscriptionPreferences() {
+      if (!ux.readPreference) return;
+      this.subscriptionStatusTab = ux.readPreference('subscriptions.status', 'active', ['active','invalid','completed']);
+      this.subscriptionViewMode = ux.readPreference('subscriptions.view', 'table', ['table','poster']);
+    },
+    toggleSubscriptionSelection(id) {
+      this.selectedSubscriptionIds = this.selectedSubscriptionIds.includes(id) ? this.selectedSubscriptionIds.filter(value => value !== id) : [...this.selectedSubscriptionIds, id];
+    },
+    toggleAllVisibleSubscriptions() {
+      const visible = this.visibleFilteredSubscriptions.map(sub => sub.id);
+      this.selectedSubscriptionIds = this.allVisibleSubscriptionsSelected ? this.selectedSubscriptionIds.filter(id => !visible.includes(id)) : [...new Set([...this.selectedSubscriptionIds, ...visible])];
+    },
+    async batchCheckSelectedSubscriptions() {
+      const ids = [...this.selectedSubscriptionIds]; if (!ids.length || this.subscriptionBatchLoading) return;
+      this.subscriptionBatchLoading = true;
+      try {
+        const run = id => this.checkSubscription(id, {silent:true, deferReload:true});
+        await (ux.runPool ? ux.runPool(ids, 3, run) : Promise.all(ids.map(run)));
+        await Promise.all([this.loadSubscriptions(), this.loadJobs(), this.loadNotifications()]);
+        this.showNotification('success', `已检查 ${ids.length} 个订阅`);
+      } finally { this.subscriptionBatchLoading = false; }
+    },
+    async batchDeleteSelectedSubscriptions() {
+      const ids = [...this.selectedSubscriptionIds]; if (!ids.length || this.subscriptionBatchLoading) return;
+      const approved = await this.requestDangerConfirmation({title:'批量删除订阅', message:`将永久删除 ${ids.length} 个订阅。`, phrase:'DELETE'});
+      if (!approved) return;
+      this.subscriptionBatchLoading = true;
+      try {
+        const remove = id => apiFetch(`/api/subscriptions/${encodeURIComponent(id)}?confirm=${encodeURIComponent(id)}`, {method:'DELETE'});
+        await (ux.runPool ? ux.runPool(ids, 3, remove) : Promise.all(ids.map(remove)));
+        this.selectedSubscriptionIds = []; await this.loadSubscriptions(); this.showNotification('success', `已删除 ${ids.length} 个订阅`);
+      } catch (error) { this.showNotification('error', this.apiErrorMessage(error, '批量删除失败')); }
+      finally { this.subscriptionBatchLoading = false; }
     },
 
     get selectedSubscription() {

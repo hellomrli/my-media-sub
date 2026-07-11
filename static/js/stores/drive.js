@@ -292,7 +292,7 @@
     },
 
     async deleteDriveItem(item) {
-      if (!confirm(`确定删除 ${item.file_name}？`)) return;
+      if (!await this.requestDangerConfirmation({title:'删除网盘项目', message:`将永久删除 ${item.file_name}。`, phrase:'DELETE'})) return;
       this.driveActionLoading = `delete:${item.fid}`;
       try {
         const data = await apiData('/api/drive/delete', {
@@ -413,7 +413,7 @@
 
     async batchDeleteDrive() {
       if (this.driveSelectedItems.length === 0) return;
-      if (!confirm(`确定删除选中的 ${this.driveSelectedItems.length} 个项目？`)) return;
+      if (!await this.requestDangerConfirmation({title:'批量删除网盘项目', message:`将永久删除选中的 ${this.driveSelectedItems.length} 个项目。`, phrase:'DELETE'})) return;
 
       this.driveActionLoading = 'batch-delete';
       try {

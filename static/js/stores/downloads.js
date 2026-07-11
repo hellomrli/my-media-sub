@@ -112,7 +112,7 @@
         pause: '暂停全部下载任务',
         stop: '停止全部下载任务'
       };
-      if (action === 'stop' && !confirm('确定停止全部活动和排队中的 Aria2 下载任务？')) return;
+      if (action === 'stop' && !await this.requestDangerConfirmation({title:'停止全部下载', message:'全部活动和排队中的 Aria2 下载任务将停止。'})) return;
       this.downloadsBulkAction = action;
       try {
         const data = await apiData(`/api/drive/aria2/tasks/${action}-all`, {method: 'POST'});
@@ -137,8 +137,8 @@
         stop: '停止下载任务',
         delete: '删除下载任务记录'
       };
-      if (action === 'stop' && !confirm(`确定停止下载任务 ${task.file_name || task.gid}？`)) return;
-      if (action === 'delete' && !confirm(`确定删除下载任务记录 ${task.file_name || task.gid}？`)) return;
+      if (action === 'stop' && !await this.requestDangerConfirmation({title:'停止下载任务', message:`将停止 ${task.file_name || task.gid}。`})) return;
+      if (action === 'delete' && !await this.requestDangerConfirmation({title:'删除下载记录', message:`将删除 ${task.file_name || task.gid} 的任务记录。`, phrase:'DELETE'})) return;
 
       this.downloadTaskActions = {...this.downloadTaskActions, [task.gid]: action};
       try {

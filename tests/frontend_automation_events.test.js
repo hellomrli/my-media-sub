@@ -20,3 +20,8 @@ test('duration uses structured timestamps instead of notification text', () => {
   assert.equal(tools.duration({started_at: 100, finished_at: 165}), '1分5秒');
   assert.equal(tools.duration({}), '—');
 });
+
+test('automation timeline is chronological and bounded', () => {
+  const events = [{id:'late',updated_at:3},{id:'early',updated_at:1},{id:'middle',updated_at:2}];
+  assert.deepEqual(tools.timeline(events, 2).map(item => item.id), ['middle','late']);
+});

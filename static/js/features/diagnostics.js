@@ -54,6 +54,12 @@
         }
       },
 
+      async copyDiagnostics() {
+        if (!this.diagnostics) return;
+        const ux = root.MediaSubUx || {};
+        await this.copyText(ux.safeJson ? ux.safeJson(this.diagnostics) : JSON.stringify(this.diagnostics, null, 2));
+      },
+
       async exportBackup() {
         try {
           await this.downloadProtectedFile('/api/backups/export', `my-media-sub-backup-${Date.now()}.json`);
@@ -63,7 +69,7 @@
       },
 
       async compactStorage() {
-        if (!confirm('重新应用历史保留策略并将所有业务 Store 改写为紧凑 JSON？')) return;
+        if (this.requestDangerConfirmation && !await this.requestDangerConfirmation({title:'整理业务存储', message:'将重写全部业务 Store 并应用历史保留策略。', phrase:'COMPACT'})) return;
         try {
           const result = await apiData('/api/storage/compact', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({confirmation: 'COMPACT JSON'})});
           this.showNotification('success', result.message || 'JSON Store 已整理');
@@ -106,7 +112,7 @@
           this.showNotification('warning', '请输入 RESTORE DATA 以确认恢复');
           return;
         }
-        if (!confirm('恢复会覆盖业务数据并要求立即重启。确定继续？')) return;
+        if (this.requestDangerConfirmation && !await this.requestDangerConfirmation({title:'恢复完整备份', message:'恢复会覆盖业务数据并要求立即重启。', phrase:'RESTORE DATA'})) return;
         try {
           const result = await apiData('/api/backups/restore', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
