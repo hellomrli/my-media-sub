@@ -56,6 +56,7 @@ pub(super) async fn preview_subscription_rename(
             action: item.action,
             skip_reason: item.skip_reason,
             episode: item.episode,
+            episodes: item.episodes,
             season: item.season,
             target_dir: item.target_dir,
         })
@@ -69,6 +70,8 @@ pub(super) async fn preview_subscription_rename(
         matched_count: plan.matched_count,
         current_episode_number: plan.current_episode_number,
         episodes: plan.episodes,
+        missing_episodes: plan.missing_episodes,
+        duplicate_episodes: plan.duplicate_episodes,
         items,
     })))
 }

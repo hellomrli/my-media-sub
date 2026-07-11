@@ -112,7 +112,9 @@ pub struct EpisodeInfo {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EpisodeDetection {
     pub episode: Option<i32>,
+    pub episodes: Vec<i32>,
     pub season: Option<i32>,
+    pub special_kind: Option<&'static str>,
     pub method: &'static str,
     pub confidence: &'static str,
     pub reason: String,
@@ -353,6 +355,56 @@ pub fn is_better_episode_duplicate_candidate(
 
 /// 从文件名提取集数和季度
 pub fn detect_episode_explained(name: &str) -> EpisodeDetection {
+    static MULTI_EPISODE: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(|| {
+        vec![
+            (
+                "season_episode_range",
+                hardcoded_regex(
+                    r"(?i)S(?P<season>\d{1,2})[._\-\s]*E(?P<start>\d{1,4})[._\-\s]+(?:E)?(?P<end>\d{1,4})",
+                ),
+            ),
+            (
+                "episode_range",
+                hardcoded_regex(
+                    r"(?i)(?:^|[^\p{L}\d])E(?:P)?[._\-\s]*(?P<start>\d{1,4})[._\-\s]+(?:E(?:P)?)?(?P<end>\d{1,4})",
+                ),
+            ),
+            (
+                "collection_range",
+                hardcoded_regex(
+                    r"第?\s*(?P<start>\d{1,4})\s*[-~～至到]\s*(?P<end>\d{1,4})\s*[集话話]?(?:合集)?",
+                ),
+            ),
+        ]
+    });
+    for (method, regex) in MULTI_EPISODE.iter() {
+        if let Some(caps) = regex.captures(name) {
+            let start = caps
+                .name("start")
+                .and_then(|m| m.as_str().parse::<i32>().ok());
+            let end = caps
+                .name("end")
+                .and_then(|m| m.as_str().parse::<i32>().ok());
+            if let (Some(start), Some(end)) = (start, end) {
+                if start > 0 && end >= start && end - start <= 100 {
+                    let season = caps
+                        .name("season")
+                        .and_then(|m| m.as_str().parse::<i32>().ok())
+                        .filter(|v| *v > 0);
+                    let episodes = (start..=end).collect::<Vec<_>>();
+                    return EpisodeDetection {
+                        episode: Some(start),
+                        episodes,
+                        season,
+                        special_kind: None,
+                        method,
+                        confidence: "high",
+                        reason: format!("通过 {method} 识别为第 {start}–{end} 集多集文件"),
+                    };
+                }
+            }
+        }
+    }
     for pattern in EPISODE_PATTERNS.iter() {
         for caps in pattern.regex.captures_iter(name) {
             let episode = caps
@@ -370,7 +422,21 @@ pub fn detect_episode_explained(name: &str) -> EpisodeDetection {
             }
             return EpisodeDetection {
                 episode,
+                episodes: episode.into_iter().collect(),
                 season,
+                special_kind: match pattern.id {
+                    "special_marker" => {
+                        let upper = name.to_ascii_uppercase();
+                        if upper.contains("OVA") {
+                            Some("ova")
+                        } else if upper.contains("OAD") {
+                            Some("oad")
+                        } else {
+                            Some("sp")
+                        }
+                    }
+                    _ => None,
+                },
                 method: pattern.id,
                 confidence: "high",
                 reason: format!(
@@ -384,7 +450,9 @@ pub fn detect_episode_explained(name: &str) -> EpisodeDetection {
     if let Some(episode) = numeric_fallback_episode(name) {
         return EpisodeDetection {
             episode: Some(episode),
+            episodes: vec![episode],
             season: None,
+            special_kind: None,
             method: "numeric_fallback",
             confidence: "low",
             reason: format!("未匹配明确标记，使用独立数字兜底识别为第 {episode} 集"),
@@ -392,11 +460,54 @@ pub fn detect_episode_explained(name: &str) -> EpisodeDetection {
     }
     EpisodeDetection {
         episode: None,
+        episodes: vec![],
         season: None,
+        special_kind: None,
         method: "unrecognized",
         confidence: "none",
         reason: "未找到有效的季度或集数标记".to_string(),
     }
+}
+
+/// Apply a subscription-level override. The regex must expose a named `episode`
+/// capture and may expose `season`; invalid/non-matching overrides safely fall back.
+pub fn detect_episode_with_override(
+    name: &str,
+    override_regex: &str,
+) -> Result<EpisodeDetection, String> {
+    let pattern = override_regex.trim();
+    if pattern.is_empty() {
+        return Ok(detect_episode_explained(name));
+    }
+    let regex = Regex::new(pattern).map_err(|error| format!("episode_regex 无效：{error}"))?;
+    if regex
+        .capture_names()
+        .flatten()
+        .all(|capture| capture != "episode")
+    {
+        return Err("episode_regex 必须包含命名捕获 (?P<episode>...)".to_string());
+    }
+    let Some(caps) = regex.captures(name) else {
+        return Ok(detect_episode_explained(name));
+    };
+    let episode = caps
+        .name("episode")
+        .and_then(|value| value.as_str().parse::<i32>().ok())
+        .filter(|value| is_likely_explicit_episode_number(*value))
+        .ok_or_else(|| "episode_regex 的 episode 捕获不是有效正整数".to_string())?;
+    let season = caps
+        .name("season")
+        .and_then(|value| value.as_str().parse::<i32>().ok())
+        .filter(|value| *value > 0);
+    Ok(EpisodeDetection {
+        episode: Some(episode),
+        episodes: vec![episode],
+        season,
+        special_kind: None,
+        method: "subscription_override",
+        confidence: "high",
+        reason: format!("通过订阅覆盖正则识别为第 {episode} 集"),
+    })
 }
 
 /// 从文件名提取集数和季度。
@@ -717,5 +828,21 @@ mod episode_corpus_tests {
             assert_eq!(detected.method, fixture.method, "method: {}", fixture.name);
             assert!(!detected.reason.is_empty());
         }
+    }
+}
+
+#[cfg(test)]
+mod episode_override_tests {
+    use super::*;
+
+    #[test]
+    fn subscription_override_is_safe_and_explainable() {
+        let found =
+            detect_episode_with_override("show-2x17.mkv", r"(?P<season>\d+)x(?P<episode>\d+)")
+                .unwrap();
+        assert_eq!((found.season, found.episode), (Some(2), Some(17)));
+        assert_eq!(found.method, "subscription_override");
+        assert!(detect_episode_with_override("show.mkv", "(").is_err());
+        assert!(detect_episode_with_override("show-17.mkv", r"(\d+)").is_err());
     }
 }

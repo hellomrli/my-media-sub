@@ -340,7 +340,13 @@ macro_rules! subscription_check_file_filter_methods {
             self.selected_episode_video_indices(sub, files, &detail_candidate_indices);
 
         for (index, file) in files.iter().enumerate() {
-            let detection = crate::services::episode::detect_episode_explained(&file.name);
+            let detection = crate::services::episode::detect_episode_with_override(
+                &file.name, &sub.rules.episode_regex,
+            ).unwrap_or_else(|error| {
+                let mut fallback = crate::services::episode::detect_episode_explained(&file.name);
+                fallback.reason = error;
+                fallback
+            });
             let episode = detection.episode;
             let (action, reason) = if file.is_dir {
                 details.skipped_directory_count += 1;
@@ -370,6 +376,8 @@ macro_rules! subscription_check_file_filter_methods {
             details.items.push(CheckDetailItem {
                 name: file.name.clone(),
                 episode,
+                episodes: detection.episodes.clone(),
+                special_kind: detection.special_kind.map(str::to_string),
                 detection_method: detection.method.to_string(),
                 detection_confidence: detection.confidence.to_string(),
                 is_dir: file.is_dir,

@@ -2,9 +2,9 @@
 
 use crate::models::{Subscription, TransferRules};
 use crate::services::episode::{
-    detect_episode, episode_video_key, is_better_episode_duplicate_candidate, is_video_name,
-    matches_subscription_season, normalize_duplicate_episode_strategy, season_hint_from_context,
-    split_words, EpisodeDuplicateCandidate,
+    detect_episode_with_override, episode_video_key, is_better_episode_duplicate_candidate,
+    is_video_name, matches_subscription_season, normalize_duplicate_episode_strategy,
+    season_hint_from_context, split_words, EpisodeDuplicateCandidate,
 };
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -23,6 +23,8 @@ pub struct TransferPlan {
     pub skip_count: usize,
     pub matched_count: usize,
     pub episodes: Vec<i32>,
+    pub missing_episodes: Vec<i32>,
+    pub duplicate_episodes: Vec<i32>,
     pub current_episode_number: i32,
     pub summary: String,
 }
@@ -33,6 +35,7 @@ pub struct TransferItem {
     pub source_name: String,
     pub source_fid: String,
     pub episode: Option<i32>,
+    pub episodes: Vec<i32>,
     pub season: Option<i32>,
     pub file_key: String,
     pub target_dir: String,
@@ -329,7 +332,8 @@ pub fn build_transfer_plan(
 
     for raw in &files {
         let name = &raw.name;
-        let ep_info = detect_episode(name);
+        let ep_info = detect_episode_with_override(name, &rules.episode_regex)
+            .unwrap_or_else(|_| crate::services::episode::detect_episode_explained(name));
         let episode = ep_info.episode;
         let season = ep_info
             .season
@@ -341,6 +345,7 @@ pub fn build_transfer_plan(
             source_name: name.clone(),
             source_fid: raw.fid.clone(),
             episode,
+            episodes: ep_info.episodes.clone(),
             season,
             file_key: key.clone(),
             target_dir: target_dir.clone(),
@@ -467,8 +472,17 @@ pub fn build_transfer_plan(
         .collect();
     let episodes: Vec<i32> = normalized_matched
         .iter()
-        .filter_map(|i| i.episode)
+        .flat_map(|item| item.episodes.iter().copied())
         .collect();
+    let mut counts = HashMap::<i32, usize>::new();
+    for episode in &episodes {
+        *counts.entry(*episode).or_default() += 1;
+    }
+    let mut duplicate_episodes = counts
+        .iter()
+        .filter_map(|(episode, count)| (*count > 1).then_some(*episode))
+        .collect::<Vec<_>>();
+    duplicate_episodes.sort_unstable();
     let mut unique_episodes: Vec<i32> = episodes
         .into_iter()
         .collect::<HashSet<_>>()
@@ -476,6 +490,15 @@ pub fn build_transfer_plan(
         .collect();
     unique_episodes.sort_unstable();
     let current_episode_number = unique_episodes.iter().max().copied().unwrap_or(0);
+    let known = unique_episodes.iter().copied().collect::<HashSet<_>>();
+    let start = subscription.start_episode_number.unwrap_or(1).max(1);
+    let missing_episodes = if current_episode_number >= start {
+        (start..=current_episode_number)
+            .filter(|episode| !known.contains(episode))
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     TransferPlan {
         target_dir: target_dir.clone(),
@@ -488,6 +511,8 @@ pub fn build_transfer_plan(
         skip_count: skipped.len(),
         matched_count: normalized_matched.len(),
         episodes: unique_episodes,
+        missing_episodes,
+        duplicate_episodes,
         current_episode_number,
         summary: format!(
             "规划转存 {} 个，跳过 {} 个，目标目录：{}",
@@ -508,6 +533,9 @@ pub fn summarize_rules(rules: Option<&TransferRules>) -> String {
     }
     if !rules.match_regex.is_empty() {
         parts.push(format!("正则 {}", rules.match_regex));
+    }
+    if !rules.episode_regex.is_empty() {
+        parts.push(format!("集数覆盖 {}", rules.episode_regex));
     }
     let include_kw = split_words(&rules.include_keywords);
     if !include_kw.is_empty() {
@@ -797,7 +825,7 @@ mod tests {
         assert_eq!(result, "Show.S01E05.mkv");
         assert!(err.is_none());
 
-        let episode = detect_episode("178重置版.mp4").episode;
+        let episode = crate::services::episode::detect_episode("178重置版.mp4").episode;
         let (result, err) = apply_rename("178重置版.mp4", &rules, None, episode);
         assert_eq!(result, "Show.S01E178.mp4");
         assert!(err.is_none());
@@ -859,5 +887,22 @@ mod tests {
         assert!(summary.contains("目录 /anime"));
         assert!(summary.contains("模板 Show.S01E{}"));
         assert!(summary.contains("仅最新"));
+    }
+
+    #[test]
+    fn preview_reports_multi_episode_gaps_duplicates_and_override() {
+        let mut rules = TransferRules::default();
+        rules.episode_regex = r"custom-(?P<episode>\d+)".to_string();
+        let sub = make_sub("测试", rules);
+        let files = vec![
+            make_file("custom-1.mkv"),
+            make_file("Show.S01E03-E04.mkv"),
+            make_file("custom-4.mkv"),
+        ];
+        let plan = build_transfer_plan(&sub, Some(&files), None, None, None);
+        assert_eq!(plan.episodes, vec![1, 3, 4]);
+        assert_eq!(plan.missing_episodes, vec![2]);
+        assert_eq!(plan.duplicate_episodes, vec![4]);
+        assert_eq!(plan.items[1].episodes, vec![3, 4]);
     }
 }
