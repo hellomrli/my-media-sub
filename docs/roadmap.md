@@ -13,22 +13,25 @@
 
 ## 当前执行指针
 
-- **当前阶段**：准备 v1.13.1 补丁发布，交付 P22 修复用于在线更新
-- **当前任务**：创建 release prep 提交与 annotated tag `v1.13.1`
-- **下一任务**：创建 release prep 提交、annotated tag `v1.13.1` 并确认 GitHub Release/Docker
+- **当前阶段**：v1.13.1 已正式发布，P22 修复可通过在线更新安装
+- **当前任务**：保存 v1.13.1 发布交接
+- **下一任务**：尚未规划 P23，需先确认下一阶段产品目标；未经明确要求不创建新 tag 或 Release
 - **后续阶段**：保持单实例安全模型；未经明确需求不启动多用户、SQLite 或第二 Provider
-- **当前发布基线**：v1.13.0 仍为 GitHub latest；目标版本为 v1.13.1
-- **工作树状态**：1.13.1 本地完整质量门已通过，release prep 尚未提交
+- **当前发布基线**：v1.13.1 为 GitHub latest；Linux x86_64 归档/SHA256 与 GHCR 1.13.1/1.13/latest 可用
+- **工作树状态**：release commit `3aa26e8`、annotated tag `v1.13.1`、Release 与 main/tag 镜像均已完成
 
 ---
 
-## v1.13.1 发布候选
+## v1.13.1 发布完成
 
 - 发布范围为 P22：完结状态协调、缩略图恢复、Alpine 动态列表稳定性、工作台信息架构和当前架构文档。
 - 版本目标为 `1.13.1`，保持 `schema_version: 1`、JSON 单写、OpenAPI 91/103 和单实例管理员模型。
 - 在线更新必须发布 annotated tag、GitHub Release、Linux x86_64 归档/SHA256 与完整 `static/`；仅修改 Cargo 版本不足以被更新器发现。
 - 必需资料：README 精确 `### 1.13.1`、`CHANGELOG-v1.13.1.md`、`docs/upgrade-v1.13.1.md` 和发布检查清单。
 - 本地发布门已通过：434 个 Rust 测试登记（433 通过、1 忽略）、17 个前端测试、OpenAPI 91/103、locked check/Clippy/test、Release build、二进制 smoke、真实浏览器和 Telegram 安全跳过均成功。
+- release commit `3aa26e8` 与 annotated tag `v1.13.1` 已推送；GitHub Release 为 latest、非 draft/prerelease。
+- Release `29166870806`、main CI `29166870737`、tag Docker `29166870815` 与 main/latest Docker `29166870749` 全部成功。
+- Linux x86_64 归档为 7,590,367 bytes，SHA256 `36305c87cfda413c9a8dd2b2b76667bb09c146d036f64cfb8702460585f494b6`；下载后校验、内容清单和云构建二进制 smoke 均通过。
 
 ## v1.13.0 发布完成
 
