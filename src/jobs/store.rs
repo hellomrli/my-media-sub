@@ -240,8 +240,9 @@ impl JobStore {
             .partition(|job| move_ids.contains(&job.id));
         let mut archive = self.read_archive()?;
         archive.append(&mut archived_now);
-        if archive.len() > MAX_ARCHIVED_JOBS {
-            archive.drain(0..archive.len() - MAX_ARCHIVED_JOBS);
+        let archive_retention = configured_archive_retention();
+        if archive.len() > archive_retention {
+            archive.drain(0..archive.len() - archive_retention);
         }
         write_versioned_json_atomic_async(&self.archive_path, &archive, 0o600).await?;
         self.save_snapshot(&active).await?;
@@ -252,6 +253,26 @@ impl JobStore {
     pub async fn list_archived(&self, offset: usize, limit: usize) -> Result<Vec<Job>> {
         let archive = self.read_archive()?;
         Ok(archive.into_iter().rev().skip(offset).take(limit).collect())
+    }
+
+    pub async fn terminal_count(&self) -> usize {
+        self.jobs
+            .read()
+            .await
+            .iter()
+            .filter(|job| is_terminal(job))
+            .count()
+    }
+
+    pub async fn prune_archive(&self, retain: usize) -> Result<usize> {
+        let _guard = self.save_lock.lock().await;
+        let mut archive = self.read_archive()?;
+        let before = archive.len();
+        if archive.len() > retain {
+            archive.drain(0..archive.len() - retain);
+            write_versioned_json_atomic_async(&self.archive_path, &archive, 0o600).await?;
+        }
+        Ok(before.saturating_sub(archive.len()))
     }
 
     pub fn archived_count(&self) -> Result<usize> {
@@ -310,6 +331,14 @@ fn truncate_jobs(jobs: &mut Vec<Job>) {
         let remove_count = jobs.len() - MAX_JOBS;
         jobs.drain(0..remove_count);
     }
+}
+
+fn configured_archive_retention() -> usize {
+    std::env::var("RETENTION_ARCHIVED_JOBS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(MAX_ARCHIVED_JOBS)
+        .min(MAX_ARCHIVED_JOBS)
 }
 
 #[cfg(test)]

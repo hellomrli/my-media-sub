@@ -12,7 +12,13 @@ pub(crate) const CIRCUIT_FAILURE_THRESHOLD: u32 = 3;
 pub(crate) const CIRCUIT_RECOVERY_SECONDS: i64 = 60;
 pub(crate) const JOB_STUCK_TIMEOUT_SECONDS: u64 = 30 * 60;
 pub(crate) const JOB_BACKLOG_WARNING_THRESHOLD: usize = 100;
-pub(crate) const JOB_HISTORY_RETAIN: usize = 300;
+pub(crate) fn job_history_retain() -> usize {
+    std::env::var("RETENTION_ACTIVE_JOBS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(300)
+        .min(500)
+}
 
 pub(crate) fn classify_app_error(error: &AppError) -> JobErrorClass {
     match error {

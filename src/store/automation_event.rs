@@ -11,8 +11,6 @@ use crate::store::schema::{
 };
 use crate::utils::{quarantine_corrupt_file, set_file_mode, unix_now};
 
-const NORMAL_RETENTION_SECONDS: i64 = 30 * 24 * 3600;
-const FAILED_RETENTION_SECONDS: i64 = 90 * 24 * 3600;
 const MAX_EVENTS: usize = 5_000;
 
 #[derive(Default)]
@@ -198,6 +196,50 @@ impl AutomationEventStore {
         write_versioned_json_atomic_async(&self.path, &events, 0o600).await
     }
 
+    pub async fn count(&self) -> usize {
+        self.items.read().await.len()
+    }
+
+    pub async fn preview_retention(
+        &self,
+        normal_days: u64,
+        failed_days: u64,
+        max_events: usize,
+    ) -> usize {
+        let mut snapshot = self.items.read().await.clone();
+        let before = snapshot.len();
+        prune_events_with_policy(
+            &mut snapshot,
+            unix_now(),
+            days_to_seconds(normal_days),
+            days_to_seconds(failed_days),
+            max_events,
+        );
+        before.saturating_sub(snapshot.len())
+    }
+
+    pub async fn compact_with_retention(
+        &self,
+        normal_days: u64,
+        failed_days: u64,
+        max_events: usize,
+    ) -> Result<usize> {
+        let _guard = self.save_lock.lock().await;
+        let mut snapshot = self.items.read().await.clone();
+        let before = snapshot.len();
+        prune_events_with_policy(
+            &mut snapshot,
+            unix_now(),
+            days_to_seconds(normal_days),
+            days_to_seconds(failed_days),
+            max_events,
+        );
+        self.save(&snapshot).await?;
+        let removed = before.saturating_sub(snapshot.len());
+        self.replace_memory(snapshot).await;
+        Ok(removed)
+    }
+
     pub async fn compact(&self) -> Result<usize> {
         let _guard = self.save_lock.lock().await;
         let mut snapshot = self.items.read().await.clone();
@@ -245,18 +287,54 @@ fn build_indexes(events: &[AutomationEvent]) -> EventIndexes {
 }
 
 fn prune_events(events: &mut Vec<AutomationEvent>, now: i64) {
+    let normal_days = configured_u64("RETENTION_AUTOMATION_DAYS", 30, 1, 3_650);
+    let failed_days = configured_u64("RETENTION_FAILED_AUTOMATION_DAYS", 90, 1, 3_650);
+    let max_events = configured_u64(
+        "RETENTION_AUTOMATION_EVENTS",
+        MAX_EVENTS as u64,
+        1,
+        MAX_EVENTS as u64,
+    ) as usize;
+    prune_events_with_policy(
+        events,
+        now,
+        days_to_seconds(normal_days),
+        days_to_seconds(failed_days),
+        max_events,
+    );
+}
+
+fn days_to_seconds(days: u64) -> i64 {
+    i64::try_from(days.saturating_mul(24 * 3600)).unwrap_or(i64::MAX)
+}
+
+fn prune_events_with_policy(
+    events: &mut Vec<AutomationEvent>,
+    now: i64,
+    normal_retention_seconds: i64,
+    failed_retention_seconds: i64,
+    max_events: usize,
+) {
     events.retain(|event| {
         let retention = if event.status == AutomationStatus::Failed {
-            FAILED_RETENTION_SECONDS
+            failed_retention_seconds
         } else {
-            NORMAL_RETENTION_SECONDS
+            normal_retention_seconds
         };
         now.saturating_sub(event.updated_at.max(event.created_at)) <= retention
     });
-    if events.len() > MAX_EVENTS {
-        let remove = events.len() - MAX_EVENTS;
+    if events.len() > max_events {
+        let remove = events.len() - max_events;
         events.drain(0..remove);
     }
+}
+
+fn configured_u64(key: &str, default: u64, min: u64, max: u64) -> u64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(default)
+        .clamp(min, max)
 }
 
 #[cfg(test)]
@@ -270,6 +348,28 @@ mod tests {
         event.subscription_id = Some("sub".to_string());
         event.job_id = Some("job".to_string());
         event
+    }
+
+    #[tokio::test]
+    async fn custom_automation_retention_preview_matches_cleanup() {
+        let path =
+            std::env::temp_dir().join(format!("events-retention-{}.json", uuid::Uuid::new_v4()));
+        let store = AutomationEventStore::new(&path);
+        let now = unix_now();
+        for index in 0..4 {
+            store
+                .add(event(
+                    &format!("e{index}"),
+                    AutomationStatus::Succeeded,
+                    now,
+                ))
+                .await
+                .unwrap();
+        }
+        assert_eq!(store.preview_retention(30, 90, 2).await, 2);
+        assert_eq!(store.compact_with_retention(30, 90, 2).await.unwrap(), 2);
+        assert_eq!(store.count().await, 2);
+        let _ = std::fs::remove_file(path);
     }
 
     #[tokio::test]

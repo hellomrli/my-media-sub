@@ -18,6 +18,7 @@
   function createStore() {
     return {
       diagnostics: null,
+      storageLifecycle: null,
       diagnosticsLoading: false,
       storedBackups: [],
       backupArchive: null,
@@ -31,16 +32,18 @@
       async loadDiagnostics() {
         this.diagnosticsLoading = true;
         try {
-          const [diagnostics, backups, logFilter, backupVerification] = await Promise.all([
+          const [diagnostics, backups, logFilter, backupVerification, storageLifecycle] = await Promise.all([
             apiData('/api/diagnostics'),
             apiData('/api/backups'),
             apiData('/api/observability/log-filter'),
-            apiData('/api/backups/verification')
+            apiData('/api/backups/verification'),
+            apiData('/api/storage/cleanup')
           ]);
           this.diagnostics = diagnostics;
           this.storedBackups = backups || [];
           this.logFilter = (logFilter && logFilter.filter) || 'info';
           this.backupVerification = backupVerification || null;
+          this.storageLifecycle = storageLifecycle || null;
         } catch (error) {
           this.showNotification('error', getApiErrorMessage(error, '加载诊断信息失败'));
         } finally {
@@ -93,13 +96,13 @@
       },
 
       async compactStorage() {
-        if (this.requestDangerConfirmation && !await this.requestDangerConfirmation({title:'整理业务存储', message:'将重写全部业务 Store 并应用历史保留策略。', phrase:'COMPACT'})) return;
+        if (this.requestDangerConfirmation && !await this.requestDangerConfirmation({title:'按保留策略清理 Store', message:'系统会先创建并验证备份，再按预览中的独立保留策略删除历史数据。', phrase:'CLEANUP DATA'})) return;
         try {
-          const result = await apiData('/api/storage/compact', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({confirmation: 'COMPACT JSON'})});
-          this.showNotification('success', result.message || 'JSON Store 已整理');
+          const result = await apiData('/api/storage/cleanup', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({confirmation: 'CLEANUP DATA'})});
+          this.showNotification('success', result.message || 'Store 生命周期清理完成');
           await this.loadDiagnostics();
         } catch (error) {
-          this.showNotification('error', getApiErrorMessage(error, '整理 JSON Store 失败'));
+          this.showNotification('error', getApiErrorMessage(error, 'Store 生命周期清理失败'));
         }
       },
 

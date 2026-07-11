@@ -151,6 +151,16 @@ SERVER_PASSWORD='replace-with-a-strong-password' ./my-media-sub
 | `RUST_LOG` | `info` | Rust 日志过滤规则 |
 | `LOG_FORMAT` | `text` | 日志输出格式；设为 `json` 输出含关联上下文的 JSON 日志 |
 | `SLOW_OPERATION_MS` | `1000` | 慢操作告警与指标阈值，范围 100–300000 毫秒 |
+| `RETENTION_SUBSCRIPTION_CHECKS` | `30` | 每个订阅保留的检查历史 |
+| `RETENTION_SOURCE_SWITCHES` | `50` | 每个订阅保留的换源历史 |
+| `RETENTION_PREVIOUS_LINKS` | `50` | 每个订阅保留的历史分享链接 |
+| `RETENTION_NOTIFICATIONS` | `300` | 通知 Store 独立保留条数 |
+| `RETENTION_ACTIVE_JOBS` | `300` | 活跃 Job Store 保留的终态任务数 |
+| `RETENTION_ARCHIVED_JOBS` | `5000` | Job 归档独立保留条数 |
+| `RETENTION_AUTOMATION_EVENTS` | `5000` | 自动化事件数量上限 |
+| `RETENTION_AUTOMATION_DAYS` | `30` | 普通自动化事件保留天数 |
+| `RETENTION_FAILED_AUTOMATION_DAYS` | `90` | 失败自动化事件保留天数 |
+| `STORE_GROWTH_WARNING_MB` | `24` | 单个 Store 大小增长预警线 |
 | `TZ` | 系统时区 | 容器建议设置为 `Asia/Shanghai` |
 
 ### 集成环境变量
