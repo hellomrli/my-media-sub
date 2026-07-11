@@ -366,7 +366,7 @@
                     <template x-for="item in day.items" :key="item.id">
                       <article :class="calendarItemClass(item)">
                         <div class="calendar-item-head"><span class="calendar-status-dot"></span><small x-text="item.scheduled_time || '日期排期'"></small></div>
-                        <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-item-title"><strong x-text="item.subscription_title"></strong><span x-text="item.episode ? 'S' + item.season + ' · E' + item.episode : '上映 / 开播'"></span></button>
+                        <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-item-title"><img x-show="item.thumbnail_url" :src="item.thumbnail_url" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="$el.style.display = 'none'" class="calendar-thumbnail is-week"><span><strong x-text="item.subscription_title"></strong><small x-text="item.episode ? 'S' + item.season + ' · E' + item.episode : '上映 / 开播'"></small></span></button>
                         <div class="calendar-item-badges"><span x-text="calendarStatusLabel(item.primary_status)"></span><span :class="'is-' + item.confidence" x-text="calendarConfidenceLabel(item.confidence)"></span></div>
                         <div class="calendar-item-actions"><button @click="openSubscriptionDetail(item.subscription_id)">详情</button><button x-show="item.actions.can_check" @click="runCalendarAction(item, false)">检查</button><button x-show="item.actions.can_repair" @click="runCalendarAction(item, true)" class="is-repair">补集</button></div>
                       </article>
@@ -386,7 +386,7 @@
                   <div class="calendar-month-date"><strong x-text="day.day"></strong><small x-show="day.items.length" x-text="day.items.length"></small></div>
                   <div class="calendar-month-items">
                     <template x-for="item in day.items.slice(0, 3)" :key="item.id">
-                      <button @click="openSubscriptionDetail(item.subscription_id)" :class="calendarItemClass(item)"><span x-text="item.scheduled_time || '全天'"></span><strong x-text="item.subscription_title"></strong><small x-text="item.episode ? 'E' + item.episode : '上映'"></small></button>
+                      <button @click="openSubscriptionDetail(item.subscription_id)" :class="calendarItemClass(item)"><img x-show="item.thumbnail_url" :src="item.thumbnail_url" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="$el.style.display = 'none'" class="calendar-thumbnail is-month"><span x-text="item.scheduled_time || '全天'"></span><strong x-text="item.subscription_title"></strong><small x-text="item.episode ? 'E' + item.episode : '上映'"></small></button>
                     </template>
                     <button x-show="day.items.length > 3" @click="setCalendarView('list')" class="calendar-month-more" x-text="'还有 ' + (day.items.length - 3) + ' 项'"></button>
                   </div>
@@ -403,7 +403,7 @@
                   <template x-for="item in group.items" :key="item.id">
                     <article :class="calendarItemClass(item)">
                       <div class="calendar-list-time"><strong x-text="item.scheduled_time || (item.scheduled_date ? '全天' : '—')"></strong><span x-text="calendarStatusLabel(item.primary_status)"></span></div>
-                      <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-list-title"><strong x-text="item.subscription_title"></strong><small x-text="item.episode ? '第 ' + item.episode + ' 集' : (item.scheduled_date ? '上映 / 开播' : '等待补充排期')"></small></button>
+                      <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-list-title"><img x-show="item.thumbnail_url" :src="item.thumbnail_url" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="$el.style.display = 'none'" class="calendar-thumbnail is-list"><span><strong x-text="item.subscription_title"></strong><small x-text="item.episode ? '第 ' + item.episode + ' 集' : (item.scheduled_date ? '上映 / 开播' : '等待补充排期')"></small></span></button>
                       <div class="calendar-list-source"><span x-text="calendarSourceLabel(item.schedule_source)"></span><small :class="'is-' + item.confidence" x-text="calendarConfidenceLabel(item.confidence)"></small></div>
                       <div class="calendar-list-actions"><button @click="openSubscriptionDetail(item.subscription_id)">详情</button><button x-show="item.actions.can_check" @click="runCalendarAction(item, false)">检查</button><button x-show="item.actions.can_repair" @click="runCalendarAction(item, true)" class="is-repair">检查并补集</button></div>
                     </article>

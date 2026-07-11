@@ -108,6 +108,9 @@ pub struct MediaCalendarItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub episode: Option<i32>,
     pub episode_title: String,
+    /// Episode still when available, otherwise season/subscription poster.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thumbnail_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scheduled_date: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
