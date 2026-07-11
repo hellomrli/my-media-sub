@@ -80,7 +80,7 @@ docker run -d \
 从 [GitHub Releases](https://github.com/hellomrli/my-media-sub/releases) 下载 Linux x86_64 压缩包并校验 SHA256：
 
 ```bash
-VERSION=v1.9.0
+VERSION=v1.10.0
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz"
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
 sha256sum -c "my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
@@ -310,8 +310,8 @@ static/
 - [PWA、离线壳层与缓存安全](docs/pwa.md)
 - [JSON Store 性能基线与 SQLite 决策](docs/storage-scaling.md)
 - [OpenAPI 3.1 文档](/api-docs.html)
-- [v1.9.0 升级指南](docs/upgrade-v1.9.0.md)
-- [v1.9.0 完整变更记录](CHANGELOG-v1.9.0.md)
+- [v1.10.0 升级指南](docs/upgrade-v1.10.0.md)
+- [v1.10.0 完整变更记录](CHANGELOG-v1.10.0.md)
 
 ## 升级
 
@@ -333,6 +333,15 @@ docker compose up -d
 不要只替换二进制而继续使用旧版 `static/`。详细步骤见对应版本的升级指南。
 
 ## 版本说明
+
+### 1.10.0
+
+- 完成 P11–P14：发布与升级烟雾测试、追更识别准确性、搜索与安全换源、转存和媒体库工作流；
+- 日历增加媒体缩略图，支持剧照、季度海报和媒体海报逐级回退；
+- 支持多集范围、SP/OVA/OAD、订阅级集数正则，以及缺集和重复集预览；
+- 增加换源搜索偏好、排除词、稳定排序、PanSou 退避和候选集数覆盖预览；
+- 增加目标冲突策略、安全文件名、STRM 一致性审计、Aria2 幂等重试及 Jellyfin/Emby/Plex/Webhook 刷新；
+- 保持 `schema_version: 1`，历史配置和数据可兼容读取。
 
 ### 1.9.0
 
