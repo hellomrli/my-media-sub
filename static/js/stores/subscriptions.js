@@ -2272,7 +2272,7 @@
     async deleteSubscription(id) {
       if (!confirm('确定删除？')) return;
       try {
-        const response = await apiFetch(`/api/subscriptions/${id}`, {method: 'DELETE'});
+        const response = await apiFetch(`/api/subscriptions/${id}?confirm=${encodeURIComponent(id)}`, {method: 'DELETE'});
         if (response.ok) {
           this.showNotification('success', '已删除');
           if (this.selectedSubscriptionId === id) this.closeSubscriptionDetail();

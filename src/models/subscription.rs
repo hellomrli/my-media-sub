@@ -221,6 +221,9 @@ pub struct Subscription {
     #[serde(default)]
     pub source_group: String,
 
+    #[serde(default)]
+    pub tags: Vec<String>,
+
     /// 刮削到的媒体元数据
     #[serde(default)]
     pub metadata: Option<MediaMetadata>,
@@ -399,6 +402,7 @@ mod tests {
             current_episode_number: 12,
             total_episode_number: Some(24),
             source_group: "某字幕组".to_string(),
+            tags: vec![],
             metadata: None,
             manual_schedule: None,
             cloud_type: "quark".to_string(),

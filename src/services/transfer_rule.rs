@@ -278,6 +278,14 @@ pub fn apply_rename(
     )
 }
 
+fn subscription_episode_ceiling(subscription: &Subscription) -> Option<i32> {
+    subscription
+        .rules
+        .finish_after_episode
+        .or(subscription.total_episode_number)
+        .filter(|episode| *episode > 0)
+}
+
 /// 构建转存计划
 pub fn build_transfer_plan(
     subscription: &Subscription,
@@ -350,6 +358,20 @@ pub fn build_transfer_plan(
             item.skip_reason = "非当前订阅季".to_string();
         } else if name.is_empty() {
             item.skip_reason = "文件名为空".to_string();
+        } else if subscription.media_type != "movie" && !is_video_name(name) {
+            item.skip_reason = "剧集订阅仅处理视频文件".to_string();
+        } else if subscription.media_type != "movie" && episode.is_none() {
+            item.skip_reason = "未识别到有效集数".to_string();
+        } else if subscription.media_type != "movie"
+            && subscription_episode_ceiling(subscription)
+                .zip(episode)
+                .map(|(target, episode)| episode > target)
+                .unwrap_or(false)
+        {
+            item.skip_reason = format!(
+                "集数超过订阅总集数：第 {} 集",
+                subscription_episode_ceiling(subscription).unwrap_or_default()
+            );
         } else if !include_kw.is_empty() && !has_words(&comparable, &include_kw) {
             item.skip_reason = "不含包含关键词".to_string();
         } else if !exclude_kw.is_empty() && has_words(&comparable, &exclude_kw) {
@@ -438,6 +460,9 @@ pub fn build_transfer_plan(
                 && i.skip_reason != "命中排除关键词"
                 && i.skip_reason != "未命中匹配正则"
                 && i.skip_reason != "非当前订阅季"
+                && i.skip_reason != "剧集订阅仅处理视频文件"
+                && i.skip_reason != "未识别到有效集数"
+                && !i.skip_reason.starts_with("集数超过订阅总集数")
         })
         .collect();
     let episodes: Vec<i32> = normalized_matched
@@ -537,6 +562,7 @@ mod tests {
             current_episode_number: 0,
             total_episode_number: None,
             source_group: String::new(),
+            tags: vec![],
             metadata: None,
             manual_schedule: None,
             cloud_type: "quark".to_string(),
@@ -605,6 +631,36 @@ mod tests {
         assert_eq!(plan.transfer_count, 2); // 预告被排除
         assert_eq!(plan.current_episode_number, 2);
         assert_eq!(plan.episodes, vec![1, 2]);
+    }
+
+    #[test]
+    fn test_build_transfer_plan_excludes_unrelated_and_out_of_range_files() {
+        let mut sub = make_sub("检察官的提案", TransferRules::default());
+        sub.total_episode_number = Some(10);
+        let files = vec![
+            make_file("06(1).mp4"),
+            make_file("0704INS直播（有弹幕）.mp4"),
+            make_file("第一次写个人简介.mp4"),
+            make_file("检察官的提案.pdf"),
+            make_file("IMG_8807.JPG"),
+        ];
+
+        let plan = build_transfer_plan(&sub, Some(&files), None, None, None);
+
+        assert_eq!(plan.transfer_count, 1);
+        assert_eq!(plan.transfers[0].source_name, "06(1).mp4");
+        assert_eq!(plan.episodes, vec![6]);
+        assert_eq!(plan.current_episode_number, 6);
+        assert!(plan.skipped.iter().any(|item| {
+            item.source_name == "0704INS直播（有弹幕）.mp4"
+                && item.skip_reason == "集数超过订阅总集数：第 10 集"
+        }));
+        assert!(plan.skipped.iter().any(|item| {
+            item.source_name == "第一次写个人简介.mp4" && item.skip_reason == "未识别到有效集数"
+        }));
+        assert!(plan.skipped.iter().any(|item| {
+            item.source_name == "检察官的提案.pdf" && item.skip_reason == "剧集订阅仅处理视频文件"
+        }));
     }
 
     #[test]

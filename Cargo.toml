@@ -45,6 +45,8 @@ ring = "0.17.14"
 
 # Scheduler
 tokio-cron-scheduler = "0.13"
+web-push = "0.11"
+p256 = "0.13"
 
 [dev-dependencies]
 tokio-test = "0.4"

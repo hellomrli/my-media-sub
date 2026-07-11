@@ -1,22 +1,22 @@
 /// 递归收集目录下所有视频文件（独立函数，使用 Box 解决递归问题）
 fn collect_video_files_recursive<'a>(
-    save_client: &'a QuarkSaveClient,
+    save_client: &'a dyn CloudDriveProvider,
     parent_fid: &'a str,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<NormalizedItem>>> + Send + 'a>> {
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<DriveItem>>> + Send + 'a>> {
     Box::pin(async move {
         use crate::services::is_video_name;
         let mut video_files = Vec::new();
 
-        let items = save_client.list_dir(parent_fid).await?;
+        let items = save_client.list(parent_fid).await?;
 
         for item in items {
             if item.is_dir {
                 // 递归进入子目录
-                match collect_video_files_recursive(save_client, &item.fid).await {
+                match collect_video_files_recursive(save_client, &item.id).await {
                     Ok(mut sub_videos) => video_files.append(&mut sub_videos),
-                    Err(e) => warn!("读取子目录 {} 失败: {}", item.file_name, e),
+                    Err(e) => warn!("读取子目录 {} 失败: {}", item.name, e),
                 }
-            } else if is_video_name(&item.file_name) {
+            } else if is_video_name(&item.name) {
                 // 是视频文件，加入列表
                 video_files.push(item);
             }
@@ -34,10 +34,10 @@ fn expected_video_names(file_names: &[String]) -> HashSet<String> {
         .collect()
 }
 
-fn dedup_quark_episode_files<'a>(
+fn dedup_provider_episode_files<'a>(
     sub: &Subscription,
-    files: Vec<&'a QuarkFile>,
-) -> Vec<&'a QuarkFile> {
+    files: Vec<&'a ProviderFile>,
+) -> Vec<&'a ProviderFile> {
     if sub.media_type == "movie" {
         return files;
     }
@@ -45,7 +45,7 @@ fn dedup_quark_episode_files<'a>(
     let mut best_by_episode: std::collections::HashMap<(i32, i32), usize> =
         std::collections::HashMap::new();
     for (index, file) in files.iter().enumerate() {
-        if !quark_file_matches_subscription_season(sub, file) {
+        if !provider_file_matches_subscription_season(sub, file) {
             continue;
         }
         let Some(key) = crate::services::episode::episode_video_key(&file.name, sub.season) else {
@@ -84,7 +84,7 @@ fn dedup_quark_episode_files<'a>(
         .into_iter()
         .enumerate()
         .filter(|(index, file)| {
-            if !quark_file_matches_subscription_season(sub, file) {
+            if !provider_file_matches_subscription_season(sub, file) {
                 return false;
             }
             crate::services::episode::episode_video_key(&file.name, sub.season)
@@ -95,7 +95,7 @@ fn dedup_quark_episode_files<'a>(
         .collect()
 }
 
-fn quark_file_matches_subscription_season(sub: &Subscription, file: &QuarkFile) -> bool {
+fn provider_file_matches_subscription_season(sub: &Subscription, file: &ProviderFile) -> bool {
     sub.media_type == "movie"
         || matches_subscription_season(&file.name, &file.parent_path, sub.season)
 }
@@ -105,13 +105,13 @@ fn has_rename_rules(rules: &TransferRules) -> bool {
 }
 
 fn filter_rename_candidates(
-    video_files: Vec<NormalizedItem>,
+    video_files: Vec<DriveItem>,
     expected_names: Option<&HashSet<String>>,
-) -> Vec<NormalizedItem> {
+) -> Vec<DriveItem> {
     match expected_names {
         Some(names) if !names.is_empty() => video_files
             .into_iter()
-            .filter(|file| names.contains(&file.file_name))
+            .filter(|file| names.contains(&file.name))
             .collect(),
         _ => video_files,
     }
@@ -144,13 +144,13 @@ impl TransferMatchTargets {
 
 fn filter_transfer_candidates_by_targets<'a>(
     sub: &Subscription,
-    files: impl IntoIterator<Item = &'a QuarkFile>,
+    files: impl IntoIterator<Item = &'a ProviderFile>,
     targets: &TransferMatchTargets,
-) -> Vec<&'a QuarkFile> {
+) -> Vec<&'a ProviderFile> {
     files
         .into_iter()
         .filter(|file| {
-            quark_file_matches_subscription_season(sub, file)
+            provider_file_matches_subscription_season(sub, file)
                 && targets.matches_name(sub, &file.name)
         })
         .collect()
@@ -159,7 +159,7 @@ fn filter_transfer_candidates_by_targets<'a>(
 #[derive(Debug, Clone)]
 struct RenameResult {
     renamed_count: usize,
-    files: Vec<NormalizedItem>,
+    files: Vec<DriveItem>,
 }
 
 #[derive(Debug, Clone)]
@@ -183,45 +183,6 @@ struct StrmGenerationReport {
     error: Option<String>,
 }
 
-#[derive(Debug, Clone)]
-struct ShareTransferFile {
-    fid: String,
-    share_fid_token: String,
-    name: String,
-}
-
-fn raw_share_name(item: &std::collections::HashMap<String, serde_json::Value>) -> String {
-    item.get("file_name")
-        .or_else(|| item.get("name"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string()
-}
-
-fn raw_share_fid(item: &std::collections::HashMap<String, serde_json::Value>) -> String {
-    item.get("fid")
-        .or_else(|| item.get("file_id"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string()
-}
-
-fn raw_share_token(item: &std::collections::HashMap<String, serde_json::Value>) -> String {
-    item.get("share_fid_token")
-        .or_else(|| item.get("file_token"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string()
-}
-
-fn raw_share_is_dir(item: &std::collections::HashMap<String, serde_json::Value>) -> bool {
-    item.get("dir").and_then(|v| v.as_bool()).unwrap_or(false)
-        || (item.get("file").and_then(|v| v.as_bool()) == Some(false))
-        || (item.get("file_type").and_then(|v| v.as_i64()) == Some(0)
-            && !item.contains_key("format_type")
-            && item.get("size").and_then(|v| v.as_i64()).unwrap_or(0) == 0)
-}
-
 fn append_path(base: &str, segment: &str) -> String {
     let base = base.trim().trim_end_matches('/');
     let segment = segment.trim().trim_matches('/');
@@ -232,19 +193,6 @@ fn append_path(base: &str, segment: &str) -> String {
         format!("/{}", segment)
     } else {
         format!("{}/{}", base, segment)
-    }
-}
-
-fn append_share_parent_path(parent_path: &str, segment: &str) -> String {
-    let parent_path = parent_path.trim().trim_matches('/');
-    let segment = segment.trim().trim_matches('/');
-    if segment.is_empty() {
-        return parent_path.to_string();
-    }
-    if parent_path.is_empty() {
-        segment.to_string()
-    } else {
-        format!("{}/{}", parent_path, segment)
     }
 }
 
@@ -463,10 +411,10 @@ async fn wait_for_rename_candidates<C, Fut>(
     expected_names: Option<&HashSet<String>>,
     max_attempts: usize,
     retry_delay: Duration,
-) -> Result<Vec<NormalizedItem>>
+) -> Result<Vec<DriveItem>>
 where
     C: FnMut() -> Fut,
-    Fut: Future<Output = Result<Vec<NormalizedItem>>>,
+    Fut: Future<Output = Result<Vec<DriveItem>>>,
 {
     let expected_count = expected_names
         .as_ref()
@@ -504,73 +452,5 @@ where
     }
 
     Ok(rename_candidates)
-}
-
-async fn collect_share_transfer_files(
-    probe: &QuarkShareProbe,
-    sub: &Subscription,
-    pwd_id: &str,
-    stoken: &str,
-    targets: &TransferMatchTargets,
-) -> Result<Vec<ShareTransferFile>> {
-    if targets.names.is_empty() && targets.episode_keys.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let mut result = Vec::new();
-    let mut queue = VecDeque::from([("0".to_string(), String::new())]);
-    let mut visited_dirs = HashSet::new();
-
-    while let Some((parent_fid, parent_path)) = queue.pop_front() {
-        if !visited_dirs.insert(parent_fid.clone()) {
-            continue;
-        }
-
-        let (items, err) = probe.list_share_files(pwd_id, stoken, &parent_fid).await?;
-        if let Some(err_msg) = err {
-            return Err(AppError::Http(format!("获取文件列表失败: {}", err_msg)));
-        }
-
-        for item in items {
-            let fid = raw_share_fid(&item);
-            let name = raw_share_name(&item);
-            if raw_share_is_dir(&item) {
-                if !fid.is_empty() {
-                    queue.push_back((fid, append_share_parent_path(&parent_path, &name)));
-                }
-                continue;
-            }
-
-            if !crate::services::is_video_name(&name) {
-                continue;
-            }
-
-            if sub.media_type != "movie" {
-                if !matches_subscription_season(&name, &parent_path, sub.season) {
-                    continue;
-                }
-                if episode_video_key(&name, sub.season).is_none() {
-                    continue;
-                }
-            }
-
-            if !targets.matches_name(sub, &name) {
-                continue;
-            }
-
-            let share_fid_token = raw_share_token(&item);
-            if !fid.is_empty() && !share_fid_token.is_empty() {
-                result.push(ShareTransferFile {
-                    fid,
-                    share_fid_token,
-                    name,
-                });
-            }
-        }
-    }
-
-    result.sort_by(|left, right| left.name.cmp(&right.name));
-    result.dedup_by(|left, right| left.name == right.name && left.fid == right.fid);
-    Ok(result)
 }
 

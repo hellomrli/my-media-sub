@@ -13,11 +13,11 @@
 
 ## 当前执行指针
 
-- **当前阶段**：P6 — CloudDriveProvider 抽象
-- **当前任务**：`P6-01` 定义 Provider 能力边界（待开始）
-- **下一任务**：定义 probe/list/find/ensure/transfer/rename/delete/download_info/health 接口，并梳理 Quark 适配范围
-- **当前发布目标**：v1.5.0；当前 Cargo/文档基线仍为 1.3.0，本次仅保存并推送开发快照，不自动创建发布 tag
-- **工作树状态**：P0 至 P5 已完成并纳入当前 `main` 开发基线；正式 Release、tag 和版本发布仍按对应 checklist 单独执行
+- **当前阶段**：Q — 全程质量门与发布准备
+- **当前任务**：执行发布前真实浏览器、网络与升级烟雾测试
+- **下一任务**：按目标版本 checklist 确认版本号、CHANGELOG、升级说明和发布授权
+- **当前发布目标**：v1.9.0；当前 Cargo/文档基线仍为 1.3.0，本次仅保存并推送开发快照，不自动创建发布 tag
+- **工作树状态**：P0 至 P10 可直接实施项已完成并纳入当前 `main` 开发基线；正式 Release、tag 和版本发布仍按对应 checklist 单独执行
 
 ---
 
@@ -28,7 +28,7 @@
 ### 仓库与提交状态
 
 - 当前开发分支：`main`。
-- P0 的稳定性收口、P1 日历、P2 安全自动换源、P3 结构化流水线、P4 前端模块化和 P5 后端模块化与性能已组成当前开发基线。
+- P0 的稳定性收口、P1 日历、P2 安全自动换源、P3 结构化流水线、P4 前端模块化、P5 后端模块化与性能和 P6 CloudDriveProvider 抽象已组成当前开发基线。
 - 正式发布仍需按对应 release checklist 核对版本、CHANGELOG、升级指南、tag、GitHub Release 和 GHCR 镜像。
 - 不要执行 `git reset`、`git checkout -- .`、批量覆盖文件或清理未跟踪文件。
 - 未经用户明确授权，不创建新的发布 tag 或 GitHub Release。
@@ -391,12 +391,12 @@ git diff --check
 
 # P6. CloudDriveProvider 抽象
 
-- [ ] `P6-01` 定义 probe/list/find/ensure/transfer/rename/delete/download_info/health 能力。
-- [ ] `P6-02` 新增 Quark Provider 适配器，保持现有行为。
-- [ ] `P6-03` 业务 Service 不再直接依赖 QuarkSaveClient。
-- [ ] `P6-04` 新增 Mock Provider，用于检查、转存和失败测试。
-- [ ] `P6-05` 让 `cloud_type` 真正选择 Provider。
-- [ ] `P6-06` 将签到保留为夸克专属扩展能力。
+- [x] `P6-01` 定义 probe/list/find/ensure/transfer/rename/delete/download_info/health 能力。
+- [x] `P6-02` 新增 Quark Provider 适配器，保持现有行为。
+- [x] `P6-03` 业务 Service 不再直接依赖 QuarkSaveClient。
+- [x] `P6-04` 新增 Mock Provider，用于检查、转存和失败测试。
+- [x] `P6-05` 让 `cloud_type` 真正选择 Provider。
+- [x] `P6-06` 将签到保留为夸克专属扩展能力。
 - [!] `P6-07` 只有出现明确需求后才增加阿里云盘、115 等第二 Provider。
 
 ---
@@ -405,47 +405,47 @@ git diff --check
 
 ## P7-01 备份恢复
 
-- [ ] `P7-01-01` 下载完整 DATA_DIR 业务数据备份。
-- [ ] `P7-01-02` 定时备份、保留最近 N 份和磁盘空间保护。
-- [ ] `P7-01-03` 恢复前预览、schema 校验和当前快照。
-- [ ] `P7-01-04` 恢复后安全重启及路径穿越防护。
+- [x] `P7-01-01` 下载完整 DATA_DIR 业务数据备份。
+- [x] `P7-01-02` 定时备份、保留最近 N 份和磁盘空间保护。
+- [x] `P7-01-03` 恢复前预览、schema 校验和当前快照。
+- [x] `P7-01-04` 恢复后安全重启及路径穿越防护。
 
 ## P7-02 诊断与指标
 
-- [ ] `P7-02-01` 增加脱敏诊断页和诊断包导出。
-- [ ] `P7-02-02` 展示版本、schema、数据大小、队列、调度器和外部服务状态。
-- [ ] `P7-02-03` 增加 request_id/correlation_id。
-- [ ] `P7-02-04` 扩展检查耗时、转存耗时、失败阶段、队列长度、自动换源和备份指标。
+- [x] `P7-02-01` 增加脱敏诊断页和诊断包导出。
+- [x] `P7-02-02` 展示版本、schema、数据大小、队列、调度器和外部服务状态。
+- [x] `P7-02-03` 增加 request_id/correlation_id。
+- [x] `P7-02-04` 扩展检查耗时、转存耗时、失败阶段、队列长度、自动换源和备份指标。
 
 ## P7-03 安全
 
-- [ ] `P7-03-01` 登录失败频率限制。
-- [ ] `P7-03-02` 密码强度和默认密码风险提示。
-- [ ] `P7-03-03` 全链路敏感字段日志脱敏。
-- [ ] `P7-03-04` 引入 CSP，并把首页内联主题脚本移到外部文件。
-- [ ] `P7-03-05` 增加依赖安全检查和 HTTPS 反向代理文档。
-- [ ] `P7-03-06` 恢复、删除和批量危险操作强化确认。
+- [x] `P7-03-01` 登录失败频率限制。
+- [x] `P7-03-02` 密码强度和默认密码风险提示。
+- [x] `P7-03-03` 全链路敏感字段日志脱敏。
+- [x] `P7-03-04` 引入 CSP，并把首页内联主题脚本移到外部文件。
+- [x] `P7-03-05` 增加依赖安全检查和 HTTPS 反向代理文档。
+- [x] `P7-03-06` 恢复、删除和批量危险操作强化确认。
 
 ---
 
 # P8. PWA 与移动端（建议 v1.7.0）
 
-- [ ] `P8-01` 新增 manifest、图标和 service worker。
-- [ ] `P8-02` HTML network-first，静态资源 stale-while-revalidate。
-- [ ] `P8-03` `/api/*` 与 `/strm/*` network-only，不缓存敏感业务数据。
-- [ ] `P8-04` 增加安装入口和新版本缓存更新提示。
-- [ ] `P8-05` 增加今日更新、缺集、失败任务、检查全部、下载进度和签到快捷入口。
-- [ ] `P8-06` 覆盖 Basic Auth、离线壳层、缓存升级和 390px 测试。
+- [x] `P8-01` 新增 manifest、图标和 service worker。
+- [x] `P8-02` HTML network-first，静态资源 stale-while-revalidate。
+- [x] `P8-03` `/api/*` 与 `/strm/*` network-only，不缓存敏感业务数据。
+- [x] `P8-04` 增加安装入口和新版本缓存更新提示。
+- [x] `P8-05` 增加今日更新、缺集、失败任务、检查全部、下载进度和签到快捷入口。
+- [x] `P8-06` 覆盖 Basic Auth、离线壳层、缓存升级和 390px 测试。
 
 ---
 
 # P9. JSON 优化与 SQLite 决策
 
-- [ ] `P9-01` 增加数据文件大小、解析耗时和写入耗时监控。
-- [ ] `P9-02` 增加历史保留、压缩/清理和内存索引。
-- [ ] `P9-03` 构造 500 订阅、10,000 Job、10,000 通知/事件性能基线。
-- [ ] `P9-04` 仅在数百订阅、数万历史、数十 MB 文件或复杂查询出现时启动 SQLite 迁移。
-- [ ] `P9-05` SQLite 迁移必须保留 JSON、可重复执行、可校验、失败可回滚且不长期双写。
+- [x] `P9-01` 增加数据文件大小、解析耗时和写入耗时监控。
+- [x] `P9-02` 增加历史保留、压缩/清理和内存索引。
+- [x] `P9-03` 构造 500 订阅、10,000 Job、10,000 通知/事件性能基线。
+- [x] `P9-04` 仅在数百订阅、数万历史、数十 MB 文件或复杂查询出现时启动 SQLite 迁移。
+- [x] `P9-05` SQLite 迁移必须保留 JSON、可重复执行、可校验、失败可回滚且不长期双写。
 
 ---
 
@@ -454,10 +454,10 @@ git diff --check
 - [!] `P10-01` Telegram 主动控制：status/today/missing/check/search/subscribe/jobs/retry。
 - [!] `P10-02` NAS 同步：若保留则实现独立 Job、预览、防误删和下载完成关联；否则移除死配置。
 - [!] `P10-03` 第二云盘 Provider。
-- [ ] `P10-04` 浏览器 Push。
-- [ ] `P10-05` Webhook。
-- [ ] `P10-06` OpenAPI 文档。
-- [ ] `P10-07` 数据导入导出、订阅标签和自定义首页组件。
+- [x] `P10-04` 浏览器 Push。
+- [x] `P10-05` Webhook。
+- [x] `P10-06` OpenAPI 文档。
+- [x] `P10-07` 数据导入导出、订阅标签和自定义首页组件。
 - [!] `P10-08` 多用户权限，仅在单用户自用定位发生变化后评估。
 
 ---
@@ -729,3 +729,112 @@ git diff --check
 - 全部 JavaScript 语法、rustfmt、all-targets/all-features check、clippy `-D warnings`、完整 Rust 测试、Release 构建和 `git diff --check` 通过。
 
 下一任务：`P6-01` 定义 CloudDriveProvider 能力边界。
+
+## 2026-07-11 — P6 CloudDriveProvider 抽象完成
+
+完成任务：`P6-01` 至 `P6-06`；`P6-07` 按约束继续保持待产品需求状态。
+
+代码和测试证据：
+
+- `src/providers/mod.rs`：定义 `probe/list/find/ensure/transfer/rename/delete/download_info/health` 对象安全能力边界、通用文件/下载/健康数据和 `CloudDriveProviderRegistry`；
+- `src/providers/quark.rs`：用现有 `QuarkShareProbe` / `QuarkSaveClient` 实现 Quark Provider，保留递归探测、手动整分享转存、订阅选择性转存、目录、重命名、删除和下载直链行为；
+- `src/services/{subscription_check,subscription_transfer,strm}.rs` 与 `src/jobs/worker/manual_transfer.rs`：业务检查、自动转存、重命名、同步下载、STRM 和手动转存通过 Provider 能力调用，不再直接依赖 `QuarkSaveClient`；
+- `src/providers/mock.rs`：提供可注入探测结果、目录项、转存记录和按操作失败注入；检查与转存 Service 测试证明 `cloud_type=mock` 会选择注入 Provider；
+- `src/api/subscriptions/crud.rs`：创建和更新时规范化并校验 `cloud_type`，空值兼容为 `quark`，未知 Provider 提前返回稳定校验错误；
+- `src/services/quark_signin.rs`：签到继续作为夸克专属服务直接使用夸克扩展 API，不进入通用 CloudDriveProvider 能力面；
+- 未新增阿里云盘、115 等第二 Provider，遵守 `P6-07` 的需求门槛。
+
+验证证据：
+
+- 343 个 Rust 测试登记，342 个通过，1 个真实 PanSou 网络测试按设计忽略；
+- `cargo check --all-targets --all-features`、`cargo clippy --all-targets --all-features -- -D warnings`、完整 Rust 测试、rustfmt 和 `git diff --check` 通过。
+
+下一任务：`P7-01-01` 定义并实现完整 DATA_DIR 业务数据备份。
+
+## 2026-07-11 — P7 备份、诊断、可观测性与安全完成
+
+完成任务：`P7-01` 至 `P7-03`。
+
+代码和文档证据：
+
+- `src/services/backup.rs`、`src/api/backup.rs`：完整 DATA_DIR 自描述 JSON 归档、Base64 内容、逐文件 SHA-256、格式/schema/大小校验、定时备份、保留策略、存储预算、恢复前快照、原子写入、保留路径与符号链接防护以及恢复后重启标记；
+- `src/api/diagnostics.rs`、`static/js/features/diagnostics.js`：脱敏诊断 API、诊断包导出和 WebUI 系统诊断页，展示版本、schema、数据大小、队列、调度器、外部服务配置状态、备份、指标和密码风险；
+- `src/api/mod.rs`：请求/关联 ID、安全日志、五次失败/60 秒认证限速、`Retry-After`、CSP、nosniff、iframe/referrer/permissions 安全头；
+- `src/utils/metrics.rs`：检查/转存耗时、失败阶段、队列深度、换源和备份/恢复指标；
+- `src/utils/mod.rs`、`src/error.rs`：错误和已识别 URL/query/header 敏感字段统一脱敏；
+- `static/js/theme-init.js`：首页主题初始化移出内联脚本，CSP 下不再需要 `script-src unsafe-inline`；
+- 网盘单项/批量删除要求匹配 ID/数量的确认文本，订阅删除要求确认参数匹配订阅 ID，恢复要求精确输入 `RESTORE DATA`；
+- `.github/workflows/ci.yml` 增加 RustSec 依赖审计；`docs/https-reverse-proxy.md` 增加 HTTPS、可信代理、备份敏感性和安全部署说明；README、环境变量和 API 契约同步更新。
+
+验证证据：
+
+- 351 个 Rust 测试登记，350 个通过，1 个真实 PanSou 网络测试按设计忽略；新增备份往返/保留/篡改/路径穿越、密码风险、认证限速、安全头、request/correlation ID、诊断和备份 API 集成测试；
+- 11 个前端 Node 测试通过，全部 `static/**/*.js` 语法检查通过；
+- rustfmt、all-targets/all-features check、clippy `-D warnings`、完整 Rust 测试和 `git diff --check` 通过。
+
+下一任务：`P8-01` 新增 manifest、图标和 service worker。
+
+## 2026-07-11 — P8 PWA 与移动端完成
+
+完成任务：`P8-01` 至 `P8-06`。
+
+代码和文档证据：
+
+- `static/manifest.webmanifest`、`static/icons/`：standalone Manifest、192/512/maskable PNG 图标以及今日更新、缺集、失败任务、检查全部、下载进度和夸克签到六类快捷入口；
+- `static/service-worker.js`、`static/js/pwa-policy.js`：版本化应用壳层、HTML network-first、静态资源 stale-while-revalidate、旧缓存清理和可独立测试的请求分类/响应缓存策略；
+- `/api/*`、`/strm/*`、`/health`、跨域请求和非 GET 请求始终 network-only；401/403、非 200、`private` 和 `no-store` 响应永不缓存；
+- `static/js/features/pwa.js`：Service Worker 注册、认证后缓存预热、安装提示、在线/离线状态、新 Worker 更新提示、`SKIP_WAITING` 和快捷动作复用；
+- `static/index.html`、`tailwind/input.css`：安装入口、更新/离线横幅、六项快捷面板和 390px 专用布局；
+- `src/api/mod.rs`：Service Worker 返回 `no-cache` 和根 scope 许可；Manifest、Worker 和图标继续受 Basic Auth 保护；
+- `tests/frontend_pwa.test.js`、`tests/api_integration.rs`：覆盖缓存分类、敏感路由、Basic Auth 401 不缓存、离线壳层、版本清理、Manifest 快捷入口、Service Worker 响应头和 390px 合同；
+- `docs/pwa.md`：安装、缓存安全、更新、移动端和故障排查说明。
+
+验证证据：
+
+- 352 个 Rust 测试登记，351 个通过，1 个真实 PanSou 网络测试按设计忽略；
+- 12 个前端 Node 测试通过，全部 `static/**/*.js` 语法检查通过；
+- Tailwind CSS 重建、rustfmt、all-targets/all-features check、clippy `-D warnings`、完整 Rust 测试和 `git diff --check` 通过。
+
+下一任务：`P9-01` 增加 JSON Store 大小、解析耗时和写入耗时监控。
+
+## 2026-07-11 — P9 JSON 优化与 SQLite 决策完成
+
+完成任务：`P9-01` 至 `P9-05`；当前规模未触发 SQLite，按门槛继续使用 JSON。
+
+代码和文档证据：
+
+- `src/store/schema.rs`、`src/utils/mod.rs`、`src/utils/metrics.rs`：统一采集 Store 当前大小、读写次数/字节数、解析/写入耗时和失败；业务 Store 改为紧凑 JSON；
+- `src/store/{subscription,notification,automation_event,settings}.rs`、`src/jobs/store.rs`：显式历史保留、手动整理接口以及紧凑重写；订阅检查 30、换源/历史链接 50、通知 300、Job 500、自动化事件 30/90 天且最多 5,000；
+- `SubscriptionStore` 和 `JobStore` 新增 ID 内存索引；AutomationEventStore 继续维护订阅、correlation ID 和 Job ID 索引；
+- `src/api/storage.rs`：`POST /api/storage/compact` 重新应用保留策略并改写所有业务 Store；
+- `src/services/storage.rs`、`src/api/diagnostics.rs`：500 订阅、10,000 历史、32 MiB 文件和复杂查询门槛；诊断页展示逐 Store I/O 与 SQLite 决策；
+- `tests/json_performance.rs`：500 订阅和各 10,000 条 Job/通知/自动化事件的序列化、解析、大小和索引基线；
+- 压力样本最大单 Store 约 2.68 MiB，紧凑序列化约 2.63–103.03 ms，解析约 2.30–96.58 ms；
+- `SqliteMigrationContract` 固化保留 JSON、可重复导入、计数/校验和验证、切换前回滚和禁止长期双写；实际规模未过门槛，因此不创建 SQLite 文件；
+- `docs/storage-scaling.md`：记录基线、生产保留上限、迁移门槛和未来迁移状态机。
+
+验证证据：
+
+- 357 个 Rust 测试登记，356 个通过，1 个真实 PanSou 网络测试按设计忽略；
+- 12 个前端 Node 测试通过，全部 `static/**/*.js` 语法检查通过；
+- Tailwind CSS 重建、rustfmt、all-targets/all-features check、clippy `-D warnings`、完整 Rust 测试、Release 构建和 `git diff --check` 通过。
+
+下一任务：`P10-04` 评估并实现浏览器 Push。
+
+## 2026-07-11 — P10 可直接实施功能完成
+
+完成任务：`P10-04` 至 `P10-07`。`P10-01/02/03/08` 继续保持产品决策门禁。
+
+代码和文档证据：
+
+- Browser Push：标准 VAPID P-256 密钥自动生成、PushSubscription 持久化、RFC Web Push 加密发送、Service Worker `push`/`notificationclick`、浏览器权限与订阅开关；
+- Webhook：最多 5 个 HTTP(S) 目标、统一事件 JSON、可选 HMAC-SHA256 `X-Media-Sub-Signature-256` 签名，并纳入现有重试/推送报告；
+- OpenAPI：`static/openapi.json` 提供 OpenAPI 3.1 契约，`/api-docs.html` 提供无第三方脚本的受保护查看页；
+- 数据导入导出复用完整 DATA_DIR 备份、预览和恢复闭环；订阅新增最多 20 个规范化标签；`dashboard_widgets` 支持 API 配置首页快捷区、Hero、KPI、媒体库和运维组件；
+- 测试覆盖 VAPID 密钥兼容、OpenAPI、Browser Push 状态和标签去重。
+
+验证：359 个 Rust 测试登记，358 个通过，1 个真实 PanSou 网络测试按设计忽略；12 个前端 Node 测试、CSS 构建、JS 语法、rustfmt、clippy `-D warnings` 和 `git diff --check` 通过。
+
+当前不实施：Telegram 主动控制、NAS 同步、第二 Provider 和多用户权限，均需产品定位或外部需求确认。
+
+下一任务：执行 Q 质量门和发布准备；未经授权不创建 tag 或 Release。

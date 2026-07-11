@@ -141,6 +141,13 @@ fn settings_schema() -> SettingsSchemaResponse {
         ),
         setting_field!("quark_save_anime_dir", "动画目录", "path", "quark", "/动画"),
         setting_field!(
+            "dashboard_widgets",
+            "首页组件",
+            "array",
+            "basic",
+            vec!["quick_actions", "hero", "kpis", "library", "operations"]
+        ),
+        setting_field!(
             "custom_categories",
             "自定义分类",
             "custom_categories",
@@ -170,6 +177,43 @@ fn settings_schema() -> SettingsSchemaResponse {
             "quark",
             false
         ),
+        setting_field!(
+            "browser_push_vapid_private_key",
+            "Browser Push 私钥",
+            "password",
+            "push",
+            ""
+        ),
+        setting_field!(
+            "browser_push_vapid_public_key",
+            "Browser Push 公钥",
+            "text",
+            "push",
+            ""
+        ),
+        setting_field!(
+            "browser_push_subject",
+            "VAPID 联系方式",
+            "text",
+            "push",
+            "mailto:admin@localhost"
+        ),
+        setting_field!(
+            "browser_push_subscriptions",
+            "Browser Push 订阅",
+            "array",
+            "push",
+            Vec::<serde_json::Value>::new()
+        ),
+        setting_field!("webhook_enabled", "启用 Webhook", "boolean", "push", false),
+        setting_field!(
+            "webhook_urls",
+            "Webhook URLs",
+            "array",
+            "push",
+            Vec::<String>::new()
+        ),
+        setting_field!("webhook_secret", "Webhook Secret", "password", "push", ""),
         setting_field!("push_on_update", "订阅更新推送", "boolean", "push", true),
         setting_field!("push_on_failed", "订阅失效推送", "boolean", "push", true),
         setting_field!("push_on_completed", "订阅完结推送", "boolean", "push", true),
@@ -744,6 +788,43 @@ async fn update_settings(
                     "serverchan_key" => {
                         if let Some(s) = non_mask_secret(&value) {
                             settings.serverchan_key = s;
+                        }
+                    }
+                    "dashboard_widgets" => {
+                        if let Ok(items) = serde_json::from_value::<Vec<String>>(value.clone()) {
+                            settings.dashboard_widgets = items
+                                .into_iter()
+                                .filter(|item| {
+                                    ["quick_actions", "hero", "kpis", "library", "operations"]
+                                        .contains(&item.as_str())
+                                })
+                                .collect();
+                        }
+                    }
+                    "browser_push_subject" => {
+                        if let Some(value) = value.as_str() {
+                            settings.browser_push_subject = value.chars().take(200).collect();
+                        }
+                    }
+                    "webhook_enabled" => {
+                        if let Some(value) = value.as_bool() {
+                            settings.webhook_enabled = value;
+                        }
+                    }
+                    "webhook_urls" => {
+                        if let Ok(items) = serde_json::from_value::<Vec<String>>(value.clone()) {
+                            settings.webhook_urls = items
+                                .into_iter()
+                                .filter(|url| {
+                                    url.starts_with("https://") || url.starts_with("http://")
+                                })
+                                .take(5)
+                                .collect();
+                        }
+                    }
+                    "webhook_secret" => {
+                        if let Some(value) = non_mask_secret(&value) {
+                            settings.webhook_secret = value;
                         }
                     }
                     "push_on_update" => {

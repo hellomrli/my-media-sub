@@ -5,6 +5,8 @@ use crate::store::schema::{
     StoreSchemaError,
 };
 use crate::utils::{quarantine_corrupt_file, set_file_mode};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use p256::elliptic_curve::sec1::ToEncodedPoint;
 use std::path::PathBuf;
 use tokio::sync::{Mutex, RwLock};
 
@@ -24,6 +26,9 @@ pub const SECRET_KEYS: &[&str] = &[
     "gotify_token",
     "pushplus_token",
     "serverchan_key",
+    "browser_push_vapid_private_key",
+    "browser_push_subscriptions",
+    "webhook_secret",
 ];
 
 /// 支持的云盘类型
@@ -34,6 +39,19 @@ pub struct SettingsStore {
     path: PathBuf,
     settings: RwLock<Settings>,
     save_lock: Mutex<()>,
+}
+
+fn ensure_browser_push_keys(settings: &mut Settings) -> Result<bool> {
+    if !settings.browser_push_vapid_private_key.is_empty()
+        && !settings.browser_push_vapid_public_key.is_empty()
+    {
+        return Ok(false);
+    }
+    let secret = p256::SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
+    let public = secret.public_key().to_encoded_point(false);
+    settings.browser_push_vapid_private_key = URL_SAFE_NO_PAD.encode(secret.to_bytes());
+    settings.browser_push_vapid_public_key = URL_SAFE_NO_PAD.encode(public.as_bytes());
+    Ok(true)
 }
 
 impl SettingsStore {
@@ -49,7 +67,7 @@ impl SettingsStore {
     pub async fn load(&self) -> Result<()> {
         let mut settings = self.settings.write().await;
         if !self.path.exists() {
-            // 写默认值
+            ensure_browser_push_keys(&mut settings)?;
             self.write_to_disk(&settings).await?;
             return Ok(());
         }
@@ -79,6 +97,7 @@ impl SettingsStore {
             settings.strm_access_token = uuid::Uuid::new_v4().to_string();
             should_write = true;
         }
+        should_write |= ensure_browser_push_keys(&mut settings)?;
         if should_write {
             self.write_to_disk(&settings).await?;
         }
@@ -87,6 +106,12 @@ impl SettingsStore {
 
     async fn write_to_disk(&self, settings: &Settings) -> Result<()> {
         write_versioned_json_atomic_async(&self.path, settings, 0o600).await
+    }
+
+    pub async fn compact(&self) -> Result<()> {
+        let _guard = self.save_lock.lock().await;
+        let settings = self.settings.read().await.clone();
+        self.write_to_disk(&settings).await
     }
 
     /// 获取完整设置（含密钥，仅内部使用）
@@ -321,5 +346,20 @@ mod tests {
         }
 
         panic!("corrupt settings file was not quarantined");
+    }
+    #[tokio::test]
+    async fn generated_vapid_key_is_accepted_by_web_push() {
+        let path = temp_path("vapid-key");
+        let store = SettingsStore::new(&path);
+        store.load().await.unwrap();
+        let settings = store.get().await;
+        let private = settings.browser_push_vapid_private_key.clone();
+        let info = web_push::SubscriptionInfo::new(
+            "https://updates.push.services.mozilla.com/wpush/v1/test",
+            "BH1HTeKM7-NwaLGHEqxeu2IamQaVVLkcsFHPIHmsCnqxcBHPQBprF41bEMOr3O1hUQ2jU1opNEm1F_lZV_sxMP8",
+            "sBXU5_tIYz-5w7G2B25BEw",
+        );
+        assert!(web_push::VapidSignatureBuilder::from_base64(&private, &info).is_ok());
+        let _ = std::fs::remove_file(path);
     }
 }

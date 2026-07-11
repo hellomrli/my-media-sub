@@ -166,20 +166,18 @@ impl AutomationEventStore {
     where
         F: FnOnce(&EventIndexes) -> Option<&Vec<String>>,
     {
-        let wanted = {
-            let indexes = self.indexes.read().await;
-            let Some(ids) = select(&indexes) else {
-                return Vec::new();
-            };
-            ids.iter()
-                .rev()
-                .take(limit.clamp(1, 1_000))
-                .cloned()
-                .collect::<HashSet<_>>()
+        let items = self.items.read().await;
+        let indexes = self.indexes.read().await;
+        let Some(ids) = select(&indexes) else {
+            return Vec::new();
         };
-        self.items
-            .read()
-            .await
+        let wanted = ids
+            .iter()
+            .rev()
+            .take(limit.clamp(1, 1_000))
+            .cloned()
+            .collect::<HashSet<_>>();
+        items
             .iter()
             .rev()
             .filter(|event| wanted.contains(&event.id))
@@ -200,10 +198,23 @@ impl AutomationEventStore {
         write_versioned_json_atomic_async(&self.path, &events, 0o600).await
     }
 
+    pub async fn compact(&self) -> Result<usize> {
+        let _guard = self.save_lock.lock().await;
+        let mut snapshot = self.items.read().await.clone();
+        let before = snapshot.len();
+        prune_events(&mut snapshot, unix_now());
+        self.save(&snapshot).await?;
+        let removed = before.saturating_sub(snapshot.len());
+        self.replace_memory(snapshot).await;
+        Ok(removed)
+    }
+
     async fn replace_memory(&self, events: Vec<AutomationEvent>) {
         let indexes = build_indexes(&events);
-        *self.items.write().await = events;
-        *self.indexes.write().await = indexes;
+        let mut current_items = self.items.write().await;
+        let mut current_indexes = self.indexes.write().await;
+        *current_items = events;
+        *current_indexes = indexes;
     }
 }
 

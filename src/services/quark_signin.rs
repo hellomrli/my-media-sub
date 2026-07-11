@@ -226,6 +226,10 @@ impl QuarkSigninScheduler {
         Ok(())
     }
 
+    pub async fn is_running(&self) -> bool {
+        self.job_id.read().await.is_some()
+    }
+
     pub async fn stop(&self) -> Result<()> {
         let mut job_id = self.job_id.write().await;
         if let Some(uuid) = *job_id {

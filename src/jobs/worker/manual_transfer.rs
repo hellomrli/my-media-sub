@@ -18,8 +18,9 @@ impl JobWorker {
         }
 
         self.update_running(job_id, 15, "正在探测分享链接").await?;
-        let quark_probe = QuarkShareProbe::new(cookie.clone());
-        let share_info = quark_probe.probe(&req.url, &req.passcode, 200).await;
+        let provider =
+            CloudDriveProviderRegistry::new().resolve_with_quark_cookie("quark", cookie)?;
+        let share_info = provider.probe(&req.url, &req.passcode, 200).await?;
 
         if !share_info.ok {
             self.fail_manual_transfer(
@@ -45,21 +46,6 @@ impl JobWorker {
             return Ok(());
         }
 
-        let pwd_id = match QuarkShareProbe::extract_pwd_id(&req.url) {
-            Some(id) => id,
-            None => {
-                self.fail_manual_transfer(
-                    job_id,
-                    &req,
-                    Some(share_info.file_count),
-                    None,
-                    "无法提取分享链接 ID".to_string(),
-                )
-                .await?;
-                return Ok(());
-            }
-        };
-
         let target_fid = if req.target_fid.trim().is_empty() {
             "0".to_string()
         } else {
@@ -71,22 +57,22 @@ impl JobWorker {
             info!("任务 {} 已在转存前取消", job_id);
             return Ok(());
         }
-        let save_client = QuarkSaveClient::new(cookie);
-        match save_with_probe(
-            &save_client,
-            &quark_probe,
-            &pwd_id,
-            &req.passcode,
-            &target_fid,
-        )
-        .await
+        match provider
+            .transfer(TransferRequest {
+                share_url: req.url.clone(),
+                passcode: req.passcode.clone(),
+                target_id: target_fid.clone(),
+                file_ids: Vec::new(),
+            })
+            .await
         {
-            Ok(saved_count) => {
+            Ok(outcome) => {
+                let saved_count = outcome.transferred_files.len();
                 self.succeed_manual_transfer(
                     job_id,
                     &req,
                     &target_fid,
-                    share_info.file_count,
+                    share_info.files.len(),
                     saved_count,
                 )
                 .await?;
@@ -95,7 +81,7 @@ impl JobWorker {
                 self.fail_manual_transfer(
                     job_id,
                     &req,
-                    Some(share_info.file_count),
+                    Some(share_info.files.len()),
                     Some(target_fid),
                     format!("转存失败: {}", e),
                 )
@@ -213,56 +199,4 @@ impl JobWorker {
 
         Ok(())
     }
-}
-
-async fn save_with_probe(
-    save_client: &QuarkSaveClient,
-    probe: &QuarkShareProbe,
-    pwd_id: &str,
-    passcode: &str,
-    target_fid: &str,
-) -> Result<usize> {
-    let (stoken, err) = probe.get_share_token(pwd_id, passcode).await?;
-    if let Some(err_msg) = err {
-        return Err(AppError::Http(format!("获取分享 token 失败: {}", err_msg)));
-    }
-
-    let stoken = stoken.ok_or_else(|| AppError::Http("未能获取分享 token".to_string()))?;
-    let (fresh_files, err) = probe.list_share_files(pwd_id, &stoken, "0").await?;
-    if let Some(err_msg) = err {
-        return Err(AppError::Http(format!("重新获取文件列表失败: {}", err_msg)));
-    }
-
-    let mut fid_list = Vec::new();
-    let mut fid_token_list = Vec::new();
-
-    for item in &fresh_files {
-        let fid = item
-            .get("fid")
-            .or_else(|| item.get("file_id"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let share_fid_token = item
-            .get("share_fid_token")
-            .or_else(|| item.get("file_token"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-
-        if !fid.is_empty() && !share_fid_token.is_empty() {
-            fid_list.push(fid.to_string());
-            fid_token_list.push(share_fid_token.to_string());
-        }
-    }
-
-    if fid_list.is_empty() {
-        return Err(AppError::Validation(
-            "没有可转存的文件（缺少 fid 或 token）".to_string(),
-        ));
-    }
-
-    save_client
-        .save_share_files(pwd_id, &stoken, &fid_list, &fid_token_list, target_fid)
-        .await?;
-
-    Ok(fid_list.len())
 }

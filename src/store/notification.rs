@@ -135,6 +135,16 @@ impl NotificationStore {
         Ok(())
     }
 
+    pub async fn compact(&self) -> Result<usize> {
+        let _guard = self.save_lock.lock().await;
+        let mut snapshot = self.items.read().await.clone();
+        let before = snapshot.len();
+        truncate_notifications(&mut snapshot);
+        self.save(&snapshot).await?;
+        *self.items.write().await = snapshot;
+        Ok(before.saturating_sub(self.items.read().await.len()))
+    }
+
     /// 清空所有通知
     pub async fn clear(&self) -> Result<()> {
         let _save_guard = self.save_lock.lock().await;

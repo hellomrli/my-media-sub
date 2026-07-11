@@ -171,6 +171,16 @@ pub(super) async fn delete_items(
     if fids.is_empty() {
         return Err(AppError::Validation("未选择要删除的项目".to_string()));
     }
+    let expected_confirmation = if fids.len() == 1 {
+        format!("DELETE {}", fids[0])
+    } else {
+        format!("DELETE {}", fids.len())
+    };
+    if req.confirmation != expected_confirmation {
+        return Err(AppError::Validation(format!(
+            "删除确认文本必须为 {expected_confirmation}"
+        )));
+    }
 
     let client = drive_client(&state).await?;
     client.delete_items(&fids).await?;

@@ -1,5 +1,7 @@
 pub mod automation;
+pub mod backup;
 pub mod calendar;
+pub mod diagnostics;
 pub mod drive;
 pub mod jobs;
 pub mod metadata;
@@ -9,6 +11,7 @@ pub mod push;
 pub mod response;
 pub mod search;
 pub mod settings;
+pub mod storage;
 pub mod strm;
 pub mod subscription_source;
 pub mod subscriptions;
@@ -26,7 +29,9 @@ use axum::{
 };
 use base64::{engine::general_purpose, Engine as _};
 use serde::Serialize;
-use std::sync::Arc;
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tower_http::services::ServeDir;
 
 use crate::app::AppContext;
@@ -49,11 +54,73 @@ async fn health() -> impl IntoResponse {
     })
 }
 
-async fn basic_auth(
-    State(settings_store): State<Arc<SettingsStore>>,
-    req: Request<Body>,
-    next: Next,
-) -> Response {
+#[derive(Clone)]
+struct AuthState {
+    settings_store: Arc<SettingsStore>,
+    failures: Arc<Mutex<HashMap<String, VecDeque<Instant>>>>,
+}
+
+impl AuthState {
+    fn new(settings_store: Arc<SettingsStore>) -> Self {
+        Self {
+            settings_store,
+            failures: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    fn is_blocked(&self, key: &str, now: Instant) -> bool {
+        let mut failures = self
+            .failures
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        prune_auth_failures(&mut failures, now);
+        failures
+            .get(key)
+            .is_some_and(|attempts| attempts.len() >= 5)
+    }
+
+    fn record_failure(&self, key: String, now: Instant) {
+        let mut failures = self
+            .failures
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        prune_auth_failures(&mut failures, now);
+        if failures.len() >= 10_000 && !failures.contains_key(&key) {
+            return;
+        }
+        failures.entry(key).or_default().push_back(now);
+    }
+
+    fn clear(&self, key: &str) {
+        self.failures
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(key);
+    }
+}
+
+fn prune_auth_failures(failures: &mut HashMap<String, VecDeque<Instant>>, now: Instant) {
+    let cutoff = now.checked_sub(Duration::from_secs(60)).unwrap_or(now);
+    failures.retain(|_, attempts| {
+        while attempts.front().is_some_and(|attempt| *attempt < cutoff) {
+            attempts.pop_front();
+        }
+        !attempts.is_empty()
+    });
+}
+
+fn auth_rate_key(headers: &HeaderMap) -> String {
+    headers
+        .get("x-forwarded-for")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= 128)
+        .unwrap_or("direct-client")
+        .to_string()
+}
+
+async fn basic_auth(State(state): State<AuthState>, req: Request<Body>, next: Next) -> Response {
     if is_cross_site_state_change(&req) {
         tracing::warn!("拒绝跨站状态修改请求: {} {}", req.method(), req.uri());
         return forbidden_response();
@@ -63,7 +130,13 @@ async fn basic_auth(
         return next.run(req).await;
     }
 
-    let settings = settings_store.get().await;
+    let rate_key = auth_rate_key(req.headers());
+    let now = Instant::now();
+    if state.is_blocked(&rate_key, now) {
+        return auth_rate_limited_response();
+    }
+
+    let settings = state.settings_store.get().await;
     if settings.app_password.is_empty() {
         tracing::warn!("拒绝请求：应用密码为空，请先配置 SERVER_PASSWORD 或系统设置密码");
         return unauthorized_response();
@@ -86,10 +159,24 @@ async fn basic_auth(
         .unwrap_or(false);
 
     if authorized {
+        state.clear(&rate_key);
         next.run(req).await
     } else {
+        state.record_failure(rate_key, now);
         unauthorized_response()
     }
+}
+
+fn auth_rate_limited_response() -> Response {
+    let mut response = json_error_response(
+        StatusCode::TOO_MANY_REQUESTS,
+        "auth_rate_limited",
+        "登录失败次数过多，请 60 秒后重试",
+    );
+    response
+        .headers_mut()
+        .insert(header::RETRY_AFTER, header::HeaderValue::from_static("60"));
+    response
 }
 
 fn unauthorized_response() -> Response {
@@ -223,10 +310,76 @@ fn normalize_host(host: &str) -> Option<String> {
     Some(host.to_ascii_lowercase())
 }
 
+async fn request_context(mut req: Request<Body>, next: Next) -> Response {
+    let request_id = request_header_id(req.headers(), "x-request-id")
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let correlation_id =
+        request_header_id(req.headers(), "x-correlation-id").unwrap_or_else(|| request_id.clone());
+    req.extensions_mut().insert(request_id.clone());
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
+    let started = Instant::now();
+    let mut response = next.run(req).await;
+    if let Ok(value) = header::HeaderValue::from_str(&request_id) {
+        response.headers_mut().insert("x-request-id", value);
+    }
+    if let Ok(value) = header::HeaderValue::from_str(&correlation_id) {
+        response.headers_mut().insert("x-correlation-id", value);
+    }
+    tracing::info!(request_id = %request_id, correlation_id = %correlation_id, method = %method, path = %path, status = response.status().as_u16(), duration_ms = started.elapsed().as_millis(), "request completed");
+    response
+}
+
+fn request_header_id(headers: &HeaderMap, name: &str) -> Option<String> {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| {
+            !value.is_empty()
+                && value.len() <= 128
+                && value.chars().all(|character| {
+                    character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.' | ':')
+                })
+        })
+        .map(ToString::to_string)
+}
+
+async fn security_headers(req: Request<Body>, next: Next) -> Response {
+    let path = req.uri().path().to_string();
+    let mut response = next.run(req).await;
+    let headers = response.headers_mut();
+    headers.insert("content-security-policy", header::HeaderValue::from_static("default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"));
+    headers.insert(
+        "x-content-type-options",
+        header::HeaderValue::from_static("nosniff"),
+    );
+    headers.insert("x-frame-options", header::HeaderValue::from_static("DENY"));
+    headers.insert(
+        "referrer-policy",
+        header::HeaderValue::from_static("no-referrer"),
+    );
+    if path == "/service-worker.js" {
+        headers.insert(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("no-cache"),
+        );
+        headers.insert(
+            "service-worker-allowed",
+            header::HeaderValue::from_static("/"),
+        );
+    }
+    headers.insert(
+        "permissions-policy",
+        header::HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
+    );
+    response
+}
+
 /// 创建主应用路由
 pub fn create_app(context: Arc<AppContext>) -> Router {
     let settings_store = context.settings_store.clone();
-    let auth_state = settings_store.clone();
+    let auth_state = AuthState::new(settings_store.clone());
 
     // 静态文件服务
     let serve_static = ServeDir::new("static").append_index_html_on_directories(true);
@@ -263,6 +416,9 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
             context.automation_event_store.clone(),
         ))
         .merge(metrics::routes(context.metrics.clone()))
+        .merge(diagnostics::routes(context.clone()))
+        .merge(storage::routes(context.clone()))
+        .merge(backup::routes(context.backup_service.clone()))
         .merge(jobs::routes(
             context.job_store.clone(),
             context.job_queue.clone(),
@@ -285,8 +441,10 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
         .merge(subscription_source::routes(context.clone()))
         .route("/api/{*path}", any(api_not_found))
         .fallback_service(serve_static)
+        .layer(middleware::from_fn(security_headers))
         .layer(middleware::from_fn(normalize_api_error_response))
         .layer(middleware::from_fn_with_state(auth_state, basic_auth))
+        .layer(middleware::from_fn(request_context))
 }
 
 #[cfg(test)]

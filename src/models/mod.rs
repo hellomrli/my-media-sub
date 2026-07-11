@@ -22,7 +22,7 @@ pub use calendar::{
 
 pub use rules::TransferRules;
 
-pub use settings::{CustomCategory, RulePreset, Settings};
+pub use settings::{BrowserPushSubscription, CustomCategory, RulePreset, Settings};
 
 pub use search::SearchResult;
 

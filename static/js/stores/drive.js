@@ -298,7 +298,7 @@
         const data = await apiData('/api/drive/delete', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({fids: [item.fid]})
+          body: JSON.stringify({fids: [item.fid], confirmation: `DELETE ${item.fid}`})
         });
         if (data.success === false) {
           this.showNotification('error', data.message || data.error || '删除失败');
@@ -386,7 +386,7 @@
         const data = await apiData('/api/drive/aria2', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({fids})
+          body: JSON.stringify({fids, confirmation: `DELETE ${fids.length}`})
         });
         if (data.success === false) {
           this.showNotification('error', data.message || data.error || '提交 Aria2 失败');

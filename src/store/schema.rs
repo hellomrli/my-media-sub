@@ -66,6 +66,21 @@ pub fn decode_store_json<T: DeserializeOwned>(
     content: &str,
     kind: StoreKind,
 ) -> std::result::Result<DecodedStore<T>, StoreSchemaError> {
+    let started = std::time::Instant::now();
+    let result = decode_store_json_inner(content, kind);
+    crate::utils::metrics::global_metrics().observe_store_read(
+        &kind.to_string(),
+        content.len() as u64,
+        started.elapsed(),
+        result.is_ok(),
+    );
+    result
+}
+
+fn decode_store_json_inner<T: DeserializeOwned>(
+    content: &str,
+    kind: StoreKind,
+) -> std::result::Result<DecodedStore<T>, StoreSchemaError> {
     let value: Value = serde_json::from_str(content)
         .map_err(|error| StoreSchemaError::Invalid(error.to_string()))?;
     let (source_version, data, legacy) = match value {

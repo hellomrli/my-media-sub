@@ -32,6 +32,7 @@ mod tests {
             current_episode_number: 0,
             total_episode_number: None,
             source_group: String::new(),
+            tags: vec![],
             metadata: None,
             manual_schedule: None,
             cloud_type: "quark".to_string(),
@@ -835,6 +836,7 @@ mod tests {
             current_episode_number: 11,
             total_episode_number: None,
             source_group: String::new(),
+            tags: vec![],
             metadata: None,
             manual_schedule: None,
             cloud_type: "quark".to_string(),
@@ -883,4 +885,36 @@ mod tests {
         sub.completed = true;
         assert!(!should_mark_completed_from_known_episodes(&sub, &[12]));
     }
+    #[tokio::test]
+    async fn cloud_type_selects_injected_provider_for_subscription_check() {
+        let (service, _, _) = make_service();
+        let mock = Arc::new(crate::providers::MockCloudDriveProvider::new());
+        mock.set_probe_result(crate::providers::ProviderProbeResult {
+            ok: true,
+            state: "ok".to_string(),
+            message: "selected mock provider".to_string(),
+            files: vec![crate::providers::ProviderFile {
+                id: "mock-episode-1".to_string(),
+                name: "Show.S01E01.mkv".to_string(),
+                is_dir: false,
+                size: 1024,
+                parent_path: String::new(),
+                updated_at: None,
+            }],
+        });
+        let registry = Arc::new(
+            crate::providers::CloudDriveProviderRegistry::new().with_provider(mock),
+        );
+        let service = service.with_provider_registry(registry);
+        let mut sub = make_subscription();
+        sub.cloud_type = "mock".to_string();
+        sub.url = "mock://show".to_string();
+
+        let result = service.probe_share_uncached(&sub, "").await.unwrap();
+
+        assert!(result.ok);
+        assert_eq!(result.message, "selected mock provider");
+        assert_eq!(result.files[0].file_key, "mock-episode-1");
+    }
+
 }

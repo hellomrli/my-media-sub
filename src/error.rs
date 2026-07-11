@@ -27,14 +27,15 @@ pub enum AppError {
 
 impl fmt::Display for AppError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let redact = |message: &str| crate::utils::redact_sensitive(message);
         match self {
-            AppError::Database(msg) => write!(f, "Database error: {}", msg),
-            AppError::Http(msg) => write!(f, "HTTP error: {}", msg),
-            AppError::Config(msg) => write!(f, "Config error: {}", msg),
-            AppError::Validation(msg) => write!(f, "Validation error: {}", msg),
-            AppError::RateLimited(msg) => write!(f, "Rate limited: {}", msg),
-            AppError::NotFound(msg) => write!(f, "Not found: {}", msg),
-            AppError::Internal(msg) => write!(f, "Internal error: {}", msg),
+            AppError::Database(msg) => write!(f, "Database error: {}", redact(msg)),
+            AppError::Http(msg) => write!(f, "HTTP error: {}", redact(msg)),
+            AppError::Config(msg) => write!(f, "Config error: {}", redact(msg)),
+            AppError::Validation(msg) => write!(f, "Validation error: {}", redact(msg)),
+            AppError::RateLimited(msg) => write!(f, "Rate limited: {}", redact(msg)),
+            AppError::NotFound(msg) => write!(f, "Not found: {}", redact(msg)),
+            AppError::Internal(msg) => write!(f, "Internal error: {}", redact(msg)),
         }
     }
 }

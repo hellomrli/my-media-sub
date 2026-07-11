@@ -5,6 +5,7 @@ pub mod config;
 pub mod error;
 pub mod jobs;
 pub mod models;
+pub mod providers;
 pub mod services;
 pub mod store;
 pub mod utils;

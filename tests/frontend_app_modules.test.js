@@ -18,6 +18,8 @@ for (const file of [
   '../static/js/stores/subscriptions.js',
   '../static/js/features/updates.js',
   '../static/js/features/settings.js',
+  '../static/js/features/diagnostics.js',
+  '../static/js/features/pwa.js',
   '../static/js/features/dashboard.js',
   '../static/js/features/search-page.js',
   '../static/js/features/calendar-page.js',
@@ -36,6 +38,8 @@ test('app assembly preserves store getters and exposes every P4 domain module', 
   assert.equal(typeof store.loadSubscriptions, 'function');
   assert.equal(typeof store.loadSettings, 'function');
   assert.equal(typeof store.checkUpdate, 'function');
+  assert.equal(typeof store.loadDiagnostics, 'function');
+  assert.equal(typeof store.initPwa, 'function');
   assert.equal(typeof store.destroy, 'function');
   assert.equal(typeof Object.getOwnPropertyDescriptor(store, 'filteredDriveItems').get, 'function');
   assert.deepEqual(store.filteredDriveItems, []);

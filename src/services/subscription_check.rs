@@ -3,10 +3,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Weak};
 use tracing::{info, warn};
 
-use crate::clients::quark::QuarkShareProbe;
 use crate::error::{AppError, Result};
 use crate::jobs::{JobQueue, SubscriptionTransferPayload};
 use crate::models::subscription::{CheckHistoryItem, ProbeFile, ProbeResult, Subscription};
+use crate::providers::CloudDriveProviderRegistry;
 use crate::services::episode::{
     episode_video_key, is_better_episode_duplicate_candidate, is_video_name,
     matches_subscription_season, normalize_duplicate_episode_strategy, EpisodeDuplicateCandidate,
@@ -39,6 +39,7 @@ pub struct SubscriptionCheckService {
     subscription_locks: Arc<tokio::sync::Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>>,
     share_locks: Arc<tokio::sync::Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>>,
     batch_probe_cache: Option<Arc<tokio::sync::Mutex<HashMap<String, ProbeResult>>>>,
+    provider_registry: Arc<CloudDriveProviderRegistry>,
 }
 
 impl SubscriptionCheckService {
@@ -57,6 +58,7 @@ impl SubscriptionCheckService {
             subscription_locks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             share_locks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             batch_probe_cache: None,
+            provider_registry: Arc::new(CloudDriveProviderRegistry::new()),
         }
     }
 
@@ -71,6 +73,7 @@ impl SubscriptionCheckService {
             subscription_locks: self.subscription_locks.clone(),
             share_locks: self.share_locks.clone(),
             batch_probe_cache: self.batch_probe_cache.clone(),
+            provider_registry: self.provider_registry.clone(),
         }
     }
 
@@ -81,6 +84,12 @@ impl SubscriptionCheckService {
 
     pub fn with_event_store(mut self, store: Arc<AutomationEventStore>) -> Self {
         self.automation_event_store = Some(store);
+        self
+    }
+
+    /// Override provider resolution (primarily for deterministic service tests).
+    pub fn with_provider_registry(mut self, registry: Arc<CloudDriveProviderRegistry>) -> Self {
+        self.provider_registry = registry;
         self
     }
 
@@ -130,9 +139,10 @@ impl SubscriptionCheckService {
         cookie: &str,
         force_transfer: bool,
     ) -> Result<CheckResult> {
+        let metrics = global_metrics();
+        let _timer = metrics.start_timer(crate::utils::metrics::MetricTimerKind::SubscriptionCheck);
         let subscription_lock = Self::named_lock(&self.subscription_locks, subscription_id).await;
         let _subscription_guard = subscription_lock.lock().await;
-        let metrics = global_metrics();
         metrics.increment_subscription_checks();
         let result = self
             .do_check_subscription_with_options(subscription_id, cookie, force_transfer)
@@ -611,33 +621,39 @@ impl SubscriptionCheckService {
     }
 
     async fn probe_share_uncached(&self, sub: &Subscription, cookie: &str) -> Result<ProbeResult> {
-        if let Some(mock_result) = mock_probe_result(&sub.url)? {
-            return Ok(mock_result);
+        let uses_quark =
+            sub.cloud_type.trim().is_empty() || sub.cloud_type.eq_ignore_ascii_case("quark");
+        if uses_quark {
+            if let Some(mock_result) = mock_probe_result(&sub.url)? {
+                return Ok(mock_result);
+            }
         }
 
-        let probe = QuarkShareProbe::new(cookie.to_string());
-        let share_info = probe.probe(&sub.url, &sub.password, 200).await;
-        if share_info.state == "rate_limited" {
-            return Err(AppError::RateLimited(share_info.message));
+        let provider = self
+            .provider_registry
+            .resolve_with_quark_cookie(&sub.cloud_type, cookie.to_string())?;
+        let provider_probe = provider.probe(&sub.url, &sub.password, 200).await?;
+        if provider_probe.state == "rate_limited" {
+            return Err(AppError::RateLimited(provider_probe.message));
         }
 
-        let files: Vec<ProbeFile> = share_info
+        let files: Vec<ProbeFile> = provider_probe
             .files
-            .iter()
-            .map(|f| ProbeFile {
-                name: f.name.clone(),
-                is_dir: f.is_dir,
-                parent_path: f.parent_path.clone(),
-                size: f.size,
-                updated_at: f.updated_at.clone(),
-                file_key: f.fid.clone(),
+            .into_iter()
+            .map(|file| ProbeFile {
+                name: file.name,
+                is_dir: file.is_dir,
+                parent_path: file.parent_path,
+                size: file.size,
+                updated_at: file.updated_at,
+                file_key: file.id,
             })
             .collect();
 
         Ok(ProbeResult {
-            ok: share_info.ok,
-            state: share_info.state,
-            message: share_info.message,
+            ok: provider_probe.ok,
+            state: provider_probe.state,
+            message: provider_probe.message,
             files,
         })
     }
@@ -661,13 +677,18 @@ impl SubscriptionCheckService {
             .update(&sub.id, |s| {
                 // 更新已知文件列表
                 for file in &probe.files {
-                    if !Self::should_record_known_probe_file(s, file) {
+                    if !self.should_record_known_probe_file(s, file) {
                         continue;
                     }
                     if !s.known_file_keys.contains(&file.file_key) {
                         s.known_files.push(file.name.clone());
                         s.known_file_keys.push(file.file_key.clone());
                     }
+                }
+
+                // 已知总集数存在时，清理历史误识别出的超范围集数。
+                if let Some(target) = completion_target_episode(s) {
+                    s.known_episodes.retain(|episode| *episode <= target);
                 }
 
                 // 更新已知集数
@@ -678,10 +699,8 @@ impl SubscriptionCheckService {
                 }
                 s.known_episodes.sort();
 
-                // 更新当前集数
-                if let Some(&max_ep) = s.known_episodes.iter().max() {
-                    s.current_episode_number = max_ep;
-                }
+                // 更新当前集数；历史异常值被清理后也必须允许进度回落。
+                s.current_episode_number = s.known_episodes.iter().max().copied().unwrap_or(0);
 
                 // 更新检查信息
                 s.last_checked_at = now;

@@ -49,5 +49,10 @@ jobs:
       - name: Run tests
         run: cargo test --all --locked
 
+      - name: Audit Rust dependencies
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build release binary
         run: cargo build --release --locked

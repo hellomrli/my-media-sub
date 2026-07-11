@@ -16,6 +16,11 @@
 
   function createStore() {
     return {
+    dashboardWidgetEnabled(id) {
+      const widgets = Array.isArray(this.settings.dashboard_widgets) ? this.settings.dashboard_widgets : [];
+      return widgets.length === 0 || widgets.includes(id);
+    },
+
     get dashboardStats() {
       const activeSubs = this.subscriptions.filter(sub => this.subscriptionStatusKey(sub) === 'active').length;
       const invalidSubs = this.subscriptions.filter(sub => this.subscriptionStatusKey(sub) === 'invalid').length;
