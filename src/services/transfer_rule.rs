@@ -934,8 +934,10 @@ mod tests {
 
     #[test]
     fn preview_reports_multi_episode_gaps_duplicates_and_override() {
-        let mut rules = TransferRules::default();
-        rules.episode_regex = r"custom-(?P<episode>\d+)".to_string();
+        let rules = TransferRules {
+            episode_regex: r"custom-(?P<episode>\d+)".to_string(),
+            ..Default::default()
+        };
         let sub = make_sub("测试", rules);
         let files = vec![
             make_file("custom-1.mkv"),
@@ -954,8 +956,10 @@ mod tests {
         assert_eq!(portable_filename("bad:name?.mkv"), "bad_name_.mkv");
         let files = vec![make_file("第01集.mkv")];
         let existing = vec!["第01集.mkv".to_string()];
-        let mut rules = TransferRules::default();
-        rules.conflict_strategy = "keep_both".to_string();
+        let rules = TransferRules {
+            conflict_strategy: "keep_both".to_string(),
+            ..Default::default()
+        };
         let plan = build_transfer_plan(
             &make_sub("测试", rules),
             Some(&files),

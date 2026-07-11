@@ -112,7 +112,7 @@ impl PanSouClient {
                 tokio::time::sleep(std::time::Duration::from_millis(200 * (1u64 << attempt))).await;
             }
         }
-        let resp = response.ok_or_else(|| AppError::Http(last_error))?;
+        let resp = response.ok_or(AppError::Http(last_error))?;
 
         let data: PanSouResponse = resp
             .json()
