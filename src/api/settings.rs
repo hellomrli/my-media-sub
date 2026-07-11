@@ -178,6 +178,34 @@ fn settings_schema() -> SettingsSchemaResponse {
             false
         ),
         setting_field!(
+            "media_library_refresh_enabled",
+            "转存后刷新媒体库",
+            "boolean",
+            "quark",
+            false
+        ),
+        setting_field!(
+            "media_library_type",
+            "媒体库类型",
+            "text",
+            "quark",
+            "webhook"
+        ),
+        setting_field!(
+            "media_library_refresh_url",
+            "媒体库刷新 URL",
+            "url",
+            "quark",
+            ""
+        ),
+        setting_field!(
+            "media_library_token",
+            "媒体库 Token",
+            "password",
+            "quark",
+            ""
+        ),
+        setting_field!(
             "browser_push_vapid_private_key",
             "Browser Push 私钥",
             "password",
@@ -454,6 +482,7 @@ fn setting_secret(settings: &crate::models::Settings, key: &str) -> Option<Strin
         "quark_cookie" => &settings.quark_cookie,
         "quark_signin_cookie" => &settings.quark_signin_cookie,
         "strm_access_token" => &settings.strm_access_token,
+        "media_library_token" => &settings.media_library_token,
         "pansou_api_url" => &settings.pansou_api_url,
         "tmdb_api_key" => &settings.tmdb_api_key,
         "wecom_bot_url" => &settings.wecom_bot_url,
@@ -738,6 +767,26 @@ async fn update_settings(
                     "strm_token_in_url" => {
                         if let Some(b) = value.as_bool() {
                             settings.strm_token_in_url = b;
+                        }
+                    }
+                    "media_library_refresh_enabled" => {
+                        if let Some(b) = value.as_bool() {
+                            settings.media_library_refresh_enabled = b;
+                        }
+                    }
+                    "media_library_type" => {
+                        if let Some(v) = string_value(&value) {
+                            settings.media_library_type = v;
+                        }
+                    }
+                    "media_library_refresh_url" => {
+                        if let Some(v) = string_value(&value) {
+                            settings.media_library_refresh_url = v;
+                        }
+                    }
+                    "media_library_token" => {
+                        if let Some(v) = non_mask_secret(&value) {
+                            settings.media_library_token = v;
                         }
                     }
                     "wecom_bot_url" => {

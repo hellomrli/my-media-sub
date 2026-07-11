@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
@@ -291,7 +291,25 @@ impl SubscriptionTransferService {
             .generate_strm_files(&settings, &sub, &target_dir, &transferred_files)
             .await;
 
-        // 13. 发送转存成功通知
+        // 13. Refresh Jellyfin/Emby/Plex or a generic webhook. Failure is reported but never rolls back transfer.
+        let media_library_report = crate::services::media_library::refresh_media_library(
+            &settings,
+            &sub,
+            "subscription_transfer_completed",
+        )
+        .await;
+        if let Some(report) = &media_library_report {
+            if report.success {
+                info!("媒体库刷新成功: {}", report.provider);
+            } else {
+                warn!(
+                    "媒体库刷新失败: {}",
+                    report.error.as_deref().unwrap_or("unknown")
+                );
+            }
+        }
+
+        // 14. 发送转存成功通知
         let (push_title, push_message, push_notification_id) = self
             .send_transfer_notification(
                 &sub,
@@ -579,6 +597,19 @@ impl SubscriptionTransferService {
             }
         };
 
+        let mut existing_tasks = HashMap::<String, String>::new();
+        if let Ok(tasks) = aria2.list_tasks(500).await {
+            for task in tasks
+                .active
+                .into_iter()
+                .chain(tasks.waiting)
+                .chain(tasks.stopped)
+            {
+                if !task.file_name.trim().is_empty() {
+                    existing_tasks.insert(task.file_name.to_lowercase(), task.gid);
+                }
+            }
+        }
         let mut submitted_count = 0usize;
         let mut last_error = (omitted_count > 0).then(|| {
             format!(
@@ -588,23 +619,62 @@ impl SubscriptionTransferService {
         });
         let mut items = Vec::new();
         for info in download_infos {
-            match aria2
-                .add_uri(&info.download_url, Some(&info.file_name), &info.headers)
-                .await
-            {
-                Ok(gid) => {
-                    submitted_count += 1;
-                    info!("已提交 Aria2 同步下载: {} ({})", info.file_name, gid);
-                    items.push(SyncDownloadItem {
-                        gid,
-                        file_name: info.file_name,
-                    });
+            if let Some(gid) = existing_tasks.get(&info.file_name.to_lowercase()).cloned() {
+                info!("复用已有 Aria2 任务: {} ({})", info.file_name, gid);
+                items.push(SyncDownloadItem {
+                    gid,
+                    file_name: info.file_name,
+                });
+                continue;
+            }
+            let mut submitted = None;
+            let mut submit_error = None;
+            for attempt in 0..3u32 {
+                match aria2
+                    .add_uri(&info.download_url, Some(&info.file_name), &info.headers)
+                    .await
+                {
+                    Ok(gid) => {
+                        submitted = Some(gid);
+                        break;
+                    }
+                    Err(error) => {
+                        submit_error = Some(error.to_string());
+                        if let Ok(tasks) = aria2.list_tasks(500).await {
+                            if let Some(task) = tasks
+                                .active
+                                .into_iter()
+                                .chain(tasks.waiting)
+                                .chain(tasks.stopped)
+                                .find(|task| task.file_name.eq_ignore_ascii_case(&info.file_name))
+                            {
+                                submitted = Some(task.gid);
+                                break;
+                            }
+                        }
+                        if attempt < 2 {
+                            tokio::time::sleep(Duration::from_millis(250 * (1u64 << attempt)))
+                                .await;
+                        }
+                    }
                 }
-                Err(e) => {
-                    let error = format!("提交 {} 到 Aria2 失败: {}", info.file_name, e);
-                    warn!("订阅 {} 同步下载失败: {}", sub.title, error);
-                    last_error = Some(error);
-                }
+            }
+            if let Some(gid) = submitted {
+                submitted_count += 1;
+                existing_tasks.insert(info.file_name.to_lowercase(), gid.clone());
+                info!("已提交或复用 Aria2 同步下载: {} ({})", info.file_name, gid);
+                items.push(SyncDownloadItem {
+                    gid,
+                    file_name: info.file_name,
+                });
+            } else {
+                let error = format!(
+                    "提交 {} 到 Aria2 失败: {}",
+                    info.file_name,
+                    submit_error.unwrap_or_else(|| "unknown".to_string())
+                );
+                warn!("订阅 {} 同步下载失败: {}", sub.title, error);
+                last_error = Some(error);
             }
         }
 
