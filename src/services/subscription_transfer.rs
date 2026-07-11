@@ -462,6 +462,24 @@ impl SubscriptionTransferService {
     }
 
     /// 按订阅目标目录中的现有视频补齐 STRM 文件。
+    pub async fn audit_existing_strm_files(
+        &self,
+        subscription_id: &str,
+    ) -> Result<crate::services::strm::StrmAuditReport> {
+        let sub = self
+            .subscription_store
+            .get(subscription_id)
+            .await
+            .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?;
+        let settings = self.settings_store.get().await;
+        let target_dir = if sub.rules.target_dir.trim().is_empty() {
+            format!("/{}", sub.title)
+        } else {
+            sub.rules.target_dir.clone()
+        };
+        crate::services::strm::audit_subscription_strm(&settings, &sub, &target_dir)
+    }
+
     pub async fn generate_existing_strm_files(
         &self,
         subscription_id: &str,
