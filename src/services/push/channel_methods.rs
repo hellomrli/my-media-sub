@@ -21,7 +21,7 @@ macro_rules! push_channel_methods {
             .client
             .post(url)
             .json(&payload)
-            .send()
+            .send_observed("push")
             .await
             .map_err(|e| AppError::Http(format!("企业微信推送失败: {}", e)))?;
 
@@ -62,7 +62,7 @@ macro_rules! push_channel_methods {
             .client
             .post("https://wxpusher.zjiecode.com/api/send/message")
             .json(&payload)
-            .send()
+            .send_observed("push")
             .await
             .map_err(|e| AppError::Http(format!("WxPusher 推送失败: {}", e)))?;
 
@@ -101,7 +101,7 @@ macro_rules! push_channel_methods {
             .client
             .post(&url)
             .json(&payload)
-            .send()
+            .send_observed("push")
             .await
             .map_err(|e| AppError::Http(format!("Telegram 推送失败: {}", e)))?;
 
@@ -130,7 +130,7 @@ macro_rules! push_channel_methods {
             .client
             .post(format!("{}/push", url))
             .json(&payload)
-            .send()
+            .send_observed("push")
             .await
             .map_err(|e| AppError::Http(format!("Bark 推送失败: {}", e)))?;
 
@@ -166,7 +166,7 @@ macro_rules! push_channel_methods {
             .client
             .post(format!("{}/message?token={}", url, token))
             .json(&payload)
-            .send()
+            .send_observed("push")
             .await
             .map_err(|e| AppError::Http(format!("Gotify 推送失败: {}", e)))?;
 
@@ -191,7 +191,7 @@ macro_rules! push_channel_methods {
             .client
             .post("http://www.pushplus.plus/send")
             .json(&payload)
-            .send()
+            .send_observed("push")
             .await
             .map_err(|e| AppError::Http(format!("PushPlus 推送失败: {}", e)))?;
 
@@ -219,7 +219,7 @@ macro_rules! push_channel_methods {
             .client
             .post(&url)
             .json(&payload)
-            .send()
+            .send_observed("push")
             .await
             .map_err(|e| AppError::Http(format!("Server酱推送失败: {}", e)))?;
 

@@ -41,3 +41,27 @@ pub fn medium_client() -> Client {
 pub fn streaming_client() -> Client {
     STREAMING_CLIENT.clone()
 }
+
+/// Adds dependency latency/failure metrics to a reqwest request without changing callers'
+/// response or error semantics.
+pub trait ObservedRequestBuilder {
+    fn send_observed(
+        self,
+        service: &'static str,
+    ) -> impl std::future::Future<Output = reqwest::Result<reqwest::Response>> + Send;
+}
+
+impl ObservedRequestBuilder for reqwest::RequestBuilder {
+    async fn send_observed(self, service: &'static str) -> reqwest::Result<reqwest::Response> {
+        let started = std::time::Instant::now();
+        let result = self.send().await;
+        crate::utils::metrics::global_metrics().observe_external_dependency(
+            service,
+            started.elapsed(),
+            result
+                .as_ref()
+                .is_ok_and(|response| response.status().is_success()),
+        );
+        result
+    }
+}

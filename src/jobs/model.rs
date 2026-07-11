@@ -49,6 +49,15 @@ pub enum JobErrorClass {
 pub struct Job {
     pub id: String,
     pub kind: JobKind,
+    /// Originating HTTP request, when the job was submitted by an API call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    /// Stable identifier shared by all stages of one automation operation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
+    /// Subscription resource associated with this job, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscription_id: Option<String>,
     #[serde(default)]
     pub priority: JobPriority,
     #[serde(default = "default_attempt")]
@@ -81,6 +90,15 @@ fn default_attempt() -> u32 {
 }
 
 impl JobKind {
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            Self::ManualTransfer => "manual_transfer",
+            Self::SubscriptionTransfer => "subscription_transfer",
+            Self::MetadataScrape => "metadata_scrape",
+            Self::PushDispatch => "push_dispatch",
+        }
+    }
+
     pub(crate) fn default_priority(&self) -> JobPriority {
         match self {
             // 用户主动发起的转存应尽快得到反馈。
@@ -176,6 +194,9 @@ mod tests {
         assert_eq!(job.priority, JobPriority::Normal);
         assert_eq!(job.attempt, 1);
         assert!(job.error_class.is_none());
+        assert!(job.request_id.is_none());
+        assert!(job.correlation_id.is_none());
+        assert!(job.subscription_id.is_none());
     }
 
     #[test]

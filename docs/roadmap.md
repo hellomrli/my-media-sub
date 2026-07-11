@@ -13,13 +13,19 @@
 
 ## 当前执行指针
 
-- **当前阶段**：P17 WebUI 与移动端已完成
-- **当前任务**：P17-01 至 P17-03 全部完成并通过质量门
-- **下一任务**：P18-01 request/correlation/subscription/job 标识与结构化日志
-- **当前发布基线**：v1.11.0 已发布；下一开发阶段为 P18，不自动创建新 tag
-- **工作树状态**：P17 已提交并推送；`main` 最新功能提交 `2735247`，CI 稳定性修复 `1755ee4`，工作区干净
+- **当前阶段**：P18 可观测性与故障排查已完成
+- **当前任务**：P18-01 至 P18-03 全部完成并通过质量门
+- **下一任务**：P19-01 备份校验清单、定期可恢复性验证和外部目录复制
+- **当前发布基线**：v1.11.0 已发布；下一开发阶段为 P19，不自动创建新 tag
+- **工作树状态**：P18 已实现并验证，尚未提交；基线提交 `bdcb73f`
 
 ---
+
+## P18 完成交接
+
+- P18 已完成：HTTP、订阅和 Job 结构化上下文贯通；Prometheus、慢操作、外部依赖延迟、动态日志过滤及只读环境/数据诊断均已落地。
+- 管理面新增受 Basic Auth 保护的 `GET /metrics` 和 `GET|PUT /api/observability/log-filter`；诊断页可查看建议并热更新 tracing 过滤规则。
+- 下一窗口从 P19-01 备份校验清单与定期可恢复性验证开始；未经明确要求不创建 tag 或 Release。
 
 ## v1.11.0 发布后 P17 交接
 
@@ -976,9 +982,25 @@ P17 最终验证：389 个 Rust 测试登记，388 个通过、1 个真实 PanSo
 
 ## P18. 可观测性与故障排查
 
-- [ ] 串联 request/correlation/subscription/job 标识并统一结构化日志。
-- [ ] 增加 Prometheus 指标、慢操作、外部依赖延迟和动态日志级别。
-- [ ] 增加只读数据一致性、磁盘、权限、时区和 DNS 诊断建议。
+- [x] `P18-01` 串联 request/correlation/subscription/job 标识并统一结构化日志。
+  - HTTP 中间件校验或生成 `x-request-id` / `x-correlation-id`，通过 task-local 上下文和 tracing span 传播到订阅检查及 API 同步提交的后台任务。
+  - Job 持久化新增向后兼容的 `request_id`、`correlation_id`、`subscription_id`，worker 的 `job.execute` span 统一附带四类标识、任务类型、尝试次数和结果；子任务继续继承上下文。
+  - 订阅检查复用请求 correlation，无请求时生成稳定的 `check:<subscription>:<time>` 标识，自动换源重试和后续转存/推送沿用同一 correlation。
+  - `LOG_FORMAT=json` 启用 JSON 结构化输出，默认继续使用文本格式；`RUST_LOG` 支持标准 EnvFilter，README 与 `.env.example` 已记录配置。
+  - 回归覆盖旧 Job 无新字段反序列化、task-local 作用域恢复、API 请求标识进入持久化 Job，并保留响应关联头。
+  - 验证：391 个 Rust 测试登记，390 个通过、1 个真实 PanSou 网络测试按设计忽略；rustfmt、all-targets/all-features check、Clippy `-D warnings`、完整 Rust 测试及 `git diff --check` 通过。
+- [x] `P18-02` 增加 Prometheus 指标、慢操作、外部依赖延迟和动态日志级别。
+  - 保留 `GET /api/metrics` JSON 快照并新增受认证的 `GET /metrics` Prometheus 0.0.4 文本端点，覆盖检查、转存、队列、推送、HTTP 请求、外部依赖和慢操作指标。
+  - 所有 reqwest 外部调用统一经 `ObservedRequestBuilder` 记录服务名、总次数、非 2xx/传输失败、累计和最大延迟；HTTP、订阅检查、转存与 Job 记录可配置慢操作阈值并输出结构化 warning。
+  - `GET|PUT /api/observability/log-filter` 使用 tracing reload layer 在运行时校验并热更新 EnvFilter；诊断页提供编辑入口和 Prometheus 链接。
+  - `SLOW_OPERATION_MS` 默认 1000 毫秒并限制在 100–300000；指标标签只使用有界 method/status/service/operation，避免用户路径造成高基数。
+- [x] `P18-03` 增加只读数据一致性、磁盘、权限、时区和 DNS 诊断建议。
+  - 诊断快照新增 DATA_DIR 是否存在、读权限、写权限位提示、总量/可用空间和低于 10% 告警；不创建探针文件、不修改权限。
+  - 检查上海时区 UTC+8 偏移，并仅对已配置的 Quark/TMDB/PanSou/Aria2/Gotify 主机执行最多 8 个、单个 3 秒超时的 DNS 解析。
+  - 原样只读解析 settings/subscriptions/notifications/jobs/automation_events，报告缺失、非法 JSON、未来 schema 和内存/磁盘记录数差异；异常只生成分级建议，不自动修复。
+  - WebUI 展示磁盘、权限、时区、DNS、Store 状态与处理建议；诊断导出继续复用脱敏模型，不含 Cookie、Token、密码或完整外部 URL。
+
+P18 最终验证：396 个 Rust 测试登记，395 个通过、1 个真实 PanSou 网络测试按设计忽略；14 个前端 Node 测试及全部 JavaScript 语法检查通过；Tailwind CSS 重建、rustfmt、all-targets/all-features check、Clippy `-D warnings`、完整 Rust 测试、真实浏览器 390×844/1440×1000 E2E、OpenAPI JSON 和 `git diff --check` 通过。
 
 ## P19. 备份与数据生命周期
 

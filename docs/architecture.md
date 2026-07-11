@@ -337,7 +337,7 @@ sequenceDiagram
 | 新外部 API | `src/clients/*`，复用 HTTP pool，不在 API 层复制客户端逻辑。 |
 | 新云盘 | 实现 `CloudDriveProvider` 并在 registry 注册；供应商扩展能力保持在通用 trait 之外。 |
 | 新通知事件 | `services/push.rs` 的 PushEvent 和结构化 notification metadata。 |
-| 新指标 | `src/utils/metrics.rs`，通过 `/api/metrics` 暴露。 |
+| 新指标 | `src/utils/metrics.rs`，通过 `/api/metrics`（JSON）和 `/metrics`（Prometheus）暴露。 |
 | 新后台调度器 | `src/services/*_scheduler.rs`，由 AppContext 初始化和启动。 |
 
 ## 当前边界与下一步

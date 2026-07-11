@@ -1,3 +1,4 @@
+use crate::clients::http_pool::ObservedRequestBuilder;
 use reqwest::Client;
 use serde::Deserialize;
 
@@ -90,7 +91,7 @@ impl MetadataService {
                 ("include_adult", "false"),
                 ("page", "1"),
             ])
-            .send()
+            .send_observed("metadata")
             .await?;
 
         if !response.status().is_success() {
@@ -161,7 +162,7 @@ impl MetadataService {
             .client
             .get(endpoint)
             .query(&[("api_key", api_key), ("language", language)])
-            .send()
+            .send_observed("metadata")
             .await?;
 
         if !response.status().is_success() {
@@ -186,7 +187,7 @@ impl MetadataService {
             .client
             .get(endpoint)
             .query(&[("api_key", api_key), ("language", language)])
-            .send()
+            .send_observed("metadata")
             .await?;
 
         if !response.status().is_success() {

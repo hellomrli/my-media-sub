@@ -217,9 +217,23 @@ impl JobQueue {
         let id = uuid::Uuid::new_v4().to_string();
         let created_at = now();
         let idempotency_key = job_idempotency_key(&kind, &payload);
+        let ambient = crate::observability::current_context();
+        let payload_id = |name: &str| {
+            payload
+                .get(name)
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+        };
+        let request_id = ambient.request_id;
+        let correlation_id = payload_id("correlation_id").or(ambient.correlation_id);
+        let subscription_id = payload_id("subscription_id").or(ambient.subscription_id);
         let job = Job {
             id: id.clone(),
             kind,
+            request_id,
+            correlation_id,
+            subscription_id,
             priority,
             attempt: 1,
             next_attempt_at: None,
@@ -240,8 +254,10 @@ impl JobQueue {
 
         let (job, created) = self.store.add_idempotent(job).await?;
         if !created {
+            info!(job_id = %job.id, correlation_id = job.correlation_id.as_deref().unwrap_or(""), "job submission deduplicated");
             return Ok(job);
         }
+        info!(job_id = %job.id, correlation_id = job.correlation_id.as_deref().unwrap_or(""), subscription_id = job.subscription_id.as_deref().unwrap_or(""), job_kind = job.kind.as_str(), "job queued");
         let job_kind = job.kind.clone();
         if self.sender.send(id.clone()).await.is_err() {
             mark_queue_unavailable(&self.store, &id).await?;
@@ -390,6 +406,9 @@ mod tests {
         Job {
             id: id.to_string(),
             kind,
+            request_id: None,
+            correlation_id: None,
+            subscription_id: None,
             priority: JobPriority::Normal,
             attempt: 1,
             next_attempt_at: None,

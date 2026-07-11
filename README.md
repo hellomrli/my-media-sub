@@ -147,6 +147,8 @@ SERVER_PASSWORD='replace-with-a-strong-password' ./my-media-sub
 | `BACKUP_MAX_ARCHIVE_MB` | `256` | 单个备份解码内容上限 |
 | `BACKUP_MAX_STORAGE_MB` | `512` | 服务器备份目录总预算 |
 | `RUST_LOG` | `info` | Rust 日志过滤规则 |
+| `LOG_FORMAT` | `text` | 日志输出格式；设为 `json` 输出含关联上下文的 JSON 日志 |
+| `SLOW_OPERATION_MS` | `1000` | 慢操作告警与指标阈值，范围 100–300000 毫秒 |
 | `TZ` | 系统时区 | 容器建议设置为 `Asia/Shanghai` |
 
 ### 集成环境变量
