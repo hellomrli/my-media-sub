@@ -673,7 +673,7 @@ impl PushService {
     }
 
     async fn send_webhooks(&self, title: &str, message: &str, level: PushLevel) -> Result<bool> {
-        let payload = json!({"event": "notification", "title": title, "message": message, "level": level.as_str(), "timestamp": crate::utils::unix_now()});
+        let payload = versioned_webhook_payload(title, message, level);
         let bytes = serde_json::to_vec(&payload)?;
         let signature = if self.settings.webhook_secret.is_empty() {
             String::new()
@@ -717,6 +717,7 @@ impl PushService {
                     let mut request = client
                         .post(&url)
                         .header("content-type", "application/json")
+                        .header("x-media-sub-webhook-version", "1.0")
                         .body(bytes.clone());
                     if !signature.is_empty() {
                         request = request
@@ -745,6 +746,17 @@ impl PushService {
     }
 
     push_channel_methods!();
+}
+
+fn versioned_webhook_payload(title: &str, message: &str, level: PushLevel) -> serde_json::Value {
+    let context = crate::observability::current_context();
+    json!({
+        "version": "1.0", "event_id": uuid::Uuid::new_v4().to_string(),
+        "event": "notification", "occurred_at": crate::utils::unix_now(),
+        "correlation_id": context.correlation_id, "subscription_id": context.subscription_id,
+        "job_id": context.job_id,
+        "data": {"title": title, "message": message, "level": level.as_str()}
+    })
 }
 
 fn quiet_hour(hour: u8, start: u8, end: u8) -> bool {

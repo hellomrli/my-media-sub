@@ -315,6 +315,48 @@ impl SubscriptionStore {
         Ok(before.saturating_sub(after))
     }
 
+    pub async fn import_batch(
+        &self,
+        incoming: Vec<Subscription>,
+        strategy: &str,
+    ) -> Result<(usize, usize, usize)> {
+        self.mutate_snapshot(|snapshot| {
+            let mut created = 0;
+            let mut updated = 0;
+            let mut skipped = 0;
+            for mut item in incoming {
+                let conflict = snapshot.iter().position(|current| {
+                    current.id == item.id
+                        || (current.url == item.url && current.title == item.title)
+                });
+                match (conflict, strategy) {
+                    (Some(_), "skip") => skipped += 1,
+                    (Some(index), "update") => {
+                        item.id = snapshot[index].id.clone();
+                        snapshot[index] = item;
+                        updated += 1;
+                    }
+                    (Some(_), "new_id") => {
+                        item.id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
+                        snapshot.push(item);
+                        created += 1;
+                    }
+                    (None, _) => {
+                        snapshot.push(item);
+                        created += 1;
+                    }
+                    _ => {
+                        return Err(AppError::Validation(
+                            "导入策略必须为 skip、update 或 new_id".into(),
+                        ))
+                    }
+                }
+            }
+            Ok((created, updated, skipped))
+        })
+        .await
+    }
+
     /// 数量
     pub async fn count(&self) -> usize {
         self.with_items(|items| items.len()).await

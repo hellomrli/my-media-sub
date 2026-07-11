@@ -1,0 +1,303 @@
+{
+  "openapi": "3.1.0",
+  "version": "1.12.0",
+  "operations": {
+    "/api/automation/events": [
+      "get"
+    ],
+    "/api/automation/events/{id}/retry": [
+      "post"
+    ],
+    "/api/automation/summary": [
+      "get"
+    ],
+    "/api/backups": [
+      "get",
+      "post"
+    ],
+    "/api/backups/export": [
+      "get"
+    ],
+    "/api/backups/preview": [
+      "post"
+    ],
+    "/api/backups/restore": [
+      "post"
+    ],
+    "/api/backups/verification": [
+      "get",
+      "post"
+    ],
+    "/api/calendar": [
+      "get"
+    ],
+    "/api/diagnostics": [
+      "get"
+    ],
+    "/api/diagnostics/export": [
+      "get"
+    ],
+    "/api/drive": [
+      "get"
+    ],
+    "/api/drive/aria2": [
+      "post"
+    ],
+    "/api/drive/aria2/browse": [
+      "get"
+    ],
+    "/api/drive/aria2/tasks": [
+      "get"
+    ],
+    "/api/drive/aria2/tasks/pause-all": [
+      "post"
+    ],
+    "/api/drive/aria2/tasks/stop-all": [
+      "post"
+    ],
+    "/api/drive/aria2/tasks/{gid}/delete": [
+      "post"
+    ],
+    "/api/drive/aria2/tasks/{gid}/pause": [
+      "post"
+    ],
+    "/api/drive/aria2/tasks/{gid}/resume": [
+      "post"
+    ],
+    "/api/drive/aria2/tasks/{gid}/stop": [
+      "post"
+    ],
+    "/api/drive/aria2/test": [
+      "get"
+    ],
+    "/api/drive/delete": [
+      "post"
+    ],
+    "/api/drive/find-path": [
+      "get"
+    ],
+    "/api/drive/mkdir": [
+      "post"
+    ],
+    "/api/drive/rename": [
+      "post"
+    ],
+    "/api/jobs": [
+      "get"
+    ],
+    "/api/jobs/archive": [
+      "get"
+    ],
+    "/api/jobs/events": [
+      "get"
+    ],
+    "/api/jobs/{id}": [
+      "get"
+    ],
+    "/api/jobs/{id}/cancel": [
+      "post"
+    ],
+    "/api/jobs/{id}/pipeline": [
+      "get"
+    ],
+    "/api/jobs/{id}/priority": [
+      "post"
+    ],
+    "/api/jobs/{id}/retry": [
+      "post"
+    ],
+    "/api/metadata/search": [
+      "get"
+    ],
+    "/api/metrics": [
+      "get"
+    ],
+    "/api/notifications": [
+      "get"
+    ],
+    "/api/notifications/clear": [
+      "post"
+    ],
+    "/api/notifications/read-all": [
+      "post"
+    ],
+    "/api/notifications/{id}/read": [
+      "post"
+    ],
+    "/api/observability/log-filter": [
+      "get",
+      "put"
+    ],
+    "/api/push/browser": [
+      "delete",
+      "get",
+      "post"
+    ],
+    "/api/push/diagnostics": [
+      "get"
+    ],
+    "/api/push/status": [
+      "get"
+    ],
+    "/api/push/template/preview": [
+      "post"
+    ],
+    "/api/push/test": [
+      "post"
+    ],
+    "/api/push/webhook/rotate-secret": [
+      "post"
+    ],
+    "/api/quark/signin": [
+      "post"
+    ],
+    "/api/quark/test": [
+      "post"
+    ],
+    "/api/search": [
+      "post"
+    ],
+    "/api/settings": [
+      "get",
+      "post"
+    ],
+    "/api/settings/schema": [
+      "get"
+    ],
+    "/api/settings/secret/{key}": [
+      "get"
+    ],
+    "/api/storage/cleanup": [
+      "get",
+      "post"
+    ],
+    "/api/storage/compact": [
+      "post"
+    ],
+    "/api/storage/decision": [
+      "get"
+    ],
+    "/api/subscriptions": [
+      "get",
+      "post"
+    ],
+    "/api/subscriptions/check": [
+      "post"
+    ],
+    "/api/subscriptions/metadata/scrape": [
+      "post"
+    ],
+    "/api/subscriptions/rename-preview": [
+      "post"
+    ],
+    "/api/subscriptions/{id}": [
+      "delete",
+      "get",
+      "put"
+    ],
+    "/api/subscriptions/{id}/check": [
+      "post"
+    ],
+    "/api/subscriptions/{id}/metadata/scrape": [
+      "post"
+    ],
+    "/api/subscriptions/{id}/pipeline": [
+      "get"
+    ],
+    "/api/subscriptions/{id}/rename-existing": [
+      "post"
+    ],
+    "/api/subscriptions/{id}/source-candidates": [
+      "get"
+    ],
+    "/api/subscriptions/{id}/source-candidates/apply": [
+      "post"
+    ],
+    "/api/subscriptions/{id}/source-candidates/preview": [
+      "post"
+    ],
+    "/api/subscriptions/{id}/source-candidates/probe": [
+      "post"
+    ],
+    "/api/subscriptions/{id}/source-candidates/search": [
+      "post"
+    ],
+    "/api/subscriptions/{id}/source-history": [
+      "get"
+    ],
+    "/api/subscriptions/{id}/source-history/rollback": [
+      "post"
+    ],
+    "/api/subscriptions/{id}/status": [
+      "get"
+    ],
+    "/api/subscriptions/{id}/strm": [
+      "post"
+    ],
+    "/api/subscriptions/{id}/strm/audit": [
+      "get"
+    ],
+    "/api/transfer": [
+      "post"
+    ],
+    "/api/update/apply": [
+      "post"
+    ],
+    "/api/update/check": [
+      "get"
+    ],
+    "/api/update/progress": [
+      "get"
+    ],
+    "/api/update/releases": [
+      "get"
+    ],
+    "/api/update/restart": [
+      "post"
+    ],
+    "/health": [
+      "get"
+    ],
+    "/metrics": [
+      "get"
+    ],
+    "/strm/quark/{fid}/{file_name}": [
+      "get"
+    ]
+  },
+  "error_schema": {
+    "type": "object",
+    "required": [
+      "ok",
+      "error",
+      "message"
+    ],
+    "properties": {
+      "ok": {
+        "const": false
+      },
+      "error": {
+        "type": "string"
+      },
+      "message": {
+        "type": "string"
+      }
+    }
+  },
+  "success_schema": {
+    "type": "object",
+    "required": [
+      "ok",
+      "data"
+    ],
+    "properties": {
+      "ok": {
+        "const": true
+      },
+      "data": {},
+      "message": {
+        "type": "string"
+      }
+    }
+  }
+}

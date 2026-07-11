@@ -13,12 +13,12 @@
 
 ## 当前执行指针
 
-- **当前阶段**：P19 备份与数据生命周期已完成
-- **当前任务**：P19-01 至 P19-03 全部完成并通过质量门
-- **下一任务**：P20-01 OpenAPI 与路由同步及契约兼容回归测试
-- **后续阶段**：P21 Telegram 主动控制机器人（已纳入计划，P20 完成后启动）
+- **当前阶段**：P20 API 与自动化集成已完成
+- **当前任务**：P20-01 至 P20-03 全部完成并通过质量门
+- **下一任务**：P21-01 Telegram 安全 Bot 接入、身份白名单与只读命令
+- **后续阶段**：P21 Telegram 主动控制机器人（不引入 AI）
 - **当前发布基线**：v1.12.0 已正式发布；Linux x86_64 归档/SHA256 与 GHCR 1.12.0/1.12 镜像可用
-- **工作树状态**：v1.12.0 发布提交 `a03ed7b`、tag、Release 和镜像均已完成，工作区干净
+- **工作树状态**：P20 已实现、验证并提交，工作区干净
 
 ---
 
@@ -1042,9 +1042,21 @@ P19 最终验证：404 个 Rust 测试登记，403 个通过、1 个真实 PanSo
 
 ## P20. API 与自动化集成
 
-- [ ] `P20-01` 保持 OpenAPI 与路由同步并建立契约兼容回归测试。
-- [ ] `P20-02` 增加单实例自动化 Token 的轮换、撤销和最小作用域；不扩展为多用户认证。
-- [ ] `P20-03` 增加幂等键、版本化 Webhook、订阅导入导出和自动化示例。
+- [x] `P20-01` 保持 OpenAPI 与路由同步并建立契约兼容回归测试。
+  - `scripts/check-openapi.py` 解析字面量 Axum route，双向核对 OpenAPI 的路径/方法/路径参数；动态 route 或未展开 any 会失败。
+  - OpenAPI 已从少量摘要补齐为 89 条路径、101 个操作，统一错误响应引用、Basic/STRM 安全声明和路径参数。
+  - `docs/openapi-baseline-v1.12.0.json` 固化发布表面与 Success/Error 信封，删除兼容接口或修改稳定信封会阻断 CI；CI 和 Release 均执行检查。
+- [x] `P20-02` 增加单实例自动化 Token 的轮换、撤销和最小作用域；不扩展为多用户认证。
+  - Token 使用 64 位以上随机材料和 `mms_` 前缀，明文仅轮换时显示一次；`automation-token.json` 只保存 SHA-256、脱敏前缀、scope、创建/过期/最后使用/撤销时间并使用 0600。
+  - Bearer 中间件按 subscriptions/jobs/notifications/diagnostics 的 read/write/check scope 鉴权；管理 Token、Settings、备份、Store 清理和升级仍只接受 Basic Auth。
+  - 支持状态、scope 列表、1–3650 天有效期、原子轮换和立即撤销；测试验证磁盘无明文、越权失败及撤销即时生效。
+- [x] `P20-03` 增加幂等键、版本化 Webhook、订阅导入导出和自动化示例。
+  - 订阅导出使用 `my-media-sub-subscriptions` v1 信封；导入先预览 ID/URL+标题冲突，再以 skip/update/new_id 策略和 `IMPORT SUBSCRIPTIONS` 确认原子提交。
+  - 导入强制 1–128 字符 Idempotency-Key，相同键/请求返回原结果、不同请求拒绝，记录按 24 小时有界清理。
+  - Webhook v1.0 增加 event_id、occurred_at、version、correlation/subscription/job 和 data，发送版本头并保持当前/上一 HMAC 双签名。
+  - `docs/automation-api.md` 提供 Token 轮换/撤销、curl、Python、GitHub Actions、导出/预览/幂等导入、Job 轮询和 Webhook 验签合同示例。
+
+P20 最终验证：408 个 Rust 测试登记，407 个通过、1 个真实 PanSou 网络测试按设计忽略；14 个前端 Node 测试及 OpenAPI 89 路径/101 操作检查通过；rustfmt、all-targets/all-features check、Clippy `-D warnings`、完整 Rust 测试、真实浏览器 E2E 和 `git diff --check` 通过。
 
 ## P21. Telegram 主动控制机器人
 

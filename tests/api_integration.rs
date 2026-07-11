@@ -1376,3 +1376,89 @@ async fn prometheus_and_runtime_log_filter_are_available() {
 
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[tokio::test]
+async fn automation_token_scopes_rotate_and_revoke() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+    let rotated = json_body(
+        &app,
+        auth_post(
+            "/api/automation-token",
+            serde_json::json!({"scopes":["subscriptions:read"],"expires_days":30}),
+        ),
+    )
+    .await;
+    let token = rotated["data"]["token"].as_str().unwrap().to_string();
+    assert!(token.starts_with("mms_"));
+    let bearer = |uri: &str| {
+        Request::builder()
+            .uri(uri)
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap()
+    };
+    assert_eq!(
+        status(&app, bearer("/api/subscriptions")).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        status(&app, bearer("/api/diagnostics")).await,
+        StatusCode::UNAUTHORIZED
+    );
+    let revoked = json_body(&app, auth_delete("/api/automation-token")).await;
+    assert!(revoked["data"]["revoked_at"].as_i64().is_some());
+    assert_eq!(
+        status(&app, bearer("/api/subscriptions")).await,
+        StatusCode::UNAUTHORIZED
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn subscription_export_import_preview_and_idempotency_are_stable() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+    let created = json_body(
+        &app,
+        auth_post(
+            "/api/subscriptions",
+            serde_json::json!({"title":"Exchange","url":"https://pan.quark.cn/s/exchange","media_type":"series","season":1}),
+        ),
+    )
+    .await;
+    assert_eq!(created["ok"], true);
+    let exported = json_body(&app, auth_get("/api/subscriptions/export")).await;
+    assert_eq!(exported["data"]["format"], "my-media-sub-subscriptions");
+    let request = serde_json::json!({
+        "archive": exported["data"].clone(),
+        "strategy": "new_id",
+        "confirmation": "IMPORT SUBSCRIPTIONS"
+    });
+    let preview = json_body(
+        &app,
+        auth_post("/api/subscriptions/import/preview", request.clone()),
+    )
+    .await;
+    assert_eq!(preview["data"]["conflicts"], 1);
+    let import_request = || {
+        Request::builder()
+            .method(Method::POST)
+            .uri("/api/subscriptions/import")
+            .header(
+                header::AUTHORIZATION,
+                basic_auth_header("admin", "change-me"),
+            )
+            .header(header::CONTENT_TYPE, "application/json")
+            .header("idempotency-key", "exchange-import-1")
+            .body(Body::from(request.to_string()))
+            .unwrap()
+    };
+    let first = json_response(&app, import_request()).await;
+    assert_eq!(first.0, StatusCode::CREATED);
+    assert_eq!(first.2["data"]["created"], 1);
+    let repeated = json_response(&app, import_request()).await;
+    assert_eq!(repeated.0, StatusCode::OK);
+    assert_eq!(repeated.2["data"], first.2["data"]);
+    let _ = std::fs::remove_dir_all(dir);
+}

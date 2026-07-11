@@ -9,7 +9,9 @@ use crate::services::{
     QuarkSigninService, SubscriptionCheckService, SubscriptionScheduler,
     SubscriptionTransferService,
 };
-use crate::store::{AutomationEventStore, NotificationStore, SettingsStore, SubscriptionStore};
+use crate::store::{
+    AutomationEventStore, AutomationTokenStore, NotificationStore, SettingsStore, SubscriptionStore,
+};
 use crate::utils::metrics::{global_metrics, Metrics};
 
 /// 应用级依赖上下文。
@@ -21,6 +23,7 @@ pub struct AppContext {
     pub settings_store: Arc<SettingsStore>,
     pub notification_store: Arc<NotificationStore>,
     pub automation_event_store: Arc<AutomationEventStore>,
+    pub automation_token_store: Arc<AutomationTokenStore>,
     pub job_store: Arc<JobStore>,
     pub job_queue: Arc<JobQueue>,
     pub metadata_service: Arc<MetadataService>,
@@ -62,6 +65,11 @@ impl AppContext {
         ));
         automation_event_store.load().await?;
         tracing::info!("✅ Loaded automation events");
+
+        let automation_token_store = Arc::new(AutomationTokenStore::new(
+            config.data_dir.join("automation-token.json"),
+        ));
+        automation_token_store.load().await?;
 
         let job_store = Arc::new(JobStore::new(config.data_dir.join("jobs.json")));
         job_store.load().await?;
@@ -138,6 +146,7 @@ impl AppContext {
             settings_store,
             notification_store,
             automation_event_store,
+            automation_token_store,
             job_store,
             job_queue,
             metadata_service,
