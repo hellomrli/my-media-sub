@@ -236,6 +236,8 @@ struct RenamePreviewResponse {
     matched_count: usize,
     current_episode_number: i32,
     episodes: Vec<i32>,
+    missing_episodes: Vec<i32>,
+    duplicate_episodes: Vec<i32>,
     items: Vec<RenamePreviewItem>,
 }
 
@@ -246,6 +248,7 @@ struct RenamePreviewItem {
     action: String,
     skip_reason: String,
     episode: Option<i32>,
+    episodes: Vec<i32>,
     season: Option<i32>,
     target_dir: String,
 }

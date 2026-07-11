@@ -105,6 +105,7 @@
       include_keywords_text: '',
       exclude_keywords_text: '预告, 花絮, 解说, 彩蛋, trailer, preview',
       match_regex: '',
+      episode_regex: '',
       ignore_extensions: false,
       rename_regex: '',
       rename_replacement: '',
@@ -145,6 +146,7 @@
       include_keywords_text: '',
       exclude_keywords_text: '',
       match_regex: '',
+      episode_regex: '',
       rename_regex: '',
       rename_replacement: '',
       ignore_extensions: false,
@@ -230,6 +232,7 @@
         include_keywords_text: '',
         exclude_keywords_text: this.defaultExcludeKeywords(),
         match_regex: '',
+      episode_regex: '',
         ignore_extensions: false,
         rename_regex: '',
         rename_replacement: '',
@@ -384,6 +387,7 @@
         include_keywords_text: '',
         exclude_keywords_text: this.defaultExcludeKeywords(),
         match_regex: '',
+      episode_regex: '',
         ignore_extensions: false,
         rename_regex: '',
         rename_replacement: '',
@@ -445,6 +449,7 @@
         include_keywords_text: (rules.include_keywords || []).join(', '),
         exclude_keywords_text: (rules.exclude_keywords || []).join(', ') || this.defaultExcludeKeywords(),
         match_regex: rules.match_regex || '',
+        episode_regex: rules.episode_regex || '',
         ignore_extensions: !!rules.ignore_extensions,
         rename_regex: rules.rename_regex || '',
         rename_replacement: rules.rename_replacement || '',
@@ -663,6 +668,7 @@
         include_keywords: [],
         exclude_keywords: this.splitRuleWords(this.defaultExcludeKeywords()),
         match_regex: '',
+      episode_regex: '',
         ignore_extensions: false,
         rename_regex: '',
         rename_replacement: '',
@@ -724,6 +730,7 @@
       this.newSubscription.include_keywords_text = this.ruleWordsText(next.include_keywords);
       this.newSubscription.exclude_keywords_text = this.ruleWordsText(next.exclude_keywords);
       this.newSubscription.match_regex = next.match_regex || '';
+      this.newSubscription.episode_regex = next.episode_regex || '';
       this.newSubscription.ignore_extensions = !!next.ignore_extensions;
       this.newSubscription.rename_regex = next.rename_regex || '';
       this.newSubscription.rename_replacement = next.rename_replacement || '';
@@ -745,6 +752,7 @@
       this.ruleCenter.include_keywords_text = this.ruleWordsText(rules.include_keywords);
       this.ruleCenter.exclude_keywords_text = this.ruleWordsText(rules.exclude_keywords);
       this.ruleCenter.match_regex = rules.match_regex || '';
+      this.ruleCenter.episode_regex = rules.episode_regex || '';
       this.ruleCenter.rename_regex = rules.rename_regex || '';
       this.ruleCenter.rename_replacement = rules.rename_replacement || '';
       this.ruleCenter.ignore_extensions = !!rules.ignore_extensions;
@@ -818,6 +826,7 @@
         include_keywords: this.splitRuleWords(this.ruleCenter.include_keywords_text),
         exclude_keywords: this.splitRuleWords(this.ruleCenter.exclude_keywords_text),
         match_regex: this.ruleCenter.match_regex.trim(),
+        episode_regex: this.ruleCenter.episode_regex.trim(),
         ignore_extensions: !!this.ruleCenter.ignore_extensions,
         rename_regex: this.ruleCenter.rename_regex.trim(),
         rename_replacement: this.ruleCenter.rename_replacement,
@@ -1232,6 +1241,7 @@
         include_keywords: this.splitRuleWords(this.newSubscription.include_keywords_text),
         exclude_keywords: this.splitRuleWords(this.newSubscription.exclude_keywords_text),
         match_regex: this.newSubscription.match_regex.trim(),
+        episode_regex: this.newSubscription.episode_regex.trim(),
         ignore_extensions: !!this.newSubscription.ignore_extensions,
         rename_regex: this.newSubscription.rename_regex.trim(),
         rename_replacement: this.newSubscription.rename_replacement,

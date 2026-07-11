@@ -2100,6 +2100,7 @@
                   <div><label class="field-label">包含关键词</label><input type="text" x-model="ruleCenter.include_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="多个用逗号或换行分隔" /></div>
                   <div><label class="field-label">排除关键词</label><input type="text" x-model="ruleCenter.exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="预告, 花絮, trailer" /></div>
                   <div><label class="field-label">匹配正则</label><input type="text" x-model="ruleCenter.match_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：S01E\\d+|第\\d+集" /></div>
+                  <div><label class="field-label">集数识别覆盖正则</label><input type="text" x-model="ruleCenter.episode_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：\\[(?P&lt;episode&gt;\\d+)\\]" /><small class="field-help">必须包含命名捕获 episode，可选 season；留空使用内置规则。</small></div>
                   <div><label class="field-label">重命名正则</label><input type="text" x-model="ruleCenter.rename_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" /></div>
                   <div><label class="field-label">替换文本</label><input type="text" x-model="ruleCenter.rename_replacement" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" /></div>
                   <div>
@@ -2711,6 +2712,7 @@
               <div><label class="field-label">包含关键词</label><input type="text" x-model="newSubscription.include_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="多个用逗号或换行分隔" /></div>
               <div><label class="field-label">排除关键词</label><input type="text" x-model="newSubscription.exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="预告, 花絮, trailer" /></div>
               <div><label class="field-label">匹配正则</label><input type="text" x-model="newSubscription.match_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：S01E\\d+|第\\d+集" /></div>
+              <div><label class="field-label">集数识别覆盖正则</label><input type="text" x-model="newSubscription.episode_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：\\[(?P&lt;episode&gt;\\d+)\\]" /><small class="field-help">必须包含命名捕获 episode，可选 season。</small></div>
               <div><label class="field-label">完成集数</label><input type="number" min="1" x-model="newSubscription.finish_after_episode" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：12" /></div>
               <div>
                 <label class="field-label">同集保留策略</label>

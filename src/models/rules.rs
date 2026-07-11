@@ -31,6 +31,10 @@ pub struct TransferRules {
     #[serde(default)]
     pub match_regex: String,
 
+    /// 订阅级集数覆盖正则；使用命名捕获 episode，可选 season。
+    #[serde(default)]
+    pub episode_regex: String,
+
     /// 忽略扩展名
     #[serde(default)]
     pub ignore_extensions: bool,
@@ -105,6 +109,7 @@ impl Default for TransferRules {
             include_keywords: vec![],
             exclude_keywords: default_excludes(),
             match_regex: String::new(),
+            episode_regex: String::new(),
             ignore_extensions: false,
             rename_regex: String::new(),
             rename_replacement: String::new(),
