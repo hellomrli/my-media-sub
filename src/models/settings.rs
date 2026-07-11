@@ -192,6 +192,15 @@ pub struct Settings {
     #[serde(default)]
     pub strm_token_in_url: bool,
 
+    #[serde(default)]
+    pub media_library_refresh_enabled: bool,
+    #[serde(default = "default_media_library_type")]
+    pub media_library_type: String,
+    #[serde(default)]
+    pub media_library_refresh_url: String,
+    #[serde(default)]
+    pub media_library_token: String,
+
     // ===== 推送配置 =====
     /// Telegram Bot Token
     #[serde(default)]
@@ -489,6 +498,10 @@ fn default_strm_access_token() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
+fn default_media_library_type() -> String {
+    "webhook".to_string()
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -537,6 +550,10 @@ impl Default for Settings {
             strm_public_base_url: String::new(),
             strm_access_token: default_strm_access_token(),
             strm_token_in_url: false,
+            media_library_refresh_enabled: false,
+            media_library_type: default_media_library_type(),
+            media_library_refresh_url: String::new(),
+            media_library_token: String::new(),
             telegram_bot_token: String::new(),
             telegram_chat_id: String::new(),
             bark_url: String::new(),
