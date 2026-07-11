@@ -229,6 +229,8 @@ data/
 - 脱敏诊断：`GET /api/diagnostics`、`GET /api/diagnostics/export`
 - 备份：`GET /api/backups/export`、`POST /api/backups/preview`、`GET|POST /api/backups/verification`、`POST /api/backups/restore`
 - Store 生命周期：`GET|POST /api/storage/cleanup`、`GET /api/storage/decision`
+- 自动化 Token：`GET|POST|DELETE /api/automation-token`
+- 订阅交换：`GET /api/subscriptions/export`、`POST /api/subscriptions/import/preview|import`
 - Job SSE：`GET /api/jobs/events`
 - 更新日历：`GET /api/calendar`
 - 自动化事件：`GET /api/automation/events`
@@ -339,6 +341,7 @@ static/
 - [持续开发路线](docs/roadmap.md)
 - [API 契约](docs/api-contract.md)
 - [自动化事件](docs/automation-events.md)
+- [自动化 API、Token、导入导出和 Webhook 示例](docs/automation-api.md)
 - [媒体日历规则](docs/media-calendar.md)
 - [资源质量与安全换源](docs/source-quality.md)
 - [HTTPS 反向代理与安全部署](docs/https-reverse-proxy.md)

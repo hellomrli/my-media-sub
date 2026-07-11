@@ -285,3 +285,14 @@ mod tests {
         let _ = std::fs::remove_file(tmp);
     }
 }
+
+
+#[test]
+fn versioned_webhook_contract_has_stable_identity_and_data() {
+    let payload = versioned_webhook_payload("title", "message", PushLevel::Success);
+    assert_eq!(payload["version"], "1.0");
+    assert_eq!(payload["event"], "notification");
+    assert!(payload["event_id"].as_str().is_some_and(|id| !id.is_empty()));
+    assert!(payload["occurred_at"].as_i64().is_some());
+    assert_eq!(payload["data"]["level"], "success");
+}

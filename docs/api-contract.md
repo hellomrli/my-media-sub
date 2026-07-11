@@ -181,6 +181,9 @@
 - `GET|POST|DELETE /api/push/browser`：获取 VAPID 公钥、注册或取消浏览器 PushSubscription。
 - `POST /api/push/test` 支持 `browser` 和 `webhook` 渠道；Webhook 可使用 HMAC-SHA256 签名。
 - `/openapi.json` 为 OpenAPI 3.1 机器契约，`/api-docs.html` 为同源受保护查看页。
+- `scripts/check-openapi.py` 从 `src/api/**/*.rs` 的字面量 Axum `.route()` 注册提取路径与方法，要求与 OpenAPI 双向完全一致；非字面量路由和未显式展开的 `any()` 会直接失败。
+- `docs/openapi-baseline-v1.12.0.json` 固化 v1.12.0 的 84 条路径、94 个操作及稳定 Success/Error 信封；删除路径/方法或修改稳定信封会作为破坏性变更阻断 CI。
+- 新增路由后先运行 `scripts/check-openapi.py --update` 生成基础操作，再补充有意义的 summary、参数、请求体和响应说明，最后运行 `scripts/check-openapi.py` 验证；不得只改代码或只改 JSON。
 - 完整数据导入导出使用 `/api/backups/export|preview|restore`；订阅 create/update 支持 `tags`。
 
 ## P16 通知策略接口
@@ -190,3 +193,13 @@
 - `POST /api/push/webhook/rotate-secret` 接收可选 `overlap_hours`（1–168），响应只显示一次新密钥；重叠期同时发送当前和 previous HMAC-SHA256 签名头。
 - 设置支持 `push_event_routes`、`push_min_level`、安静时段、错误绕过、重复窗口、摘要窗口及 `{{title}}/{{message}}/{{event}}/{{level}}` 模板。
 - 推送调度使用 detached task 和后台 Job；任何渠道、DNS、Webhook、Store 或模板失败均不得改变核心订阅检查、转存、下载监控和签到结果。
+
+
+## P20 API 与自动化集成
+
+- `scripts/check-openapi.py` 在 CI 和 Release 中双向核对 89 条 Axum 路径、101 个操作与 OpenAPI；v1.12.0 基线禁止删除既有路径/方法或修改稳定 Success/Error 信封。
+- `GET|POST|DELETE /api/automation-token` 仅允许管理员 Basic Auth，用于读取脱敏状态、轮换和撤销单实例 Token；明文只在轮换响应显示一次，磁盘只保存 SHA-256、前缀、scope、有效期和审计时间。
+- Bearer Token 按 subscriptions/jobs/notifications/diagnostics 的 read/write/check 最小作用域鉴权；设置、Token 管理、备份恢复、Store 清理和在线升级始终拒绝 Bearer Token。
+- `GET /api/subscriptions/export` 返回版本化订阅信封；`POST /api/subscriptions/import/preview` 只读报告冲突，执行接口支持 skip/update/new_id、确认短语及 24 小时有界 Idempotency-Key 去重。
+- Webhook v1.0 提供 `version`、`event_id`、`occurred_at`、correlation/subscription/job 标识和 `data`，并发送版本头；签名继续覆盖原始正文，接收端应按 event_id 去重。
+- 可运行 curl、Python 和 GitHub Actions 示例见 `docs/automation-api.md`。

@@ -329,7 +329,7 @@ sequenceDiagram
 | 功能 | 首选接入点 |
 |---|---|
 | 新 WebUI 页面 | `static/index.html` + 独立 `static/js/features/*.js`，再由 `app.js` 装配。 |
-| 新后端接口 | `src/api/*.rs`，使用统一 Response/AppError，并在 `src/api/mod.rs` 注册。 |
+| 新后端接口 | `src/api/*.rs`，使用统一 Response/AppError，在 `src/api/mod.rs` 注册，并同步 `static/openapi.json`；`scripts/check-openapi.py` 必须通过。 |
 | 新日历来源或状态 | `src/models/calendar.rs` + `services/media_calendar.rs` + `docs/media-calendar.md` + API/前端测试。 |
 | 新长任务 | `JobKind` + payload + 稳定幂等键 + queue submit + `src/jobs/worker/` 独立 handler。 |
 | 新订阅规则 | `src/models/rules.rs` + `services/transfer_rule.rs` + API schema + UI。 |
@@ -340,6 +340,8 @@ sequenceDiagram
 | 新指标 | `src/utils/metrics.rs`，通过 `/api/metrics`（JSON）和 `/metrics`（Prometheus）暴露。 |
 | 新保留策略 | `services/storage.rs` 定义独立上限，先走 `/api/storage/cleanup` 预览，执行前必须创建可恢复备份。 |
 | SQLite 决策 | 只由记录数、Store 大小或复杂查询阈值触发；门槛前保持 JSON 单写，门槛后先决策和可重复导入验证，不长期双写。 |
+| 自动化认证 | `AutomationTokenStore` 只保存哈希和最小 scope；Bearer 中间件不得放行设置、备份恢复、清理或升级接口。 |
+| 订阅交换 | 使用版本化信封、只读冲突预览、原子批量 Store 更新和 Idempotency-Key；不复制 CRUD 规则到外部脚本。 |
 | 新后台调度器 | `src/services/*_scheduler.rs`，由 AppContext 初始化和启动。 |
 
 ## 当前边界与下一步

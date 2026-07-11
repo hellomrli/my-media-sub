@@ -1,4 +1,5 @@
 pub mod automation;
+pub mod automation_token;
 pub mod backup;
 pub mod calendar;
 pub mod diagnostics;
@@ -13,6 +14,7 @@ pub mod search;
 pub mod settings;
 pub mod storage;
 pub mod strm;
+pub mod subscription_exchange;
 pub mod subscription_source;
 pub mod subscriptions;
 pub mod transfer;
@@ -57,13 +59,18 @@ async fn health() -> impl IntoResponse {
 #[derive(Clone)]
 struct AuthState {
     settings_store: Arc<SettingsStore>,
+    token_store: Arc<crate::store::AutomationTokenStore>,
     failures: Arc<Mutex<HashMap<String, VecDeque<Instant>>>>,
 }
 
 impl AuthState {
-    fn new(settings_store: Arc<SettingsStore>) -> Self {
+    fn new(
+        settings_store: Arc<SettingsStore>,
+        token_store: Arc<crate::store::AutomationTokenStore>,
+    ) -> Self {
         Self {
             settings_store,
+            token_store,
             failures: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -136,6 +143,26 @@ async fn basic_auth(State(state): State<AuthState>, req: Request<Body>, next: Ne
         return auth_rate_limited_response();
     }
 
+    if let Some(token) = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+    {
+        let Some(scope) = required_token_scope(req.method(), req.uri().path()) else {
+            return json_error_response(
+                StatusCode::FORBIDDEN,
+                "insufficient_scope",
+                "自动化 Token 无权访问该管理接口",
+            );
+        };
+        return if state.token_store.authenticate(token, scope).await {
+            next.run(req).await
+        } else {
+            unauthorized_response()
+        };
+    }
+
     let settings = state.settings_store.get().await;
     if settings.app_password.is_empty() {
         tracing::warn!("拒绝请求：应用密码为空，请先配置 SERVER_PASSWORD 或系统设置密码");
@@ -164,6 +191,41 @@ async fn basic_auth(State(state): State<AuthState>, req: Request<Body>, next: Ne
     } else {
         state.record_failure(rate_key, now);
         unauthorized_response()
+    }
+}
+
+fn required_token_scope(method: &Method, path: &str) -> Option<&'static str> {
+    if path.starts_with("/api/automation-token")
+        || path.starts_with("/api/settings")
+        || path.starts_with("/api/backups")
+        || path.starts_with("/api/storage")
+        || path.starts_with("/api/update")
+    {
+        return None;
+    }
+    let read = method == Method::GET;
+    if path.starts_with("/api/subscriptions") {
+        Some(if read {
+            "subscriptions:read"
+        } else if path.ends_with("/check") || path == "/api/subscriptions/check" {
+            "subscriptions:check"
+        } else {
+            "subscriptions:write"
+        })
+    } else if path.starts_with("/api/jobs") {
+        Some(if read { "jobs:read" } else { "jobs:write" })
+    } else if path.starts_with("/api/notifications") {
+        Some(if read {
+            "notifications:read"
+        } else {
+            "notifications:write"
+        })
+    } else if path.starts_with("/api/diagnostics") || path == "/api/metrics" || path == "/metrics" {
+        Some("diagnostics:read")
+    } else if read {
+        Some("read")
+    } else {
+        None
     }
 }
 
@@ -392,7 +454,10 @@ async fn security_headers(req: Request<Body>, next: Next) -> Response {
 /// 创建主应用路由
 pub fn create_app(context: Arc<AppContext>) -> Router {
     let settings_store = context.settings_store.clone();
-    let auth_state = AuthState::new(settings_store.clone());
+    let auth_state = AuthState::new(
+        settings_store.clone(),
+        context.automation_token_store.clone(),
+    );
 
     // 静态文件服务
     let serve_static = ServeDir::new("static").append_index_html_on_directories(true);
@@ -421,6 +486,9 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
             context.metadata_service.clone(),
         ))
         .merge(automation::routes(context.clone()))
+        .merge(automation_token::routes(
+            context.automation_token_store.clone(),
+        ))
         .merge(calendar::routes(
             context.subscription_store.clone(),
             settings_store.clone(),
@@ -452,6 +520,9 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
             context.notification_store.clone(),
         ))
         .merge(subscription_source::routes(context.clone()))
+        .merge(subscription_exchange::routes(
+            context.subscription_store.clone(),
+        ))
         .route("/api/{*path}", any(api_not_found))
         .fallback_service(serve_static)
         .layer(middleware::from_fn(security_headers))
