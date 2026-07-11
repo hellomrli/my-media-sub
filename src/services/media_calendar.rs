@@ -443,6 +443,7 @@ fn build_item(
         season: subscription.season.max(1),
         episode: candidate.episode,
         episode_title: candidate.episode_title,
+        thumbnail_url: calendar_thumbnail_url(subscription, candidate.episode),
         scheduled_date: Some(candidate.date.to_string()),
         scheduled_time,
         scheduled_at,
@@ -460,6 +461,34 @@ fn build_item(
     }
 }
 
+fn calendar_thumbnail_url(subscription: &Subscription, episode: Option<i32>) -> Option<String> {
+    let metadata = subscription.metadata.as_ref()?;
+    let non_empty = |value: &Option<String>| {
+        value
+            .as_ref()
+            .map(|url| url.trim())
+            .filter(|url| !url.is_empty())
+            .map(str::to_owned)
+    };
+
+    episode
+        .and_then(|number| {
+            metadata.episodes.iter().find(|item| {
+                item.episode_number == number
+                    && (item.season_number == subscription.season.max(1) || item.season_number == 0)
+            })
+        })
+        .and_then(|item| non_empty(&item.still_url))
+        .or_else(|| {
+            metadata
+                .seasons
+                .iter()
+                .find(|item| item.season_number == subscription.season.max(1))
+                .and_then(|item| non_empty(&item.poster_url))
+        })
+        .or_else(|| non_empty(&metadata.poster_url))
+}
+
 fn unknown_schedule_item(subscription: &Subscription) -> MediaCalendarItem {
     MediaCalendarItem {
         id: format!("{}:unknown", subscription.id),
@@ -469,6 +498,7 @@ fn unknown_schedule_item(subscription: &Subscription) -> MediaCalendarItem {
         season: subscription.season.max(1),
         episode: None,
         episode_title: String::new(),
+        thumbnail_url: calendar_thumbnail_url(subscription, None),
         scheduled_date: None,
         scheduled_time: None,
         scheduled_at: None,
@@ -612,7 +642,7 @@ mod tests {
             original_title: String::new(),
             media_type: "series".to_string(),
             overview: String::new(),
-            poster_url: None,
+            poster_url: Some("https://example.test/poster.jpg".to_string()),
             backdrop_url: None,
             release_date: None,
             vote_average: None,
@@ -626,7 +656,7 @@ mod tests {
                 name: "wrong source".to_string(),
                 overview: String::new(),
                 air_date: Some("2026-07-07".to_string()),
-                still_url: None,
+                still_url: Some("https://example.test/episode-1.jpg".to_string()),
             }],
         });
         let original_metadata = serde_json::to_value(sub.metadata.as_ref().unwrap()).unwrap();
@@ -655,6 +685,14 @@ mod tests {
         assert_eq!(
             calendar.items[0].scheduled_at.as_deref(),
             Some("2026-07-06T20:30:00+08:00")
+        );
+        assert_eq!(
+            calendar.items[0].thumbnail_url.as_deref(),
+            Some("https://example.test/episode-1.jpg")
+        );
+        assert_eq!(
+            calendar.items[1].thumbnail_url.as_deref(),
+            Some("https://example.test/poster.jpg")
         );
         assert_eq!(
             serde_json::to_value(sub.metadata.as_ref().unwrap()).unwrap(),
