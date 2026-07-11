@@ -35,6 +35,18 @@ pub struct TransferRules {
     #[serde(default)]
     pub episode_regex: String,
 
+    /// 换源搜索附加关键词。
+    #[serde(default)]
+    pub source_search_keywords: Vec<String>,
+
+    /// 换源候选标题排除词。
+    #[serde(default)]
+    pub source_exclude_keywords: Vec<String>,
+
+    /// 换源候选质量偏好词（分辨率、字幕、编码或发布组）。
+    #[serde(default)]
+    pub source_prefer_keywords: Vec<String>,
+
     /// 忽略扩展名
     #[serde(default)]
     pub ignore_extensions: bool,
@@ -110,6 +122,9 @@ impl Default for TransferRules {
             exclude_keywords: default_excludes(),
             match_regex: String::new(),
             episode_regex: String::new(),
+            source_search_keywords: vec![],
+            source_exclude_keywords: vec![],
+            source_prefer_keywords: vec![],
             ignore_extensions: false,
             rename_regex: String::new(),
             rename_replacement: String::new(),

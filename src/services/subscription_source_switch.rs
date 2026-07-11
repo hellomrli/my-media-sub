@@ -84,11 +84,22 @@ impl SubscriptionSourceSwitchService {
 
             for result in search_results {
                 let url = result.url.trim().to_string();
-                if url.is_empty() || !seen_urls.insert(url.clone()) {
+                let searchable = format!("{} {}", result.note, result.source).to_lowercase();
+                if url.is_empty()
+                    || subscription
+                        .rules
+                        .source_exclude_keywords
+                        .iter()
+                        .any(|word| {
+                            let word = word.trim().to_lowercase();
+                            !word.is_empty() && searchable.contains(&word)
+                        })
+                    || !seen_urls.insert(url.clone())
+                {
                     continue;
                 }
 
-                let quality = score_source(
+                let mut quality = score_source(
                     &SourceQualityInput {
                         title: result.note.clone(),
                         datetime: result.datetime.clone(),
@@ -97,6 +108,24 @@ impl SubscriptionSourceSwitchService {
                     },
                     chrono::Utc::now().timestamp_millis(),
                 );
+                let preference_hits = subscription
+                    .rules
+                    .source_prefer_keywords
+                    .iter()
+                    .filter(|word| {
+                        let word = word.trim().to_lowercase();
+                        !word.is_empty() && searchable.contains(&word)
+                    })
+                    .count();
+                if preference_hits > 0 {
+                    quality.score = quality
+                        .score
+                        .saturating_add((preference_hits * 3).min(15) as u8)
+                        .min(100);
+                    quality
+                        .recommendation_reasons
+                        .push(format!("命中 {} 项订阅质量偏好", preference_hits));
+                }
                 candidates.push(SourceCandidate {
                     id: result.unique_id,
                     source: result.source,
@@ -108,12 +137,21 @@ impl SubscriptionSourceSwitchService {
                     quality,
                 });
 
-                if candidates.len() >= 20 {
-                    return Ok(candidates);
+                if candidates.len() >= 100 {
+                    break;
                 }
             }
         }
 
+        candidates.sort_by(|left, right| {
+            right
+                .quality
+                .score
+                .cmp(&left.quality.score)
+                .then_with(|| right.discovered_at.cmp(&left.discovered_at))
+                .then_with(|| left.url.cmp(&right.url))
+        });
+        candidates.truncate(20);
         Ok(candidates)
     }
 
@@ -552,6 +590,9 @@ fn candidate_covers_progress(subscription: &Subscription, candidate: &SourceCand
 
 fn source_search_keywords(subscription: &Subscription) -> Vec<String> {
     let mut titles = Vec::new();
+    for keyword in &subscription.rules.source_search_keywords {
+        push_unique(&mut titles, keyword);
+    }
     push_unique(&mut titles, &subscription.source_title);
     push_unique(&mut titles, &subscription.title);
     if let Some(metadata) = &subscription.metadata {
@@ -698,6 +739,21 @@ mod tests {
         assert_eq!(keywords[0], "测试剧集");
         assert!(keywords.contains(&"测试剧集 S02".to_string()));
         assert!(keywords.contains(&"测试剧集 第二季".to_string()));
+    }
+
+    #[test]
+    fn custom_source_search_keywords_are_stable_and_first() {
+        let mut sub = test_subscription();
+        sub.rules.source_search_keywords = vec!["自定义剧名".to_string(), "自定义剧名".to_string()];
+        let keywords = source_search_keywords(&sub);
+        assert_eq!(keywords[0], "自定义剧名");
+        assert_eq!(
+            keywords
+                .iter()
+                .filter(|item| item.as_str() == "自定义剧名")
+                .count(),
+            1
+        );
     }
 
     #[test]
