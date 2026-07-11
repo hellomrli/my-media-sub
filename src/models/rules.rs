@@ -47,6 +47,10 @@ pub struct TransferRules {
     #[serde(default)]
     pub source_prefer_keywords: Vec<String>,
 
+    /// 目标同名冲突策略：skip / overwrite / keep_both。
+    #[serde(default = "default_conflict_strategy")]
+    pub conflict_strategy: String,
+
     /// 忽略扩展名
     #[serde(default)]
     pub ignore_extensions: bool,
@@ -92,6 +96,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_conflict_strategy() -> String {
+    "skip".to_string()
+}
+
 fn default_duplicate_episode_strategy() -> String {
     "highest_quality".to_string()
 }
@@ -125,6 +133,7 @@ impl Default for TransferRules {
             source_search_keywords: vec![],
             source_exclude_keywords: vec![],
             source_prefer_keywords: vec![],
+            conflict_strategy: default_conflict_strategy(),
             ignore_extensions: false,
             rename_regex: String::new(),
             rename_replacement: String::new(),

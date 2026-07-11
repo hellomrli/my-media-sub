@@ -198,6 +198,41 @@ fn format_season(season: i32) -> String {
     }
 }
 
+/// Produce a portable filename for Linux, Windows and common NAS filesystems.
+pub fn portable_filename(name: &str) -> String {
+    let mut output = name
+        .chars()
+        .map(|ch| {
+            if ch.is_control() || matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+            {
+                '_'
+            } else {
+                ch
+            }
+        })
+        .collect::<String>();
+    output = output.trim().trim_end_matches(['.', ' ']).to_string();
+    if output.is_empty() {
+        output = "unnamed".to_string();
+    }
+    if output.chars().count() > 240 {
+        output = output.chars().take(240).collect();
+    }
+    output
+}
+
+fn keep_both_name(name: &str) -> String {
+    let path = Path::new(name);
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or(name);
+    match path.extension().and_then(|value| value.to_str()) {
+        Some(ext) => format!("{stem} (2).{ext}"),
+        None => format!("{stem} (2)"),
+    }
+}
+
 /// 应用重命名规则
 pub fn apply_rename(
     name: &str,
@@ -408,6 +443,7 @@ pub fn build_transfer_plan(
             } else {
                 let (target_name, rename_error) =
                     apply_rename(name, &rules, Some(subscription), episode);
+                let target_name = portable_filename(&target_name);
                 item.target_name = target_name.clone();
                 let target_compare =
                     display_name(&target_name, rules.ignore_extensions).to_lowercase();
@@ -415,7 +451,14 @@ pub fn build_transfer_plan(
                 if let Some(err) = rename_error {
                     item.skip_reason = err;
                 } else if existing.contains(&target_compare) {
-                    item.skip_reason = "目标目录已有同名文件".to_string();
+                    match rules.conflict_strategy.trim().to_ascii_lowercase().as_str() {
+                        "overwrite" => item.action = "transfer".to_string(),
+                        "keep_both" => {
+                            item.target_name = portable_filename(&keep_both_name(&target_name));
+                            item.action = "transfer".to_string();
+                        }
+                        _ => item.skip_reason = "目标目录已有同名文件".to_string(),
+                    }
                 } else if target_dir_exists == Some(false) && !rules.auto_create_target_dir {
                     item.skip_reason = "目标目录不存在且未开启自动新建".to_string();
                 } else {
@@ -904,5 +947,22 @@ mod tests {
         assert_eq!(plan.missing_episodes, vec![2]);
         assert_eq!(plan.duplicate_episodes, vec![4]);
         assert_eq!(plan.items[1].episodes, vec![3, 4]);
+    }
+
+    #[test]
+    fn portable_names_and_conflict_strategies_are_predictable() {
+        assert_eq!(portable_filename("bad:name?.mkv"), "bad_name_.mkv");
+        let files = vec![make_file("第01集.mkv")];
+        let existing = vec!["第01集.mkv".to_string()];
+        let mut rules = TransferRules::default();
+        rules.conflict_strategy = "keep_both".to_string();
+        let plan = build_transfer_plan(
+            &make_sub("测试", rules),
+            Some(&files),
+            None,
+            Some(&existing),
+            Some(true),
+        );
+        assert_eq!(plan.transfers[0].target_name, "第01集 (2).mkv");
     }
 }
