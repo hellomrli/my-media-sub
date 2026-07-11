@@ -242,6 +242,78 @@ fn percent_encode(value: &str, keep: impl Fn(u8) -> bool) -> String {
     encoded
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct StrmAuditReport {
+    pub output_dir: String,
+    pub total_files: usize,
+    pub missing: Vec<String>,
+    pub orphaned: Vec<String>,
+    pub invalid: Vec<String>,
+    pub duplicate_targets: Vec<String>,
+    pub healthy: bool,
+}
+
+pub fn audit_subscription_strm(
+    settings: &Settings,
+    sub: &Subscription,
+    target_dir: &str,
+) -> Result<StrmAuditReport> {
+    let output_dir = subscription_strm_output_dir(settings, target_dir)?;
+    let expected = sub
+        .transferred_files
+        .iter()
+        .filter(|name| crate::services::is_video_name(name))
+        .map(|name| strm_file_name(name))
+        .collect::<HashSet<_>>();
+    let mut found = HashSet::new();
+    let mut invalid = Vec::new();
+    let mut duplicate_targets = Vec::new();
+    let mut targets = HashSet::new();
+    if output_dir.is_dir() {
+        for entry in std::fs::read_dir(&output_dir)
+            .map_err(|e| AppError::Internal(format!("读取 STRM 目录失败: {e}")))?
+        {
+            let entry =
+                entry.map_err(|e| AppError::Internal(format!("读取 STRM 项目失败: {e}")))?;
+            let path = entry.path();
+            if path.extension().and_then(|v| v.to_str()) != Some("strm") {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            found.insert(name.clone());
+            let content = std::fs::read_to_string(&path)
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            if !content.starts_with("http://") && !content.starts_with("https://") {
+                invalid.push(name.clone());
+            }
+            if !content.is_empty() && !targets.insert(content) {
+                duplicate_targets.push(name);
+            }
+        }
+    }
+    let mut missing = expected.difference(&found).cloned().collect::<Vec<_>>();
+    let mut orphaned = found.difference(&expected).cloned().collect::<Vec<_>>();
+    missing.sort();
+    orphaned.sort();
+    invalid.sort();
+    duplicate_targets.sort();
+    let healthy = missing.is_empty()
+        && orphaned.is_empty()
+        && invalid.is_empty()
+        && duplicate_targets.is_empty();
+    Ok(StrmAuditReport {
+        output_dir: output_dir.display().to_string(),
+        total_files: found.len(),
+        missing,
+        orphaned,
+        invalid,
+        duplicate_targets,
+        healthy,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,6 +399,37 @@ mod tests {
         let content = std::fs::read_to_string(&result.files[0].strm_path).unwrap();
         assert!(content.starts_with("http://127.0.0.1:56001/strm/quark/fid1/"));
 
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn audit_reports_missing_orphan_invalid_and_duplicate_targets() {
+        let root =
+            std::env::temp_dir().join(format!("my-media-sub-strm-audit-{}", uuid::Uuid::new_v4()));
+        let settings = Settings {
+            strm_enabled: true,
+            strm_output_dir: root.to_string_lossy().into_owned(),
+            strm_public_base_url: "http://localhost".to_string(),
+            strm_access_token: "token".to_string(),
+            ..Default::default()
+        };
+        let mut sub = subscription();
+        sub.transferred_files = vec!["Show.S01E01.mkv".to_string(), "Show.S01E02.mkv".to_string()];
+        let dir = subscription_strm_output_dir(&settings, "/Series/Show").unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("Show.S01E01.strm"), "http://same").unwrap();
+        std::fs::write(dir.join("orphan.strm"), "http://same").unwrap();
+        std::fs::write(dir.join("invalid.strm"), "not-a-url").unwrap();
+        let report = audit_subscription_strm(&settings, &sub, "/Series/Show").unwrap();
+        assert_eq!(report.missing, vec!["Show.S01E02.strm"]);
+        assert_eq!(report.invalid, vec!["invalid.strm"]);
+        assert!(!report.orphaned.is_empty());
+        assert_eq!(report.duplicate_targets.len(), 1);
+        assert!(matches!(
+            report.duplicate_targets[0].as_str(),
+            "orphan.strm" | "Show.S01E01.strm"
+        ));
+        assert!(!report.healthy);
         let _ = std::fs::remove_dir_all(root);
     }
 }

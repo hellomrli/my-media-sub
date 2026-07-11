@@ -81,6 +81,18 @@ pub(super) async fn rename_existing_files(
 }
 
 /// 按订阅目标目录中的已有视频补齐 STRM 文件
+pub(super) async fn audit_existing_strm_files(
+    State(state): State<Arc<SubscriptionState>>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse> {
+    Ok(Json(Response::ok(
+        state
+            .transfer_service
+            .audit_existing_strm_files(&id)
+            .await?,
+    )))
+}
+
 pub(super) async fn generate_existing_strm_files(
     State(state): State<Arc<SubscriptionState>>,
     Path(id): Path<String>,

@@ -34,8 +34,8 @@ mod source;
 mod status;
 
 use actions::{
-    check_all_subscriptions, check_subscription, generate_existing_strm_files,
-    rename_existing_files,
+    audit_existing_strm_files, check_all_subscriptions, check_subscription,
+    generate_existing_strm_files, rename_existing_files,
 };
 use crud::{
     create_subscription, delete_subscription, get_subscription, list_subscriptions,
@@ -483,6 +483,10 @@ pub fn routes(
         .route(
             "/api/subscriptions/{id}/strm",
             post(generate_existing_strm_files),
+        )
+        .route(
+            "/api/subscriptions/{id}/strm/audit",
+            get(audit_existing_strm_files),
         )
         .route(
             "/api/subscriptions/{id}/metadata/scrape",
