@@ -2114,6 +2114,7 @@
                       <option value="largest_size">文件最大</option>
                       <option value="first">最先出现</option>
                     </select>
+                  <div><label class="field-label">目标同名冲突</label><select x-model="ruleCenter.conflict_strategy" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text"><option value="skip">跳过已有文件</option><option value="overwrite">覆盖已有文件</option><option value="keep_both">保留两份</option></select></div>
                   </div>
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -2728,6 +2729,7 @@
                   <option value="largest_size">文件最大</option>
                   <option value="first">最先出现</option>
                 </select>
+              <div><label class="field-label">目标同名冲突</label><select x-model="newSubscription.conflict_strategy" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text"><option value="skip">跳过已有文件</option><option value="overwrite">覆盖已有文件</option><option value="keep_both">保留两份</option></select></div>
               </div>
               <div><label class="field-label">重命名正则</label><input type="text" x-model="newSubscription.rename_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：^\\d+\\." /></div>
               <div><label class="field-label">替换文本</label><input type="text" x-model="newSubscription.rename_replacement" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：S01E$0" /></div>

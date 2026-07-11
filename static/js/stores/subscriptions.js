@@ -115,6 +115,7 @@
       only_latest: false,
       skip_existing_transferred: true,
       duplicate_episode_strategy: 'highest_quality',
+      conflict_strategy: 'skip',
       auto_create_target_dir: true,
       start_episode_number: '',
       keep_progress_on_source_change: true,
@@ -159,6 +160,7 @@
       only_latest: false,
       skip_existing_transferred: true,
       duplicate_episode_strategy: 'highest_quality',
+      conflict_strategy: 'skip',
       finish_after_episode: '',
       samples: '178重置版.mp4\n第179话.mp4\nShow.S01E180.1080p.mkv'
     },
@@ -248,6 +250,7 @@
         only_latest: false,
         skip_existing_transferred: true,
         duplicate_episode_strategy: 'highest_quality',
+      conflict_strategy: 'skip',
         auto_create_target_dir: true,
         start_episode_number: '',
         keep_progress_on_source_change: true,
@@ -406,6 +409,7 @@
         only_latest: false,
         skip_existing_transferred: true,
         duplicate_episode_strategy: 'highest_quality',
+      conflict_strategy: 'skip',
         auto_create_target_dir: true,
         start_episode_number: '',
         keep_progress_on_source_change: true,
@@ -471,6 +475,7 @@
         only_latest: !!rules.only_latest,
         skip_existing_transferred: rules.skip_existing_transferred !== false,
         duplicate_episode_strategy: rules.duplicate_episode_strategy || 'highest_quality',
+        conflict_strategy: rules.conflict_strategy || 'skip',
         auto_create_target_dir: rules.auto_create_target_dir !== false,
         start_episode_number: sub.start_episode_number || '',
         keep_progress_on_source_change: true,
@@ -680,6 +685,7 @@
         auto_create_target_dir: true,
         skip_existing_transferred: true,
         duplicate_episode_strategy: 'highest_quality',
+      conflict_strategy: 'skip',
         include_keywords: [],
         exclude_keywords: this.splitRuleWords(this.defaultExcludeKeywords()),
         match_regex: '',
@@ -758,6 +764,7 @@
       this.newSubscription.only_latest = !!next.only_latest;
       this.newSubscription.skip_existing_transferred = next.skip_existing_transferred !== false;
       this.newSubscription.duplicate_episode_strategy = next.duplicate_episode_strategy || 'highest_quality';
+      this.newSubscription.conflict_strategy = next.conflict_strategy || 'skip';
       this.newSubscription.auto_create_target_dir = next.auto_create_target_dir !== false;
       this.newSubscription.finish_after_episode = next.finish_after_episode || '';
     },
@@ -783,6 +790,7 @@
       this.ruleCenter.only_latest = !!rules.only_latest;
       this.ruleCenter.skip_existing_transferred = rules.skip_existing_transferred !== false;
       this.ruleCenter.duplicate_episode_strategy = rules.duplicate_episode_strategy || 'highest_quality';
+      this.ruleCenter.conflict_strategy = rules.conflict_strategy || 'skip';
       this.ruleCenter.finish_after_episode = rules.finish_after_episode || '';
       if (preset.media_type) {
         this.ruleCenter.media_type = preset.media_type;
@@ -862,6 +870,7 @@
         rename_template: String(this.ruleCenter.rename_template || '').trim(),
         only_latest: !!this.ruleCenter.only_latest,
         duplicate_episode_strategy: this.ruleCenter.duplicate_episode_strategy || 'highest_quality',
+        conflict_strategy: this.ruleCenter.conflict_strategy || 'skip',
         notify_on_update: true,
         notify_on_invalid: true,
         check_interval_minutes: Number(this.settings.subscription_check_interval_minutes || 60),
@@ -1278,6 +1287,7 @@
         rename_template: this.resolveSubscriptionRenameTemplate(),
         only_latest: !!this.newSubscription.only_latest,
         duplicate_episode_strategy: this.newSubscription.duplicate_episode_strategy || 'highest_quality',
+        conflict_strategy: this.newSubscription.conflict_strategy || 'skip',
         notify_on_update: true,
         notify_on_invalid: true,
         check_interval_minutes: Number(this.settings.subscription_check_interval_minutes || 60),
