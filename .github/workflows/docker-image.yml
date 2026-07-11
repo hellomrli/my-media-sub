@@ -65,5 +65,14 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Smoke test Docker data volume upgrade
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          CURRENT_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA::7}"
+          scripts/smoke-docker-upgrade.sh \
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:1.3.0" \
+            "$CURRENT_IMAGE"
+
       - name: Show published tags
         run: echo "${{ steps.meta.outputs.tags }}"

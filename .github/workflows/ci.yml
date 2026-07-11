@@ -59,3 +59,19 @@ jobs:
 
       - name: Smoke test release binary
         run: scripts/smoke-release.sh target/release/my-media-sub
+
+      - name: Download v1.3.0 upgrade baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSLO https://github.com/hellomrli/my-media-sub/releases/download/v1.3.0/my-media-sub-v1.3.0-linux-x86_64.tar.gz
+          curl -fsSLO https://github.com/hellomrli/my-media-sub/releases/download/v1.3.0/my-media-sub-v1.3.0-linux-x86_64.tar.gz.sha256
+          sha256sum -c my-media-sub-v1.3.0-linux-x86_64.tar.gz.sha256
+          tar -xzf my-media-sub-v1.3.0-linux-x86_64.tar.gz
+
+      - name: Smoke test v1.3.0 binary data upgrade
+        run: |
+          scripts/smoke-upgrade.sh \
+            my-media-sub-v1.3.0-linux-x86_64/my-media-sub \
+            my-media-sub-v1.3.0-linux-x86_64/static \
+            target/release/my-media-sub static
