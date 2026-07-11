@@ -31,6 +31,6 @@ pub use source_quality::SourceQuality;
 pub use notification::Notification;
 
 pub use metadata::{
-    episode_count_for_season, MediaMetadata, MediaMetadataEpisode, MediaMetadataSeason,
-    MetadataProvider,
+    episode_count_for_season, merge_refreshed_metadata, MediaMetadata, MediaMetadataEpisode,
+    MediaMetadataSeason, MetadataProvider,
 };

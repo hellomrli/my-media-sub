@@ -50,6 +50,34 @@ pub fn reopen_completed_subscription_status(sub: &mut Subscription) -> bool {
     true
 }
 
+/// Reconcile persisted completion flags after totals, rules, or metadata change.
+/// Automatic-transfer subscriptions complete from transferred evidence, notify-only
+/// subscriptions from discovered evidence, and download-synced subscriptions remain
+/// active until the download monitor records the target as completed.
+pub fn reconcile_completed_subscription_status(sub: &mut Subscription) -> bool {
+    if reopen_completed_subscription_status(sub) {
+        return true;
+    }
+    if sub.completed || sub.status == "completed" || sub.sync_download_enabled {
+        return false;
+    }
+
+    let reached = if sub.notify_only {
+        should_mark_completed_from_known_episodes(sub, &[])
+    } else {
+        should_mark_completed_from_transferred_files(sub, &[])
+    };
+    if !reached {
+        return false;
+    }
+
+    sub.completed = true;
+    sub.status = "completed".to_string();
+    sub.invalid_since = None;
+    sub.last_error = String::new();
+    true
+}
+
 pub fn episode_numbers_from_file_names<'a>(
     file_names: impl IntoIterator<Item = &'a String>,
 ) -> Vec<i32> {
@@ -201,6 +229,32 @@ mod tests {
 
         sub.current_episode_number = 190;
         assert!(!should_reopen_completed_subscription(&sub));
+    }
+
+    #[test]
+    fn reconcile_marks_transferred_target_completed_even_when_current_progress_lags() {
+        let mut sub = subscription();
+        sub.current_episode_number = 11;
+        sub.transferred_files = vec!["Show.S01E12.mkv".to_string()];
+
+        assert!(reconcile_completed_subscription_status(&mut sub));
+        assert!(sub.completed);
+        assert_eq!(sub.status, "completed");
+    }
+
+    #[test]
+    fn reconcile_uses_known_target_for_notify_only_but_waits_for_synced_downloads() {
+        let mut notify_only = subscription();
+        notify_only.notify_only = true;
+        notify_only.known_episodes.push(12);
+        assert!(reconcile_completed_subscription_status(&mut notify_only));
+        assert!(notify_only.completed);
+
+        let mut synced = subscription();
+        synced.sync_download_enabled = true;
+        synced.transferred_files = vec!["Show.S01E12.mkv".to_string()];
+        assert!(!reconcile_completed_subscription_status(&mut synced));
+        assert!(!synced.completed);
     }
 
     #[test]

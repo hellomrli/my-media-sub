@@ -21,6 +21,13 @@ test('downloads store normalizes groups, summaries, and task capabilities', () =
     resume: true,
     stop: true
   });
+  assert.deepEqual(
+    downloads.flattenDownloadTasks({
+      active: [{gid: 'same', status: 'active'}],
+      waiting: [{gid: 'same', status: 'waiting'}, {gid: 'next', status: 'waiting'}]
+    }).map(task => task.gid),
+    ['same', 'next']
+  );
 });
 
 test('drive store filters videos and keeps folders first while sorting', () => {

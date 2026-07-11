@@ -25,7 +25,17 @@
 
   function flattenDownloadTasks(value) {
     const groups = normalizeDownloadGroups(value);
-    return [...groups.active, ...groups.waiting, ...groups.stopped];
+    const tasks = [...groups.active, ...groups.waiting, ...groups.stopped];
+    const seen = new Set();
+    return tasks.filter(task => {
+      const gid = String((task && task.gid) || '').trim();
+      // Aria2 can briefly expose the same gid in adjacent status snapshots. Duplicate
+      // x-for keys make Alpine's DOM mover lose its anchor and throw while polling.
+      if (!gid) return true;
+      if (seen.has(gid)) return false;
+      seen.add(gid);
+      return true;
+    });
   }
 
   function summarizeActiveDownloads(value) {

@@ -13,12 +13,12 @@
 
 ## 当前执行指针
 
-- **当前阶段**：v1.13.0 已正式发布，P20–P21 全部完成
-- **当前任务**：保存 v1.13.0 发布交接
-- **下一任务**：尚未规划 P22，需先确认下一阶段产品目标
+- **当前阶段**：P22 已完成，正在提交并同步发布后修复
+- **当前任务**：复核 diff、创建提交并推送 GitHub main
+- **下一任务**：确认 GitHub CI；未经明确要求不创建新 tag 或 Release
 - **后续阶段**：保持单实例安全模型；未经明确需求不启动多用户、SQLite 或第二 Provider
-- **当前发布基线**：v1.13.0 为 GitHub latest；Linux x86_64 归档/SHA256 与 GHCR 1.13.0/1.13/latest 可用
-- **工作树状态**：release commit `6037e6d`、annotated tag `v1.13.0`、Release 与镜像均已完成
+- **当前发布基线**：v1.13.0 仍为 GitHub latest；本轮是 main 上的发布后修复
+- **工作树状态**：434 个 Rust 测试登记（433 通过、1 忽略）、17 个前端测试及完整质量门/smoke 已通过
 
 ---
 
@@ -1095,3 +1095,24 @@ P20 最终验证：408 个 Rust 测试登记，407 个通过、1 个真实 PanSo
 P21 最终验证：426 个 Rust 测试登记，425 个通过、1 个真实 PanSou 网络测试按设计忽略；14 个前端 Node 测试通过；rustfmt、all-targets/all-features check、Clippy `-D warnings`、OpenAPI 91 paths/103 operations 契约、JavaScript 语法、Telegram smoke 跳过路径和 `git diff --check` 通过。
 
 P21 明确边界：仅允许预定义命令和预定义资源操作；不执行 shell、不接受任意文件路径、不回显 Cookie/Token/密码、不把群聊成员视为系统用户、不绕过 Basic Auth/自动化 Token 的单实例安全模型。
+
+## P22. 订阅状态、WebUI 可靠性与架构清理
+
+> 本阶段修复实际使用中发现的状态与渲染问题，不改变单实例安全模型、Store schema 或生产 Provider 范围。
+
+- [x] `P22-01` 修复已完结订阅未进入“已完结”列表。
+  - 前端不再用可能滞后的展示进度覆盖后端持久化的 `completed/status`；后端在元数据、总集数或规则更新后按 notify-only、转存和下载三种证据重新协调完结状态。
+  - 转存目标已达到但 `current_episode_number` 尚未同步时仍保持权威完结；同步下载订阅继续等待 DownloadMonitor。
+- [x] `P22-02` 修复剧集缩略图偶发丢失。
+  - 同一 TMDB item 刷新遇到部分季请求失败时，保留已有 poster、season poster、episode still 和缺失季/剧集数据；切换 provider item 时不错误合并旧图片。
+  - 远程图片加载失败只暂时隐藏，后续 URL 更新或重试成功会恢复展示；日历继续使用 still → season poster → media poster 优先级。
+- [x] `P22-03` 修复 Alpine 偶发 `Cannot read properties of undefined (reading 'after')`。
+  - Aria2 跨状态快照按 gid 去重；轮询频繁的 API 列表使用含索引兜底的防碰撞 render key，避免重复/缺失业务 ID 破坏 Alpine DOM 移动锚点。
+- [x] `P22-04` 重构工作台为运行概览。
+  - 删除“你的媒体库，正在自动生长”等广告式文案和无操作价值的装饰进度；直接显示失效订阅、失败任务、未读通知、运行任务和明确处理入口。
+- [x] `P22-05` 全项目架构与文档一致性审计。
+  - `architecture.md` 从过时 v1.3.0 快照重写为 v1.13.0+ 当前架构，补齐 Bearer scope、Telegram、PWA、AutomationEvent、备份/生命周期和 JSON 单写边界。
+  - `architecture.dot/svg/png` 从同一当前 Graphviz 源重新生成；README 构建标签/测试说明、API 契约与日历文档移除过时“当前基线”描述。
+- [x] `P22-06` 完整质量门、Release 二进制和真实浏览器 smoke。
+  - 434 个 Rust 测试登记（433 通过、1 个真实 PanSou 网络测试按设计忽略），17 个前端 Node 测试和 OpenAPI 91 paths/103 operations 通过。
+  - rustfmt、all-targets/all-features locked check、Clippy `-D warnings`、完整 Rust 测试、Release build、二进制 smoke、10 秒/1428 请求 soak、390/1440px 真实浏览器 E2E、Telegram 安全跳过和 `git diff --check` 通过。

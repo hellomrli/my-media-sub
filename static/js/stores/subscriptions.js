@@ -998,9 +998,9 @@
     subscriptionStatusKey(subOrStatus) {
       if (subOrStatus && typeof subOrStatus === 'object') {
         if (subOrStatus.status === 'invalid' || subOrStatus.invalid_since) return 'invalid';
-        const current = Number(subOrStatus.current_episode_number || 0);
-        const total = Number((subOrStatus.total_episode_number) || (subOrStatus.rules && subOrStatus.rules.finish_after_episode) || 0);
-        if ((subOrStatus.status === 'completed' || subOrStatus.completed) && total > 0 && current < total) return 'active';
+        // Completion is persisted by the backend from discovered/transfer/download evidence.
+        // Do not reclassify it from the display progress: transfer completion can be
+        // authoritative even when current_episode_number has not caught up yet.
         if (subOrStatus.status === 'completed' || subOrStatus.completed) return 'completed';
         return 'active';
       }

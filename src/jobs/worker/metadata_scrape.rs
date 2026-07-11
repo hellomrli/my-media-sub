@@ -138,13 +138,13 @@ impl JobWorker {
     ) -> Result<()> {
         self.subscription_store
             .update(subscription_id, |sub| {
-                sub.metadata = Some(metadata);
+                sub.metadata = Some(merge_refreshed_metadata(sub.metadata.as_ref(), metadata));
                 if let Some(count) = episode_count_for_season(sub.metadata.as_ref(), sub.season) {
                     sub.total_episode_number = Some(count);
                 } else if sub.total_episode_number.is_none() {
                     sub.total_episode_number = sub.rules.finish_after_episode;
                 }
-                reopen_completed_subscription_status(sub);
+                reconcile_completed_subscription_status(sub);
                 sub.updated_at = now();
             })
             .await?

@@ -38,11 +38,33 @@
       };
     },
 
-    get dashboardLibraryProgress() {
-      const episodic = this.subscriptions.filter(sub => sub.media_type !== 'movie');
-      if (!episodic.length) return this.subscriptions.length ? 100 : 0;
-      const values = episodic.map(sub => this.subscriptionProgressPercent(sub)).filter(value => Number.isFinite(value));
-      return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+    get dashboardAttentionCount() {
+      return this.dashboardStats.invalidSubs
+        + this.dashboardStats.failedJobs
+        + this.dashboardStats.unreadNotifications;
+    },
+
+    dashboardStatusSummary() {
+      if (this.subscriptions.length === 0) {
+        return '当前还没有订阅。可以先搜索资源并创建订阅。';
+      }
+      if (this.dashboardAttentionCount === 0) {
+        return `共 ${this.subscriptions.length} 个订阅；当前没有失效订阅、失败任务或未读通知。`;
+      }
+      return `共 ${this.subscriptions.length} 个订阅，${this.dashboardAttentionCount} 项状态需要处理。`;
+    },
+
+    openDashboardAttention(kind) {
+      if (kind === 'subscriptions') {
+        this.setSubscriptionStatusTab('invalid');
+        this.selectTab('subscriptions');
+      } else if (kind === 'jobs') {
+        this.backgroundJobFilterStatus = 'failed';
+        this.selectTab('transferHistory');
+      } else if (kind === 'notifications') {
+        this.notificationFilter = 'unread';
+        this.selectTab('notifications');
+      }
     },
 
     dashboardDateLabel() {

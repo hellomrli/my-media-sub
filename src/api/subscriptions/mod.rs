@@ -12,13 +12,13 @@ use super::response::ApiResponse as Response;
 use crate::error::{AppError, Result};
 use crate::jobs::{JobQueue, JobStore, MetadataScrapePayload};
 use crate::models::{
-    episode_count_for_season, MediaMetadata, MediaScheduleOverride, Settings, Subscription,
-    TransferRules,
+    episode_count_for_season, merge_refreshed_metadata, MediaMetadata, MediaScheduleOverride,
+    Settings, Subscription, TransferRules,
 };
 use crate::providers::validate_cloud_type;
 use crate::services::media_calendar::validate_manual_schedule;
 use crate::services::subscription_check::CheckDetails;
-use crate::services::subscription_progress::reopen_completed_subscription_status;
+use crate::services::subscription_progress::reconcile_completed_subscription_status;
 use crate::services::subscription_status::{build_subscription_detail, SubscriptionDetail};
 use crate::services::transfer_rule::{
     build_transfer_plan, effective_rules, summarize_rules, ProbeFile as RuleProbeFile,

@@ -100,7 +100,7 @@
       <header class="app-header sticky top-0 z-30 px-4 sm:px-6 py-3">
         <div class="header-row">
           <div class="page-heading min-w-0">
-            <div class="eyebrow">PERSONAL MEDIA OPS <span>/</span> <span x-text="tabs.find(t => t.id === currentTab)?.name"></span></div>
+            <div class="eyebrow">单实例管理 <span>/</span> <span x-text="tabs.find(t => t.id === currentTab)?.name"></span></div>
             <div class="flex items-end gap-3 min-w-0">
               <h2 class="page-title" x-text="tabs.find(t => t.id === currentTab)?.name"></h2>
               <span class="page-description hidden sm:block" x-text="tabs.find(t => t.id === currentTab)?.description"></span>
@@ -160,48 +160,41 @@
           </section>
           <section x-show="dashboardWidgetEnabled('hero')" class="dashboard-hero">
             <div class="hero-copy">
-              <div class="hero-kicker"><span class="status-pulse"></span><span x-text="dashboardDateLabel()"></span></div>
-              <h1>你的媒体库，<br><span>正在自动生长。</span></h1>
-              <p>搜索、追更、转存与下载都汇集在这里。保持订阅运行，其余交给自动化。</p>
+              <div class="hero-kicker"><span class="status-pulse"></span><span>运行概览</span><span>·</span><span x-text="dashboardDateLabel()"></span></div>
+              <h1>媒体自动化工作台</h1>
+              <p x-text="dashboardStatusSummary()"></p>
               <div class="hero-actions">
-                <button @click="selectTab('search')" class="btn-primary hero-primary-action">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5-5m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                  寻找新内容
-                </button>
-                <button @click="checkAllSubscriptions()" :disabled="checkingAllSubscriptions" class="hero-secondary-action">
+                <button @click="checkAllSubscriptions()" :disabled="checkingAllSubscriptions" class="btn-primary hero-primary-action">
                   <svg class="w-4 h-4" :class="checkingAllSubscriptions ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5m11 11v-5h-5M5.1 9A8 8 0 0119 6.3M18.9 15A8 8 0 015 17.7"/></svg>
                   <span x-text="checkingAllSubscriptions ? '检查中' : '检查全部订阅'"></span>
+                </button>
+                <button @click="selectTab('search')" class="hero-secondary-action">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5-5m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                  搜索资源
                 </button>
               </div>
               <div class="hero-facts">
                 <div><strong x-text="dashboardStats.activeSubs"></strong><span>追更中</span></div>
                 <div><strong x-text="dashboardStats.completedSubs"></strong><span>已完结</span></div>
-                <div><strong x-text="dashboardStats.runningJobs"></strong><span>任务运行</span></div>
+                <div><strong x-text="dashboardStats.runningJobs"></strong><span>运行中任务</span></div>
               </div>
             </div>
 
-            <div class="hero-visual" aria-hidden="true">
-              <div class="hero-orbit orbit-one"></div>
-              <div class="hero-orbit orbit-two"></div>
-              <div class="library-progress-ring" :style="'--progress:' + dashboardLibraryProgress + '%'">
-                <div>
-                  <strong x-text="Math.round(dashboardLibraryProgress) + '%'">0%</strong>
-                  <span>媒体进度</span>
+            <div class="hero-visual">
+              <div class="dashboard-attention-board">
+                <div class="attention-board-heading">
+                  <div><span>待处理事项</span><strong x-text="dashboardAttentionCount"></strong></div>
+                  <small x-text="dashboardAttentionCount ? '请优先处理异常状态' : '当前没有待处理异常'"></small>
                 </div>
-              </div>
-              <div class="poster-stack">
-                <template x-for="(sub, index) in dashboardRecentSubscriptions.slice(0, 4)" :key="sub.id">
-                  <div class="poster-card" :style="'--poster-index:' + index">
-                    <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" />
-                    <div x-show="!subscriptionPoster(sub)" class="poster-fallback">
-                      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16v12H4zM8 4v16m8-16v16M4 10h4m8 0h4M4 14h4m8 0h4"/></svg>
-                      <span x-text="subscriptionDisplayTitle(sub).slice(0, 4)"></span>
-                    </div>
-                  </div>
-                </template>
-                <div x-show="dashboardRecentSubscriptions.length === 0" class="poster-card poster-empty">
-                  <div class="poster-fallback"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16v12H4zM8 4v16m8-16v16"/></svg><span>等待添加</span></div>
-                </div>
+                <button @click="openDashboardAttention('subscriptions')" :class="dashboardStats.invalidSubs ? 'has-warning' : ''">
+                  <span>失效订阅</span><strong x-text="dashboardStats.invalidSubs"></strong><small>查看并换源</small>
+                </button>
+                <button @click="openDashboardAttention('jobs')" :class="dashboardStats.failedJobs ? 'has-warning' : ''">
+                  <span>失败任务</span><strong x-text="dashboardStats.failedJobs"></strong><small>查看错误与重试</small>
+                </button>
+                <button @click="openDashboardAttention('notifications')" :class="dashboardStats.unreadNotifications ? 'has-notice' : ''">
+                  <span>未读通知</span><strong x-text="dashboardStats.unreadNotifications"></strong><small>查看运行消息</small>
+                </button>
               </div>
             </div>
           </section>
@@ -232,7 +225,7 @@
           <div x-show="dashboardWidgetEnabled('library') || dashboardWidgetEnabled('operations')" class="dashboard-main-grid">
             <section class="media-shelf app-panel">
               <div class="panel-heading">
-                <div><span class="panel-eyebrow">LIBRARY PULSE</span><h3>最近追更</h3><p>按最近检查时间排列的媒体内容</p></div>
+                <div><h3>最近检查的订阅</h3><p>按最近检查时间排列，可直接查看进度与状态</p></div>
                 <button @click="selectTab('subscriptions')" class="text-action">查看全部 <span>→</span></button>
               </div>
               <div class="media-card-grid">
@@ -256,7 +249,7 @@
                   </button>
                 </template>
                 <button x-show="dashboardRecentSubscriptions.length === 0" @click="selectTab('search')" class="media-card media-card-add">
-                  <span>＋</span><strong>添加第一部媒体</strong><small>从资源搜索开始</small>
+                  <span>＋</span><strong>添加订阅</strong><small>搜索资源并创建追更任务</small>
                 </button>
               </div>
             </section>
@@ -264,7 +257,7 @@
             <aside class="operations-column">
               <section class="app-panel operations-panel">
                 <div class="panel-heading compact">
-                  <div><span class="panel-eyebrow">QUARK CLOUD</span><h3>网盘健康</h3></div>
+                  <div><h3>夸克网盘状态</h3></div>
                   <button @click="refreshQuarkHealth()" :disabled="quarkHealthLoading" class="icon-button small" title="检测夸克状态">
                     <svg class="w-4 h-4" :class="quarkHealthLoading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5m11 11v-5h-5M5.1 9A8 8 0 0119 6.3M18.9 15A8 8 0 015 17.7"/></svg>
                   </button>
@@ -282,15 +275,15 @@
               </section>
 
               <section class="app-panel activity-panel automation-health-panel">
-                <div class="panel-heading compact"><div><span class="panel-eyebrow">AUTOMATION HEALTH</span><h3>自动化健康</h3></div><button @click="loadAutomationSummary()" class="text-action">刷新</button></div>
+                <div class="panel-heading compact"><div><h3>自动化执行状态</h3></div><button @click="loadAutomationSummary()" class="text-action">刷新</button></div>
                 <div class="grid grid-cols-3 gap-2 text-center text-xs"><div class="app-panel-soft p-2"><strong class="block text-lg text-success" x-text="Math.round(Number(automationSummary.success_rate || 0)) + '%'">0%</strong><span>成功率</span></div><div class="app-panel-soft p-2"><strong class="block text-lg text-danger" x-text="(automationSummary.recent_failed || []).length">0</strong><span>最近失败</span></div><div class="app-panel-soft p-2"><strong class="block text-lg text-warning" x-text="(automationSummary.stuck || []).length">0</strong><span>卡住</span></div></div>
-                <div class="activity-list mt-3"><template x-for="event in (automationSummary.recent_failed || []).slice(0, 3)" :key="event.id"><button @click="event.subscription_id && openSubscriptionDetail(event.subscription_id)" class="activity-item"><span class="activity-dot failed"></span><span class="activity-copy"><strong x-text="automationStageLabel(event.stage)"></strong><small x-text="event.error || event.message"></small></span><time x-text="formatTime(event.updated_at)"></time></button></template><div x-show="!(automationSummary.recent_failed || []).length" class="activity-empty">最近没有失败阶段</div></div>
+                <div class="activity-list mt-3"><template x-for="(event, eventIndex) in (automationSummary.recent_failed || []).slice(0, 3)" :key="'dashboard-event-' + (event.id || 'missing') + '-' + eventIndex"><button @click="event.subscription_id && openSubscriptionDetail(event.subscription_id)" class="activity-item"><span class="activity-dot failed"></span><span class="activity-copy"><strong x-text="automationStageLabel(event.stage)"></strong><small x-text="event.error || event.message"></small></span><time x-text="formatTime(event.updated_at)"></time></button></template><div x-show="!(automationSummary.recent_failed || []).length" class="activity-empty">最近没有失败阶段</div></div>
               </section>
 
               <section class="app-panel activity-panel">
-                <div class="panel-heading compact"><div><span class="panel-eyebrow">ACTIVITY</span><h3>最新动态</h3></div><button @click="selectTab('transferHistory')" class="text-action">日志 →</button></div>
+                <div class="panel-heading compact"><div><h3>最近任务</h3></div><button @click="selectTab('transferHistory')" class="text-action">日志 →</button></div>
                 <div class="activity-list">
-                  <template x-for="job in dashboardRecentJobs.slice(0, 4)" :key="job.id">
+                  <template x-for="(job, jobIndex) in dashboardRecentJobs.slice(0, 4)" :key="'dashboard-job-' + (job.id || 'missing') + '-' + jobIndex">
                     <button @click="selectTab('transferHistory')" class="activity-item">
                       <span class="activity-dot" :class="job.status"></span>
                       <span class="activity-copy"><strong x-text="job.title || jobKindLabel(job.kind)"></strong><small x-text="job.message || job.error || jobKindLabel(job.kind)"></small></span>
@@ -302,9 +295,9 @@
               </section>
 
               <section class="app-panel inbox-panel">
-                <div class="panel-heading compact"><div><span class="panel-eyebrow">INBOX</span><h3>通知</h3></div><button @click="selectTab('notifications')" class="text-action">全部 →</button></div>
+                <div class="panel-heading compact"><div><h3>最近通知</h3></div><button @click="selectTab('notifications')" class="text-action">全部 →</button></div>
                 <div class="inbox-list">
-                  <template x-for="notif in dashboardRecentNotifications.slice(0, 3)" :key="notif.id">
+                  <template x-for="(notif, notifIndex) in dashboardRecentNotifications.slice(0, 3)" :key="'dashboard-notification-' + (notif.id || 'missing') + '-' + notifIndex">
                     <button @click="selectTab('notifications')" class="inbox-item">
                       <span class="inbox-level" :class="notif.level"></span>
                       <span><strong x-text="notif.title"></strong><small x-text="notif.message"></small></span>
@@ -367,10 +360,10 @@
                 <div class="calendar-day-column" :class="day.isToday ? 'is-today' : ''">
                   <div class="calendar-day-head"><span x-text="calendarDateLabel(day.key, true)"></span><strong x-text="day.day"></strong><small x-text="day.items.length + ' 项'"></small></div>
                   <div class="calendar-day-items">
-                    <template x-for="item in day.items" :key="item.id">
+                    <template x-for="(item, itemIndex) in day.items" :key="'calendar-week-' + (item.id || 'missing') + '-' + itemIndex">
                       <article :class="calendarItemClass(item)">
                         <div class="calendar-item-head"><span class="calendar-status-dot"></span><small x-text="item.scheduled_time || '日期排期'"></small></div>
-                        <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-item-title"><img x-show="item.thumbnail_url" :src="item.thumbnail_url" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="$el.style.display = 'none'" class="calendar-thumbnail is-week"><span><strong x-text="item.subscription_title"></strong><small x-text="item.episode ? 'S' + item.season + ' · E' + item.episode : '上映 / 开播'"></small></span></button>
+                        <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-item-title"><img x-show="item.thumbnail_url" :src="item.thumbnail_url" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="$el.hidden = true" @load="$el.hidden = false" class="calendar-thumbnail is-week"><span><strong x-text="item.subscription_title"></strong><small x-text="item.episode ? 'S' + item.season + ' · E' + item.episode : '上映 / 开播'"></small></span></button>
                         <div class="calendar-item-badges"><span x-text="calendarStatusLabel(item.primary_status)"></span><span :class="'is-' + item.confidence" x-text="calendarConfidenceLabel(item.confidence)"></span></div>
                         <div class="calendar-item-actions"><button @click="openSubscriptionDetail(item.subscription_id)">详情</button><button x-show="item.actions.can_check" @click="runCalendarAction(item, false)">检查</button><button x-show="item.actions.can_repair" @click="runCalendarAction(item, true)" class="is-repair">补集</button></div>
                       </article>
@@ -389,8 +382,8 @@
                 <div class="calendar-month-day" :class="{'is-outside': !day.inMonth, 'is-today': day.isToday}">
                   <div class="calendar-month-date"><strong x-text="day.day"></strong><small x-show="day.items.length" x-text="day.items.length"></small></div>
                   <div class="calendar-month-items">
-                    <template x-for="item in day.items.slice(0, 3)" :key="item.id">
-                      <button @click="openSubscriptionDetail(item.subscription_id)" :class="calendarItemClass(item)"><img x-show="item.thumbnail_url" :src="item.thumbnail_url" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="$el.style.display = 'none'" class="calendar-thumbnail is-month"><span x-text="item.scheduled_time || '全天'"></span><strong x-text="item.subscription_title"></strong><small x-text="item.episode ? 'E' + item.episode : '上映'"></small></button>
+                    <template x-for="(item, itemIndex) in day.items.slice(0, 3)" :key="'calendar-month-' + (item.id || 'missing') + '-' + itemIndex">
+                      <button @click="openSubscriptionDetail(item.subscription_id)" :class="calendarItemClass(item)"><img x-show="item.thumbnail_url" :src="item.thumbnail_url" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="$el.hidden = true" @load="$el.hidden = false" class="calendar-thumbnail is-month"><span x-text="item.scheduled_time || '全天'"></span><strong x-text="item.subscription_title"></strong><small x-text="item.episode ? 'E' + item.episode : '上映'"></small></button>
                     </template>
                     <button x-show="day.items.length > 3" @click="setCalendarView('list')" class="calendar-month-more" x-text="'还有 ' + (day.items.length - 3) + ' 项'"></button>
                   </div>
@@ -404,10 +397,10 @@
               <div class="calendar-list-group app-panel" :class="group.key === 'unknown' ? 'is-unknown' : ''">
                 <div class="calendar-list-date"><span x-text="calendarDateLabel(group.key, true)"></span><strong x-text="group.items.length + ' 项'"></strong></div>
                 <div class="calendar-list-items">
-                  <template x-for="item in group.items" :key="item.id">
+                  <template x-for="(item, itemIndex) in group.items" :key="'calendar-list-' + (item.id || 'missing') + '-' + itemIndex">
                     <article :class="calendarItemClass(item)">
                       <div class="calendar-list-time"><strong x-text="item.scheduled_time || (item.scheduled_date ? '全天' : '—')"></strong><span x-text="calendarStatusLabel(item.primary_status)"></span></div>
-                      <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-list-title"><img x-show="item.thumbnail_url" :src="item.thumbnail_url" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="$el.style.display = 'none'" class="calendar-thumbnail is-list"><span><strong x-text="item.subscription_title"></strong><small x-text="item.episode ? '第 ' + item.episode + ' 集' : (item.scheduled_date ? '上映 / 开播' : '等待补充排期')"></small></span></button>
+                      <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-list-title"><img x-show="item.thumbnail_url" :src="item.thumbnail_url" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="$el.hidden = true" @load="$el.hidden = false" class="calendar-thumbnail is-list"><span><strong x-text="item.subscription_title"></strong><small x-text="item.episode ? '第 ' + item.episode + ' 集' : (item.scheduled_date ? '上映 / 开播' : '等待补充排期')"></small></span></button>
                       <div class="calendar-list-source"><span x-text="calendarSourceLabel(item.schedule_source)"></span><small :class="'is-' + item.confidence" x-text="calendarConfidenceLabel(item.confidence)"></small></div>
                       <div class="calendar-list-actions"><button @click="openSubscriptionDetail(item.subscription_id)">详情</button><button x-show="item.actions.can_check" @click="runCalendarAction(item, false)">检查</button><button x-show="item.actions.can_repair" @click="runCalendarAction(item, true)" class="is-repair">检查并补集</button></div>
                     </article>
@@ -538,14 +531,14 @@
             </div>
 
             <div x-show="searchViewMode === 'poster' && visibleSearchResults.length > 0" class="search-result-grid">
-              <template x-for="result in visibleSearchResults" :key="result.unique_id || result.url">
+              <template x-for="(result, resultIndex) in visibleSearchResults" :key="'search-result-' + (result.unique_id || result.url || 'missing') + '-' + resultIndex">
                 <article class="search-result-card" @click="openSearchResultPreview(result)" tabindex="0" @keydown.enter.prevent="openSearchResultPreview(result)">
                   <div class="search-result-poster">
                     <div class="search-result-poster-fallback">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M4 5h16v14H4zM8 3v4m8-4v4M4 10h16M8 15h.01M12 15h.01M16 15h.01"/></svg>
                       <span x-text="cloudTypeLabel(result.cloud_type)"></span>
                     </div>
-                    <img x-show="searchResultInsights(result).poster" :src="searchResultInsights(result).poster" :alt="searchResultTitle(result)" class="search-result-poster-image" @error="$el.style.display = 'none'" />
+                    <img x-show="searchResultInsights(result).poster" :src="searchResultInsights(result).poster" :alt="searchResultTitle(result)" class="search-result-poster-image" @error="$el.hidden = true" @load="$el.hidden = false" />
                     <div class="search-result-poster-shade"></div>
                     <div class="search-card-badges">
                       <span :class="searchResultValidityBadgeClass(result)" x-text="searchResultValidityLabel(result)"></span>
@@ -590,12 +583,12 @@
               <div class="search-result-list-head">
                 <span>资源与版本</span><span>质量</span><span>内容</span><span>更新时间</span><span>操作</span>
               </div>
-              <template x-for="result in visibleSearchResults" :key="result.unique_id || result.url">
+              <template x-for="(result, resultIndex) in visibleSearchResults" :key="'search-result-' + (result.unique_id || result.url || 'missing') + '-' + resultIndex">
                 <div class="search-result-list-row" @dblclick="openSearchResultPreview(result)">
                   <div class="search-list-resource">
                     <div class="search-list-thumb">
                       <span x-text="cloudTypeLabel(result.cloud_type).slice(0, 1)"></span>
-                      <img x-show="searchResultInsights(result).poster" :src="searchResultInsights(result).poster" :alt="searchResultTitle(result)" @error="$el.style.display = 'none'" />
+                      <img x-show="searchResultInsights(result).poster" :src="searchResultInsights(result).poster" :alt="searchResultTitle(result)" @error="$el.hidden = true" @load="$el.hidden = false" />
                     </div>
                     <div class="min-w-0">
                       <strong x-text="searchResultTitle(result)"></strong>
@@ -644,7 +637,7 @@
                     <div class="search-preview-visual">
                       <div class="search-preview-poster">
                         <div class="search-result-poster-fallback"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 5h16v14H4zM8 3v4m8-4v4M4 10h16"/></svg><span>MEDIA/SUB</span></div>
-                        <img x-show="selectedSearchResultInsight.poster" :src="selectedSearchResultInsight.poster" :alt="searchResultTitle(selectedSearchResult)" @error="$el.style.display = 'none'" />
+                        <img x-show="selectedSearchResultInsight.poster" :src="selectedSearchResultInsight.poster" :alt="searchResultTitle(selectedSearchResult)" @error="$el.hidden = true" @load="$el.hidden = false" />
                       </div>
                       <div class="search-preview-score" :class="'is-' + selectedSearchResultInsight.tone" :style="'--score:' + selectedSearchResultInsight.score">
                         <div><strong x-text="selectedSearchResultInsight.score"></strong><span>质量分</span></div>
@@ -687,7 +680,7 @@
                       <span x-text="searchResultFileSummary(selectedSearchResult)"></span>
                     </div>
                     <div x-show="selectedSearchResultFiles.length > 0" class="search-preview-file-list">
-                      <template x-for="(file, index) in selectedSearchResultFiles.slice(0, 40)" :key="file.fid || file.file_key || index">
+                      <template x-for="(file, index) in selectedSearchResultFiles.slice(0, 40)" :key="'search-file-' + (file.fid || file.file_key || 'missing') + '-' + index">
                         <div><span class="search-preview-file-icon" :class="file.is_dir ? 'is-folder' : ''" x-text="file.is_dir ? 'DIR' : 'FILE'"></span><strong x-text="file.name"></strong><small x-text="!file.is_dir && file.size ? formatSize(file.size) : '-' "></small></div>
                       </template>
                     </div>
@@ -811,7 +804,7 @@
                   <button @click="setDriveSort('time')" class="text-left hover:text-text">修改时间</button>
                   <div class="text-right">操作</div>
                 </div>
-                <template x-for="item in visibleDriveItems" :key="item.fid">
+                <template x-for="(item, itemIndex) in visibleDriveItems" :key="'drive-item-' + (item.fid || 'missing') + '-' + itemIndex">
                   <div class="data-table-row grid grid-cols-[auto_minmax(0,1fr)] gap-3 px-4 py-3 hover:bg-surface-2 transition-colors lg:grid-cols-[44px_minmax(220px,1fr)_120px_120px_180px] lg:items-center">
                     <input type="checkbox" :checked="isDriveItemSelected(item)" @change="toggleDriveItemSelection(item)" class="rounded mt-3 lg:mt-0" />
                     <button @click="driveItemClick(item)" class="min-w-0 flex items-center gap-3 text-left">
@@ -840,7 +833,7 @@
             </div>
 
             <div x-show="!driveLoading && filteredDriveItems.length > 0 && driveViewMode === 'grid'" class="p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-              <template x-for="item in visibleDriveItems" :key="item.fid">
+              <template x-for="(item, itemIndex) in visibleDriveItems" :key="'drive-item-' + (item.fid || 'missing') + '-' + itemIndex">
                 <div class="border border-border rounded-lg p-3 hover:bg-surface-2 transition-colors">
                   <div class="flex items-start gap-3">
                     <input type="checkbox" :checked="isDriveItemSelected(item)" @change="toggleDriveItemSelection(item)" class="rounded mt-2" />
@@ -945,7 +938,7 @@
                   <div>连接</div>
                   <div class="text-right">操作</div>
                 </div>
-                <template x-for="task in allDownloadTasks" :key="task.gid">
+                <template x-for="(task, taskIndex) in allDownloadTasks" :key="'download-task-' + (task.gid || 'missing') + '-' + taskIndex">
                   <div>
                     <div class="data-table-row grid-cols-[minmax(280px,1.7fr)_92px_150px_92px_92px_110px_190px] px-3">
                       <div class="min-w-0">
@@ -983,7 +976,7 @@
                       <details>
                         <summary class="cursor-pointer text-muted hover:text-text">文件详情</summary>
                         <div class="mt-2 divide-y divide-border border border-border rounded-lg overflow-hidden">
-                          <template x-for="file in task.files" :key="task.gid + '-' + file.index">
+                          <template x-for="(file, fileIndex) in task.files" :key="'download-file-' + (task.gid || 'missing') + '-' + (file.index ?? fileIndex) + '-' + fileIndex">
                             <div class="grid grid-cols-[minmax(0,1fr)_160px] gap-3 p-2">
                               <div class="min-w-0">
                                 <div class="text-text/85 truncate" x-text="file.file_name || file.path || ('文件 ' + file.index)"></div>
@@ -1062,7 +1055,7 @@
                 <div>最近检查</div>
                 <div class="text-right">操作</div>
               </div>
-              <template x-for="sub in visibleFilteredSubscriptions" :key="sub.id">
+              <template x-for="(sub, subIndex) in visibleFilteredSubscriptions" :key="'subscription-' + (sub.id || 'missing') + '-' + subIndex">
                 <div>
                   <div class="data-table-row grid-cols-[minmax(300px,1.8fr)_88px_86px_150px_90px_130px_150px] px-3">
                     <div @click="openSubscriptionDetail(sub)" @keydown.enter.prevent="openSubscriptionDetail(sub)" tabindex="0" role="button" class="flex min-w-0 items-center gap-2 cursor-pointer">
@@ -1107,7 +1100,7 @@
             </div>
           </div>
           <div x-show="subscriptionViewMode === 'poster'" class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
-            <template x-for="sub in visibleFilteredSubscriptions" :key="sub.id">
+            <template x-for="(sub, subIndex) in visibleFilteredSubscriptions" :key="'subscription-' + (sub.id || 'missing') + '-' + subIndex">
               <div class="app-panel relative overflow-hidden hover:border-primary transition-colors">
                 <input type="checkbox" :checked="selectedSubscriptionIds.includes(sub.id)" @change="toggleSubscriptionSelection(sub.id)" :aria-label="'选择订阅 ' + subscriptionDisplayTitle(sub)" class="absolute left-2 top-2 z-10 h-5 w-5" />
                 <button @click="openSubscriptionDetail(sub)" class="block w-full text-left">
@@ -1184,7 +1177,7 @@
                 <section class="subscription-detail-hero">
                   <div class="subscription-detail-poster">
                     <div class="subscription-detail-poster-fallback"><span>MEDIA</span><strong x-text="mediaTypeLabel(selectedSubscription.media_type)"></strong></div>
-                    <img x-show="subscriptionPoster(selectedSubscription)" :src="subscriptionPoster(selectedSubscription)" :alt="subscriptionDisplayTitle(selectedSubscription)" @error="$el.style.display='none'" />
+                    <img x-show="subscriptionPoster(selectedSubscription)" :src="subscriptionPoster(selectedSubscription)" :alt="subscriptionDisplayTitle(selectedSubscription)" @error="$el.hidden = true" @load="$el.hidden = false" />
                   </div>
                   <div class="subscription-detail-copy">
                     <div class="subscription-detail-badges">
@@ -1282,7 +1275,7 @@
                   <div x-show="subscriptionAutomationLoading" class="subscription-activity-empty">正在读取结构化事件...</div>
                   <div x-show="subscriptionAutomationError" class="subscription-detail-error" x-text="subscriptionAutomationError"></div>
                   <div x-show="subscriptionAutomationPipeline && subscriptionAutomationPipeline.events && subscriptionAutomationPipeline.events.length" class="subscription-activity-list">
-                    <template x-for="event in subscriptionAutomationTimeline.slice().reverse().slice(0, 30)" :key="event.id">
+                    <template x-for="(event, eventIndex) in subscriptionAutomationTimeline.slice().reverse().slice(0, 30)" :key="'subscription-event-' + (event.id || 'missing') + '-' + eventIndex">
                       <div class="subscription-activity-item" :class="'is-' + automationStatusTone(event.status)">
                         <span class="subscription-activity-dot"></span>
                         <div class="min-w-0"><div><span x-text="automationStageLabel(event.stage) + (event.episode ? ' · E' + event.episode : '')"></span><strong x-text="automationStatusLabel(event.status)"></strong></div><p x-text="event.error || event.message || '无附加消息'"></p><small class="text-muted/75" x-text="'尝试 ' + event.attempt + ' · ' + automationEventDuration(event) + (event.job_id ? ' · Job ' + event.job_id.slice(0, 8) : '')"></small></div>
@@ -1299,7 +1292,7 @@
                     <span x-text="subscriptionDetailActivity.length + ' 条记录'"></span>
                   </div>
                   <div x-show="subscriptionDetailActivity.length > 0" class="subscription-activity-list">
-                    <template x-for="item in subscriptionDetailActivity" :key="item.id">
+                    <template x-for="(item, itemIndex) in subscriptionDetailActivity" :key="'subscription-activity-' + (item.id || 'missing') + '-' + itemIndex">
                       <div class="subscription-activity-item" :class="'is-' + subscriptionActivityTone(item)">
                         <span class="subscription-activity-dot"></span>
                         <div class="min-w-0"><div><span x-text="subscriptionActivityKindLabel(item)"></span><strong x-text="item.title"></strong></div><p x-text="item.message || '无附加消息'"></p></div>
@@ -1337,7 +1330,7 @@
             <div class="mt-5 space-y-3">
               <div x-show="sourceSwitchLoading" class="app-panel-soft p-6 text-center text-sm text-muted/75">正在读取候选...</div>
               <div x-show="!sourceSwitchLoading && sourceSwitchCandidates.length === 0" class="app-panel-soft p-6 text-center text-sm text-muted/75">暂无候选</div>
-              <template x-for="candidate in sourceSwitchCandidates" :key="candidate.id">
+              <template x-for="(candidate, candidateIndex) in sourceSwitchCandidates" :key="'source-candidate-' + (candidate.id || 'missing') + '-' + candidateIndex">
                 <div class="border border-border rounded-lg bg-app p-4 space-y-3">
                   <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div class="min-w-0 space-y-2">
@@ -1372,7 +1365,7 @@
               <div class="flex items-center justify-between gap-3"><div><h4 class="font-semibold text-text">换源历史</h4><p class="text-xs text-muted/75">保留最近 50 条成功、失败和回滚审计记录。</p></div><button @click="rollbackSourceSwitch()" :disabled="sourceSwitchRollbackLoading || !sourceSwitchHistory.some(item => item.status === 'succeeded' && !item.rolled_back_at)" class="btn-secondary px-3 py-2 rounded text-sm disabled:opacity-50"><span x-show="!sourceSwitchRollbackLoading">回滚上一来源</span><span x-show="sourceSwitchRollbackLoading">回滚中</span></button></div>
               <div x-show="sourceSwitchHistoryLoading" class="text-sm text-muted/75">正在读取历史...</div>
               <div x-show="!sourceSwitchHistoryLoading && sourceSwitchHistory.length === 0" class="text-sm text-muted/75">暂无换源历史</div>
-              <template x-for="item in sourceSwitchHistory" :key="item.id"><div class="rounded border border-border bg-app p-3 text-xs space-y-1"><div class="flex flex-wrap items-center gap-2"><span class="badge" :class="item.status === 'failed' ? 'badge-danger' : (item.status === 'rolled_back' ? 'badge-warning' : 'badge-success')" x-text="sourceSwitchHistoryLabel(item)"></span><span x-text="formatTime(item.created_at)"></span><span x-show="item.quality && item.quality.score" x-text="item.quality.score + ' 分'"></span></div><div class="break-all"><span x-text="item.from_url"></span> → <span x-text="item.to_url"></span></div><div class="text-muted/75" x-text="item.reason || '-'"></div><div x-show="item.error" class="text-danger" x-text="item.error"></div></div></template>
+              <template x-for="(item, itemIndex) in sourceSwitchHistory" :key="'source-history-' + (item.id || 'missing') + '-' + itemIndex"><div class="rounded border border-border bg-app p-3 text-xs space-y-1"><div class="flex flex-wrap items-center gap-2"><span class="badge" :class="item.status === 'failed' ? 'badge-danger' : (item.status === 'rolled_back' ? 'badge-warning' : 'badge-success')" x-text="sourceSwitchHistoryLabel(item)"></span><span x-text="formatTime(item.created_at)"></span><span x-show="item.quality && item.quality.score" x-text="item.quality.score + ' 分'"></span></div><div class="break-all"><span x-text="item.from_url"></span> → <span x-text="item.to_url"></span></div><div class="text-muted/75" x-text="item.reason || '-'"></div><div x-show="item.error" class="text-danger" x-text="item.error"></div></div></template>
             </div>
 
             <div class="mt-6 flex justify-end">
@@ -1435,7 +1428,7 @@
                   <div>结果</div>
                   <div>原因</div>
                 </div>
-                <template x-for="item in checkDetailItems()" :key="item.file_key || item.name">
+                <template x-for="(item, itemIndex) in checkDetailItems()" :key="'check-detail-' + (item.file_key || item.name || 'missing') + '-' + itemIndex">
                   <div class="data-table-row grid-cols-[minmax(320px,1fr)_90px_90px_minmax(240px,0.8fr)] px-3">
                     <div class="min-w-0">
                       <div class="truncate text-text/85" x-text="item.name"></div>
@@ -1482,7 +1475,7 @@
                   <div>耗时</div>
                   <div class="text-right">操作</div>
                 </div>
-                <template x-for="job in recentBackgroundJobs" :key="job.id">
+                <template x-for="(job, jobIndex) in recentBackgroundJobs" :key="'job-' + (job.id || 'missing') + '-' + jobIndex">
                   <div>
                     <div class="data-table-row grid-cols-[92px_110px_minmax(300px,1.8fr)_150px_90px_150px] px-3">
                       <div><span :class="jobStatusBadgeClass(job.status)" x-text="jobStatusLabel(job.status)"></span></div>
@@ -1548,7 +1541,7 @@
                 <div>时间</div>
                 <div class="text-right">操作</div>
               </div>
-              <template x-for="notif in visibleNotifications" :key="notif.id">
+              <template x-for="(notif, notifIndex) in visibleNotifications" :key="'notification-' + (notif.id || 'missing') + '-' + notifIndex">
                 <div>
                   <div class="data-table-row grid-cols-[30px_88px_110px_minmax(320px,1fr)_150px_100px] px-3" :class="!notif.read ? 'bg-primary/5' : ''">
                     <div><span x-show="!notif.read" class="block h-2 w-2 rounded-full bg-cyan"></span></div>
@@ -1567,7 +1560,7 @@
                     <details>
                       <summary class="cursor-pointer text-muted hover:text-text">推送详情</summary>
                       <div class="mt-2 flex flex-wrap gap-2">
-                        <template x-for="item in notificationPushChannelStatuses(notif)" :key="item.channel">
+                        <template x-for="(item, channelIndex) in notificationPushChannelStatuses(notif)" :key="'push-channel-' + (item.channel || 'missing') + '-' + channelIndex">
                           <span class="inline-flex items-center gap-1.5 rounded border px-2 py-1" :class="item.success ? 'border-success/30 bg-success/10 text-success/85' : 'border-danger/30 bg-danger/10 text-danger/85'">
                             <span class="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold" :class="item.success ? 'bg-success/20 text-success/85' : 'bg-danger/20 text-danger/85'" x-text="item.success ? '✓' : '!'"></span>
                             <span x-text="item.name"></span>
@@ -1580,7 +1573,7 @@
                         <span>推送失败: <span class="text-danger" x-text="notificationPushMeta(notif).failed_count || 0"></span></span>
                       </div>
                       <div x-show="notificationPushErrors(notif).length > 0" class="mt-2 space-y-1 text-danger/85">
-                        <template x-for="item in notificationPushErrors(notif)" :key="item.channel">
+                        <template x-for="(item, errorIndex) in notificationPushErrors(notif)" :key="'push-error-' + (item.channel || 'missing') + '-' + errorIndex">
                           <div><span x-text="pushChannelName(item.channel)"></span>: <span x-text="item.error"></span></div>
                         </template>
                       </div>
@@ -1617,11 +1610,11 @@
               <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <section class="app-panel p-5 space-y-3">
                   <div class="flex items-center justify-between gap-3"><h3 class="section-title">只读诊断建议</h3><span class="text-xs text-muted" x-text="(diagnostics.recommendations || []).length + ' 项'"></span></div>
-                  <div class="space-y-2"><template x-for="item in diagnostics.recommendations || []" :key="item.code"><div class="app-panel-soft p-3 text-sm"><strong :class="item.severity === 'error' ? 'text-danger' : (item.severity === 'warning' ? 'text-warning' : 'text-success')" x-text="item.summary"></strong><p class="text-xs text-muted mt-1" x-text="item.action"></p></div></template></div>
+                  <div class="space-y-2"><template x-for="(item, itemIndex) in diagnostics.recommendations || []" :key="'diagnostic-recommendation-' + (item.code || 'missing') + '-' + itemIndex"><div class="app-panel-soft p-3 text-sm"><strong :class="item.severity === 'error' ? 'text-danger' : (item.severity === 'warning' ? 'text-warning' : 'text-success')" x-text="item.summary"></strong><p class="text-xs text-muted mt-1" x-text="item.action"></p></div></template></div>
                 </section>
                 <section class="app-panel p-5 space-y-3"><h3 class="section-title">环境检查</h3>
                   <div class="text-sm text-muted space-y-2"><p>磁盘可用：<strong x-text="diagnosticBytes(diagnostics.environment.filesystem.available_bytes)"></strong> · 权限：<strong :class="diagnostics.environment.filesystem.readable && diagnostics.environment.filesystem.writable_hint ? 'text-success' : 'text-danger'" x-text="diagnostics.environment.filesystem.readable && diagnostics.environment.filesystem.writable_hint ? '读写正常' : '需检查'"></strong></p><p>时区偏移：<strong :class="diagnostics.environment.timezone.matches_expected ? 'text-success' : 'text-warning'" x-text="diagnostics.environment.timezone.local_offset_seconds / 3600 + ' 小时'"></strong></p><p>DNS：<strong x-text="(diagnostics.environment.dns || []).filter(item => item.status === 'ok').length + '/' + (diagnostics.environment.dns || []).length + ' 正常'"></strong></p></div>
-                  <div class="max-h-36 overflow-auto space-y-1 text-xs text-muted"><template x-for="store in diagnostics.environment.data_consistency || []" :key="store.store"><div class="flex justify-between gap-3"><span x-text="store.store"></span><strong :class="store.status === 'ok' || store.status === 'missing' ? 'text-success' : 'text-danger'" x-text="store.status"></strong></div></template></div>
+                  <div class="max-h-36 overflow-auto space-y-1 text-xs text-muted"><template x-for="(store, storeIndex) in diagnostics.environment.data_consistency || []" :key="'diagnostic-store-' + (store.store || 'missing') + '-' + storeIndex"><div class="flex justify-between gap-3"><span x-text="store.store"></span><strong :class="store.status === 'ok' || store.status === 'missing' ? 'text-success' : 'text-danger'" x-text="store.status"></strong></div></template></div>
                 </section>
               </div>
               <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -1632,7 +1625,7 @@
             </div>
           </template>
           <section class="app-panel p-5 space-y-4"><div><h3 class="section-title">恢复数据</h3><p class="text-sm text-danger/80 mt-1">恢复会先创建当前快照，校验格式、Schema、哈希和路径，完成后必须重启。</p></div><input type="file" accept="application/json,.json" @change="selectBackupFile($event)" class="block w-full text-sm text-muted" />
-            <template x-if="backupPreview"><div class="app-panel-soft p-4 text-sm"><p>有效备份：<strong x-text="backupPreview.file_count"></strong> 个文件，<strong x-text="diagnosticBytes(backupPreview.total_bytes)"></strong></p><p class="text-muted mt-1" x-text="'应用 ' + backupPreview.app_version + ' · Schema v' + backupPreview.schema_version"></p><div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2"><template x-for="check in backupPreview.checks || []" :key="check.code"><div class="text-xs"><strong :class="check.status === 'passed' ? 'text-success' : 'text-warning'" x-text="check.label + ' · ' + check.status"></strong><p class="text-muted" x-text="check.message"></p></div></template></div></div></template>
+            <template x-if="backupPreview"><div class="app-panel-soft p-4 text-sm"><p>有效备份：<strong x-text="backupPreview.file_count"></strong> 个文件，<strong x-text="diagnosticBytes(backupPreview.total_bytes)"></strong></p><p class="text-muted mt-1" x-text="'应用 ' + backupPreview.app_version + ' · Schema v' + backupPreview.schema_version"></p><div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2"><template x-for="(check, checkIndex) in backupPreview.checks || []" :key="'backup-check-' + (check.code || 'missing') + '-' + checkIndex"><div class="text-xs"><strong :class="check.status === 'passed' ? 'text-success' : 'text-warning'" x-text="check.label + ' · ' + check.status"></strong><p class="text-muted" x-text="check.message"></p></div></template></div></div></template>
             <div x-show="backupPreview" class="flex flex-col sm:flex-row gap-2"><input x-model="restoreConfirmation" class="flex-1 px-3 py-2 bg-app border border-danger/40 rounded" placeholder="输入 RESTORE DATA" /><button @click="restoreBackup()" class="btn-danger">确认恢复并要求重启</button></div>
           </section>
         </div>
@@ -2229,7 +2222,7 @@
                     <div class="col-span-2">集数</div>
                     <div class="col-span-2">结果</div>
                   </div>
-                  <template x-for="item in (ruleCenterPreview && ruleCenterPreview.items) || []" :key="item.source_name + '-' + item.target_name">
+                  <template x-for="(item, itemIndex) in (ruleCenterPreview && ruleCenterPreview.items) || []" :key="'rule-preview-' + item.source_name + '-' + item.target_name + '-' + itemIndex">
                     <div class="grid gap-2 px-3 py-3 border-t border-border text-xs md:grid-cols-12">
                       <div class="text-text/80 break-all md:col-span-4" x-text="item.source_name"></div>
                       <div class="text-success break-all md:col-span-4" x-text="item.target_name"></div>
@@ -2850,7 +2843,7 @@
                 <div class="col-span-2">集数</div>
                 <div class="col-span-2">结果</div>
               </div>
-              <template x-for="item in (renamePreview && renamePreview.items) || []" :key="item.source_name + '-' + item.target_name">
+              <template x-for="(item, itemIndex) in (renamePreview && renamePreview.items) || []" :key="'rename-preview-' + item.source_name + '-' + item.target_name + '-' + itemIndex">
                 <div class="grid gap-2 px-3 py-3 border-t border-border text-xs md:grid-cols-12">
                   <div class="text-text/80 break-all md:col-span-4" x-text="item.source_name"></div>
                   <div class="text-success break-all md:col-span-4" x-text="item.target_name"></div>

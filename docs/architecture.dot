@@ -2,141 +2,97 @@ digraph MyMediaSub {
   graph [
     rankdir=LR,
     bgcolor="#08111f",
-    pad="0.35",
-    nodesep="0.32",
-    ranksep="0.75",
+    pad="0.3",
+    nodesep="0.28",
+    ranksep="0.7",
     splines=polyline,
     fontname="Noto Sans CJK SC",
     fontcolor="#dbeafe",
-    label="my-media-sub v1.3.0 开发基线架构",
+    label="my-media-sub v1.13.0+ 当前架构",
     labelloc=t,
-    fontsize=22
+    fontsize=21
   ];
-  node [
-    shape=box,
-    style="rounded,filled",
-    fontname="Noto Sans CJK SC",
-    fontsize=11,
-    color="#334155",
-    fontcolor="#e2e8f0",
-    fillcolor="#111d2c",
-    margin="0.12,0.08"
-  ];
-  edge [
-    color="#64748b",
-    fontcolor="#a5b4fc",
-    fontname="Noto Sans CJK SC",
-    fontsize=9,
-    arrowsize=0.7
-  ];
+  node [shape=box, style="rounded,filled", fontname="Noto Sans CJK SC", fontsize=10,
+        color="#334155", fontcolor="#e2e8f0", fillcolor="#111d2c", margin="0.12,0.08"];
+  edge [color="#64748b", fontcolor="#a5b4fc", fontname="Noto Sans CJK SC", fontsize=8, arrowsize=0.65];
 
-  subgraph cluster_client {
-    label="客户端";
-    color="#1e3a5f";
-    style="rounded,dashed";
-    Browser [label="浏览器 / 移动端", fillcolor="#172554", color="#3b82f6"];
-    WebUI [label="Media Deck WebUI\nAlpine.js + 纯静态资源", fillcolor="#1e293b"];
-    FrontModules [label="前端模块\ncore: api / router / polling / notifications\nstores: subscriptions / jobs / drive / downloads\nfeatures: calendar / updates / settings / dashboard", fillcolor="#1e293b"];
-    CalendarViews [label="更新日历\n周 / 月 / 列表\n筛选 + 手动排期编辑", fillcolor="#172554", color="#3b82f6"];
-    Browser -> WebUI;
-    WebUI -> FrontModules [dir=both, label="状态 / 工具"];
-    FrontModules -> CalendarViews [dir=both, label="布局 / 标签"];
+  subgraph cluster_clients {
+    label="访问端"; color="#1e3a5f"; style="rounded,dashed";
+    Browser [label="WebUI / PWA\nAlpine 静态模块", fillcolor="#172554", color="#3b82f6"];
+    Automation [label="自动化客户端\nscoped Bearer + Idempotency-Key"];
+    Telegram [label="Telegram\nLong polling / Webhook"];
+    MediaClient [label="Jellyfin / Emby / Plex\nSTRM 媒体客户端"];
   }
 
   subgraph cluster_http {
-    label="Axum HTTP 层";
-    color="#4c1d95";
-    style="rounded,dashed";
-    Auth [label="Basic Auth + CSRF\n/health 与 /strm 例外", fillcolor="#2e1065", color="#8b5cf6"];
-    ErrorNormalize [label="API 错误规范化\n401/403/404/405/Extractor", fillcolor="#2e1065"];
-    ApiRoutes [label="API Routes\nsrc/api/*", fillcolor="#312e81", color="#6366f1"];
-    CalendarApi [label="GET /api/calendar\n日期 / 状态 / 媒体 / 订阅筛选", fillcolor="#312e81", color="#8b5cf6"];
-    ApiEnvelope [label="统一 JSON 信封\n{ok,data} / {ok,error,message}", fillcolor="#312e81"];
-    Static [label="ServeDir static/\nHTML / JS / CSS", fillcolor="#1e293b"];
-    SSE [label="Job SSE\n/api/jobs/events", fillcolor="#1e293b"];
-    StrmRoute [label="HTTPStrm\n/strm/quark/*", fillcolor="#1e293b"];
-    Health [label="/health", fillcolor="#1e293b"];
-    Auth -> ErrorNormalize -> ApiRoutes;
-    ApiRoutes -> CalendarApi;
-    ApiRoutes -> ApiEnvelope;
-    CalendarApi -> ApiEnvelope;
+    label="Axum 接入与安全"; color="#4c1d95"; style="rounded,dashed";
+    Auth [label="Basic Auth / Bearer Scope\nCSRF + 登录限流", fillcolor="#2e1065", color="#8b5cf6"];
+    TelegramAuth [label="Webhook 随机路径\nSecret Header"];
+    Routes [label="src/api/*\n统一 JSON 信封", fillcolor="#312e81", color="#6366f1"];
+    Static [label="ServeDir static/\nService Worker"];
+    Strm [label="/strm/*\n独立 Token"];
+    SSE [label="Job SSE"];
   }
 
   subgraph cluster_core {
-    label="应用核心";
-    color="#14532d";
-    style="rounded,dashed";
-    Context [label="AppContext\n依赖装配与生命周期", fillcolor="#052e16", color="#22c55e"];
-    Services [label="业务 Services\n检查 / 转存 / 元数据 / 推送\n签到 / 下载监控", fillcolor="#064e3b"];
-    Status [label="Subscription Status 聚合\n剧集 / 缺集 / STRM / Aria2\n流水线 / 活动", fillcolor="#064e3b"];
-    Calendar [label="Media Calendar 纯计算\n手动排期 → 元数据 → 周期推断\n上海时区 / 状态 / 可信度", fillcolor="#064e3b", color="#22c55e"];
-    CalendarModel [label="Calendar Model\nItem / Summary / Source / Confidence\nMediaScheduleOverride", fillcolor="#064e3b"];
-    Schedulers [label="后台调度器\n订阅检查 / 夸克签到", fillcolor="#064e3b"];
-    Metrics [label="轻量 Metrics", fillcolor="#064e3b"];
-    JobQueue [label="JobQueue\n提交 / 取消 / 重试 / 恢复", fillcolor="#134e4a"];
-    Worker [label="JobWorker\n长任务执行", fillcolor="#134e4a"];
-    Context -> Services;
-    Context -> Status;
-    Context -> Calendar;
-    Context -> Schedulers;
-    Context -> Metrics;
-    Context -> JobQueue;
-    Calendar -> CalendarModel;
-    Calendar -> Status [label="复用逐集状态"];
-    JobQueue -> Worker -> Services;
+    label="AppContext 与业务层"; color="#14532d"; style="rounded,dashed";
+    Context [label="AppContext\n共享依赖与生命周期", fillcolor="#052e16", color="#22c55e"];
+    Services [label="Services\n检查 / 进度完结 / 转存 / 换源\n元数据 / 日历 / 通知 / STRM"];
+    Queue [label="JobQueue + Worker\n幂等 / 并发 / 重试 / 恢复", fillcolor="#134e4a"];
+    Schedulers [label="后台服务\n订阅 / 签到 / 下载监控\n备份维护 / Telegram Bot"];
+    Events [label="AutomationEvent\ncorrelation / stage / job / episode"];
+    Metrics [label="Tracing + Metrics\n诊断 / Prometheus"];
+    Provider [label="CloudDriveProvider\nQuark 生产 / Mock 测试"];
   }
 
   subgraph cluster_store {
-    label="持久化";
-    color="#713f12";
-    style="rounded,dashed";
-    Stores [label="JSON Stores\nSettings / Subscriptions\nNotifications / Jobs", fillcolor="#422006", color="#f59e0b"];
-    SubscriptionData [label="Subscription\nmetadata + optional manual_schedule", fillcolor="#422006"];
-    Schema [label="schema_version: 1\n旧数据迁移 / 未来版本拒绝\n原子写入 / 0600", fillcolor="#451a03"];
-    Backup [label="迁移原始备份\n*.schema-v0.bak", fillcolor="#451a03"];
-    DataDir [label="DATA_DIR", shape=cylinder, fillcolor="#422006"];
-    Stores -> SubscriptionData;
-    Stores -> Schema -> DataDir;
-    Schema -> Backup;
+    label="JSON 单写持久化"; color="#713f12"; style="rounded,dashed";
+    Stores [label="Settings / Subscriptions / Notifications\nJobs + Archive / Automation Events\nAutomation Token / Telegram State", fillcolor="#422006", color="#f59e0b"];
+    Schema [label="schema_version: 1\n原子写入 / 0600 / 迁移备份\n损坏隔离 / 未来版本保护"];
+    Backup [label="备份清单 + SHA-256\n隔离恢复验证 / 外部复制"];
+    Data [label="DATA_DIR", shape=cylinder, fillcolor="#422006"];
   }
 
-  subgraph cluster_clients {
-    label="外部适配";
-    color="#7f1d1d";
-    style="rounded,dashed";
-    Clients [label="Clients\n共享 HTTP Pool", fillcolor="#450a0a", color="#ef4444"];
-    PanSou [label="PanSou"];
-    Quark [label="夸克分享 / 网盘 / 签到"];
-    TMDB [label="TMDB"];
+  subgraph cluster_external {
+    label="外部系统（失败隔离）"; color="#7f1d1d"; style="rounded,dashed";
+    Search [label="PanSou"];
+    Quark [label="Quark 分享 / 网盘 / 签到"];
+    TMDB [label="TMDB 元数据 / 图片"];
     Aria2 [label="Aria2 JSON-RPC"];
-    Push [label="企业微信 / Telegram / Bark\nGotify / PushPlus / Server酱"];
-    Clients -> PanSou;
-    Clients -> Quark;
-    Clients -> TMDB;
-    Clients -> Aria2;
-    Services -> Push [label="异步推送"];
+    Library [label="Jellyfin / Emby / Plex"];
+    Push [label="Browser Push / Webhook\nTelegram / 企业微信 / 其他渠道"];
   }
 
-  WebUI -> Auth [label="HTTP + Basic Auth"];
-  Auth -> Static [label="静态资源"];
-  Auth -> Health [label="免鉴权", style=dashed];
-  Auth -> StrmRoute [label="STRM Token", style=dashed];
-  FrontModules -> ApiRoutes [label="apiData / apiFetch"];
-  CalendarViews -> CalendarApi [label="范围 / 筛选"];
-  ApiEnvelope -> FrontModules [label="JSON"];
-  FrontModules -> SSE [label="EventSource", style=dashed];
-  SSE -> JobQueue [label="快照 + 更新"];
-  ApiRoutes -> Context;
-  ApiRoutes -> Services [label="短请求"];
-  ApiRoutes -> JobQueue [label="长任务入队"];
-  CalendarApi -> Calendar;
-  Calendar -> Stores [label="只读快照"];
-  Services -> Stores;
-  Status -> Stores [label="订阅 / 通知"];
-  Status -> JobQueue [label="任务历史"];
-  Worker -> Stores;
+  Browser -> Auth [label="Basic Auth"];
+  Automation -> Auth [label="Bearer"];
+  Telegram -> TelegramAuth -> Routes;
+  Auth -> Routes;
+  Auth -> Static -> Browser;
+  Browser -> Routes [label="apiData / apiFetch"];
+  Browser -> SSE [style=dashed];
+  MediaClient -> Strm -> Quark;
+
+  Routes -> Context;
+  SSE -> Queue;
+  Context -> Services;
+  Context -> Queue;
+  Context -> Schedulers;
+  Context -> Metrics;
+  Queue -> Services;
   Schedulers -> Services;
-  Services -> Clients;
-  StrmRoute -> Quark [label="媒体代理"];
-  Static -> WebUI [label="HTML/JS/CSS"];
+  Services -> Events;
+  Queue -> Events;
+  Services -> Provider -> Quark;
+
+  Services -> Stores;
+  Queue -> Stores;
+  Events -> Stores;
+  Stores -> Schema -> Data;
+  Data -> Backup;
+
+  Services -> Search;
+  Services -> TMDB;
+  Services -> Aria2;
+  Services -> Library;
+  Services -> Push;
 }
