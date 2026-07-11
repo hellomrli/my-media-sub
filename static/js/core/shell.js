@@ -20,6 +20,7 @@
 
     async init() {
       this.setupLifecycleCleanup();
+      this.initPwa();
       this.applyTheme(this.resolveInitialTheme(), {persist: false});
       this.calendarCursor = this.calendarTodayKey();
       this.loadSearchPreferences();
@@ -34,6 +35,7 @@
       this.setupGlobalShortcuts();
       this.loadSearchHistory();
       this.runCurrentTabEffects();
+      await this.handlePwaShortcut();
     },
 
     setupGlobalShortcuts() {
@@ -129,6 +131,7 @@
         await this.loadJobs();
       }
       else if (this.currentTab === 'notifications') await this.loadNotifications();
+      else if (this.currentTab === 'diagnostics') await this.loadDiagnostics();
       else if (this.currentTab === 'settings') {
         if (this.currentSettingsTab === 'maintenance') {
           await Promise.all([this.loadSettings(), this.checkUpdate(true)]);

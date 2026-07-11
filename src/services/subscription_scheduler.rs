@@ -132,6 +132,10 @@ impl SubscriptionScheduler {
         Ok(())
     }
 
+    pub async fn is_running(&self) -> bool {
+        self.job_id.read().await.is_some()
+    }
+
     /// 停止调度器
     pub async fn stop(&self) -> Result<()> {
         let mut job_id = self.job_id.write().await;

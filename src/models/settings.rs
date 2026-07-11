@@ -90,6 +90,9 @@ pub struct Settings {
     #[serde(default)]
     pub custom_categories: Vec<CustomCategory>,
 
+    #[serde(default = "default_dashboard_widgets")]
+    pub dashboard_widgets: Vec<String>,
+
     // ===== 订阅调度 =====
     /// 订阅调度器是否启用
     #[serde(default)]
@@ -230,6 +233,22 @@ pub struct Settings {
     #[serde(default)]
     pub wxpusher_uids: String,
 
+    /// Browser Push VAPID private key (PKCS#8 DER, base64url).
+    #[serde(default)]
+    pub browser_push_vapid_private_key: String,
+    #[serde(default)]
+    pub browser_push_vapid_public_key: String,
+    #[serde(default = "default_browser_push_subject")]
+    pub browser_push_subject: String,
+    #[serde(default)]
+    pub browser_push_subscriptions: Vec<BrowserPushSubscription>,
+    #[serde(default)]
+    pub webhook_enabled: bool,
+    #[serde(default)]
+    pub webhook_urls: Vec<String>,
+    #[serde(default)]
+    pub webhook_secret: String,
+
     // ===== 推送场景开关 =====
     /// 订阅更新时推送
     #[serde(default = "default_true")]
@@ -258,6 +277,21 @@ pub struct Settings {
     /// 静默推送
     #[serde(default)]
     pub push_silent: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BrowserPushSubscription {
+    pub endpoint: String,
+    pub p256dh: String,
+    pub auth: String,
+    #[serde(default)]
+    pub user_agent: String,
+    #[serde(default)]
+    pub created_at: i64,
+}
+
+fn default_browser_push_subject() -> String {
+    "mailto:admin@localhost".to_string()
 }
 
 /// 自定义分类
@@ -444,6 +478,13 @@ fn default_tmdb_language() -> String {
     "zh-CN".to_string()
 }
 
+fn default_dashboard_widgets() -> Vec<String> {
+    ["quick_actions", "hero", "kpis", "library", "operations"]
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+}
+
 fn default_strm_access_token() -> String {
     uuid::Uuid::new_v4().to_string()
 }
@@ -471,6 +512,7 @@ impl Default for Settings {
             quark_save_series_dir: default_series_dir(),
             quark_save_anime_dir: default_anime_dir(),
             custom_categories: vec![],
+            dashboard_widgets: default_dashboard_widgets(),
             subscription_scheduler_enabled: false,
             subscription_check_interval_minutes: default_check_interval(),
             subscription_check_max_concurrency: default_subscription_check_max_concurrency(),
@@ -505,6 +547,13 @@ impl Default for Settings {
             wecom_bot_url: String::new(),
             wxpusher_app_token: String::new(),
             wxpusher_uids: String::new(),
+            browser_push_vapid_private_key: String::new(),
+            browser_push_vapid_public_key: String::new(),
+            browser_push_subject: default_browser_push_subject(),
+            browser_push_subscriptions: vec![],
+            webhook_enabled: false,
+            webhook_urls: vec![],
+            webhook_secret: String::new(),
             push_on_update: true,
             push_on_failed: true,
             push_on_completed: true,

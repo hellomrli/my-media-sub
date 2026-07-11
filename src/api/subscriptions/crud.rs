@@ -56,6 +56,7 @@ pub(super) async fn create_subscription(
         normalize_start_episode_number(req.start_episode_number, &media_type);
     let total_episode_number =
         episode_count_for_season(req.metadata.as_ref(), season).or(rules.finish_after_episode);
+    let cloud_type = validate_cloud_type(&req.cloud_type)?;
 
     let subscription = Subscription {
         id: id.to_string(),
@@ -67,13 +68,10 @@ pub(super) async fn create_subscription(
         current_episode_number: 0,
         total_episode_number,
         source_group: String::new(),
+        tags: normalize_tags(req.tags),
         metadata: req.metadata,
         manual_schedule: req.manual_schedule,
-        cloud_type: if req.cloud_type.is_empty() {
-            "quark".to_string()
-        } else {
-            req.cloud_type
-        },
+        cloud_type,
         url: req.url,
         password: req.password,
         known_files: vec![],
@@ -137,6 +135,11 @@ pub(super) async fn update_subscription(
     let requested_preset_rules = requested_rule_preset_id
         .as_deref()
         .and_then(|id| preset_rules(&settings, id));
+    let requested_cloud_type = req
+        .cloud_type
+        .as_deref()
+        .map(validate_cloud_type)
+        .transpose()?;
     let updated = state
         .store
         .update(&id, |sub| {
@@ -165,8 +168,11 @@ pub(super) async fn update_subscription(
             if sub.media_type == "movie" {
                 sub.start_episode_number = None;
             }
-            if let Some(cloud_type) = req.cloud_type {
+            if let Some(cloud_type) = requested_cloud_type {
                 sub.cloud_type = cloud_type;
+            }
+            if let Some(tags) = req.tags {
+                sub.tags = normalize_tags(tags);
             }
             if let Some(enabled) = req.enabled {
                 sub.enabled = enabled;
@@ -232,14 +238,40 @@ pub(super) async fn update_subscription(
 }
 
 /// 删除订阅
+#[derive(Debug, Deserialize)]
+pub(super) struct DeleteSubscriptionQuery {
+    #[serde(default)]
+    confirm: String,
+}
+
 pub(super) async fn delete_subscription(
     State(state): State<Arc<SubscriptionState>>,
     Path(id): Path<String>,
+    Query(query): Query<DeleteSubscriptionQuery>,
 ) -> Result<impl IntoResponse> {
+    if query.confirm != id {
+        return Err(AppError::Validation(
+            "删除确认参数必须与订阅 ID 一致".to_string(),
+        ));
+    }
     let deleted = state.store.delete(&id).await?;
     if deleted {
         Ok((StatusCode::NO_CONTENT, ()))
     } else {
         Err(AppError::NotFound("订阅不存在".to_string()))
     }
+}
+
+fn normalize_tags(tags: Vec<String>) -> Vec<String> {
+    let mut result = Vec::new();
+    for tag in tags {
+        let tag: String = tag.trim().chars().take(32).collect();
+        if !tag.is_empty() && !result.contains(&tag) {
+            result.push(tag);
+        }
+        if result.len() >= 20 {
+            break;
+        }
+    }
+    result
 }

@@ -19,14 +19,23 @@ pub fn progress_max_episode(sub: &Subscription) -> i32 {
         .unwrap_or(0)
 }
 
+fn has_reached_target_episode(sub: &Subscription, additional_episodes: &[i32]) -> bool {
+    let Some(target) = completion_target_episode(sub) else {
+        return false;
+    };
+
+    sub.current_episode_number == target
+        || sub.known_episodes.contains(&target)
+        || additional_episodes.contains(&target)
+        || episode_numbers_from_file_names(sub.transferred_files.iter()).contains(&target)
+}
+
 pub fn should_reopen_completed_subscription(sub: &Subscription) -> bool {
     if !sub.completed && sub.status != "completed" {
         return false;
     }
 
-    completion_target_episode(sub)
-        .map(|target| progress_max_episode(sub) < target)
-        .unwrap_or(false)
+    completion_target_episode(sub).is_some() && !has_reached_target_episode(sub, &[])
 }
 
 pub fn reopen_completed_subscription_status(sub: &mut Subscription) -> bool {
@@ -58,17 +67,7 @@ pub fn should_mark_completed_from_known_episodes(sub: &Subscription, new_episode
         return false;
     }
 
-    let Some(target_episode) = completion_target_episode(sub) else {
-        return false;
-    };
-
-    sub.known_episodes
-        .iter()
-        .chain(new_episodes.iter())
-        .copied()
-        .max()
-        .map(|episode| episode >= target_episode)
-        .unwrap_or(false)
+    has_reached_target_episode(sub, new_episodes)
 }
 
 pub fn should_mark_completed_from_transferred_files(
@@ -89,11 +88,7 @@ pub fn should_mark_completed_from_file_names(sub: &Subscription, file_names: &[S
         return false;
     };
 
-    episode_numbers_from_file_names(file_names.iter())
-        .into_iter()
-        .max()
-        .map(|episode| episode >= target_episode)
-        .unwrap_or(false)
+    episode_numbers_from_file_names(file_names.iter()).contains(&target_episode)
 }
 
 #[cfg(test)]
@@ -112,6 +107,7 @@ mod tests {
             current_episode_number: 0,
             total_episode_number: Some(12),
             source_group: String::new(),
+            tags: vec![],
             metadata: None,
             manual_schedule: None,
             cloud_type: "quark".to_string(),
@@ -157,6 +153,24 @@ mod tests {
         let sub = subscription();
         assert!(should_mark_completed_from_known_episodes(&sub, &[12]));
         assert!(!should_mark_completed_from_known_episodes(&sub, &[10]));
+    }
+
+    #[test]
+    fn test_out_of_range_episode_does_not_complete_subscription() {
+        let mut sub = subscription();
+        sub.total_episode_number = Some(10);
+        sub.known_episodes = vec![1, 2, 3, 704];
+        sub.current_episode_number = 704;
+
+        assert!(!should_mark_completed_from_known_episodes(&sub, &[]));
+        assert!(!should_mark_completed_from_file_names(
+            &sub,
+            &["0704INS直播（有弹幕）.mp4".to_string()]
+        ));
+
+        sub.completed = true;
+        sub.status = "completed".to_string();
+        assert!(should_reopen_completed_subscription(&sub));
     }
 
     #[test]

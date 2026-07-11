@@ -15,6 +15,7 @@ use crate::models::{
     episode_count_for_season, MediaMetadata, MediaScheduleOverride, Settings, Subscription,
     TransferRules,
 };
+use crate::providers::validate_cloud_type;
 use crate::services::media_calendar::validate_manual_schedule;
 use crate::services::subscription_check::CheckDetails;
 use crate::services::subscription_progress::reopen_completed_subscription_status;
@@ -77,6 +78,8 @@ pub struct CreateSubscriptionRequest {
     #[serde(default)]
     pub cloud_type: String,
     #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
     pub target_dir: String,
     #[serde(default)]
     pub rename_template: String,
@@ -115,6 +118,8 @@ pub struct UpdateSubscriptionRequest {
     pub start_episode_number: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cloud_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -323,6 +328,7 @@ fn preview_subscription(req: &RenamePreviewRequest, base: Option<&Subscription>)
         current_episode_number: base.map(|sub| sub.current_episode_number).unwrap_or(0),
         total_episode_number: base.and_then(|sub| sub.total_episode_number),
         source_group: base.map(|sub| sub.source_group.clone()).unwrap_or_default(),
+        tags: base.map(|sub| sub.tags.clone()).unwrap_or_default(),
         metadata: base.and_then(|sub| sub.metadata.clone()),
         manual_schedule: base.and_then(|sub| sub.manual_schedule.clone()),
         cloud_type: base

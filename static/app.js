@@ -11,6 +11,8 @@
     root.MediaSubSubscriptions,
     root.MediaSubUpdates,
     root.MediaSubSettings,
+    root.MediaSubDiagnostics,
+    root.MediaSubPwa,
     root.MediaSubDashboard,
     root.MediaSubSearchPage,
     root.MediaSubCalendarPage,

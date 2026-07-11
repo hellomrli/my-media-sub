@@ -4,20 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>媒体订阅管理系统</title>
+  <meta name="theme-color" content="#4f46e5">
+  <meta name="application-name" content="MEDIA/SUB">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%234f46e5%27/%3E%3Cpath d=%27M8 9h16v14H8zm4-4v22m8-22v22%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27/%3E%3C/svg%3E">
-  <script>
-    (() => {
-      try {
-        const stored = localStorage.getItem('theme');
-        const prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
-        const theme = stored === 'light' || stored === 'dark' ? stored : (prefersLight ? 'light' : 'dark');
-        document.documentElement.setAttribute('data-theme', theme);
-        document.documentElement.classList.toggle('dark', theme === 'dark');
-      } catch (_) {
-        document.documentElement.setAttribute('data-theme', 'dark');
-      }
-    })();
-  </script>
+  <script src="js/theme-init.js"></script>
   <link rel="stylesheet" href="styles.css">
   <script defer src="vendor/alpine.min.js"></script>
 </head>
@@ -60,7 +54,7 @@
 
         <div class="nav-group">
           <div class="nav-group-label">运行记录</div>
-          <template x-for="tab in tabs.filter(item => ['transferHistory', 'notifications'].includes(item.id))" :key="tab.id">
+          <template x-for="tab in tabs.filter(item => ['transferHistory', 'notifications', 'diagnostics'].includes(item.id))" :key="tab.id">
             <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : ''" class="nav-button">
               <span x-html="tab.icon" class="nav-icon"></span>
               <span class="min-w-0 flex-1 text-left">
@@ -117,6 +111,12 @@
               <span class="status-pulse"></span>
               <span x-text="dashboardStats.runningJobs ? dashboardStats.runningJobs + ' 项运行中' : '系统空闲'"></span>
             </div>
+            <button x-show="browserPushSupported" @click="toggleBrowserPush()" class="icon-button" :class="browserPushEnabled ? 'text-success' : ''" :title="browserPushEnabled ? '关闭浏览器 Push' : '启用浏览器 Push'" aria-label="切换浏览器 Push">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.4-1.4A2 2 0 0118 14v-3a6 6 0 00-12 0v3a2 2 0 01-.6 1.4L4 17h5m6 0a3 3 0 01-6 0"/></svg>
+            </button>
+            <button x-show="pwaInstallAvailable" @click="installPwa()" class="icon-button" aria-label="安装 MEDIA/SUB" title="安装到设备">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/></svg>
+            </button>
             <button @click="toggleTheme()" class="icon-button" :aria-label="themeToggleLabel()" :title="themeToggleLabel()">
               <svg x-show="theme === 'dark'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.4-6.4-1.4 1.4M7 17l-1.4 1.4m12.8 0L17 17M7 7 5.6 5.6M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
               <svg x-show="theme === 'light'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12.8A8.5 8.5 0 1111.2 3 6.5 6.5 0 0021 12.8z"/></svg>
@@ -136,11 +136,25 @@
         </nav>
       </header>
 
+      <div x-show="pwaOffline" class="pwa-status-banner is-offline" role="status"><span>离线模式：API 与媒体流不会使用缓存</span></div>
+      <div x-show="pwaUpdateReady" class="pwa-status-banner is-update" role="status"><span>新版本静态资源已就绪</span><div><button @click="dismissPwaUpdate()">稍后</button><button @click="applyPwaUpdate()">立即更新</button></div></div>
+
       <div class="app-content flex-1 overflow-y-auto px-4 sm:px-5 py-4 sm:py-5">
 
         <!-- 工作台 -->
         <div x-show="currentTab === 'dashboard'" class="page-stack dashboard-page">
-          <section class="dashboard-hero">
+          <section x-show="dashboardWidgetEnabled('quick_actions')" class="pwa-quick-actions app-panel p-3" aria-label="快捷入口">
+            <div class="pwa-quick-heading"><span>快捷入口</span><button x-show="pwaInstallAvailable" @click="installPwa()">安装应用</button></div>
+            <div class="pwa-quick-grid">
+              <button @click="runPwaShortcut('calendar-today')"><span>今</span><strong>今日更新</strong></button>
+              <button @click="runPwaShortcut('calendar-missing')"><span>缺</span><strong>缺集</strong></button>
+              <button @click="runPwaShortcut('failed-jobs')"><span>!</span><strong>失败任务</strong></button>
+              <button @click="runPwaShortcut('check-all')"><span>↻</span><strong>检查全部</strong></button>
+              <button @click="runPwaShortcut('downloads')"><span>↓</span><strong>下载进度</strong></button>
+              <button @click="runPwaShortcut('quark-signin')"><span>✓</span><strong>夸克签到</strong></button>
+            </div>
+          </section>
+          <section x-show="dashboardWidgetEnabled('hero')" class="dashboard-hero">
             <div class="hero-copy">
               <div class="hero-kicker"><span class="status-pulse"></span><span x-text="dashboardDateLabel()"></span></div>
               <h1>你的媒体库，<br><span>正在自动生长。</span></h1>
@@ -188,7 +202,7 @@
             </div>
           </section>
 
-          <section class="dashboard-kpi-grid">
+          <section x-show="dashboardWidgetEnabled('kpis')" class="dashboard-kpi-grid">
             <button @click="selectTab('subscriptions')" class="dashboard-kpi kpi-primary">
               <span class="kpi-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 4h10a2 2 0 012 2v14l-7-3-7 3V6a2 2 0 012-2z"/></svg></span>
               <span class="kpi-copy"><small>活跃订阅</small><strong x-text="dashboardStats.activeSubs"></strong><em>持续追踪更新</em></span>
@@ -211,7 +225,7 @@
             </button>
           </section>
 
-          <div class="dashboard-main-grid">
+          <div x-show="dashboardWidgetEnabled('library') || dashboardWidgetEnabled('operations')" class="dashboard-main-grid">
             <section class="media-shelf app-panel">
               <div class="panel-heading">
                 <div><span class="panel-eyebrow">LIBRARY PULSE</span><h3>最近追更</h3><p>按最近检查时间排列的媒体内容</p></div>
@@ -1559,6 +1573,38 @@
           <div x-show="filteredNotifications.length === 0" class="app-panel empty-state">暂无通知</div>
         </div>
 
+        <!-- 系统诊断与备份 -->
+        <div x-show="currentTab === 'diagnostics'" class="page-stack">
+          <section class="page-header app-panel p-5">
+            <div><p class="section-kicker">Operations</p><h2>系统诊断与备份</h2><p>脱敏运行状态、指标、完整 DATA_DIR 备份与安全恢复。</p></div>
+            <div class="flex flex-wrap gap-2"><button @click="loadDiagnostics()" class="btn-secondary">刷新</button><button @click="exportDiagnostics()" class="btn-secondary">导出诊断包</button><button @click="exportBackup()" class="btn-primary">下载完整备份</button></div>
+          </section>
+          <template x-if="diagnostics">
+            <div class="space-y-4">
+              <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div class="app-panel p-4"><span class="text-xs text-muted">版本 / Schema</span><strong class="block mt-2" x-text="diagnostics.version + ' / v' + diagnostics.schema_version"></strong></div>
+                <div class="app-panel p-4"><span class="text-xs text-muted">DATA_DIR</span><strong class="block mt-2" x-text="diagnosticBytes(diagnostics.data.total_bytes)"></strong></div>
+                <div class="app-panel p-4"><span class="text-xs text-muted">任务队列</span><strong class="block mt-2" x-text="diagnostics.queue.queued + ' 排队 / ' + diagnostics.queue.running + ' 运行'"></strong></div>
+                <div class="app-panel p-4"><span class="text-xs text-muted">密码风险</span><strong class="block mt-2" :class="diagnostics.security.default_password_risk ? 'text-danger' : 'text-success'" x-text="diagnostics.security.password_strength"></strong></div>
+              </div>
+              <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <section class="app-panel p-5 space-y-3"><h3 class="section-title">运行状态</h3>
+                  <div class="text-sm text-muted space-y-2"><p>订阅：<strong x-text="diagnostics.data.subscriptions"></strong> · 通知：<strong x-text="diagnostics.data.notifications"></strong> · 自动化事件：<strong x-text="diagnostics.data.automation_events"></strong></p><p>订阅调度：<strong x-text="diagnostics.schedulers.subscription_running ? '运行中' : '未运行'"></strong> · 签到调度：<strong x-text="diagnostics.schedulers.quark_signin_running ? '运行中' : '未运行'"></strong></p><p>检查耗时累计：<strong x-text="diagnostics.metrics.subscription_check_duration_ms_total + ' ms'"></strong> · 转存耗时累计：<strong x-text="diagnostics.metrics.transfer_duration_ms_total + ' ms'"></strong></p></div>
+                </section>
+                <section class="app-panel p-5 space-y-3"><h3 class="section-title">服务器备份</h3><p class="text-sm text-muted">保留 <span x-text="diagnostics.backups.retention"></span> 份，当前 <span x-text="storedBackups.length"></span> 份 / <span x-text="diagnosticBytes(diagnostics.backups.total_bytes)"></span></p><button @click="createStoredBackup()" class="btn-primary">立即创建服务器备份</button><div class="max-h-32 overflow-auto text-xs text-muted"><template x-for="backup in storedBackups" :key="backup.name"><div class="flex justify-between py-1"><span x-text="backup.name"></span><span x-text="diagnosticBytes(backup.size)"></span></div></template></div></section>
+              </div>
+              <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <section class="app-panel p-5 space-y-3"><h3 class="section-title">JSON Store I/O</h3><div class="space-y-2 text-xs text-muted"><template x-for="entry in Object.entries(diagnostics.metrics.store_io || {})" :key="entry[0]"><div class="app-panel-soft p-2"><div class="flex justify-between gap-3"><strong class="text-text" x-text="entry[0]"></strong><span x-text="diagnosticBytes(entry[1].current_bytes)"></span></div><div class="mt-1 flex flex-wrap gap-x-3"><span x-text="'读取 ' + entry[1].read_count + ' 次 / ' + diagnosticAverage(entry[1].parse_duration_us_total, entry[1].read_count)"></span><span x-text="'写入 ' + entry[1].write_count + ' 次 / ' + diagnosticAverage(entry[1].write_duration_us_total, entry[1].write_count)"></span></div></div></template><p x-show="!Object.keys(diagnostics.metrics.store_io || {}).length">当前进程尚无 Store I/O 样本</p></div></section>
+                <section class="app-panel p-5 space-y-3"><h3 class="section-title">SQLite 决策</h3><p class="text-sm" :class="diagnostics.storage_decision.sqlite_required ? 'text-warning' : 'text-success'" x-text="diagnostics.storage_decision.sqlite_required ? '达到门槛：准备迁移方案' : '未达到门槛：继续使用 JSON'"></p><div class="text-xs text-muted space-y-1"><template x-for="reason in diagnostics.storage_decision.reasons" :key="reason"><p x-text="reason"></p></template><p x-text="'订阅阈值 ' + diagnostics.storage_decision.thresholds.subscriptions + ' · 历史阈值 ' + diagnostics.storage_decision.thresholds.history_records + ' · 文件阈值 ' + diagnosticBytes(diagnostics.storage_decision.thresholds.file_bytes)"></p></div><button @click="compactStorage()" class="btn-secondary">整理 JSON Store</button></section>
+              </div>
+            </div>
+          </template>
+          <section class="app-panel p-5 space-y-4"><div><h3 class="section-title">恢复数据</h3><p class="text-sm text-danger/80 mt-1">恢复会先创建当前快照，校验格式、Schema、哈希和路径，完成后必须重启。</p></div><input type="file" accept="application/json,.json" @change="selectBackupFile($event)" class="block w-full text-sm text-muted" />
+            <template x-if="backupPreview"><div class="app-panel-soft p-4 text-sm"><p>有效备份：<strong x-text="backupPreview.file_count"></strong> 个文件，<strong x-text="diagnosticBytes(backupPreview.total_bytes)"></strong></p><p class="text-muted mt-1" x-text="'应用 ' + backupPreview.app_version + ' · Schema v' + backupPreview.schema_version"></p></div></template>
+            <div x-show="backupPreview" class="flex flex-col sm:flex-row gap-2"><input x-model="restoreConfirmation" class="flex-1 px-3 py-2 bg-app border border-danger/40 rounded" placeholder="输入 RESTORE DATA" /><button @click="restoreBackup()" class="btn-danger">确认恢复并要求重启</button></div>
+          </section>
+        </div>
+
         <!-- 设置页面 -->
         <div x-show="currentTab === 'settings'" class="page-stack">
 
@@ -2867,6 +2913,8 @@
   <script src="js/stores/subscriptions.js"></script>
   <script src="js/features/updates.js"></script>
   <script src="js/features/settings.js"></script>
+  <script src="js/features/diagnostics.js"></script>
+  <script src="js/features/pwa.js"></script>
   <script src="js/features/dashboard.js"></script>
   <script src="js/features/search-page.js"></script>
   <script src="js/features/calendar-page.js"></script>

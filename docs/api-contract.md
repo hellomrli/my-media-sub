@@ -136,3 +136,27 @@
 - 405 及 `Allow` 响应头；
 - 204 例外；
 - 静态资源和健康检查不被错误转换。
+
+## P7 运维与安全接口
+
+- `GET /api/diagnostics`：返回脱敏版本、schema、数据大小、队列、调度器、外部服务配置状态、备份和指标快照。
+- `GET /api/diagnostics/export`：下载不含 Cookie、Token 或密码的 JSON 诊断包。
+- `GET /api/backups/export`：下载完整 DATA_DIR 自描述 JSON 归档；归档含敏感配置，应加密保管。
+- `GET|POST /api/backups`：列出或立即创建服务器备份。
+- `POST /api/backups/preview`：校验格式版本、Store schema、SHA-256、大小和安全路径。
+- `POST /api/backups/restore`：请求体必须含 `confirmation: "RESTORE DATA"`；恢复前创建当前快照，响应要求安全重启。
+
+所有响应包含 `X-Request-ID` 和 `X-Correlation-ID`；客户端可提供格式安全的同名请求头。连续五次认证失败后，同一来源在 60 秒窗口内收到 `429` 和 `Retry-After: 60`。
+
+## P9 存储维护
+
+- `GET /api/diagnostics` 的 `metrics.store_io` 返回逐 Store 当前大小、读写次数/字节数、解析/写入累计微秒和失败数。
+- `storage_decision` 返回当前规模、显式 SQLite 门槛、建议和迁移合同。
+- `POST /api/storage/compact` 要求 `confirmation: "COMPACT JSON"`，重新应用订阅/通知/Job/自动化事件保留策略，并把所有业务 Store 原子改写为紧凑 JSON。
+
+## P10 扩展接口
+
+- `GET|POST|DELETE /api/push/browser`：获取 VAPID 公钥、注册或取消浏览器 PushSubscription。
+- `POST /api/push/test` 支持 `browser` 和 `webhook` 渠道；Webhook 可使用 HMAC-SHA256 签名。
+- `/openapi.json` 为 OpenAPI 3.1 机器契约，`/api-docs.html` 为同源受保护查看页。
+- 完整数据导入导出使用 `/api/backups/export|preview|restore`；订阅 create/update 支持 `tags`。

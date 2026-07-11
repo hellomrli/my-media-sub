@@ -112,6 +112,8 @@ pub struct DeleteRequest {
     pub fid: String,
     #[serde(default)]
     pub fids: Vec<String>,
+    #[serde(default)]
+    pub confirmation: String,
 }
 
 /// 重命名文件请求

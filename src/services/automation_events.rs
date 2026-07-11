@@ -240,6 +240,9 @@ pub async fn record_stage_event(
     error: impl Into<String>,
     metadata: BTreeMap<String, Value>,
 ) {
+    if status == AutomationStatus::Failed {
+        crate::utils::metrics::global_metrics().increment_failed_stage();
+    }
     let Some(store) = event_store else {
         return;
     };

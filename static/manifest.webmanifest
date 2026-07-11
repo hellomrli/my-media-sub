@@ -1,0 +1,27 @@
+{
+  "id": "/",
+  "name": "MEDIA/SUB 个人媒体自动化中心",
+  "short_name": "MEDIA/SUB",
+  "description": "个人媒体订阅、转存、下载与更新日历中心",
+  "lang": "zh-CN",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#090d18",
+  "theme_color": "#4f46e5",
+  "categories": ["entertainment", "utilities"],
+  "icons": [
+    {"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ],
+  "shortcuts": [
+    {"name": "今日更新", "short_name": "今日", "url": "/?tab=calendar&pwa=calendar-today", "icons": [{"src": "/icons/icon-192.png", "sizes": "192x192"}]},
+    {"name": "缺集", "short_name": "缺集", "url": "/?tab=calendar&pwa=calendar-missing", "icons": [{"src": "/icons/icon-192.png", "sizes": "192x192"}]},
+    {"name": "失败任务", "short_name": "失败", "url": "/?tab=transferHistory&pwa=failed-jobs", "icons": [{"src": "/icons/icon-192.png", "sizes": "192x192"}]},
+    {"name": "检查全部", "short_name": "检查", "url": "/?tab=subscriptions&pwa=check-all", "icons": [{"src": "/icons/icon-192.png", "sizes": "192x192"}]},
+    {"name": "下载进度", "short_name": "下载", "url": "/?tab=downloads&pwa=downloads", "icons": [{"src": "/icons/icon-192.png", "sizes": "192x192"}]},
+    {"name": "夸克签到", "short_name": "签到", "url": "/?tab=dashboard&pwa=quark-signin", "icons": [{"src": "/icons/icon-192.png", "sizes": "192x192"}]}
+  ]
+}

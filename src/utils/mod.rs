@@ -51,12 +51,31 @@ pub async fn write_json_atomic_async<T: serde::Serialize>(
     value: &T,
     mode: u32,
 ) -> Result<()> {
-    let content = serde_json::to_vec_pretty(value)
+    let started = std::time::Instant::now();
+    // Business stores use compact JSON. Backups and exported diagnostics remain pretty printed.
+    let content = serde_json::to_vec(value)
         .map_err(|e| AppError::Database(format!("序列化 JSON 失败: {}", e)))?;
+    let bytes = content.len() as u64;
+    let metric_name = store_metric_name(path);
     let path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || write_file_atomic(&path, &content, mode))
+    let result = tokio::task::spawn_blocking(move || write_file_atomic(&path, &content, mode))
         .await
-        .map_err(|e| AppError::Database(format!("写盘任务执行失败: {}", e)))?
+        .map_err(|e| AppError::Database(format!("写盘任务执行失败: {}", e)))?;
+    metrics::global_metrics().observe_store_write(
+        &metric_name,
+        bytes,
+        started.elapsed(),
+        result.is_ok(),
+    );
+    result
+}
+
+fn store_metric_name(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("unknown")
+        .trim_end_matches("_rust")
+        .to_string()
 }
 
 pub fn set_file_mode(path: &Path, mode: u32) -> Result<()> {
@@ -88,6 +107,28 @@ pub fn quarantine_corrupt_file(path: &Path) {
             quarantine.display()
         );
     }
+}
+
+pub fn redact_sensitive(value: &str) -> String {
+    use regex::Regex;
+    use std::sync::LazyLock;
+    static KEY_VALUE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)(token|secret|password|passcode|cookie|authorization)=([^&\s]+)")
+            .expect("valid sensitive key regex")
+    });
+    static HEADER: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)(cookie|authorization):\s*[^\r\n]+").expect("valid sensitive header regex")
+    });
+    static QUARK_SHARE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(pan\.quark\.cn/s/)[A-Za-z0-9_-]+").expect("valid quark share regex")
+    });
+    let value = KEY_VALUE.replace_all(value, "$1=[REDACTED]");
+    let value = HEADER.replace_all(&value, "$1: [REDACTED]");
+    QUARK_SHARE.replace_all(&value, "$1[REDACTED]").into_owned()
+}
+
+pub fn redact_url(value: &str) -> String {
+    redact_sensitive(value)
 }
 
 pub fn constant_time_eq(left: &str, right: &str) -> bool {
@@ -193,5 +234,13 @@ mod tests {
         assert_eq!(leftovers, 0);
 
         let _ = fs::remove_dir_all(dir);
+    }
+    #[test]
+    fn redact_sensitive_hides_query_headers_and_share_ids() {
+        let value = redact_sensitive("https://pan.quark.cn/s/abc123?token=secret&x=1 Cookie: k=v");
+        assert!(!value.contains("abc123"));
+        assert!(!value.contains("token=secret"));
+        assert!(!value.contains("k=v"));
+        assert!(value.contains("[REDACTED]"));
     }
 }

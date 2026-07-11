@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use tokio::sync::{broadcast, Mutex, RwLock};
@@ -16,6 +17,7 @@ const MAX_JOBS: usize = 500;
 pub struct JobStore {
     path: PathBuf,
     jobs: RwLock<Vec<Job>>,
+    id_index: RwLock<HashMap<String, usize>>,
     save_lock: Mutex<()>,
     events: broadcast::Sender<Job>,
 }
@@ -25,15 +27,15 @@ impl JobStore {
         Self {
             path: path.into(),
             jobs: RwLock::new(Vec::new()),
+            id_index: RwLock::new(HashMap::new()),
             save_lock: Mutex::new(()),
             events: broadcast::channel(200).0,
         }
     }
 
     pub async fn load(&self) -> Result<()> {
-        let mut jobs = self.jobs.write().await;
         if !self.path.exists() {
-            *jobs = Vec::new();
+            self.replace_memory(Vec::new()).await;
             return Ok(());
         }
 
@@ -49,7 +51,7 @@ impl JobStore {
                 if decoded.needs_write || parsed.len() != original_len {
                     write_versioned_json_atomic_async(&self.path, &parsed, 0o600).await?;
                 }
-                *jobs = parsed;
+                self.replace_memory(parsed).await;
             }
             Err(StoreSchemaError::UnsupportedVersion { found, current }) => {
                 return Err(AppError::Database(format!(
@@ -60,7 +62,7 @@ impl JobStore {
             Err(error) => {
                 tracing::warn!("解析任务 JSON 失败，已隔离损坏文件并使用空任务: {}", error);
                 quarantine_corrupt_file(&self.path);
-                *jobs = Vec::new();
+                self.replace_memory(Vec::new()).await;
             }
         }
         Ok(())
@@ -76,7 +78,7 @@ impl JobStore {
             snapshot
         };
         self.save_snapshot(&snapshot).await?;
-        *self.jobs.write().await = snapshot;
+        self.replace_memory(snapshot).await;
         self.emit(job.clone());
         Ok(job)
     }
@@ -103,14 +105,16 @@ impl JobStore {
             snapshot
         };
         self.save_snapshot(&snapshot).await?;
-        *self.jobs.write().await = snapshot;
+        self.replace_memory(snapshot).await;
         self.emit(job.clone());
         Ok((job, true))
     }
 
     pub async fn get(&self, id: &str) -> Option<Job> {
         let jobs = self.jobs.read().await;
-        jobs.iter().find(|job| job.id == id).cloned()
+        let indexes = self.id_index.read().await;
+        let index = indexes.get(id).copied()?;
+        jobs.get(index).cloned()
     }
 
     pub async fn list(&self) -> Vec<Job> {
@@ -158,7 +162,7 @@ impl JobStore {
 
         if let Some((_, snapshot)) = &updated {
             self.save_snapshot(snapshot).await?;
-            *self.jobs.write().await = snapshot.clone();
+            self.replace_memory(snapshot.clone()).await;
         }
 
         if let Some((job, _)) = &updated {
@@ -166,6 +170,25 @@ impl JobStore {
         }
 
         Ok(updated.map(|(job, _)| job))
+    }
+
+    pub async fn compact(&self) -> Result<usize> {
+        let _guard = self.save_lock.lock().await;
+        let mut snapshot = self.jobs.read().await.clone();
+        let before = snapshot.len();
+        truncate_jobs(&mut snapshot);
+        self.save_snapshot(&snapshot).await?;
+        let removed = before.saturating_sub(snapshot.len());
+        self.replace_memory(snapshot).await;
+        Ok(removed)
+    }
+
+    async fn replace_memory(&self, jobs: Vec<Job>) {
+        let index = build_job_index(&jobs);
+        let mut current_jobs = self.jobs.write().await;
+        let mut current_index = self.id_index.write().await;
+        *current_jobs = jobs;
+        *current_index = index;
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Job> {
@@ -179,6 +202,13 @@ impl JobStore {
     async fn save_snapshot(&self, jobs: &[Job]) -> Result<()> {
         write_versioned_json_atomic_async(&self.path, &jobs, 0o600).await
     }
+}
+
+fn build_job_index(jobs: &[Job]) -> HashMap<String, usize> {
+    jobs.iter()
+        .enumerate()
+        .map(|(index, job)| (job.id.clone(), index))
+        .collect()
 }
 
 fn truncate_jobs(jobs: &mut Vec<Job>) {

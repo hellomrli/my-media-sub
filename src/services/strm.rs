@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use crate::clients::NormalizedItem;
 use crate::error::{AppError, Result};
 use crate::models::{Settings, Subscription};
+use crate::providers::DriveItem;
 use crate::utils::write_file_atomic;
 
 #[derive(Debug, Clone)]
@@ -31,7 +31,7 @@ pub async fn generate_subscription_strm_files_async(
     settings: &Settings,
     sub: &Subscription,
     target_dir: &str,
-    files: &[NormalizedItem],
+    files: &[DriveItem],
 ) -> Result<StrmGenerationResult> {
     let settings = settings.clone();
     let sub = sub.clone();
@@ -49,7 +49,7 @@ pub fn generate_subscription_strm_files(
     settings: &Settings,
     sub: &Subscription,
     target_dir: &str,
-    files: &[NormalizedItem],
+    files: &[DriveItem],
 ) -> Result<StrmGenerationResult> {
     if !strm_generation_enabled(settings, sub) {
         return Ok(StrmGenerationResult {
@@ -69,22 +69,19 @@ pub fn generate_subscription_strm_files(
     let mut used_names: HashSet<String> = HashSet::new();
 
     for file in files {
-        if !file.file
-            || file.fid.trim().is_empty()
-            || !crate::services::is_video_name(&file.file_name)
-        {
+        if file.is_dir || file.id.trim().is_empty() || !crate::services::is_video_name(&file.name) {
             skipped_count += 1;
             continue;
         }
 
-        let url = httpstrm_url(settings, &file.fid, &file.file_name)?;
-        let strm_name = unique_strm_file_name(&file.file_name, &mut used_names);
+        let url = httpstrm_url(settings, &file.id, &file.name)?;
+        let strm_name = unique_strm_file_name(&file.name, &mut used_names);
         let strm_path = output_dir.join(&strm_name);
         write_file_atomic(&strm_path, format!("{url}\n").as_bytes(), 0o644)?;
 
         generated.push(StrmGeneratedFile {
-            fid: file.fid.clone(),
-            file_name: file.file_name.clone(),
+            fid: file.id.clone(),
+            file_name: file.name.clone(),
             strm_path,
             url,
         });
@@ -111,7 +108,7 @@ fn subscription_strm_output_dir(settings: &Settings, target_dir: &str) -> Result
     Ok(path)
 }
 
-pub fn httpstrm_url(settings: &Settings, fid: &str, file_name: &str) -> Result<String> {
+pub fn httpstrm_url(settings: &Settings, fid: &str, name: &str) -> Result<String> {
     let base = settings.strm_public_base_url.trim().trim_end_matches('/');
     if base.is_empty() {
         return Err(AppError::Validation(
@@ -129,7 +126,7 @@ pub fn httpstrm_url(settings: &Settings, fid: &str, file_name: &str) -> Result<S
     let url = format!(
         "{base}/strm/quark/{}/{}",
         percent_encode_path_segment(fid),
-        percent_encode_path_segment(file_name)
+        percent_encode_path_segment(name)
     );
     if settings.strm_token_in_url {
         return Ok(format!("{url}?token={}", percent_encode_query_value(token)));
@@ -137,12 +134,12 @@ pub fn httpstrm_url(settings: &Settings, fid: &str, file_name: &str) -> Result<S
     Ok(url)
 }
 
-fn strm_file_name(file_name: &str) -> String {
-    let stem = Path::new(file_name)
+fn strm_file_name(name: &str) -> String {
+    let stem = Path::new(name)
         .file_stem()
         .and_then(|value| value.to_str())
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or(file_name);
+        .unwrap_or(name);
     format!("{}.strm", sanitize_path_segment(stem))
 }
 
@@ -151,14 +148,14 @@ fn strm_file_name(file_name: &str) -> String {
 /// 不同扩展名的同名源文件（如 `video.mp4` 与 `video.mkv`）会归一化为同一个
 /// `video.strm`，从而相互覆盖。这里在冲突时回退到带原扩展名的名字
 /// （`video.mkv.strm`），仍冲突再追加序号，确保每个源文件都有独立的 `.strm`。
-fn unique_strm_file_name(file_name: &str, used_names: &mut HashSet<String>) -> String {
-    let primary = strm_file_name(file_name);
+fn unique_strm_file_name(name: &str, used_names: &mut HashSet<String>) -> String {
+    let primary = strm_file_name(name);
     if used_names.insert(primary.clone()) {
         return primary;
     }
 
     // 用完整文件名（含扩展名）作为去重词干。
-    let full = sanitize_path_segment(file_name);
+    let full = sanitize_path_segment(name);
     let with_ext = format!("{}.strm", full);
     if used_names.insert(with_ext.clone()) {
         return with_ext;
@@ -249,12 +246,11 @@ fn percent_encode(value: &str, keep: impl Fn(u8) -> bool) -> String {
 mod tests {
     use super::*;
 
-    fn video_item(fid: &str, name: &str) -> NormalizedItem {
-        NormalizedItem {
-            fid: fid.to_string(),
-            parent_fid: "parent".to_string(),
-            file_name: name.to_string(),
-            file: true,
+    fn video_item(fid: &str, name: &str) -> DriveItem {
+        DriveItem {
+            id: fid.to_string(),
+            parent_id: "parent".to_string(),
+            name: name.to_string(),
             is_dir: false,
             size: 0,
             updated_at: String::new(),

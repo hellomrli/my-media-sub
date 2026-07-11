@@ -64,8 +64,16 @@ macro_rules! subscription_check_file_filter_methods {
             return Some("疑似衍生内容".to_string());
         }
 
-        if sub.media_type != "movie" && episode_video_key(&file.name, sub.season).is_none() {
-            return Some("无法识别剧集集数".to_string());
+        if sub.media_type != "movie" {
+            let Some((_, episode)) = episode_video_key(&file.name, sub.season) else {
+                return Some("无法识别剧集集数".to_string());
+            };
+            if completion_target_episode(sub)
+                .map(|target| episode > target)
+                .unwrap_or(false)
+            {
+                return Some(format!("集数超过订阅总集数：第 {episode} 集"));
+            }
         }
 
         let include_words = Self::normalized_rule_words(&sub.rules.include_keywords);
@@ -205,8 +213,10 @@ macro_rules! subscription_check_file_filter_methods {
             || matches_subscription_season(&file.name, &file.parent_path, sub.season)
     }
 
-    fn should_record_known_probe_file(sub: &Subscription, file: &ProbeFile) -> bool {
-        !file.is_dir && Self::is_current_subscription_season_file(sub, file)
+    fn should_record_known_probe_file(&self, sub: &Subscription, file: &ProbeFile) -> bool {
+        !file.is_dir
+            && Self::is_current_subscription_season_file(sub, file)
+            && self.transfer_rule_skip_reason(sub, file).is_none()
     }
 
     fn duplicate_episode_skip_reason(&self, sub: &Subscription) -> &'static str {

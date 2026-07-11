@@ -17,12 +17,11 @@ mod tests {
         ))
     }
 
-    fn video_item(name: &str) -> NormalizedItem {
-        NormalizedItem {
-            fid: format!("fid-{name}"),
-            parent_fid: "parent".to_string(),
-            file_name: name.to_string(),
-            file: true,
+    fn video_item(name: &str) -> DriveItem {
+        DriveItem {
+            id: format!("fid-{name}"),
+            parent_id: "parent".to_string(),
+            name: name.to_string(),
             is_dir: false,
             size: 0,
             updated_at: String::new(),
@@ -40,6 +39,7 @@ mod tests {
             current_episode_number: 0,
             total_episode_number: None,
             source_group: String::new(),
+            tags: vec![],
             metadata: Some(MediaMetadata {
                 provider: MetadataProvider::Tmdb,
                 provider_id: "1".to_string(),
@@ -194,65 +194,53 @@ mod tests {
     }
 
     #[test]
-    fn dedup_quark_episode_files_can_keep_latest_upload() {
+    fn dedup_provider_episode_files_can_keep_latest_upload() {
         let mut sub = subscription("series", 1);
         sub.rules.duplicate_episode_strategy = "latest_upload".to_string();
-        let old_4k = QuarkFile {
+        let old_4k = ProviderFile {
             name: "178-4k.mkv".to_string(),
-            fid: "fid-4k".to_string(),
-            share_fid_token: "token-4k".to_string(),
+            id: "fid-4k".to_string(),
             is_dir: false,
             size: 10,
             parent_path: String::new(),
             updated_at: Some("2024-01-01T00:00:00Z".to_string()),
-            category: None,
-            format_type: None,
-        };
-        let latest = QuarkFile {
+                                };
+        let latest = ProviderFile {
             name: "178.mkv".to_string(),
-            fid: "fid-latest".to_string(),
-            share_fid_token: "token-latest".to_string(),
-            is_dir: false,
+            id: "fid-latest".to_string(),
+                        is_dir: false,
             size: 1,
             parent_path: String::new(),
             updated_at: Some("2024-01-02T00:00:00Z".to_string()),
-            category: None,
-            format_type: None,
-        };
+                                };
 
-        let deduped = dedup_quark_episode_files(&sub, vec![&old_4k, &latest]);
+        let deduped = dedup_provider_episode_files(&sub, vec![&old_4k, &latest]);
 
         assert_eq!(deduped.len(), 1);
         assert_eq!(deduped[0].name, "178.mkv");
     }
 
     #[test]
-    fn dedup_quark_episode_files_keeps_movie_files() {
+    fn dedup_provider_episode_files_keeps_movie_files() {
         let sub = subscription("movie", 1);
-        let first = QuarkFile {
+        let first = ProviderFile {
             name: "178.mkv".to_string(),
-            fid: "fid-1".to_string(),
-            share_fid_token: "token-1".to_string(),
-            is_dir: false,
+            id: "fid-1".to_string(),
+                        is_dir: false,
             size: 1,
             parent_path: String::new(),
             updated_at: None,
-            category: None,
-            format_type: None,
-        };
-        let second = QuarkFile {
+                                };
+        let second = ProviderFile {
             name: "178-4k.mkv".to_string(),
-            fid: "fid-2".to_string(),
-            share_fid_token: "token-2".to_string(),
-            is_dir: false,
+            id: "fid-2".to_string(),
+                        is_dir: false,
             size: 2,
             parent_path: String::new(),
             updated_at: None,
-            category: None,
-            format_type: None,
-        };
+                                };
 
-        let deduped = dedup_quark_episode_files(&sub, vec![&first, &second]);
+        let deduped = dedup_provider_episode_files(&sub, vec![&first, &second]);
 
         assert_eq!(deduped.len(), 2);
     }
@@ -264,17 +252,14 @@ mod tests {
             &sub,
             &["S01E147.2025.2160p.WEB-DL.HQ.H265.30fps.10bit.AAC.mp4".to_string()],
         );
-        let renamed = QuarkFile {
+        let renamed = ProviderFile {
             name: "147.mp4".to_string(),
-            fid: "fid-147".to_string(),
-            share_fid_token: "token-147".to_string(),
-            is_dir: false,
+            id: "fid-147".to_string(),
+                        is_dir: false,
             size: 1,
             parent_path: String::new(),
             updated_at: None,
-            category: None,
-            format_type: None,
-        };
+                                };
 
         let matched = filter_transfer_candidates_by_targets(&sub, vec![&renamed], &targets);
 
@@ -286,33 +271,27 @@ mod tests {
     fn transfer_match_targets_skip_other_season_parent_paths() {
         let sub = subscription("anime", 6);
         let targets = TransferMatchTargets::from_file_names(&sub, &["25 4K.mp4".to_string()]);
-        let current = QuarkFile {
+        let current = ProviderFile {
             name: "25 4K.mp4".to_string(),
-            fid: "fid-s6-25".to_string(),
-            share_fid_token: "token-s6-25".to_string(),
-            is_dir: false,
+            id: "fid-s6-25".to_string(),
+                        is_dir: false,
             size: 1,
             parent_path: "一人之下 第六季/第6季".to_string(),
             updated_at: None,
-            category: None,
-            format_type: None,
-        };
-        let other = QuarkFile {
+                                };
+        let other = ProviderFile {
             name: "25 4K.mp4".to_string(),
-            fid: "fid-s1-25".to_string(),
-            share_fid_token: "token-s1-25".to_string(),
-            is_dir: false,
+            id: "fid-s1-25".to_string(),
+                        is_dir: false,
             size: 1,
             parent_path: "前五季+番外+剧场版/第1季（2016）4K".to_string(),
             updated_at: None,
-            category: None,
-            format_type: None,
-        };
+                                };
 
         let matched = filter_transfer_candidates_by_targets(&sub, vec![&other, &current], &targets);
 
         assert_eq!(matched.len(), 1);
-        assert_eq!(matched[0].fid, "fid-s6-25");
+        assert_eq!(matched[0].id, "fid-s6-25");
     }
 
     #[test]
@@ -329,7 +308,7 @@ mod tests {
 
         assert_eq!(filtered.len(), 1);
         assert_eq!(
-            filtered[0].file_name,
+            filtered[0].name,
             "Joy.of.Life.2019.S01.EP05.WEB-DL.4K.HEVC.AAC-LeagueWEB.mp4"
         );
     }
@@ -427,7 +406,7 @@ mod tests {
         assert_eq!(*attempts.lock().unwrap(), 2);
         assert_eq!(candidates.len(), 1);
         assert_eq!(
-            candidates[0].file_name,
+            candidates[0].name,
             "Joy.of.Life.2019.S01.EP05.WEB-DL.4K.HEVC.AAC-LeagueWEB.mp4"
         );
     }
@@ -455,4 +434,54 @@ mod tests {
         assert_eq!(*attempts.lock().unwrap(), 2);
         assert!(candidates.is_empty());
     }
+    #[tokio::test]
+    async fn cloud_type_selects_mock_provider_and_surfaces_transfer_failure() {
+        let subscriptions = Arc::new(SubscriptionStore::new(test_path("provider_subscriptions")));
+        let settings = Arc::new(SettingsStore::new(test_path("provider_settings")));
+        let notifications = Arc::new(NotificationStore::new(test_path("provider_notifications")));
+        let mut sub = subscription("series", 1);
+        sub.cloud_type = "mock".to_string();
+        sub.url = "mock://show".to_string();
+        subscriptions.create(sub).await.unwrap();
+        settings
+            .update(|settings| {
+                settings.auto_download_new_subscription_items = true;
+                settings.quark_save_enabled = true;
+            })
+            .await
+            .unwrap();
+
+        let mock = Arc::new(crate::providers::MockCloudDriveProvider::new());
+        mock.set_probe_result(crate::providers::ProviderProbeResult {
+            ok: true,
+            state: "ok".to_string(),
+            message: String::new(),
+            files: vec![crate::providers::ProviderFile {
+                id: "episode-1".to_string(),
+                name: "Episode.01.mkv".to_string(),
+                is_dir: false,
+                size: 1,
+                parent_path: String::new(),
+                updated_at: None,
+            }],
+        });
+        mock.fail("transfer", "mock transfer failed");
+        let registry = Arc::new(
+            crate::providers::CloudDriveProviderRegistry::new().with_provider(mock),
+        );
+        let service = SubscriptionTransferService::new(subscriptions, settings, notifications)
+            .with_provider_registry(registry);
+
+        let error = service
+            .auto_transfer_new_files_with_options(
+                "sub",
+                &["Episode.01.mkv".to_string()],
+                false,
+            )
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("mock transfer failed"));
+    }
+
 }

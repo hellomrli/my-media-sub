@@ -1,16 +1,17 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn};
 
-use crate::clients::quark::{QuarkFile, QuarkShareProbe};
-use crate::clients::quark_save::{NormalizedItem, QuarkSaveClient};
 use crate::clients::Aria2Client;
 use crate::error::{AppError, Result};
 use crate::models::rules::TransferRules;
 use crate::models::subscription::Subscription;
 use crate::models::Settings;
+use crate::providers::{
+    CloudDriveProvider, CloudDriveProviderRegistry, DriveItem, ProviderFile, TransferRequest,
+};
 use crate::services::notification::{
     add_notification, dispatch_push_event_for_notification, PushDispatchRequest,
 };
@@ -37,6 +38,7 @@ pub struct SubscriptionTransferService {
     subscription_store: Arc<SubscriptionStore>,
     settings_store: Arc<SettingsStore>,
     notification_store: Arc<NotificationStore>,
+    provider_registry: Arc<CloudDriveProviderRegistry>,
 }
 
 impl SubscriptionTransferService {
@@ -49,7 +51,14 @@ impl SubscriptionTransferService {
             subscription_store,
             settings_store,
             notification_store,
+            provider_registry: Arc::new(CloudDriveProviderRegistry::new()),
         }
+    }
+
+    /// Override provider resolution (primarily for deterministic service tests).
+    pub fn with_provider_registry(mut self, registry: Arc<CloudDriveProviderRegistry>) -> Self {
+        self.provider_registry = registry;
+        self
     }
 
     /// 自动转存订阅的新文件
@@ -60,6 +69,8 @@ impl SubscriptionTransferService {
         new_file_names: &[String],
         force_transfer: bool,
     ) -> Result<TransferResult> {
+        let metrics = crate::utils::metrics::global_metrics();
+        let _timer = metrics.start_timer(crate::utils::metrics::MetricTimerKind::Transfer);
         let mut sub = self
             .subscription_store
             .get(subscription_id)
@@ -126,7 +137,9 @@ impl SubscriptionTransferService {
         }
 
         let cookie = settings.quark_cookie.clone();
-        if cookie.is_empty() {
+        if (sub.cloud_type.trim().is_empty() || sub.cloud_type.eq_ignore_ascii_case("quark"))
+            && cookie.is_empty()
+        {
             return Ok(TransferResult {
                 subscription_id: sub.id.clone(),
                 transferred_count: 0,
@@ -166,9 +179,9 @@ impl SubscriptionTransferService {
             new_file_names.len()
         );
 
-        // 1. 探测分享链接获取文件信息
-        let probe = QuarkShareProbe::new(cookie.clone());
-        let share_info = probe.probe(&sub.url, &sub.password, 200).await;
+        // 1. Resolve the subscription's provider and probe the share.
+        let provider = self.provider_registry.resolve(&sub.cloud_type, &settings)?;
+        let share_info = provider.probe(&sub.url, &sub.password, 200).await?;
 
         if !share_info.ok {
             warn!("探测分享链接失败: {}", share_info.message);
@@ -182,12 +195,7 @@ impl SubscriptionTransferService {
         let match_targets = TransferMatchTargets::from_file_names(&sub, new_file_names);
         let files_to_transfer =
             filter_transfer_candidates_by_targets(&sub, &share_info.files, &match_targets);
-        let files_to_transfer = dedup_quark_episode_files(&sub, files_to_transfer);
-        let new_file_names: Vec<String> = files_to_transfer
-            .iter()
-            .map(|file| file.name.clone())
-            .collect();
-
+        let files_to_transfer = dedup_provider_episode_files(&sub, files_to_transfer);
         if files_to_transfer.is_empty() {
             return Ok(TransferResult {
                 subscription_id: sub.id.clone(),
@@ -205,71 +213,48 @@ impl SubscriptionTransferService {
             });
         }
 
-        // 3. 确定目标目录
+        // 3. 确定目标目录。目录创建失败时保持原有回退根目录行为。
         let target_dir = self.determine_target_directory(&sub, &settings);
-        let save_client = QuarkSaveClient::new(cookie.clone());
-
         let target_fid = if target_dir.is_empty() || target_dir == "/" {
             "0".to_string()
         } else {
-            match save_client.ensure_dir_path(&target_dir).await {
-                Ok(fid) => fid,
-                Err(e) => {
-                    warn!("创建/查找目标目录失败: {}, 使用根目录", e);
+            match provider.ensure(&target_dir).await {
+                Ok(id) => id,
+                Err(error) => {
+                    warn!("创建/查找目标目录失败: {}, 使用根目录", error);
                     "0".to_string()
                 }
             }
         };
 
-        // 4. 提取 pwd_id
-        let pwd_id = match QuarkShareProbe::extract_pwd_id(&sub.url) {
-            Some(id) => id,
-            None => {
-                return Err(AppError::Validation("无法提取分享链接 ID".to_string()));
-            }
-        };
-
-        // 5. 重新获取最新的 stoken 和 share_fid_token
-        let (stoken, err) = probe.get_share_token(&pwd_id, &sub.password).await?;
-        if let Some(err_msg) = err {
-            return Err(AppError::Http(format!("获取分享 token 失败: {}", err_msg)));
-        }
-
-        let stoken = stoken.ok_or_else(|| AppError::Http("未能获取分享 token".to_string()))?;
-
-        // 6. 递归收集本次新增的视频文件。不要直接转存父目录，否则会在目标
-        // 目录下多出一层原始分享目录，导致重命名和 Aria2 同步路径不符合预期。
-        let transfer_targets = TransferMatchTargets::from_file_names(&sub, &new_file_names);
-        let transfer_files =
-            collect_share_transfer_files(&probe, &sub, &pwd_id, &stoken, &transfer_targets).await?;
-        let transfer_file_names: Vec<String> = transfer_files
+        // 4. Provider owns vendor-specific token refresh and transfer details.
+        let selected_ids: Vec<String> = files_to_transfer
+            .iter()
+            .filter(|file| !file.is_dir)
+            .map(|file| file.id.clone())
+            .collect();
+        info!("转存 {} 个文件到 {}", selected_ids.len(), target_dir);
+        let transfer_outcome = provider
+            .transfer(TransferRequest {
+                share_url: sub.url.clone(),
+                passcode: sub.password.clone(),
+                target_id: target_fid.clone(),
+                file_ids: selected_ids,
+            })
+            .await?;
+        let transfer_file_names: Vec<String> = transfer_outcome
+            .transferred_files
             .iter()
             .map(|file| file.name.clone())
             .collect();
-        let fid_list: Vec<String> = transfer_files.iter().map(|file| file.fid.clone()).collect();
-        let fid_token_list: Vec<String> = transfer_files
-            .iter()
-            .map(|file| file.share_fid_token.clone())
-            .collect();
-
-        if fid_list.is_empty() {
-            return Err(AppError::Validation(
-                "没有可转存的文件（缺少 fid 或 token）".to_string(),
-            ));
-        }
-
-        // 8. 执行转存
-        info!("转存 {} 个文件到 {}", fid_list.len(), target_dir);
-        save_client
-            .save_share_files(&pwd_id, &stoken, &fid_list, &fid_token_list, &target_fid)
-            .await?;
+        let transferred_count = transfer_outcome.transferred_files.len();
 
         // 9. 等待转存文件落盘，并按规则重命名
         let (renamed_count, transferred_files) = if has_rename_rules(&sub.rules) {
             info!("开始按订阅规则重命名文件");
             let result = self
                 .rename_transferred_files(
-                    &save_client,
+                    provider.as_ref(),
                     &target_fid,
                     &sub,
                     Some(&transfer_file_names),
@@ -279,7 +264,7 @@ impl SubscriptionTransferService {
         } else {
             let expected_names = expected_video_names(&transfer_file_names);
             let files = wait_for_rename_candidates(
-                || collect_video_files_recursive(&save_client, &target_fid),
+                || collect_video_files_recursive(provider.as_ref(), &target_fid),
                 Some(&expected_names),
                 30,
                 Duration::from_secs(2),
@@ -294,7 +279,7 @@ impl SubscriptionTransferService {
 
         // 11. 如果订阅开启了同步下载，提交 Aria2 下载任务
         let sync_report = self
-            .submit_sync_downloads(&save_client, &settings, &sub, &transferred_files)
+            .submit_sync_downloads(provider.as_ref(), &settings, &sub, &transferred_files)
             .await;
 
         if self.complete_if_transferred_target_reached(&sub.id).await? {
@@ -317,12 +302,12 @@ impl SubscriptionTransferService {
             )
             .await;
 
-        info!("成功转存 {} 个文件", fid_list.len());
+        info!("成功转存 {} 个文件", transferred_count);
         let reason = transfer_reason(&target_dir, sync_report.as_ref(), strm_report.as_ref());
 
         Ok(TransferResult {
             subscription_id: sub.id.clone(),
-            transferred_count: fid_list.len(),
+            transferred_count,
             skipped: false,
             reason,
             push_title: Some(push_title),
@@ -345,7 +330,7 @@ impl SubscriptionTransferService {
     /// 重命名转存后的文件
     async fn rename_transferred_files(
         &self,
-        save_client: &QuarkSaveClient,
+        save_client: &dyn CloudDriveProvider,
         target_fid: &str,
         sub: &Subscription,
         expected_file_names: Option<&[String]>,
@@ -378,58 +363,58 @@ impl SubscriptionTransferService {
         for video_file in &rename_candidates {
             let mut final_file = video_file.clone();
             if sub.media_type != "movie"
-                && !matches_subscription_season(&video_file.file_name, "", sub.season)
+                && !matches_subscription_season(&video_file.name, "", sub.season)
             {
                 info!(
                     "文件 {} 不属于订阅第 {} 季，跳过重命名",
-                    video_file.file_name, sub.season
+                    video_file.name, sub.season
                 );
                 files.push(final_file);
                 continue;
             }
-            let episode_info = detect_episode(&video_file.file_name);
+            let episode_info = detect_episode(&video_file.name);
             if sub.rules.rename_template.contains("{}") && episode_info.episode.is_none() {
-                info!("无法从 {} 提取集数，跳过重命名", video_file.file_name);
+                info!("无法从 {} 提取集数，跳过重命名", video_file.name);
                 files.push(final_file);
                 continue;
             }
 
             let (new_name, rename_error) = apply_rename(
-                &video_file.file_name,
+                &video_file.name,
                 &sub.rules,
                 Some(sub),
                 episode_info.episode,
             );
             if let Some(err) = rename_error {
-                warn!("生成重命名结果失败 {}: {}", video_file.file_name, err);
+                warn!("生成重命名结果失败 {}: {}", video_file.name, err);
                 files.push(final_file);
                 continue;
             }
 
             // 如果新旧文件名相同，跳过
-            if new_name == video_file.file_name {
-                info!("文件名已经匹配模板，跳过: {}", video_file.file_name);
+            if new_name == video_file.name {
+                info!("文件名已经匹配模板，跳过: {}", video_file.name);
                 files.push(final_file);
                 continue;
             }
 
             // 执行重命名
-            info!("重命名: {} -> {}", video_file.file_name, new_name);
-            let parent_fid = if video_file.parent_fid.trim().is_empty() {
+            info!("重命名: {} -> {}", video_file.name, new_name);
+            let parent_fid = if video_file.parent_id.trim().is_empty() {
                 None
             } else {
-                Some(video_file.parent_fid.as_str())
+                Some(video_file.parent_id.as_str())
             };
             match save_client
-                .rename_item(&video_file.fid, &new_name, parent_fid)
+                .rename(&video_file.id, &new_name, parent_fid)
                 .await
             {
                 Ok(_) => {
                     renamed_count += 1;
-                    final_file.file_name = new_name.clone();
+                    final_file.name = new_name.clone();
                     info!("重命名成功: {}", new_name);
                 }
-                Err(e) => warn!("重命名失败 {}: {}", video_file.file_name, e),
+                Err(e) => warn!("重命名失败 {}: {}", video_file.name, e),
             }
             files.push(final_file);
         }
@@ -463,15 +448,15 @@ impl SubscriptionTransferService {
             return Err(AppError::Validation("未配置夸克 Cookie".to_string()));
         }
 
-        let save_client = QuarkSaveClient::new(settings.quark_cookie.clone());
+        let provider = self.provider_registry.resolve(&sub.cloud_type, &settings)?;
         let target_dir = self.determine_target_directory(&sub, &settings);
-        let target_fid = save_client.ensure_dir_path(&target_dir).await?;
+        let target_fid = provider.ensure(&target_dir).await?;
 
         info!(
             "开始修复订阅 {} 目标目录 {} 的文件命名",
             sub.title, target_dir
         );
-        self.rename_transferred_files(&save_client, &target_fid, &sub, None)
+        self.rename_transferred_files(provider.as_ref(), &target_fid, &sub, None)
             .await
             .map(|result| result.renamed_count)
     }
@@ -498,20 +483,20 @@ impl SubscriptionTransferService {
             return Err(AppError::Validation("未配置夸克 Cookie".to_string()));
         }
 
-        let save_client = QuarkSaveClient::new(settings.quark_cookie.clone());
+        let provider = self.provider_registry.resolve(&sub.cloud_type, &settings)?;
         let target_dir = self.determine_target_directory(&sub, &settings);
-        let target_fid = save_client.ensure_dir_path(&target_dir).await?;
-        let files = collect_video_files_recursive(&save_client, &target_fid).await?;
+        let target_fid = provider.ensure(&target_dir).await?;
+        let files = collect_video_files_recursive(provider.as_ref(), &target_fid).await?;
 
         generate_subscription_strm_files_async(&settings, &sub, &target_dir, &files).await
     }
 
     async fn submit_sync_downloads(
         &self,
-        save_client: &QuarkSaveClient,
+        save_client: &dyn CloudDriveProvider,
         settings: &Settings,
         sub: &Subscription,
-        files: &[NormalizedItem],
+        files: &[DriveItem],
     ) -> Option<SyncDownloadReport> {
         if !sub.sync_download_enabled {
             return None;
@@ -537,8 +522,8 @@ impl SubscriptionTransferService {
 
         let mut fids: Vec<String> = files
             .iter()
-            .filter(|file| file.file && !file.fid.trim().is_empty())
-            .map(|file| file.fid.clone())
+            .filter(|file| !file.is_dir && !file.id.trim().is_empty())
+            .map(|file| file.id.clone())
             .collect();
         fids.sort();
         fids.dedup();
@@ -562,7 +547,7 @@ impl SubscriptionTransferService {
             dir.clone(),
         );
 
-        let download_infos = match save_client.download_infos(&fids).await {
+        let download_infos = match save_client.download_info(&fids).await {
             Ok(infos) => infos,
             Err(e) => {
                 let error = format!("获取夸克下载直链失败: {}", e);
@@ -618,7 +603,7 @@ impl SubscriptionTransferService {
         settings: &Settings,
         sub: &Subscription,
         target_dir: &str,
-        files: &[NormalizedItem],
+        files: &[DriveItem],
     ) -> Option<StrmGenerationReport> {
         if !strm_generation_enabled(settings, sub) {
             return None;

@@ -12,6 +12,10 @@ use std::pin::Pin;
 use std::sync::LazyLock;
 use std::time::Duration;
 use tokio::time::sleep;
+use web_push::{
+    ContentEncoding, IsahcWebPushClient, SubscriptionInfo, VapidSignatureBuilder, WebPushClient,
+    WebPushMessageBuilder,
+};
 
 fn hardcoded_regex(pattern: &str) -> Regex {
     Regex::new(pattern)
@@ -162,6 +166,8 @@ struct BarkChannel;
 struct GotifyChannel;
 struct PushplusChannel;
 struct ServerchanChannel;
+struct BrowserChannel;
+struct WebhookChannel;
 
 impl PushChannel for WecomChannel {
     fn id(&self) -> &'static str {
@@ -303,7 +309,43 @@ impl PushChannel for ServerchanChannel {
     }
 }
 
-fn push_channels() -> [&'static dyn PushChannel; 7] {
+impl PushChannel for BrowserChannel {
+    fn id(&self) -> &'static str {
+        "browser"
+    }
+    fn is_enabled(&self, settings: &Settings) -> bool {
+        !settings.browser_push_subscriptions.is_empty()
+    }
+    fn send<'a>(
+        &'a self,
+        service: &'a PushService,
+        title: &'a str,
+        message: &'a str,
+        level: PushLevel,
+    ) -> ChannelSendFuture<'a> {
+        Box::pin(service.send_browser_push(title, message, level))
+    }
+}
+
+impl PushChannel for WebhookChannel {
+    fn id(&self) -> &'static str {
+        "webhook"
+    }
+    fn is_enabled(&self, settings: &Settings) -> bool {
+        settings.webhook_enabled && !settings.webhook_urls.is_empty()
+    }
+    fn send<'a>(
+        &'a self,
+        service: &'a PushService,
+        title: &'a str,
+        message: &'a str,
+        level: PushLevel,
+    ) -> ChannelSendFuture<'a> {
+        Box::pin(service.send_webhooks(title, message, level))
+    }
+}
+
+fn push_channels() -> [&'static dyn PushChannel; 9] {
     static WECOM: WecomChannel = WecomChannel;
     static WXPUSHER: WxpusherChannel = WxpusherChannel;
     static TELEGRAM: TelegramChannel = TelegramChannel;
@@ -311,6 +353,8 @@ fn push_channels() -> [&'static dyn PushChannel; 7] {
     static GOTIFY: GotifyChannel = GotifyChannel;
     static PUSHPLUS: PushplusChannel = PushplusChannel;
     static SERVERCHAN: ServerchanChannel = ServerchanChannel;
+    static BROWSER: BrowserChannel = BrowserChannel;
+    static WEBHOOK: WebhookChannel = WebhookChannel;
 
     [
         &WECOM,
@@ -320,6 +364,8 @@ fn push_channels() -> [&'static dyn PushChannel; 7] {
         &GOTIFY,
         &PUSHPLUS,
         &SERVERCHAN,
+        &BROWSER,
+        &WEBHOOK,
     ]
 }
 
@@ -501,6 +547,86 @@ impl PushService {
         let channels = self.enabled_channels();
         self.send_to_channels_with_retry_detailed(&channels, title, message, level, retry_policy)
             .await
+    }
+
+    async fn send_browser_push(
+        &self,
+        title: &str,
+        message: &str,
+        level: PushLevel,
+    ) -> Result<bool> {
+        let client =
+            IsahcWebPushClient::new().map_err(|error| AppError::Http(error.to_string()))?;
+        let payload = serde_json::to_vec(
+            &json!({"title": title, "body": message, "level": level.as_str(), "url": "/?tab=notifications"}),
+        )?;
+        let mut succeeded = 0usize;
+        for subscription in &self.settings.browser_push_subscriptions {
+            let info = SubscriptionInfo::new(
+                &subscription.endpoint,
+                &subscription.p256dh,
+                &subscription.auth,
+            );
+            let mut signature = VapidSignatureBuilder::from_base64(
+                &self.settings.browser_push_vapid_private_key,
+                &info,
+            )
+            .map_err(|error| AppError::Config(format!("Browser Push VAPID 签名失败: {error}")))?;
+            signature.add_claim("sub", self.settings.browser_push_subject.clone());
+            let signature = signature
+                .build()
+                .map_err(|error| AppError::Http(error.to_string()))?;
+            let mut builder = WebPushMessageBuilder::new(&info);
+            builder.set_payload(ContentEncoding::Aes128Gcm, &payload);
+            builder.set_ttl(3600);
+            builder.set_vapid_signature(signature);
+            let push = builder
+                .build()
+                .map_err(|error| AppError::Http(error.to_string()))?;
+            if client.send(push).await.is_ok() {
+                succeeded += 1;
+            }
+        }
+        Ok(succeeded > 0)
+    }
+
+    async fn send_webhooks(&self, title: &str, message: &str, level: PushLevel) -> Result<bool> {
+        let payload = json!({"event": "notification", "title": title, "message": message, "level": level.as_str(), "timestamp": crate::utils::unix_now()});
+        let bytes = serde_json::to_vec(&payload)?;
+        let signature = if self.settings.webhook_secret.is_empty() {
+            String::new()
+        } else {
+            let key = ring::hmac::Key::new(
+                ring::hmac::HMAC_SHA256,
+                self.settings.webhook_secret.as_bytes(),
+            );
+            ring::hmac::sign(&key, &bytes)
+                .as_ref()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect()
+        };
+        let mut success = 0usize;
+        for url in self.settings.webhook_urls.iter().take(5) {
+            let mut request = self
+                .client
+                .post(url)
+                .header("content-type", "application/json")
+                .body(bytes.clone());
+            if !signature.is_empty() {
+                request =
+                    request.header("x-media-sub-signature-256", format!("sha256={signature}"));
+            }
+            if request
+                .send()
+                .await
+                .map(|response| response.status().is_success())
+                .unwrap_or(false)
+            {
+                success += 1;
+            }
+        }
+        Ok(success > 0)
     }
 
     push_channel_methods!();

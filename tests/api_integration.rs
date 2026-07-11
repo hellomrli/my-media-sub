@@ -526,7 +526,9 @@ async fn delete_subscription_returns_204() {
 
     let delete_response = app
         .clone()
-        .oneshot(auth_delete(&format!("/api/subscriptions/{id}")))
+        .oneshot(auth_delete(&format!(
+            "/api/subscriptions/{id}?confirm={id}"
+        )))
         .await
         .unwrap();
     assert_eq!(delete_response.status(), StatusCode::NO_CONTENT);
@@ -1002,5 +1004,199 @@ async fn automation_event_pipeline_summary_and_safe_retry_are_structured() {
     assert_eq!(retried["data"]["event"]["status"], "retrying");
     assert_eq!(retried["data"]["event"]["attempt"], 2);
 
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn security_headers_and_request_ids_are_present() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/diagnostics")
+                .header(
+                    header::AUTHORIZATION,
+                    basic_auth_header("admin", "change-me"),
+                )
+                .header("x-request-id", "request-test-1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get("x-request-id").unwrap(),
+        "request-test-1"
+    );
+    assert_eq!(
+        response.headers().get("x-correlation-id").unwrap(),
+        "request-test-1"
+    );
+    assert!(response.headers().get("content-security-policy").is_some());
+    assert_eq!(response.headers().get("x-frame-options").unwrap(), "DENY");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn repeated_auth_failures_are_rate_limited() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+    for _ in 0..5 {
+        let request = Request::builder()
+            .uri("/api/subscriptions")
+            .header(header::AUTHORIZATION, basic_auth_header("admin", "wrong"))
+            .header("x-forwarded-for", "192.0.2.10")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(status(&app, request).await, StatusCode::UNAUTHORIZED);
+    }
+    let request = Request::builder()
+        .uri("/api/subscriptions")
+        .header(header::AUTHORIZATION, basic_auth_header("admin", "wrong"))
+        .header("x-forwarded-for", "192.0.2.10")
+        .body(Body::empty())
+        .unwrap();
+    let (status, headers, body) = json_response(&app, request).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(headers.get(header::RETRY_AFTER).unwrap(), "60");
+    assert_eq!(body["error"], "auth_rate_limited");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn backup_export_preview_and_diagnostics_are_available() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+    let export = app
+        .clone()
+        .oneshot(auth_get("/api/backups/export"))
+        .await
+        .unwrap();
+    assert_eq!(export.status(), StatusCode::OK);
+    assert!(export.headers().get(header::CONTENT_DISPOSITION).is_some());
+    let archive_bytes = axum::body::to_bytes(export.into_body(), 16 << 20)
+        .await
+        .unwrap();
+    let archive: serde_json::Value = serde_json::from_slice(&archive_bytes).unwrap();
+    assert_eq!(archive["format"], "my-media-sub-backup");
+
+    let preview = json_body(&app, auth_post("/api/backups/preview", archive)).await;
+    assert_eq!(preview["ok"], true);
+    assert_eq!(preview["data"]["valid"], true);
+    assert!(preview["data"]["file_count"].as_u64().unwrap() >= 1);
+
+    let diagnostics = json_body(&app, auth_get("/api/diagnostics")).await;
+    assert_eq!(diagnostics["ok"], true);
+    assert_eq!(diagnostics["data"]["schema_version"], 1);
+    assert_eq!(
+        diagnostics["data"]["storage_decision"]["recommendation"],
+        "keep_json"
+    );
+    assert!(diagnostics["data"]["metrics"]["store_io"].is_object());
+    assert!(diagnostics.to_string().find("change-me").is_none());
+
+    let compacted = json_body(
+        &app,
+        auth_post(
+            "/api/storage/compact",
+            serde_json::json!({"confirmation":"COMPACT JSON"}),
+        ),
+    )
+    .await;
+    assert_eq!(compacted["ok"], true);
+    let settings_bytes = std::fs::read(dir.join("settings.json")).unwrap();
+    assert!(!String::from_utf8_lossy(&settings_bytes).contains("\n  "));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn pwa_assets_respect_basic_auth_and_service_worker_cache_rules() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+
+    let unauthenticated = Request::builder()
+        .uri("/manifest.webmanifest")
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(
+        status(&app, unauthenticated).await,
+        StatusCode::UNAUTHORIZED
+    );
+
+    let manifest_response = app
+        .clone()
+        .oneshot(auth_get("/manifest.webmanifest"))
+        .await
+        .unwrap();
+    assert_eq!(manifest_response.status(), StatusCode::OK);
+    assert!(manifest_response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.contains("manifest") || value.contains("json")));
+
+    let worker_response = app
+        .clone()
+        .oneshot(auth_get("/service-worker.js"))
+        .await
+        .unwrap();
+    assert_eq!(worker_response.status(), StatusCode::OK);
+    assert_eq!(
+        worker_response
+            .headers()
+            .get(header::CACHE_CONTROL)
+            .unwrap(),
+        "no-cache"
+    );
+    assert_eq!(
+        worker_response
+            .headers()
+            .get("service-worker-allowed")
+            .unwrap(),
+        "/"
+    );
+    assert!(worker_response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.contains("javascript")));
+
+    assert_eq!(
+        status(&app, auth_get("/icons/icon-192.png")).await,
+        StatusCode::OK
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn p10_openapi_browser_push_and_subscription_tags_are_exposed() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+    let openapi = json_body(&app, auth_get("/openapi.json")).await;
+    assert_eq!(openapi["openapi"], "3.1.0");
+    assert!(openapi["paths"]["/api/push/browser"].is_object());
+
+    let browser = json_body(&app, auth_get("/api/push/browser")).await;
+    assert_eq!(browser["ok"], true);
+    assert!(browser["data"]["public_key"]
+        .as_str()
+        .is_some_and(|key| key.len() > 80));
+
+    let created = json_body(
+        &app,
+        auth_post(
+            "/api/subscriptions",
+            serde_json::json!({
+                "title":"Tagged", "url":"https://pan.quark.cn/s/tagged",
+                "media_type":"series", "season":1,
+                "tags":["追更", " 4K ", "追更"]
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(created["data"]["tags"], serde_json::json!(["追更", "4K"]));
     let _ = std::fs::remove_dir_all(dir);
 }

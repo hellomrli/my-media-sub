@@ -123,7 +123,7 @@ impl SubscriptionSourceSwitchService {
         candidate: &SourceCandidate,
         cookie: &str,
     ) -> Result<ProbeResult> {
-        info!("探测候选项: {}", candidate.url);
+        info!("探测候选项: {}", crate::utils::redact_url(&candidate.url));
 
         // 创建新的 probe 实例用于探测
         let probe = crate::clients::quark::QuarkShareProbe::new(cookie);
@@ -318,13 +318,21 @@ impl SubscriptionSourceSwitchService {
             .cloned()
             .ok_or_else(|| AppError::NotFound("候选项不存在".to_string()))?;
 
-        info!("应用换源: {} -> {}", subscription.url, candidate.url);
+        info!(
+            "应用换源: {} -> {}",
+            crate::utils::redact_url(&subscription.url),
+            crate::utils::redact_url(&candidate.url)
+        );
         let now = unix_now();
         let from_url = subscription.url.clone();
         let from_password = subscription.password.clone();
 
         if !subscription.previous_share_links.contains(&from_url) {
             subscription.previous_share_links.push(from_url.clone());
+            if subscription.previous_share_links.len() > 50 {
+                let remove = subscription.previous_share_links.len() - 50;
+                subscription.previous_share_links.drain(0..remove);
+            }
         }
         subscription.url = candidate.url.clone();
         subscription.password = candidate.password.clone();
@@ -641,6 +649,7 @@ mod tests {
             current_episode_number: 0,
             total_episode_number: None,
             source_group: String::new(),
+            tags: vec![],
             metadata: None,
             manual_schedule: None,
             cloud_type: "quark".to_string(),

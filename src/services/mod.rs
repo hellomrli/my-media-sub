@@ -1,4 +1,5 @@
 pub mod automation_events;
+pub mod backup;
 pub mod download_monitor;
 pub mod episode;
 pub mod media_calendar;
@@ -7,6 +8,7 @@ pub mod notification;
 pub mod push;
 pub mod quark_signin;
 pub mod source_quality;
+pub mod storage;
 pub mod strm;
 pub mod subscription_check;
 pub mod subscription_progress;

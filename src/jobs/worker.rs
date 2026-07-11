@@ -5,9 +5,9 @@ use serde_json::json;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
-use crate::clients::{QuarkSaveClient, QuarkShareProbe};
 use crate::error::{AppError, Result};
 use crate::models::{episode_count_for_season, MediaMetadata, Subscription};
+use crate::providers::{CloudDriveProviderRegistry, TransferRequest};
 use crate::services::notification::add_notification;
 use crate::services::push::{
     record_push_message_report_for_notification, PushEvent, PushLevel, PushRetryPolicy, PushService,
@@ -224,6 +224,7 @@ mod tests {
             current_episode_number: 178,
             total_episode_number: Some(178),
             source_group: String::new(),
+            tags: vec![],
             metadata: None,
             manual_schedule: None,
             cloud_type: "quark".to_string(),

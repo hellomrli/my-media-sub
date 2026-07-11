@@ -3,9 +3,11 @@ use std::sync::Arc;
 use crate::config::Config;
 use crate::error::Result;
 use crate::jobs::{JobQueue, JobStore};
+use crate::providers::CloudDriveProviderRegistry;
 use crate::services::{
-    DownloadMonitorService, MetadataService, QuarkSigninScheduler, QuarkSigninService,
-    SubscriptionCheckService, SubscriptionScheduler, SubscriptionTransferService,
+    backup::BackupService, DownloadMonitorService, MetadataService, QuarkSigninScheduler,
+    QuarkSigninService, SubscriptionCheckService, SubscriptionScheduler,
+    SubscriptionTransferService,
 };
 use crate::store::{AutomationEventStore, NotificationStore, SettingsStore, SubscriptionStore};
 use crate::utils::metrics::{global_metrics, Metrics};
@@ -29,6 +31,7 @@ pub struct AppContext {
     pub quark_signin_scheduler: Arc<QuarkSigninScheduler>,
     pub download_monitor: Arc<DownloadMonitorService>,
     pub metrics: Arc<Metrics>,
+    pub backup_service: Arc<BackupService>,
 }
 
 impl AppContext {
@@ -67,12 +70,17 @@ impl AppContext {
         let metadata_service = Arc::new(MetadataService::new());
         tracing::info!("✅ Clients initialized");
         let metrics = global_metrics();
+        let backup_service = Arc::new(BackupService::new(&config.data_dir, metrics.clone()));
+        let provider_registry = Arc::new(CloudDriveProviderRegistry::new());
 
-        let transfer_service = Arc::new(SubscriptionTransferService::new(
-            subscription_store.clone(),
-            settings_store.clone(),
-            notification_store.clone(),
-        ));
+        let transfer_service = Arc::new(
+            SubscriptionTransferService::new(
+                subscription_store.clone(),
+                settings_store.clone(),
+                notification_store.clone(),
+            )
+            .with_provider_registry(provider_registry.clone()),
+        );
 
         let job_queue = Arc::new(JobQueue::new(
             job_store.clone(),
@@ -94,6 +102,7 @@ impl AppContext {
                 settings_store.clone(),
                 notification_store.clone(),
             )
+            .with_provider_registry(provider_registry)
             .with_event_store(automation_event_store.clone())
             .with_job_queue(job_queue.clone()),
         );
@@ -136,6 +145,7 @@ impl AppContext {
             quark_signin_scheduler,
             download_monitor,
             metrics,
+            backup_service,
         }))
     }
 
@@ -147,6 +157,7 @@ impl AppContext {
             tracing::error!("启动夸克签到调度器失败: {}", err);
         }
         self.download_monitor.clone().start();
+        self.backup_service.clone().start();
         tracing::info!("✅ Services initialized");
         Ok(())
     }
@@ -320,8 +331,10 @@ async fn warn_weak_auth_settings(settings_store: &SettingsStore) {
     let settings = settings_store.get().await;
     if settings.app_password.trim().is_empty() {
         tracing::warn!("应用密码为空：HTTP Basic Auth 将拒绝所有受保护请求");
-    } else if settings.app_password == "change-me" {
-        tracing::warn!("应用仍在使用默认密码 change-me，请立即通过 SERVER_PASSWORD 或系统设置修改");
+    } else if crate::api::diagnostics::is_default_password(&settings.app_password) {
+        tracing::warn!("应用正在使用常见默认密码，请立即通过 SERVER_PASSWORD 或系统设置修改");
+    } else if crate::api::diagnostics::password_strength(&settings.app_password) == "weak" {
+        tracing::warn!("应用密码强度较弱：建议至少 12 位并混合字母、数字和符号");
     }
 }
 

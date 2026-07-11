@@ -5,6 +5,7 @@ use crate::store::schema::{
     StoreSchemaError,
 };
 use crate::utils::{quarantine_corrupt_file, set_file_mode};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{Mutex, RwLock};
@@ -13,6 +14,7 @@ use tokio::sync::{Mutex, RwLock};
 pub struct SubscriptionStore {
     path: Option<PathBuf>,
     items: RwLock<Vec<Subscription>>,
+    id_index: RwLock<HashMap<String, usize>>,
     save_lock: Mutex<()>,
     save_count: AtomicU64,
 }
@@ -22,6 +24,7 @@ impl SubscriptionStore {
         Self {
             path: Some(path.into()),
             items: RwLock::new(Vec::new()),
+            id_index: RwLock::new(HashMap::new()),
             save_lock: Mutex::new(()),
             save_count: AtomicU64::new(0),
         }
@@ -31,6 +34,7 @@ impl SubscriptionStore {
     pub fn from_snapshot(items: Vec<Subscription>) -> Self {
         Self {
             path: None,
+            id_index: RwLock::new(build_subscription_index(&items)),
             items: RwLock::new(items),
             save_lock: Mutex::new(()),
             save_count: AtomicU64::new(0),
@@ -42,9 +46,8 @@ impl SubscriptionStore {
         let Some(path) = self.path.as_ref() else {
             return Ok(());
         };
-        let mut items = self.items.write().await;
         if !path.exists() {
-            *items = Vec::new();
+            self.replace_memory(Vec::new()).await;
             return Ok(());
         }
         let content = std::fs::read_to_string(path)
@@ -53,10 +56,12 @@ impl SubscriptionStore {
         match decode_store_json::<Vec<Subscription>>(&content, StoreKind::Subscriptions) {
             Ok(decoded) => {
                 backup_store_before_migration(path, &content, decoded.source_version)?;
-                if decoded.needs_write {
-                    write_versioned_json_atomic_async(path, &decoded.data, 0o600).await?;
+                let mut subscriptions = decoded.data;
+                let compacted = compact_subscription_histories(&mut subscriptions);
+                if decoded.needs_write || compacted {
+                    write_versioned_json_atomic_async(path, &subscriptions, 0o600).await?;
                 }
-                *items = decoded.data;
+                self.replace_memory(subscriptions).await;
             }
             Err(StoreSchemaError::UnsupportedVersion { found, current }) => {
                 return Err(AppError::Database(format!(
@@ -67,7 +72,7 @@ impl SubscriptionStore {
             Err(error) => {
                 tracing::warn!("解析订阅 JSON 失败，已隔离损坏文件并使用空订阅: {}", error);
                 quarantine_corrupt_file(path);
-                *items = Vec::new();
+                self.replace_memory(Vec::new()).await;
             }
         }
         Ok(())
@@ -97,7 +102,7 @@ impl SubscriptionStore {
         let mut snapshot = self.items.read().await.clone();
         let result = mutate(&mut snapshot)?;
         self.save(&snapshot).await?;
-        *self.items.write().await = snapshot;
+        self.replace_memory(snapshot).await;
         Ok(result)
     }
 
@@ -149,7 +154,10 @@ impl SubscriptionStore {
 
     /// 按 ID 获取
     pub async fn get(&self, id: &str) -> Option<Subscription> {
-        self.items.read().await.iter().find(|s| s.id == id).cloned()
+        let items = self.items.read().await;
+        let indexes = self.id_index.read().await;
+        let index = indexes.get(id).copied()?;
+        items.get(index).cloned()
     }
 
     /// 创建订阅
@@ -168,7 +176,7 @@ impl SubscriptionStore {
             snapshot
         };
         self.save(&snapshot).await?;
-        *self.items.write().await = snapshot;
+        self.replace_memory(snapshot).await;
         Ok(sub)
     }
 
@@ -192,7 +200,7 @@ impl SubscriptionStore {
 
         if let Some((updated, snapshot)) = updated {
             self.save(&snapshot).await?;
-            *self.items.write().await = snapshot;
+            self.replace_memory(snapshot).await;
             Ok(Some(updated))
         } else {
             Ok(None)
@@ -216,17 +224,79 @@ impl SubscriptionStore {
 
         if let Some(snapshot) = snapshot {
             self.save(&snapshot).await?;
-            *self.items.write().await = snapshot;
+            self.replace_memory(snapshot).await;
             Ok(true)
         } else {
             Ok(false)
         }
     }
 
+    async fn replace_memory(&self, items: Vec<Subscription>) {
+        let index = build_subscription_index(&items);
+        let mut current_items = self.items.write().await;
+        let mut current_index = self.id_index.write().await;
+        *current_items = items;
+        *current_index = index;
+    }
+
+    /// Reapply bounded history retention and rewrite the compact JSON envelope.
+    pub async fn compact(&self) -> Result<usize> {
+        let _guard = self.save_lock.lock().await;
+        let mut snapshot = self.items.read().await.clone();
+        let before: usize = snapshot
+            .iter()
+            .map(|item| {
+                item.check_history.len()
+                    + item.source_switch_history.len()
+                    + item.previous_share_links.len()
+            })
+            .sum();
+        compact_subscription_histories(&mut snapshot);
+        let after: usize = snapshot
+            .iter()
+            .map(|item| {
+                item.check_history.len()
+                    + item.source_switch_history.len()
+                    + item.previous_share_links.len()
+            })
+            .sum();
+        self.save(&snapshot).await?;
+        self.replace_memory(snapshot).await;
+        Ok(before.saturating_sub(after))
+    }
+
     /// 数量
     pub async fn count(&self) -> usize {
         self.with_items(|items| items.len()).await
     }
+}
+
+fn compact_subscription_histories(items: &mut [Subscription]) -> bool {
+    let mut changed = false;
+    for item in items {
+        if item.check_history.len() > 30 {
+            item.check_history.truncate(30);
+            changed = true;
+        }
+        if item.source_switch_history.len() > 50 {
+            item.source_switch_history.truncate(50);
+            changed = true;
+        }
+        if item.previous_share_links.len() > 50 {
+            let remove = item.previous_share_links.len() - 50;
+            item.previous_share_links.drain(0..remove);
+            changed = true;
+        }
+    }
+    changed
+}
+
+fn build_subscription_index(items: &[Subscription]) -> HashMap<String, usize> {
+    items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| (item.id.clone(), index))
+        .collect()
 }
 
 #[cfg(test)]
@@ -254,6 +324,7 @@ mod tests {
             current_episode_number: 0,
             total_episode_number: None,
             source_group: String::new(),
+            tags: vec![],
             metadata: None,
             manual_schedule: None,
             cloud_type: "quark".to_string(),

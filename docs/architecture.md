@@ -255,6 +255,43 @@ sequenceDiagram
 - 浏览器通过 `/api/jobs/events` 接收初始快照和后续更新；
 - 页面轮询只用于 Aria2、通知、在线更新等没有 SSE 的状态。
 
+### CloudDriveProvider
+
+- `providers::CloudDriveProvider` 定义分享探测、目录列举/查找/确保、转存、重命名、删除、下载信息和健康检查能力；
+- `CloudDriveProviderRegistry` 根据订阅 `cloud_type` 解析 Provider，空值兼容旧数据并归一化为 `quark`；
+- `QuarkCloudDriveProvider` 是当前唯一生产实现，业务 Service 不接触 `QuarkSaveClient`；
+- `MockCloudDriveProvider` 支持检查、转存和失败注入测试；
+- 夸克签到是供应商专属扩展，由 `QuarkSigninService` 维护，不属于通用 Provider 接口；
+- 第二 Provider 只有在出现明确产品需求后才加入。
+
+### 备份、诊断与安全
+
+- `BackupService` 把 DATA_DIR 中除备份目录和瞬态文件外的普通文件封装为带格式版本、schema、大小和 SHA-256 的自描述 JSON 归档；
+- 定时备份遵守保留数与总存储预算，恢复前始终创建当前快照；恢复只接受规范相对路径，拒绝保留位置、路径穿越和符号链接祖先，完成后写入重启要求；
+- `/api/diagnostics` 只返回配置状态和聚合运行数据，不返回 Cookie、Token、密码或分享链接；诊断包使用相同脱敏模型；
+- 每个响应携带 request ID 和 correlation ID，自动化业务继续使用自身 correlation ID 串联阶段事件；
+- 指标覆盖检查/转存耗时、失败阶段、队列、换源、备份和恢复；
+- Basic Auth 失败使用 60 秒滑动窗口限速；CSP 和通用安全头由顶层中间件统一设置；
+- 恢复和删除操作在浏览器确认之外还需要服务端可验证确认值。
+
+### JSON Store 可观测性与规模决策
+
+- `decode_store_json` 统一记录文件大小、解析耗时和失败；`write_json_atomic_async` 记录紧凑 JSON 写入字节与耗时；
+- 通知、Job、自动化事件和订阅内历史均有明确保留上限，维护接口可重新整理并压缩全部 Store；
+- SubscriptionStore 和 JobStore 使用主键索引，AutomationEventStore 使用订阅/correlation/job 多索引；
+- 诊断页根据 500 订阅、10,000 历史、32 MiB 文件和复杂查询四项门槛输出 JSON/SQLite 决策；
+- 未达到门槛时不引入 SQLite；未来迁移必须保留 JSON、可重复、校验计数和校验和、可回滚且切换后不双写。
+
+### PWA 与移动端
+
+- `manifest.webmanifest` 提供 standalone 安装、any/maskable 图标和六类业务快捷入口；
+- `service-worker.js` 对 HTML 使用 network-first，对静态资源使用 stale-while-revalidate；
+- `/api/*`、`/strm/*`、`/health`、跨域和非 GET 请求始终 network-only；
+- 只有 200 且未声明 `private/no-store` 的响应可缓存，Basic Auth 401/403 不缓存且 HTML 不回退离线壳层；
+- 认证后的壳层预热覆盖全部运行必需 JS/CSS/图标，但不包含任何业务 JSON；
+- Cache Version 激活时删除旧缓存，安装中的新 Worker 由用户确认后 `SKIP_WAITING`；
+- 390px 断点压缩 Header、内容边距和快捷入口，不裁剪完整导航能力。
+
 ### 在线更新
 
 1. 查询 GitHub Release；
@@ -279,7 +316,7 @@ sequenceDiagram
 | 新订阅规则 | `src/models/rules.rs` + `services/transfer_rule.rs` + API schema + UI。 |
 | 新持久化数据 | Model + Store + schema 迁移/备份/未来版本/损坏/失败测试。 |
 | 新外部 API | `src/clients/*`，复用 HTTP pool，不在 API 层复制客户端逻辑。 |
-| 新云盘 | 先实现 roadmap P6 的 CloudDriveProvider，再增加 Provider。 |
+| 新云盘 | 实现 `CloudDriveProvider` 并在 registry 注册；供应商扩展能力保持在通用 trait 之外。 |
 | 新通知事件 | `services/push.rs` 的 PushEvent 和结构化 notification metadata。 |
 | 新指标 | `src/utils/metrics.rs`，通过 `/api/metrics` 暴露。 |
 | 新后台调度器 | `src/services/*_scheduler.rs`，由 AppContext 初始化和启动。 |
@@ -288,7 +325,7 @@ sequenceDiagram
 
 尚未完成、不得在文档中视为已有能力：
 
-- CloudDriveProvider；
+- 第二个生产 CloudDriveProvider（需明确产品需求）；
 - PWA；
 - SQLite；
 - Telegram 主动控制；

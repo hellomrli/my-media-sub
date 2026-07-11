@@ -1,4 +1,8 @@
-use axum::{extract::State, routing::post, Json, Router};
+use axum::{
+    extract::State,
+    routing::{get, post},
+    Json, Router,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -12,6 +16,97 @@ use crate::store::{NotificationStore, SettingsStore};
 pub struct PushState {
     pub settings_store: Arc<SettingsStore>,
     pub notification_store: Arc<NotificationStore>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BrowserSubscriptionRequest {
+    endpoint: String,
+    p256dh: String,
+    auth: String,
+    #[serde(default)]
+    user_agent: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct BrowserUnsubscribeRequest {
+    endpoint: String,
+}
+
+#[derive(Debug, Serialize)]
+struct BrowserPushStatus {
+    public_key: String,
+    subscriptions: usize,
+}
+
+async fn browser_push_status(
+    State(state): State<Arc<PushState>>,
+) -> Result<Json<Response<BrowserPushStatus>>> {
+    let settings = state.settings_store.get().await;
+    Ok(json_ok(BrowserPushStatus {
+        public_key: settings.browser_push_vapid_public_key,
+        subscriptions: settings.browser_push_subscriptions.len(),
+    }))
+}
+
+async fn subscribe_browser_push(
+    State(state): State<Arc<PushState>>,
+    Json(request): Json<BrowserSubscriptionRequest>,
+) -> Result<Json<Response<BrowserPushStatus>>> {
+    if !request.endpoint.starts_with("https://")
+        || request.endpoint.len() > 2048
+        || request.p256dh.len() > 256
+        || request.auth.len() > 128
+    {
+        return Err(crate::error::AppError::Validation(
+            "Browser Push 订阅参数无效".to_string(),
+        ));
+    }
+    let endpoint = request.endpoint.clone();
+    let updated = state
+        .settings_store
+        .update(|settings| {
+            settings
+                .browser_push_subscriptions
+                .retain(|item| item.endpoint != endpoint);
+            settings
+                .browser_push_subscriptions
+                .push(crate::models::BrowserPushSubscription {
+                    endpoint: request.endpoint,
+                    p256dh: request.p256dh,
+                    auth: request.auth,
+                    user_agent: request.user_agent.chars().take(256).collect(),
+                    created_at: crate::utils::unix_now(),
+                });
+            if settings.browser_push_subscriptions.len() > 20 {
+                settings
+                    .browser_push_subscriptions
+                    .drain(0..settings.browser_push_subscriptions.len() - 20);
+            }
+        })
+        .await?;
+    Ok(json_ok(BrowserPushStatus {
+        public_key: updated.browser_push_vapid_public_key,
+        subscriptions: updated.browser_push_subscriptions.len(),
+    }))
+}
+
+async fn unsubscribe_browser_push(
+    State(state): State<Arc<PushState>>,
+    Json(request): Json<BrowserUnsubscribeRequest>,
+) -> Result<Json<Response<BrowserPushStatus>>> {
+    let endpoint = request.endpoint;
+    let updated = state
+        .settings_store
+        .update(|settings| {
+            settings
+                .browser_push_subscriptions
+                .retain(|item| item.endpoint != endpoint)
+        })
+        .await?;
+    Ok(json_ok(BrowserPushStatus {
+        public_key: updated.browser_push_vapid_public_key,
+        subscriptions: updated.browser_push_subscriptions.len(),
+    }))
 }
 
 /// 推送测试请求
@@ -242,6 +337,12 @@ pub fn routes(
 
     Router::new()
         .route("/api/push/test", post(test_push))
+        .route(
+            "/api/push/browser",
+            get(browser_push_status)
+                .post(subscribe_browser_push)
+                .delete(unsubscribe_browser_push),
+        )
         .route("/api/push/status", axum::routing::get(push_status))
         .with_state(state)
 }
