@@ -45,7 +45,7 @@ test('manifest contains install icons and all six required shortcuts', () => {
 
 test('service worker has version cleanup, offline shell and safe update flow', () => {
   const source = fs.readFileSync(path.join(root, 'static/service-worker.js'), 'utf8');
-  assert.match(source, /CACHE_VERSION\s*=\s*'v1\.13\.0-p22-1'/);
+  assert.match(source, /CACHE_VERSION\s*=\s*'v1\.13\.1-p22-1'/);
   assert.match(source, /obsoleteCacheNames/);
   assert.match(source, /response\.status === 401 \|\| response\.status === 403/);
   assert.match(source, /cache\.match\(new Request\(`\$\{self\.location\.origin\}\/`\)\)/);

@@ -9,7 +9,7 @@
 <g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(21.6 575.1)">
 <title>MyMediaSub</title>
 <polygon fill="#08111f" stroke="none" points="-21.6,21.6 -21.6,-575.1 2073.15,-575.1 2073.15,21.6 -21.6,21.6"/>
-<text xml:space="preserve" text-anchor="middle" x="1025.78" y="-529.55" font-family="Noto Sans CJK SC" font-size="21.00" fill="#dbeafe">my&#45;media&#45;sub v1.13.0+ 当前架构</text>
+<text xml:space="preserve" text-anchor="middle" x="1025.78" y="-529.55" font-family="Noto Sans CJK SC" font-size="21.00" fill="#dbeafe">my&#45;media&#45;sub v1.13.1 当前架构</text>
 <g id="clust1" class="cluster">
 <title>cluster_clients</title>
 <path fill="#08111f" stroke="#1e3a5f" stroke-dasharray="5,2" d="M20,-99C20,-99 186.03,-99 186.03,-99 192.03,-99 198.03,-105 198.03,-111 198.03,-111 198.03,-370 198.03,-370 198.03,-376 192.03,-382 186.03,-382 186.03,-382 20,-382 20,-382 14,-382 8,-376 8,-370 8,-370 8,-111 8,-111 8,-105 14,-99 20,-99"/>
