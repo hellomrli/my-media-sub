@@ -60,6 +60,14 @@ jobs:
       - name: Smoke test release binary
         run: scripts/smoke-release.sh target/release/my-media-sub
 
+      - name: Short stability soak
+        env:
+          SOAK_SECONDS: 10
+        run: scripts/smoke-soak.sh target/release/my-media-sub
+
+      - name: Real browser 390px and PWA shell smoke
+        run: scripts/smoke-browser.sh target/release/my-media-sub
+
       - name: Download v1.3.0 upgrade baseline
         shell: bash
         run: |

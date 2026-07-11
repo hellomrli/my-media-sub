@@ -31,6 +31,11 @@
     return 'network-only';
   }
 
+  function obsoleteCacheNames(names, activeNames, prefix = 'media-sub-') {
+    const active = new Set(Array.isArray(activeNames) ? activeNames : []);
+    return (Array.isArray(names) ? names : []).filter(name => name.startsWith(prefix) && !active.has(name));
+  }
+
   function isCacheableResponse(response) {
     if (!response || response.status !== 200 || !response.ok) return false;
     const cacheControl = response.headers && response.headers.get
@@ -44,5 +49,5 @@
     return url.toString();
   }
 
-  return {normalizedPath, classifyRequest, isCacheableResponse, cacheKey};
+  return {normalizedPath, classifyRequest, obsoleteCacheNames, isCacheableResponse, cacheKey};
 });
