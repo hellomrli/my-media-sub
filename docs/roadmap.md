@@ -13,12 +13,12 @@
 
 ## 当前执行指针
 
-- **当前阶段**：P22 已完成，正在提交并同步发布后修复
-- **当前任务**：复核 diff、创建提交并推送 GitHub main
-- **下一任务**：确认 GitHub CI；未经明确要求不创建新 tag 或 Release
+- **当前阶段**：P22 已完成并同步 GitHub main
+- **当前任务**：保存 P22 完成交接
+- **下一任务**：尚未规划 P23，需先确认下一阶段产品目标；未经明确要求不创建新 tag 或 Release
 - **后续阶段**：保持单实例安全模型；未经明确需求不启动多用户、SQLite 或第二 Provider
-- **当前发布基线**：v1.13.0 仍为 GitHub latest；本轮是 main 上的发布后修复
-- **工作树状态**：434 个 Rust 测试登记（433 通过、1 忽略）、17 个前端测试及完整质量门/smoke 已通过
+- **当前发布基线**：v1.13.0 仍为 GitHub latest；P22 修复提交 `7f24499` 已位于 main
+- **工作树状态**：本地完整质量门、GitHub CI `29166228663` 与 Docker `29166228643` 均成功
 
 ---
 
@@ -1116,3 +1116,4 @@ P21 明确边界：仅允许预定义命令和预定义资源操作；不执行 
 - [x] `P22-06` 完整质量门、Release 二进制和真实浏览器 smoke。
   - 434 个 Rust 测试登记（433 通过、1 个真实 PanSou 网络测试按设计忽略），17 个前端 Node 测试和 OpenAPI 91 paths/103 operations 通过。
   - rustfmt、all-targets/all-features locked check、Clippy `-D warnings`、完整 Rust 测试、Release build、二进制 smoke、10 秒/1428 请求 soak、390/1440px 真实浏览器 E2E、Telegram 安全跳过和 `git diff --check` 通过。
+  - 修复提交 `7f24499` 已推送 main；GitHub CI `29166228663` 和 Docker `29166228643` 全部成功，覆盖 RustSec、Release/浏览器/跨版本升级与 Docker 数据卷升级 smoke。
