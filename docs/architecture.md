@@ -1,14 +1,13 @@
-# My Media Sub 架构说明
+# My Media Sub 当前架构
 
-> 本文描述当前工作树的 **v1.3.0 开发基线**。后续任务和完成状态以 [`roadmap.md`](roadmap.md) 为准，HTTP 响应约定以 [`api-contract.md`](api-contract.md) 为准，媒体日历规则以 [`media-calendar.md`](media-calendar.md) 为准。
+> 本文以 `main`（v1.13.0 之后）为准，只描述当前仍在运行的结构与约束。阶段进度见 [`roadmap.md`](roadmap.md)，HTTP 细节见 [`api-contract.md`](api-contract.md)，自动化与 Telegram 的安全合同分别见 [`automation-api.md`](automation-api.md) 和 [`telegram-bot.md`](telegram-bot.md)。
 
 ## 架构图
 
-![My Media Sub 架构图](architecture.png)
+![My Media Sub 当前架构](architecture.png)
 
-- PNG：[architecture.png](architecture.png)
-- SVG：[architecture.svg](architecture.svg)
-- Graphviz 源文件：[architecture.dot](architecture.dot)
+- [SVG](architecture.svg)
+- [Graphviz 源文件](architecture.dot)
 
 重新生成：
 
@@ -17,141 +16,98 @@ dot -Tsvg docs/architecture.dot -o docs/architecture.svg
 dot -Tpng -Gdpi=160 docs/architecture.dot -o docs/architecture.png
 ```
 
-## 总览
+## 设计边界
 
-```mermaid
-flowchart LR
-  Browser[浏览器 / 移动端] --> WebUI[Media Deck WebUI\nAlpine.js + 静态模块]
-  WebUI --> Auth[Basic Auth + CSRF]
-  Auth --> Static[ServeDir static]
-  Auth --> Normalize[API 错误规范化]
-  Normalize --> API[src/api 路由]
-  API --> Envelope[统一 JSON 信封]
-  API --> Context[AppContext]
-  API --> Queue[JobQueue]
-  API --> CalendarAPI[GET /api/calendar]
-  Context --> Services[业务 Services]
-  Context --> Stores[JSON Stores]
-  Context --> Schedulers[后台调度器]
-  Queue --> Worker[JobWorker]
-  Worker --> Services
-  CalendarAPI --> CalendarService[MediaCalendarService\n纯计算]
-  CalendarService --> StatusService[SubscriptionStatusService]
-  CalendarService --> Stores
-  Services --> Stores
-  Stores --> Schema[schema_version + 原子写入 + 迁移备份]
-  Schema --> Data[(DATA_DIR)]
-  Services --> Clients[PanSou / Quark / TMDB / Aria2]
-  Services --> Push[推送渠道]
-  WebUI -. SSE .-> Queue
-```
+My Media Sub 是面向单实例管理员的自托管应用，不是多租户平台。当前基线坚持以下约束：
+
+1. **单实例、单管理员安全模型**：管理 WebUI 使用 Basic Auth；自动化调用使用最小 scope Bearer Token；Telegram 身份不等同于系统用户。
+2. **JSON 单写**：业务状态写入 `DATA_DIR` 下的版本化 JSON Store，不启用 SQLite、双写或外部数据库。
+3. **服务层是业务入口**：HTTP、调度器、Job Worker 和 Telegram 命令复用同一 Service/Store 合同，不在适配层复制业务规则。
+4. **长操作进入 JobQueue**：转存、元数据、推送等长任务持久化、幂等、可取消、可重试并支持重启恢复。
+5. **外部系统失败隔离**：PanSou、夸克、TMDB、Aria2、媒体库、推送和 Telegram 的失败不能中断核心 Store 或其他流水线。
+6. **敏感数据不外泄**：日志、诊断、错误响应和审计不回显 Cookie、Token、密码、Webhook Secret 或完整敏感 URL。
 
 ## 运行时分层
 
-| 层级 | 目录/文件 | 当前责任 |
+| 层级 | 主要位置 | 责任 |
 |---|---|---|
-| 入口 | `src/main.rs` | 加载启动配置、日志、创建 AppContext、启动 Axum。 |
-| 依赖装配 | `src/app.rs` | 初始化 Store、Service、JobQueue、Worker、调度器和 Metrics。 |
-| HTTP 中间件 | `src/api/mod.rs` | Basic Auth、CSRF、API 非 JSON 错误规范化、静态资源和路由合并。 |
-| API 契约 | `src/api/response.rs`、`src/error.rs` | 成功/错误 JSON 信封和安全错误消息。 |
-| API 路由 | `src/api/*` | 请求解析、短操作、长任务入队、日历查询和响应序列化；subscriptions/drive 使用职责目录模块。 |
-| 业务服务 | `src/services/*` | 订阅检查、状态/日历聚合、转存、规则、元数据、推送、签到、STRM 和下载监控。 |
-| 后台任务 | `src/jobs/*` | Job 持久化、排队、取消、重试、重启恢复和 Worker 执行。 |
-| 外部客户端 | `src/clients/*` | PanSou、夸克、TMDB、Aria2 及共享 HTTP client 池。 |
-| 数据模型 | `src/models/*` | Settings、Subscription、Calendar、Notification、Job、Metadata、Rules 等结构。 |
-| 持久化 | `src/store/*` | schema 解码、迁移、原子写入、权限修复和损坏文件隔离。 |
-| 前端 | `static/*` | Media Deck HTML、Alpine 状态、预编译 Tailwind CSS 和可测试功能模块。 |
-| 通用工具 | `src/utils/*` | 原子文件操作、时间、常量时间比较和轻量指标。 |
+| 进程入口 | `src/main.rs` | 加载配置、初始化 tracing、构建 `AppContext`、启动 Axum 与后台服务。 |
+| 依赖装配 | `src/app.rs` | 单次创建并共享 Store、Service、Provider Registry、JobQueue、调度器、Metrics、备份和 Telegram Bot。 |
+| HTTP 与认证 | `src/api/mod.rs` | 路由装配、Basic/Bearer 认证、CSRF、登录限流、安全头、统一 API 错误和静态资源。 |
+| API Handler | `src/api/*` | 参数解析、权限后的短操作、长任务入队、标准响应序列化。 |
+| 业务 Service | `src/services/*` | 检查、完结/进度、转存、换源、日历、元数据、通知、下载、STRM、备份和生命周期治理。 |
+| Job 系统 | `src/jobs/*` | 持久化队列、公平调度、分层并发、幂等、重试、取消、SSE 和重启恢复。 |
+| 云盘抽象 | `src/providers/*` | `CloudDriveProvider` 能力边界；生产仅注册 Quark，Mock 用于确定性测试。 |
+| 外部客户端 | `src/clients/*` | PanSou、夸克、Aria2 和共享 HTTP pool；TMDB 客户端逻辑位于 metadata service。 |
+| 数据模型 | `src/models/*` | Subscription、Settings、Metadata、Calendar、AutomationEvent、Notification 和规则结构。 |
+| JSON Store | `src/store/*`、`src/jobs/store.rs` | schema 解码、内存索引、原子落盘、权限修复、损坏隔离和未来版本保护。 |
+| WebUI/PWA | `static/*` | Alpine.js 静态模块、响应式界面、PWA 壳层、SSE/轮询和 OpenAPI 页面。 |
+| 运维工具 | `src/utils/*`、`scripts/*` | 指标、时间/文件安全、契约检查、发布/升级/浏览器/持续运行 smoke。 |
 
-## HTTP 请求路径
-
-### 普通 API
+## 请求与认证边界
 
 ```text
-浏览器
-  → Basic Auth / CSRF
-  → API 错误规范化中间件
-  → src/api/* 路由
-  → AppContext / Service / Store / JobQueue
-  → {ok:true,data:...} 或 {ok:false,error,message}
-  → apiData()/apiFetch()
+浏览器 ── Basic Auth + 同源 CSRF ──┐
+自动化客户端 ── scoped Bearer ─────┼─> Axum API -> Service / JobQueue -> Store
+Telegram ── 随机路径 + Header Secret ┘
+媒体客户端 ── STRM Token ─────────────> /strm/* -> Quark
+健康探针 ─────────────────────────────> /health
 ```
 
-约束：
+- 普通业务 API 返回 `{"ok":true,"data":...}`；错误返回 `{"ok":false,"error":"...","message":"..."}`。
+- `/health` 免认证；`/strm/*` 使用独立 Token；Telegram Webhook 在专用 Handler 中校验随机路径和 Secret Header。
+- Bearer Token 只允许路由声明的最小 scope。设置、Token 管理、备份恢复、Store 清理和在线升级不向自动化 Token 开放。
+- `/metrics`、诊断、Telegram 审计等管理信息仍需 Basic Auth 或 `diagnostics:read`。
+- 所有请求生成或继承安全格式的 request/correlation ID；自动化事件继续关联 subscription/job/episode。
 
-- 401、403、已知/未知 404、405 和请求解析错误都返回 JSON；
-- 401 保留 `WWW-Authenticate`；
-- 5xx 只向客户端返回安全消息，内部细节写日志；
-- `/health`、`/strm/*`、Job SSE 和 204 操作是登记过的例外；
-- `GET /api/calendar` 使用标准成功信封，不维护独立缓存或持久化副本；
-- 具体契约见 [`api-contract.md`](api-contract.md)。
+## 核心业务链路
 
-### 静态资源与 STRM
-
-- `ServeDir` 从 `static/` 提供首页、CSS、Alpine 和功能模块；
-- 静态资源仍经过 Basic Auth；
-- `/health` 免鉴权；
-- `/strm/quark/*` 不走 Basic Auth，使用独立 STRM Token 并直接代理媒体流；
-- API 错误规范化中间件不会包装静态资源和 STRM 响应。
-
-## 前端结构
-
-当前前端保持无打包器、无 Node 运行时：
+### 订阅检查与完结状态
 
 ```text
-static/
-  index.html
-  app.js                     # 仅组合 Alpine stores
-  styles.css
-  vendor/alpine.min.js
-  js/
-    core/
-      api.js
-      formatters.js
-      router.js
-      notifications.js
-      polling.js
-      shell.js
-    stores/
-      subscriptions.js
-      jobs.js
-      downloads.js
-      drive.js
-    features/
-      search-results.js
-      subscription-detail.js
-      calendar.js
-      source-switch.js
-      automation-events.js
-      search-page.js
-      calendar-page.js
-      updates.js
-      settings.js
-      dashboard.js
+SubscriptionScheduler / API / Telegram
+  -> SubscriptionCheckService
+  -> CloudDriveProvider::probe
+  -> 文件与剧集识别、规则过滤、同集版本选择
+  -> 原子更新 SubscriptionStore
+  -> JobQueue(转存/推送) + AutomationEvent
 ```
 
-职责：
+- `completed`/`status=completed` 是后端根据发现、转存或下载证据写入的权威状态，前端不得用展示进度反向覆盖。
+- `notify_only` 从已发现目标集判定完结；普通自动转存从已转存目标集判定；启用同步下载时由下载监控在目标下载完成后判定。
+- 元数据、总集数或规则变化会重新协调完结状态；异常的超范围集号不能把订阅误标为完结。
 
-- `app.js` 只按 descriptor 组合各领域 store，并暴露 Alpine `app()`；getter 不会在装配时被提前求值；
-- `core/shell.js` 负责初始化、主题、全局快捷键和页面刷新；
-- `core/router.js` 负责 tab/settings/subscription 路由、History state 和页面副作用切换；
-- `core/polling.js` 统一命名 timer、事件监听器和 EventSource 生命周期，页面切换和 Alpine `destroy()` 时清理；
-- `core/notifications.js` 负责通知中心、Toast 和通知轮询；
-- `core/api.js` 统一网络、HTTP 和新旧响应兼容；
-- `core/formatters.js` 统一时间、容量、速度和时长；
-- `core/ux.js` 统一安全偏好持久化、可见窗口、受限并发池、时间线和安全 JSON；
-- `features/search-results.js` 负责搜索结果分析、筛选与排序；
-- `features/subscription-detail.js` 负责剧集状态和活动视图工具；
-- `features/calendar.js` 负责自然周/月范围、日期移动、月/周单元格、列表分组和状态/来源/可信度标签；
-- feature 模块优先承载可测试纯逻辑，业务权威规则仍位于 Rust 服务；
-- Shell 提供全局加载状态、错误边界、危险 alertdialog、焦点圈和快捷键，Store 不直接调用原生 `confirm()`；
-- 订阅、Job、通知和网盘列表只渲染当前可见窗口并按需扩展；订阅批量检查/删除复用受限并发池；
-- 订阅详情在移动端使用粘性导航/操作区、44px 触控目标和 safe-area；真实 Chrome 同时验证 390px 与 1440px 视口及认证 API；
-- Router、Toast、Polling、Downloads、Drive、Updates、Settings、Dashboard 和 Subscriptions 已按 roadmap 完成渐进拆分；仍保持无打包器、无框架迁移。
+### 元数据与日历缩略图
 
-## JSON 存储
+- TMDB 搜索结果会补充剧集、季和图片信息；刷新同一 provider/item 时合并已有图片与缺失季详情，避免上游部分失败清空缩略图和排期。
+- 日历缩略图优先级为剧集 still → 当前季 poster → 媒体 poster。
+- `MediaCalendarService` 是从 Subscription、Job、Notification 和 AutomationEvent 快照计算出的只读视图，不维护第二份日历 Store。
 
-持久化文件：
+### 转存、STRM 与下载
+
+```text
+检查结果 -> SubscriptionTransfer Job -> CloudDriveProvider::transfer
+         -> 重命名 -> STRM -> Aria2 -> DownloadMonitor
+         -> 媒体库刷新 -> Notification / Push / AutomationEvent
+```
+
+每个阶段使用稳定幂等键和 correlation；Job 的业务结果与 AutomationEvent、Notification、Metrics 各自承担不同职责，不能互相替代。
+
+## 后台执行
+
+`AppContext` 统一启动：
+
+- Subscription Scheduler：按配置检查启用且未真正完结的订阅；
+- Quark Sign-in Scheduler：执行夸克专属签到；
+- Job Worker：执行 manual transfer、subscription transfer、metadata scrape 和 push dispatch；
+- Download Monitor：轮询 Aria2、记录完成状态并触发后续动作；
+- Backup maintenance：定时备份、隔离恢复验证和可选外部复制；
+- Telegram Bot：`disabled`、long polling 或 webhook 三选一，故障与普通通知/核心流水线隔离；
+- Job event projection：把 Job 状态投影到结构化 AutomationEvent。
+
+## 持久化与恢复
+
+主要文件：
 
 ```text
 DATA_DIR/
@@ -159,207 +115,67 @@ DATA_DIR/
   subscriptions.json
   notifications.json
   jobs.json
+  jobs.archive.json
+  automation_events.json
+  automation-token.json
+  telegram_bot.json
+  backups/
 ```
 
-当前格式：
+Store 共同合同：
 
-```json
-{
-  "schema_version": 1,
-  "data": {}
-}
+- `schema_version: 1` 信封、旧格式迁移和一次性 `*.schema-v0.bak`；
+- 临时文件 + flush/fsync + 原子 rename，写盘成功后才替换内存状态；
+- Unix 敏感文件权限修复为 `0600`；
+- 损坏文件隔离，未来 schema 拒绝并保留原始文件；
+- 订阅、Job 和自动化事件使用内存索引，历史按独立保留策略清理；
+- 恢复前预览逐文件路径、schema、大小和 SHA-256，执行恢复前再创建当前快照。
+
+达到规模阈值只会进入 `decision_required`；在明确迁移方案、可重复导入、计数/校验和验证和回滚合同完成前，不创建 SQLite 或长期双写。
+
+## 前端与 PWA
+
+前端不使用打包器，`static/app.js` 只组合各模块的 Alpine store：
+
+```text
+static/js/
+  core/       api, router, polling, notifications, ux, shell
+  stores/     subscriptions, jobs, drive, downloads
+  features/   dashboard, calendar, search, settings, diagnostics,
+              subscription-detail, source-switch, automation-events, pwa, updates
 ```
 
-不变量：
+- `apiData()` 处理标准成功信封；`apiFetch()` 保留状态码/响应头语义。
+- Job 优先使用 SSE，断线后有界重连；下载、通知和页面数据使用具备生命周期清理的轮询。
+- 高频 `x-for` 列表必须使用唯一且可恢复的渲染 key；外部图片加载失败后必须允许新 URL 或重试恢复。
+- Service Worker 只缓存应用壳层：HTML network-first，静态资源 stale-while-revalidate；API、STRM、health、跨域和非 GET 永不缓存。
+- 修改任何静态资源时必须提升 `CACHE_VERSION`，发布时二进制和完整 `static/` 必须配套替换。
 
-1. 旧裸对象/数组按 v0 解码并迁移到 v1；
-2. 迁移前先保存一次性 `*.schema-v0.bak` 原始字节；
-3. 原文件和迁移备份在 Unix 上修复为 `0600`；
-4. 写入使用临时文件、`fsync` 和原子 rename；
-5. 写盘成功后才替换内存快照；
-6. 未来 schema 返回启动错误，但不隔离、不覆盖原文件；
-7. 真正损坏的 JSON 移动为 `.corrupt-<timestamp>`；
-8. v1.3.0 不提升 schema，`Subscription.manual_schedule` 使用 `serde(default)` 兼容历史数据；
-9. `SubscriptionStore::mutate_snapshot/update_many` 在独占保存锁内构造完整快照，写盘成功后才替换内存；
-10. 批量订阅检查在内存 Store 执行，全部任务结束后只向真实 Store 提交一次；
-11. 当前继续使用 JSON，达到 roadmap 中的规模阈值后才评估 SQLite。
+## 可观测性、安全与数据生命周期
 
-## 关键业务流程
+- HTTP、外部依赖、慢操作、队列、Store I/O、备份和自动换源指标通过 JSON 与 Prometheus 暴露；
+- tracing 支持 text/JSON 与运行时 EnvFilter 更新；敏感字段在进入日志前脱敏；
+- 诊断包只包含脱敏配置状态、聚合指标和修复建议；
+- 通知、Job、自动化事件和订阅历史均有独立保留上限；清理必须先预览并创建可恢复备份；
+- Telegram Update/Callback 幂等、确认 nonce、审计和限流状态持久化且有界保留。
 
-### 订阅检查和转存
+## 扩展接入点
 
-```mermaid
-sequenceDiagram
-  participant Scheduler as Scheduler/API
-  participant Check as SubscriptionCheckService
-  participant Store as SubscriptionStore
-  participant Queue as JobQueue
-  participant Worker as JobWorker
-  participant Transfer as SubscriptionTransferService
-  participant Client as Quark/Aria2
-
-  Scheduler->>Check: 检查单个或全部订阅
-  Check->>Check: 同订阅互斥；批量检查受并发上限保护
-  Check->>Client: 探测分享文件
-  Check->>Check: 同批相同分享链接复用探测结果
-  Check->>Check: 过滤、季匹配、集数识别、去重
-  Check->>Store: 单订阅原子更新；批量检查一次性 update_many
-  Check->>Queue: 需要转存时提交 SubscriptionTransfer Job
-  Queue->>Worker: 后台执行
-  Worker->>Transfer: 生成计划并转存
-  Transfer->>Client: 保存、重命名、STRM、Aria2
-  Transfer->>Store: 成功后更新转存进度
-```
-
-### 订阅详情聚合
-
-`SubscriptionStatusService` 以订阅为主实体，读取：
-
-- Subscription 的元数据、已知集数和转存记录；
-- Settings 的 STRM/Aria2 配置；
-- JobStore 的任务历史；
-- NotificationStore 的转存、下载和推送记录。
-
-输出剧集网格、缺集列表、流水线摘要和活动时间线。AutomationEventStore 记录 source_check、file_filter、version_select、cloud_transfer、rename、strm、aria2、notification 阶段；历史通知 metadata 仅作为兼容补充来源。
-
-### 媒体更新日历
-
-```mermaid
-sequenceDiagram
-  participant UI as calendar.js / Alpine
-  participant API as GET /api/calendar
-  participant Stores as Subscription/Settings/Job/Notification
-  participant Calendar as MediaCalendarService
-  participant Status as SubscriptionStatusService
-
-  UI->>API: from/to/status/media_type/subscription
-  API->>Stores: 并行读取当前快照
-  API->>Calendar: build_media_calendar(query, snapshots)
-  Calendar->>Status: 复用逐集 known/transferred/STRM/Aria2 状态
-  Calendar->>Calendar: 手动排期 → 元数据 → 周期推断
-  Calendar-->>API: summary + items + actions
-  API-->>UI: {ok:true,data:MediaCalendar}
-```
-
-关键约束：
-
-- 业务日期统一按 `Asia/Shanghai` 固定 UTC+08:00 解释；
-- 默认查询当前周一至周日，`from` / `to` 是闭区间，最长 367 个自然日；
-- `manual_schedule` 优先于元数据，但不会修改原始 `MediaMetadata`；
-- `UpdateSubscriptionRequest.manual_schedule` 使用字段存在感知：缺失保持不变，`null` 清除；
-- 日历计算不写回 Store，状态判定复用订阅详情聚合结果；
-- `check_weekdays` 只控制检查调度，不参与播出日推导。
-
-### Job 和实时状态
-
-- 长耗时动作进入 JobQueue；
-- JobStore 持久化最近任务、优先级和幂等键并支持安全恢复；同键 queued/running 任务只保留一个，旧任务缺少 priority 时兼容为 normal；
-- `FairScheduler` 对 high/normal/low 使用 3:2:1 加权调度，并在同优先级内按订阅轮转，既优先交互任务又避免低优先级饿死；
-- Worker 原子认领 queued 任务后并发执行，按动态设置实施全局、transfer/metadata/push 类别和同订阅互斥三层限制；无订阅 ID 的批量元数据任务与订阅范围任务互斥；
-- ManualTransfer、SubscriptionTransfer、MetadataScrape 和 PushDispatch 各有独立 handler，Worker 根模块只负责调度、分发、状态、取消和错误收口；
-- 重启时 running 任务标记为中断，重复 queued 任务以及 interrupted 任务的重复副本不会重新入队；
-- `POST /api/jobs/{id}/priority` 可调整 queued 任务优先级；运行中或终态任务拒绝调整；
-- Job 持久化 attempt、next_attempt_at 和 error_class；限流、临时网络、内部和超时错误最多自动执行 3 次，采用指数退避及 ±20% 可复现抖动，手动转存因副作用不自动重试；
-- transfer/metadata/push 分别维护熔断状态，连续 3 次可重试失败后打开 60 秒，随后只允许一个半开恢复探测；成功探测关闭熔断；
-- 单次执行超过 30 分钟由 timeout 卡死检测终止；维护模式只暂停新认领，不中断运行中任务；100 条 queued 触发每小时最多一次通知；
-- 活跃 Job Store 保留最近 300 条终态历史，较旧记录原子写入 `jobs.archive.json`（最多 5,000 条），通过 `GET /api/jobs/archive` 分页查询并随 DATA_DIR 备份；
-- 浏览器通过 `/api/jobs/events` 接收初始快照和后续更新；
-- 页面轮询只用于 Aria2、通知、在线更新等没有 SSE 的状态。
-
-### 通知策略与渠道
-
-- 业务先写 Notification，再以 detached task 提交 PushDispatch Job；渠道失败只回写推送报告，不向订阅检查、转存、下载监控或签到传播。
-- PushService 按事件开关、最低级别、上海时区安静时段和 `push_event_routes` 计算最终渠道；错误级别可配置为绕过安静时段。
-- 重复通知按事件/标题/正文和时间窗口限频；摘要模式原子领取 `digest_pending` 通知并生成单条摘要 Job，多个定时器不会重复消费。
-- 模板支持 title/message/event/level 变量并提供只读预览；Webhook 每个目标独立执行三次退避重试。
-- Webhook 签名轮换在最长 168 小时重叠期同时发送 `X-Media-Sub-Signature-256` 与 `X-Media-Sub-Signature-256-Previous`，上一密钥始终按 secret 脱敏。
-
-### Telegram 主动控制 Bot
-
-- `TelegramBotService` 由 AppContext 单例持有，动态协调 disabled、long polling 与 webhook；外部 API 失败只更新 Bot 诊断和退避状态。
-- Webhook 公开路由使用随机路径与 Telegram Header Secret 双重常量时间校验；命令授权只比较数字 user/chat ID，默认拒绝群聊。
-- 只读命令直接读取现有 Store 聚合；写命令映射到 P20 最小 scope，并复用 SubscriptionCheckService、JobQueue、QuarkSigninService 与 NotificationStore。
-- 写动作使用绑定 user/chat/action/resource/scope 的 120 秒一次性确认；Update ID、Callback ID 与业务幂等键由 `TelegramBotStore` 持久化去重，待确认 nonce 不持久化以便重启时安全失效。
-- 主动通知按钮在 PushService 已完成路由、安静时段、摘要和限频决策后附加；15 分钟 HMAC Callback 绑定目标 user/chat，再进入相同的一次性确认流程。
-- 命令审计、三层限流和失败冷却只属于 Bot 控制面，不与普通 Telegram 推送共享熔断或限流状态。
-
-### CloudDriveProvider
-
-- `providers::CloudDriveProvider` 定义分享探测、目录列举/查找/确保、转存、重命名、删除、下载信息和健康检查能力；
-- `CloudDriveProviderRegistry` 根据订阅 `cloud_type` 解析 Provider，空值兼容旧数据并归一化为 `quark`；
-- `QuarkCloudDriveProvider` 是当前唯一生产实现，业务 Service 不接触 `QuarkSaveClient`；
-- `MockCloudDriveProvider` 支持检查、转存和失败注入测试；
-- 夸克签到是供应商专属扩展，由 `QuarkSigninService` 维护，不属于通用 Provider 接口；
-- 第二 Provider 只有在出现明确产品需求后才加入。
-
-### 备份、诊断与安全
-
-- `BackupService` 把 DATA_DIR 中除备份目录和瞬态文件外的普通文件封装为带格式版本、schema、大小和 SHA-256 的自描述 JSON 归档；
-- 定时备份遵守保留数与总存储预算，恢复前始终创建当前快照；恢复只接受规范相对路径，拒绝保留位置、路径穿越和符号链接祖先，完成后写入重启要求；
-- `/api/diagnostics` 只返回配置状态和聚合运行数据，不返回 Cookie、Token、密码或分享链接；诊断包使用相同脱敏模型；
-- 每个响应携带 request ID 和 correlation ID，自动化业务继续使用自身 correlation ID 串联阶段事件；
-- 指标覆盖检查/转存耗时、失败阶段、队列、换源、备份和恢复；
-- Basic Auth 失败使用 60 秒滑动窗口限速；CSP 和通用安全头由顶层中间件统一设置；
-- 恢复和删除操作在浏览器确认之外还需要服务端可验证确认值。
-
-### JSON Store 可观测性与规模决策
-
-- `decode_store_json` 统一记录文件大小、解析耗时和失败；`write_json_atomic_async` 记录紧凑 JSON 写入字节与耗时；
-- 通知、Job、自动化事件和订阅内历史均有明确保留上限，维护接口可重新整理并压缩全部 Store；
-- SubscriptionStore 和 JobStore 使用主键索引，AutomationEventStore 使用订阅/correlation/job 多索引；
-- 诊断页根据 500 订阅、10,000 历史、32 MiB 文件和复杂查询四项门槛输出 JSON/SQLite 决策；
-- 未达到门槛时不引入 SQLite；未来迁移必须保留 JSON、可重复、校验计数和校验和、可回滚且切换后不双写。
-
-### PWA 与移动端
-
-- `manifest.webmanifest` 提供 standalone 安装、any/maskable 图标和六类业务快捷入口；
-- `service-worker.js` 对 HTML 使用 network-first，对静态资源使用 stale-while-revalidate；
-- `/api/*`、`/strm/*`、`/health`、跨域和非 GET 请求始终 network-only；
-- 只有 200 且未声明 `private/no-store` 的响应可缓存，Basic Auth 401/403 不缓存且 HTML 不回退离线壳层；
-- 认证后的壳层预热覆盖全部运行必需 JS/CSS/图标，但不包含任何业务 JSON；
-- Cache Version 激活时删除旧缓存，安装中的新 Worker 由用户确认后 `SKIP_WAITING`；
-- 390px 断点压缩 Header、内容边距和快捷入口，不裁剪完整导航能力。
-
-### 在线更新
-
-1. 查询 GitHub Release；
-2. 下载 `.tar.gz` 和 `.sha256`；
-3. 校验 SHA256 并解压；
-4. 将当前 `static/` 重命名为 `static.bak-<timestamp>`；
-5. 复制新静态资源，失败时恢复旧目录；
-6. 将当前二进制复制为 `my-media-sub.bak-<timestamp>`；
-7. 原子替换二进制；
-8. 保存重启计划，由用户确认重启。
-
-数据文件不由在线更新器覆盖；schema v1 迁移由各 Store 在启动时执行。v1.3.0 不提升 schema，但二进制和 `static/` 必须配套升级。
-
-## 新功能接入点
-
-| 功能 | 首选接入点 |
+| 变更 | 首选接入点与必须同步内容 |
 |---|---|
-| 新 WebUI 页面 | `static/index.html` + 独立 `static/js/features/*.js`，再由 `app.js` 装配。 |
-| 新后端接口 | `src/api/*.rs`，使用统一 Response/AppError，在 `src/api/mod.rs` 注册，并同步 `static/openapi.json`；`scripts/check-openapi.py` 必须通过。 |
-| 新日历来源或状态 | `src/models/calendar.rs` + `services/media_calendar.rs` + `docs/media-calendar.md` + API/前端测试。 |
-| 新长任务 | `JobKind` + payload + 稳定幂等键 + queue submit + `src/jobs/worker/` 独立 handler。 |
-| 新订阅规则 | `src/models/rules.rs` + `services/transfer_rule.rs` + API schema + UI。 |
-| 新持久化数据 | Model + Store + schema 迁移/备份/未来版本/损坏/失败测试。 |
-| 新外部 API | `src/clients/*`，复用 HTTP pool，不在 API 层复制客户端逻辑。 |
-| 新云盘 | 实现 `CloudDriveProvider` 并在 registry 注册；供应商扩展能力保持在通用 trait 之外。 |
-| 新通知事件 | `services/push.rs` 的 PushEvent 和结构化 notification metadata。 |
-| 新指标 | `src/utils/metrics.rs`，通过 `/api/metrics`（JSON）和 `/metrics`（Prometheus）暴露。 |
-| 新保留策略 | `services/storage.rs` 定义独立上限，先走 `/api/storage/cleanup` 预览，执行前必须创建可恢复备份。 |
-| SQLite 决策 | 只由记录数、Store 大小或复杂查询阈值触发；门槛前保持 JSON 单写，门槛后先决策和可重复导入验证，不长期双写。 |
-| 自动化认证 | `AutomationTokenStore` 只保存哈希和最小 scope；Bearer 中间件不得放行设置、备份恢复、清理或升级接口。 |
-| 订阅交换 | 使用版本化信封、只读冲突预览、原子批量 Store 更新和 Idempotency-Key；不复制 CRUD 规则到外部脚本。 |
-| 新后台调度器 | `src/services/*_scheduler.rs`，由 AppContext 初始化和启动。 |
+| 新 API | `src/api/*` + `static/openapi.json` + `scripts/check-openapi.py` + 集成测试。 |
+| 新长任务 | `JobKind`/payload + 稳定幂等键 + `src/jobs/worker/` handler + 重启/取消/重试测试。 |
+| 新外部服务 | `src/clients/*` 或独立 Service，复用共享 HTTP pool、观测和错误脱敏。 |
+| 新云盘 | 实现 `CloudDriveProvider` 并注册；签到等厂商专属能力留在 trait 外。 |
+| 新 Store | Model + schema/迁移/备份/损坏/未来版本/保存失败测试 + 生命周期策略。 |
+| 新通知事件 | `PushEvent` + Notification metadata + 路由/静默期/限频规则。 |
+| 新自动化能力 | 最小 Token scope + 幂等合同 + OpenAPI/示例；不得开放备份恢复和任意命令。 |
+| 新 WebUI 页面 | 独立 feature/store 模块 + `app.js` 装配 + Node 测试 + PWA precache（若运行必需）。 |
 
-## 当前边界与下一步
+## 当前明确不包含
 
-尚未完成、不得在文档中视为已有能力：
-
-- 第二个生产 CloudDriveProvider（需明确产品需求）；
-- PWA；
-- SQLite；
-- NAS 同步。
-
-完整顺序和状态见 [`roadmap.md`](roadmap.md)。
+- 第二个生产 CloudDriveProvider；
+- NAS 同步；
+- SQLite 或其他数据库后端；
+- 多用户、租户和群组权限模型；
+- 任意 Shell、任意文件读取或远程 Store 编辑入口。

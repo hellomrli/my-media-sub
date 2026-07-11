@@ -7,13 +7,15 @@ use tokio::task::JoinSet;
 use tracing::{error, info, warn};
 
 use crate::error::{AppError, Result};
-use crate::models::{episode_count_for_season, MediaMetadata, Subscription};
+use crate::models::{
+    episode_count_for_season, merge_refreshed_metadata, MediaMetadata, Subscription,
+};
 use crate::providers::{CloudDriveProviderRegistry, TransferRequest};
 use crate::services::notification::add_notification;
 use crate::services::push::{
     record_push_message_report_for_notification, PushEvent, PushLevel, PushRetryPolicy, PushService,
 };
-use crate::services::subscription_progress::reopen_completed_subscription_status;
+use crate::services::subscription_progress::reconcile_completed_subscription_status;
 use crate::services::{MetadataService, SubscriptionTransferService};
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 

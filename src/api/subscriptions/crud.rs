@@ -193,7 +193,8 @@ pub(super) async fn update_subscription(
                 sub.total_episode_number = total_episode_number;
             }
             if let Some(metadata) = req.metadata {
-                sub.metadata = metadata;
+                sub.metadata = metadata
+                    .map(|refreshed| merge_refreshed_metadata(sub.metadata.as_ref(), refreshed));
             }
             if let Some(manual_schedule) = req.manual_schedule {
                 sub.manual_schedule = manual_schedule;

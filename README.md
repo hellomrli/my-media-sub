@@ -281,7 +281,7 @@ cargo clippy --all-targets --all-features --locked -- -D warnings
 cargo test --all --locked
 ```
 
-当前基线包含 43 个前端测试和 334 个 Rust 测试；真实 PanSou 网络测试默认忽略。
+CI 会执行全部前端模块测试、Rust 单元/集成测试和 OpenAPI 路由契约检查；真实 PanSou 网络测试默认忽略。
 
 ### 编译二进制
 
@@ -295,7 +295,7 @@ sha256sum target/release/my-media-sub
 
 ```bash
 docker build \
-  -t my-media-sub:1.3.0 \
+  -t my-media-sub:1.13.0 \
   -t my-media-sub:latest \
   .
 ```

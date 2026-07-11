@@ -55,5 +55,5 @@ pub(super) fn continue_from_current_episode_default(value: Option<bool>) -> bool
 }
 
 pub(super) fn reconcile_completion_status(sub: &mut Subscription) {
-    reopen_completed_subscription_status(sub);
+    reconcile_completed_subscription_status(sub);
 }
