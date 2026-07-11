@@ -249,11 +249,26 @@ sequenceDiagram
 ### Job 和实时状态
 
 - 长耗时动作进入 JobQueue；
-- JobStore 持久化最近任务、幂等键并支持按创建顺序安全恢复；同键 queued/running 任务只保留一个；
-- ManualTransfer、SubscriptionTransfer、MetadataScrape 和 PushDispatch 各有独立 handler，Worker 根模块只负责分发、状态、取消和错误收口；
+- JobStore 持久化最近任务、优先级和幂等键并支持安全恢复；同键 queued/running 任务只保留一个，旧任务缺少 priority 时兼容为 normal；
+- `FairScheduler` 对 high/normal/low 使用 3:2:1 加权调度，并在同优先级内按订阅轮转，既优先交互任务又避免低优先级饿死；
+- Worker 原子认领 queued 任务后并发执行，按动态设置实施全局、transfer/metadata/push 类别和同订阅互斥三层限制；无订阅 ID 的批量元数据任务与订阅范围任务互斥；
+- ManualTransfer、SubscriptionTransfer、MetadataScrape 和 PushDispatch 各有独立 handler，Worker 根模块只负责调度、分发、状态、取消和错误收口；
 - 重启时 running 任务标记为中断，重复 queued 任务以及 interrupted 任务的重复副本不会重新入队；
+- `POST /api/jobs/{id}/priority` 可调整 queued 任务优先级；运行中或终态任务拒绝调整；
+- Job 持久化 attempt、next_attempt_at 和 error_class；限流、临时网络、内部和超时错误最多自动执行 3 次，采用指数退避及 ±20% 可复现抖动，手动转存因副作用不自动重试；
+- transfer/metadata/push 分别维护熔断状态，连续 3 次可重试失败后打开 60 秒，随后只允许一个半开恢复探测；成功探测关闭熔断；
+- 单次执行超过 30 分钟由 timeout 卡死检测终止；维护模式只暂停新认领，不中断运行中任务；100 条 queued 触发每小时最多一次通知；
+- 活跃 Job Store 保留最近 300 条终态历史，较旧记录原子写入 `jobs.archive.json`（最多 5,000 条），通过 `GET /api/jobs/archive` 分页查询并随 DATA_DIR 备份；
 - 浏览器通过 `/api/jobs/events` 接收初始快照和后续更新；
 - 页面轮询只用于 Aria2、通知、在线更新等没有 SSE 的状态。
+
+### 通知策略与渠道
+
+- 业务先写 Notification，再以 detached task 提交 PushDispatch Job；渠道失败只回写推送报告，不向订阅检查、转存、下载监控或签到传播。
+- PushService 按事件开关、最低级别、上海时区安静时段和 `push_event_routes` 计算最终渠道；错误级别可配置为绕过安静时段。
+- 重复通知按事件/标题/正文和时间窗口限频；摘要模式原子领取 `digest_pending` 通知并生成单条摘要 Job，多个定时器不会重复消费。
+- 模板支持 title/message/event/level 变量并提供只读预览；Webhook 每个目标独立执行三次退避重试。
+- Webhook 签名轮换在最长 168 小时重叠期同时发送 `X-Media-Sub-Signature-256` 与 `X-Media-Sub-Signature-256-Previous`，上一密钥始终按 secret 脱敏。
 
 ### CloudDriveProvider
 

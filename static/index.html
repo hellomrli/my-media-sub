@@ -1473,10 +1473,14 @@
                   <div>
                     <div class="data-table-row grid-cols-[92px_110px_minmax(300px,1.8fr)_150px_90px_150px] px-3">
                       <div><span :class="jobStatusBadgeClass(job.status)" x-text="jobStatusLabel(job.status)"></span></div>
-                      <div><span class="badge badge-primary" x-text="jobKindLabel(job.kind)"></span></div>
+                      <div class="flex flex-col items-start gap-1">
+                        <span class="badge badge-primary" x-text="jobKindLabel(job.kind)"></span>
+                        <span class="text-[10px] text-muted/75" x-text="'优先级 ' + jobPriorityLabel(job.priority)"></span>
+                      </div>
                       <div class="min-w-0">
                         <div class="truncate text-sm font-medium text-text" x-text="job.title"></div>
                         <div class="truncate text-xs text-muted/75" x-text="job.message || job.error || formatTime(job.created_at)"></div>
+                        <div x-show="(job.attempt || 1) > 1 || job.error_class" class="truncate text-[10px] text-warning/80" x-text="'第 ' + (job.attempt || 1) + ' 次 · ' + jobErrorClassLabel(job.error_class)"></div>
                       </div>
                       <div class="space-y-1">
                         <div class="progress-inline"><span :style="'width: ' + (job.progress || 0) + '%'"></span></div>
@@ -1484,6 +1488,9 @@
                       </div>
                       <div class="text-xs text-muted/80" x-text="jobDurationLabel(job)"></div>
                       <div class="flex flex-wrap justify-end gap-1">
+                        <select x-show="job.status === 'queued'" :value="job.priority || 'normal'" @change="setJobPriority(job, $event.target.value)" class="app-select px-1 py-1 text-xs" aria-label="任务优先级">
+                          <option value="high">高</option><option value="normal">普通</option><option value="low">低</option>
+                        </select>
                         <button @click="openJobDetail(job)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">详情</button>
                         <button x-show="canCancelJob(job)" @click="cancelJob(job)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">取消</button>
                         <button x-show="canRetryJob(job)" @click="retryJob(job)" class="btn-primary px-2 py-1 rounded text-xs transition-colors">重试</button>
@@ -1584,7 +1591,7 @@
               <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <div class="app-panel p-4"><span class="text-xs text-muted">版本 / Schema</span><strong class="block mt-2" x-text="diagnostics.version + ' / v' + diagnostics.schema_version"></strong></div>
                 <div class="app-panel p-4"><span class="text-xs text-muted">DATA_DIR</span><strong class="block mt-2" x-text="diagnosticBytes(diagnostics.data.total_bytes)"></strong></div>
-                <div class="app-panel p-4"><span class="text-xs text-muted">任务队列</span><strong class="block mt-2" x-text="diagnostics.queue.queued + ' 排队 / ' + diagnostics.queue.running + ' 运行'"></strong></div>
+                <div class="app-panel p-4"><span class="text-xs text-muted">任务队列</span><strong class="block mt-2" :class="diagnostics.queue.backlog_warning ? 'text-warning' : ''" x-text="diagnostics.queue.queued + ' 排队 / ' + diagnostics.queue.running + ' 运行'"></strong><small class="text-muted" x-text="diagnostics.queue.archived + ' 已归档' + (diagnostics.queue.maintenance_mode ? ' · 维护模式' : '')"></small></div>
                 <div class="app-panel p-4"><span class="text-xs text-muted">密码风险</span><strong class="block mt-2" :class="diagnostics.security.default_password_risk ? 'text-danger' : 'text-success'" x-text="diagnostics.security.password_strength"></strong></div>
               </div>
               <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -1869,6 +1876,26 @@
                 </div>
               </div>
 
+              <div class="app-panel-soft p-4 space-y-4">
+                <div><h3 class="section-title">通知策略</h3><p class="mt-1 text-xs text-muted">模板变量：{{title}}、{{message}}、{{event}}、{{level}}；事件渠道路由也可通过设置 API 配置。</p></div>
+                <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <div><label class="field-label">最低级别</label><select x-model="settings.push_min_level" class="app-select w-full"><option value="info">信息</option><option value="success">成功</option><option value="warning">警告</option><option value="error">错误</option></select></div>
+                  <div><label class="field-label">安静开始（时）</label><input type="number" min="0" max="23" x-model.number="settings.push_quiet_start_hour" class="app-input w-full" /></div>
+                  <div><label class="field-label">安静结束（时）</label><input type="number" min="0" max="23" x-model.number="settings.push_quiet_end_hour" class="app-input w-full" /></div>
+                  <div><label class="field-label">重复限频（秒）</label><input type="number" min="0" max="86400" x-model.number="settings.push_dedup_window_seconds" class="app-input w-full" /></div>
+                </div>
+                <div class="grid gap-3 sm:grid-cols-2">
+                  <div><label class="field-label">标题模板</label><input x-model="settings.push_title_template" class="app-input w-full" /></div>
+                  <div><label class="field-label">正文模板</label><input x-model="settings.push_message_template" class="app-input w-full" /></div>
+                </div>
+                <div class="flex flex-wrap gap-4 text-sm">
+                  <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.push_quiet_hours_enabled" />启用安静时段</label>
+                  <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.push_quiet_allow_error" />错误消息绕过安静时段</label>
+                  <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.push_digest_enabled" />启用摘要聚合</label>
+                  <label class="flex items-center gap-2">摘要分钟 <input type="number" min="1" max="1440" x-model.number="settings.push_digest_window_minutes" class="app-input w-24" /></label>
+                </div>
+              </div>
+
               <!-- 推送渠道 -->
               <div class="app-panel-soft p-4 space-y-4">
                 <h3 class="section-title">推送渠道</h3>
@@ -1993,6 +2020,19 @@
                   <div><label class="field-label">订阅检查最大并发</label><input type="number" min="1" max="32" x-model.number="settings.subscription_check_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg" /></div>
                   <div><label class="field-label">外部 API 最大并发</label><input type="number" min="1" max="64" x-model.number="settings.external_api_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg" /></div>
                   <div><label class="field-label">Aria2 单批提交上限</label><input type="number" min="1" max="100" x-model.number="settings.aria2_batch_submit_limit" class="w-full px-4 py-2 bg-app border border-border rounded-lg" /></div>
+                </div>
+                <div>
+                  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-3">
+                    <label class="field-label mb-0">后台任务分层并发</label>
+                    <span class="text-xs text-muted/75">类别上限同时受全局上限约束；同一订阅始终串行</span>
+                  </div>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div><label class="field-label">全局</label><input type="number" min="1" max="32" x-model.number="settings.job_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg" /></div>
+                    <div><label class="field-label">转存</label><input type="number" min="1" max="32" x-model.number="settings.job_transfer_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg" /></div>
+                    <div><label class="field-label">元数据</label><input type="number" min="1" max="32" x-model.number="settings.job_metadata_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg" /></div>
+                    <div><label class="field-label">推送</label><input type="number" min="1" max="32" x-model.number="settings.job_push_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg" /></div>
+                  </div>
+                  <label class="mt-3 flex items-center gap-2 text-sm text-warning cursor-pointer"><input type="checkbox" x-model="settings.job_maintenance_mode" class="rounded" />维护模式：暂停认领新后台任务，运行中任务继续完成</label>
                 </div>
                 <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.subscription_scheduler_enabled" class="rounded" />启用自动检查</label>
                 <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.auto_download_new_subscription_items" class="rounded" />自动下载新订阅项</label>
@@ -2870,8 +2910,10 @@
 
       <template x-if="selectedJob">
         <div class="space-y-4">
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
             <div class="stat-tile p-3"><div class="text-xs text-muted/75">类型</div><div class="mt-1 text-sm font-semibold text-text" x-text="jobKindLabel(selectedJob.kind)"></div></div>
+            <div class="stat-tile p-3"><div class="text-xs text-muted/75">优先级</div><div class="mt-1 text-sm font-semibold text-text" x-text="jobPriorityLabel(selectedJob.priority)"></div></div>
+            <div class="stat-tile p-3"><div class="text-xs text-muted/75">执行 / 错误分类</div><div class="mt-1 text-sm font-semibold text-text" x-text="'第 ' + (selectedJob.attempt || 1) + ' 次 · ' + jobErrorClassLabel(selectedJob.error_class)"></div></div>
             <div class="stat-tile p-3"><div class="text-xs text-muted/75">状态</div><div class="mt-1 text-sm font-semibold" :class="jobStatusClass(selectedJob.status)" x-text="jobStatusLabel(selectedJob.status)"></div></div>
             <div class="stat-tile p-3"><div class="text-xs text-muted/75">进度</div><div class="mt-1 text-sm font-semibold text-primary" x-text="(selectedJob.progress || 0) + '%'"></div></div>
             <div class="stat-tile p-3"><div class="text-xs text-muted/75">耗时</div><div class="mt-1 text-sm font-semibold text-text" x-text="jobDurationLabel(selectedJob)"></div></div>

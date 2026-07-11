@@ -10,11 +10,15 @@ use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 use crate::utils::metrics::global_metrics;
 
 use super::model::{
-    job_idempotency_key, now, Job, JobKind, JobStatus, ManualTransferPayload,
+    job_idempotency_key, now, Job, JobKind, JobPriority, JobStatus, ManualTransferPayload,
     MetadataScrapePayload, PushDispatchPayload, SubscriptionTransferPayload,
 };
 use super::store::JobStore;
 use super::worker::JobWorker;
+
+// JobStore 最多保留 500 条记录。恢复阶段在 Worker 启动前装入全部有效 queued
+// 信号，略大的容量可保证恢复不会因通道背压阻塞。
+const JOB_SIGNAL_CAPACITY: usize = 512;
 
 pub struct JobQueue {
     store: Arc<JobStore>,
@@ -22,7 +26,7 @@ pub struct JobQueue {
 }
 
 impl JobQueue {
-    pub fn new(
+    pub async fn new(
         store: Arc<JobStore>,
         settings_store: Arc<SettingsStore>,
         subscription_store: Arc<SubscriptionStore>,
@@ -30,7 +34,7 @@ impl JobQueue {
         metadata_service: Arc<MetadataService>,
         transfer_service: Arc<SubscriptionTransferService>,
     ) -> Self {
-        let (sender, receiver) = mpsc::channel(100);
+        let (sender, receiver) = mpsc::channel(JOB_SIGNAL_CAPACITY);
         let worker = JobWorker {
             store: store.clone(),
             sender: sender.clone(),
@@ -41,9 +45,12 @@ impl JobQueue {
             transfer_service,
             receiver,
         };
+        // 构造完成前同步等待恢复扫描结束，避免 AppContext 已对外提供新提交后，
+        // 恢复协程把本次进程刚认领的 Running 任务误判为上次重启遗留任务。
+        recover_jobs(store.clone(), sender.clone()).await;
+        // 恢复信号完整进入通道后再启动调度器，使其能在第一次认领前看到全部
+        // 优先级，而不是按持久化遍历顺序抢跑。
         tokio::spawn(worker.run());
-
-        tokio::spawn(recover_jobs(store.clone(), sender.clone()));
 
         Self { store, sender }
     }
@@ -139,7 +146,8 @@ impl JobQueue {
                     JobKind::MetadataScrape => "订阅元数据刮削",
                     JobKind::PushDispatch => "推送派发",
                 };
-                self.submit_job(job.kind.clone(), title, job.payload).await
+                self.submit_job_with_priority(job.kind, title, job.payload, job.priority)
+                    .await
             }
             JobStatus::Queued | JobStatus::Running => Err(AppError::Validation(
                 "任务仍在队列或执行中，不能重复提交".to_string(),
@@ -148,6 +156,29 @@ impl JobQueue {
                 "已成功的任务不能直接重试，避免重复转存".to_string(),
             )),
         }
+    }
+
+    pub async fn set_priority(&self, id: &str, priority: JobPriority) -> Result<Job> {
+        let updated = self
+            .store
+            .try_update(id, |job| {
+                if job.status != JobStatus::Queued {
+                    return Err(AppError::Validation(
+                        "只有排队中的任务可以调整优先级".to_string(),
+                    ));
+                }
+                job.priority = priority;
+                Ok(())
+            })
+            .await?
+            .ok_or_else(|| AppError::NotFound("任务不存在".to_string()))?;
+
+        // 再次发送 ID 会让调度器替换其待执行快照，不会创建重复任务。
+        self.sender
+            .send(id.to_string())
+            .await
+            .map_err(|_| AppError::Internal("任务队列不可用".to_string()))?;
+        Ok(updated)
     }
 
     pub async fn successful_push_dispatch_messages(
@@ -171,12 +202,28 @@ impl JobQueue {
         title: impl Into<String>,
         payload: serde_json::Value,
     ) -> Result<Job> {
+        let priority = kind.default_priority();
+        self.submit_job_with_priority(kind, title, payload, priority)
+            .await
+    }
+
+    async fn submit_job_with_priority(
+        &self,
+        kind: JobKind,
+        title: impl Into<String>,
+        payload: serde_json::Value,
+        priority: JobPriority,
+    ) -> Result<Job> {
         let id = uuid::Uuid::new_v4().to_string();
         let created_at = now();
         let idempotency_key = job_idempotency_key(&kind, &payload);
         let job = Job {
             id: id.clone(),
             kind,
+            priority,
+            attempt: 1,
+            next_attempt_at: None,
+            error_class: None,
             status: JobStatus::Queued,
             progress: 0,
             title: title.into(),
@@ -343,6 +390,10 @@ mod tests {
         Job {
             id: id.to_string(),
             kind,
+            priority: JobPriority::Normal,
+            attempt: 1,
+            next_attempt_at: None,
+            error_class: None,
             status,
             progress: 30,
             title: "测试任务".to_string(),
@@ -540,6 +591,48 @@ mod tests {
             .await;
 
         assert!(messages.contains(&("下载完成: A.mkv".to_string(), "文件：A.mkv".to_string())));
+        let _ = std::fs::remove_file(tmp);
+    }
+
+    #[tokio::test]
+    async fn set_priority_updates_only_queued_job_and_wakes_scheduler() {
+        let tmp = std::env::temp_dir().join(format!(
+            "my-media-sub-job-priority-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let store = Arc::new(JobStore::new(&tmp));
+        store.load().await.unwrap();
+        store
+            .add(test_job("queued-priority", JobStatus::Queued))
+            .await
+            .unwrap();
+        store
+            .add(test_job("running-priority", JobStatus::Running))
+            .await
+            .unwrap();
+        let (sender, mut receiver) = mpsc::channel(2);
+        let queue = JobQueue {
+            store: store.clone(),
+            sender,
+        };
+
+        let updated = queue
+            .set_priority("queued-priority", JobPriority::High)
+            .await
+            .unwrap();
+        assert_eq!(updated.priority, JobPriority::High);
+        assert_eq!(receiver.recv().await.as_deref(), Some("queued-priority"));
+
+        let error = queue
+            .set_priority("running-priority", JobPriority::Low)
+            .await
+            .unwrap_err();
+        assert!(matches!(error, AppError::Validation(_)));
+        assert_eq!(
+            store.get("running-priority").await.unwrap().priority,
+            JobPriority::Normal
+        );
+
         let _ = std::fs::remove_file(tmp);
     }
 }

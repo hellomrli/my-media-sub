@@ -43,7 +43,11 @@ pub async fn project_job(
         .unwrap_or(&job.id)
         .to_string();
     let mut event = AutomationEvent::new(
-        format!("job:{}", job.id),
+        if job.attempt > 1 {
+            format!("job:{}:attempt:{}", job.id, job.attempt)
+        } else {
+            format!("job:{}", job.id)
+        },
         correlation_id,
         stage,
         status,
@@ -70,6 +74,8 @@ pub async fn project_job(
         ("job_kind".to_string(), json!(job_kind_name(&job.kind))),
         ("progress".to_string(), json!(job.progress)),
         ("title".to_string(), json!(job.title)),
+        ("attempt".to_string(), json!(job.attempt)),
+        ("error_class".to_string(), json!(job.error_class)),
     ]);
     event_store.upsert(event).await?;
     if job.kind == JobKind::SubscriptionTransfer && job.status == JobStatus::Succeeded {
@@ -297,6 +303,7 @@ fn job_kind_name(kind: &JobKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::jobs::JobPriority;
 
     #[tokio::test]
     async fn job_projection_creates_structured_event_without_notification_text_parsing() {
@@ -306,6 +313,10 @@ mod tests {
         let job = Job {
             id: "job-1".to_string(),
             kind: JobKind::SubscriptionTransfer,
+            priority: JobPriority::Normal,
+            attempt: 1,
+            next_attempt_at: None,
+            error_class: None,
             status: JobStatus::Succeeded,
             progress: 100,
             title: "transfer".to_string(),
@@ -338,6 +349,10 @@ mod tests {
         let mut job = Job {
             id: "job-lifecycle".to_string(),
             kind: JobKind::MetadataScrape,
+            priority: JobPriority::Low,
+            attempt: 1,
+            next_attempt_at: None,
+            error_class: None,
             status: JobStatus::Queued,
             progress: 0,
             title: "metadata".to_string(),
@@ -378,6 +393,10 @@ mod tests {
         let job = Job {
             id: "job-transfer".to_string(),
             kind: JobKind::SubscriptionTransfer,
+            priority: JobPriority::Normal,
+            attempt: 1,
+            next_attempt_at: None,
+            error_class: None,
             status: JobStatus::Succeeded,
             progress: 100,
             title: "transfer".to_string(),

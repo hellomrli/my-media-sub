@@ -19,10 +19,44 @@ pub enum JobKind {
     PushDispatch,
 }
 
+/// 任务调度优先级。
+///
+/// 旧版持久化任务没有该字段，反序列化时保持为普通优先级，避免升级后改变
+/// 已有队列的相对语义。新任务由提交入口按交互性选择默认优先级。
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum JobPriority {
+    High,
+    #[default]
+    Normal,
+    Low,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum JobErrorClass {
+    RateLimited,
+    Transient,
+    Authentication,
+    Validation,
+    NotFound,
+    Permanent,
+    Internal,
+    TimedOut,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Job {
     pub id: String,
     pub kind: JobKind,
+    #[serde(default)]
+    pub priority: JobPriority,
+    #[serde(default = "default_attempt")]
+    pub attempt: u32,
+    #[serde(default)]
+    pub next_attempt_at: Option<i64>,
+    #[serde(default)]
+    pub error_class: Option<JobErrorClass>,
     pub status: JobStatus,
     pub progress: u8,
     pub title: String,
@@ -40,6 +74,28 @@ pub struct Job {
     pub started_at: Option<i64>,
     #[serde(default)]
     pub finished_at: Option<i64>,
+}
+
+fn default_attempt() -> u32 {
+    1
+}
+
+impl JobKind {
+    pub(crate) fn default_priority(&self) -> JobPriority {
+        match self {
+            // 用户主动发起的转存应尽快得到反馈。
+            Self::ManualTransfer => JobPriority::High,
+            // 推送是短任务，单独受并发层限制，不应被长批处理压住。
+            Self::PushDispatch => JobPriority::High,
+            Self::SubscriptionTransfer => JobPriority::Normal,
+            // 元数据批处理通常耗时最长，默认让位于交互和追更任务。
+            Self::MetadataScrape => JobPriority::Low,
+        }
+    }
+
+    pub(crate) fn supports_automatic_retry(&self) -> bool {
+        !matches!(self, Self::ManualTransfer)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,4 +151,44 @@ pub(crate) fn now() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn legacy_job_without_priority_defaults_to_normal() {
+        let job: Job = serde_json::from_value(json!({
+            "id": "legacy",
+            "kind": "manual_transfer",
+            "status": "queued",
+            "progress": 0,
+            "title": "legacy",
+            "message": "queued",
+            "payload": {"url": "https://pan.quark.cn/s/test"},
+            "created_at": 1,
+            "updated_at": 1
+        }))
+        .unwrap();
+
+        assert_eq!(job.priority, JobPriority::Normal);
+        assert_eq!(job.attempt, 1);
+        assert!(job.error_class.is_none());
+    }
+
+    #[test]
+    fn new_job_kind_defaults_favor_interactive_work() {
+        assert_eq!(
+            JobKind::ManualTransfer.default_priority(),
+            JobPriority::High
+        );
+        assert_eq!(JobKind::PushDispatch.default_priority(), JobPriority::High);
+        assert_eq!(
+            JobKind::SubscriptionTransfer.default_priority(),
+            JobPriority::Normal
+        );
+        assert_eq!(JobKind::MetadataScrape.default_priority(), JobPriority::Low);
+    }
 }

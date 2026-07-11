@@ -82,14 +82,17 @@ impl AppContext {
             .with_provider_registry(provider_registry.clone()),
         );
 
-        let job_queue = Arc::new(JobQueue::new(
-            job_store.clone(),
-            settings_store.clone(),
-            subscription_store.clone(),
-            notification_store.clone(),
-            metadata_service.clone(),
-            transfer_service.clone(),
-        ));
+        let job_queue = Arc::new(
+            JobQueue::new(
+                job_store.clone(),
+                settings_store.clone(),
+                subscription_store.clone(),
+                notification_store.clone(),
+                metadata_service.clone(),
+                transfer_service.clone(),
+            )
+            .await,
+        );
 
         crate::services::automation_events::start_job_event_projection(
             job_store.clone(),

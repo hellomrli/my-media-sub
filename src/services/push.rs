@@ -24,7 +24,7 @@ fn hardcoded_regex(pattern: &str) -> Regex {
 
 /// 推送级别
 #[allow(dead_code)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PushLevel {
     Info,
     Success,
@@ -60,10 +60,19 @@ impl PushLevel {
             Self::Error => "❌",
         }
     }
+
+    fn rank(self) -> u8 {
+        match self {
+            Self::Info => 0,
+            Self::Success => 1,
+            Self::Warning => 2,
+            Self::Error => 3,
+        }
+    }
 }
 
 /// 业务推送事件
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PushEvent {
     SubscriptionUpdated,
     SubscriptionFailed,
@@ -71,6 +80,7 @@ pub enum PushEvent {
     TransferSaved,
     DownloadCompleted,
     QuarkSignin,
+    NotificationDigest,
 }
 
 impl PushEvent {
@@ -82,6 +92,7 @@ impl PushEvent {
             "transfer_saved" => Some(Self::TransferSaved),
             "download_completed" => Some(Self::DownloadCompleted),
             "quark_signin" => Some(Self::QuarkSignin),
+            "notification_digest" => Some(Self::NotificationDigest),
             _ => None,
         }
     }
@@ -94,6 +105,7 @@ impl PushEvent {
             Self::TransferSaved => "transfer_saved",
             Self::DownloadCompleted => "download_completed",
             Self::QuarkSignin => "quark_signin",
+            Self::NotificationDigest => "notification_digest",
         }
     }
 }
@@ -407,7 +419,67 @@ impl PushService {
             PushEvent::TransferSaved => self.settings.push_on_save,
             PushEvent::DownloadCompleted => self.settings.push_on_download_completed,
             PushEvent::QuarkSignin => self.settings.push_on_quark_signin,
+            PushEvent::NotificationDigest => true,
         }
+    }
+
+    pub fn channels_for_event(&self, event: PushEvent, level: PushLevel) -> Vec<String> {
+        if !self.event_enabled(event) || level.rank() < self.minimum_level().rank() {
+            return Vec::new();
+        }
+        if self.is_quiet_now()
+            && !(level == PushLevel::Error && self.settings.push_quiet_allow_error)
+        {
+            return Vec::new();
+        }
+        let enabled = self.enabled_channels();
+        self.settings
+            .push_event_routes
+            .get(event.as_str())
+            .map(|routes| {
+                routes
+                    .iter()
+                    .filter(|id| enabled.contains(id))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or(enabled)
+    }
+
+    pub fn render_template(
+        &self,
+        event: PushEvent,
+        title: &str,
+        message: &str,
+        level: PushLevel,
+    ) -> (String, String) {
+        let render = |template: &str| {
+            template
+                .replace("{{title}}", title)
+                .replace("{{message}}", message)
+                .replace("{{event}}", event.as_str())
+                .replace("{{level}}", level.as_str())
+        };
+        (
+            render(&self.settings.push_title_template),
+            render(&self.settings.push_message_template),
+        )
+    }
+
+    fn minimum_level(&self) -> PushLevel {
+        PushLevel::from_name(&self.settings.push_min_level).unwrap_or(PushLevel::Info)
+    }
+
+    fn is_quiet_now(&self) -> bool {
+        if !self.settings.push_quiet_hours_enabled {
+            return false;
+        }
+        let hour = ((chrono::Utc::now().timestamp() + 8 * 3600).rem_euclid(86_400) / 3600) as u8;
+        quiet_hour(
+            hour,
+            self.settings.push_quiet_start_hour,
+            self.settings.push_quiet_end_hour,
+        )
     }
 
     /// 发送推送到所有启用的渠道
@@ -484,7 +556,12 @@ impl PushService {
                 continue;
             };
 
-            let (success, attempts, last_error) = send_with_retry(retry_policy, || {
+            let channel_retry = if channel == "webhook" {
+                PushRetryPolicy::single_attempt()
+            } else {
+                retry_policy
+            };
+            let (success, attempts, last_error) = send_with_retry(channel_retry, || {
                 channel_impl.send(self, title, message, level)
             })
             .await;
@@ -525,11 +602,14 @@ impl PushService {
         message: &str,
         level: PushLevel,
     ) -> PushDeliveryReport {
-        if !self.event_enabled(event) {
-            return PushDeliveryReport::default();
-        }
-
-        self.send_detailed(title, message, level).await
+        self.send_event_with_retry_detailed(
+            event,
+            title,
+            message,
+            level,
+            PushRetryPolicy::single_attempt(),
+        )
+        .await
     }
 
     pub async fn send_event_with_retry_detailed(
@@ -544,8 +624,9 @@ impl PushService {
             return PushDeliveryReport::default();
         }
 
-        let channels = self.enabled_channels();
-        self.send_to_channels_with_retry_detailed(&channels, title, message, level, retry_policy)
+        let channels = self.channels_for_event(event, level);
+        let (title, message) = self.render_template(event, title, message, level);
+        self.send_to_channels_with_retry_detailed(&channels, &title, &message, level, retry_policy)
             .await
     }
 
@@ -606,30 +687,74 @@ impl PushService {
                 .map(|byte| format!("{byte:02x}"))
                 .collect()
         };
+        let previous_signature = if self.settings.webhook_previous_secret.is_empty()
+            || self.settings.webhook_previous_secret_expires_at < crate::utils::unix_now()
+        {
+            String::new()
+        } else {
+            ring::hmac::sign(
+                &ring::hmac::Key::new(
+                    ring::hmac::HMAC_SHA256,
+                    self.settings.webhook_previous_secret.as_bytes(),
+                ),
+                &bytes,
+            )
+            .as_ref()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+        };
         let mut success = 0usize;
         for url in self.settings.webhook_urls.iter().take(5) {
-            let mut request = self
-                .client
-                .post(url)
-                .header("content-type", "application/json")
-                .body(bytes.clone());
-            if !signature.is_empty() {
-                request =
-                    request.header("x-media-sub-signature-256", format!("sha256={signature}"));
-            }
-            if request
-                .send()
-                .await
-                .map(|response| response.status().is_success())
-                .unwrap_or(false)
-            {
+            let url = url.clone();
+            let bytes = bytes.clone();
+            let signature = signature.clone();
+            let previous_signature = previous_signature.clone();
+            let client = self.client.clone();
+            let (delivered, _, _) =
+                send_with_retry(PushRetryPolicy::background_default(), move || {
+                    let mut request = client
+                        .post(&url)
+                        .header("content-type", "application/json")
+                        .body(bytes.clone());
+                    if !signature.is_empty() {
+                        request = request
+                            .header("x-media-sub-signature-256", format!("sha256={signature}"));
+                    }
+                    if !previous_signature.is_empty() {
+                        request = request.header(
+                            "x-media-sub-signature-256-previous",
+                            format!("sha256={previous_signature}"),
+                        );
+                    }
+                    async move {
+                        request
+                            .send()
+                            .await
+                            .map(|response| response.status().is_success())
+                            .map_err(AppError::from)
+                    }
+                })
+                .await;
+            if delivered {
                 success += 1;
             }
         }
-        Ok(success > 0)
+        Ok(success == self.settings.webhook_urls.iter().take(5).count())
     }
 
     push_channel_methods!();
+}
+
+fn quiet_hour(hour: u8, start: u8, end: u8) -> bool {
+    if start == end {
+        return true;
+    }
+    if start < end {
+        hour >= start && hour < end
+    } else {
+        hour >= start || hour < end
+    }
 }
 
 async fn send_with_retry<F, Fut>(

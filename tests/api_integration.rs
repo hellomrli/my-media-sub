@@ -967,6 +967,10 @@ async fn automation_event_pipeline_summary_and_safe_retry_are_structured() {
     let job = my_media_sub::jobs::Job {
         id: "failed-job-for-retry".to_string(),
         kind: my_media_sub::jobs::JobKind::MetadataScrape,
+        priority: my_media_sub::jobs::JobPriority::Low,
+        attempt: 1,
+        next_attempt_at: None,
+        error_class: None,
         status: my_media_sub::jobs::JobStatus::Failed,
         progress: 100,
         title: "failed".to_string(),

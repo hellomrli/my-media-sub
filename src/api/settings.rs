@@ -12,7 +12,8 @@ use crate::error::Result;
 use crate::models::{
     settings::{
         normalize_aria2_batch_submit_limit, normalize_check_interval_minutes,
-        normalize_external_api_max_concurrency, normalize_subscription_check_max_concurrency,
+        normalize_external_api_max_concurrency, normalize_job_class_max_concurrency,
+        normalize_job_max_concurrency, normalize_subscription_check_max_concurrency,
     },
     CustomCategory, RulePreset,
 };
@@ -242,6 +243,85 @@ fn settings_schema() -> SettingsSchemaResponse {
             Vec::<String>::new()
         ),
         setting_field!("webhook_secret", "Webhook Secret", "password", "push", ""),
+        setting_field!(
+            "webhook_previous_secret",
+            "Webhook Previous Secret",
+            "password",
+            "push",
+            ""
+        ),
+        setting_field!(
+            "push_event_routes",
+            "事件渠道路由",
+            "object",
+            "push",
+            serde_json::json!({})
+        ),
+        setting_field!(
+            "push_min_level",
+            "最低推送级别",
+            "select",
+            "push",
+            "info",
+            ["info", "success", "warning", "error"]
+        ),
+        setting_field!(
+            "push_quiet_hours_enabled",
+            "启用安静时段",
+            "boolean",
+            "push",
+            false
+        ),
+        setting_field!(
+            "push_quiet_start_hour",
+            "安静时段开始",
+            "number",
+            "push",
+            23
+        ),
+        setting_field!("push_quiet_end_hour", "安静时段结束", "number", "push", 8),
+        setting_field!(
+            "push_quiet_allow_error",
+            "错误绕过安静时段",
+            "boolean",
+            "push",
+            true
+        ),
+        setting_field!(
+            "push_dedup_window_seconds",
+            "重复限频秒数",
+            "number",
+            "push",
+            300
+        ),
+        setting_field!(
+            "push_digest_enabled",
+            "启用聚合摘要",
+            "boolean",
+            "push",
+            false
+        ),
+        setting_field!(
+            "push_digest_window_minutes",
+            "摘要聚合分钟",
+            "number",
+            "push",
+            15
+        ),
+        setting_field!(
+            "push_title_template",
+            "推送标题模板",
+            "text",
+            "push",
+            "{{title}}"
+        ),
+        setting_field!(
+            "push_message_template",
+            "推送正文模板",
+            "text",
+            "push",
+            "{{message}}"
+        ),
         setting_field!("push_on_update", "订阅更新推送", "boolean", "push", true),
         setting_field!("push_on_failed", "订阅失效推送", "boolean", "push", true),
         setting_field!("push_on_completed", "订阅完结推送", "boolean", "push", true),
@@ -303,6 +383,41 @@ fn settings_schema() -> SettingsSchemaResponse {
             "number",
             "automation",
             8
+        ),
+        setting_field!(
+            "job_max_concurrency",
+            "后台任务全局并发",
+            "number",
+            "automation",
+            4
+        ),
+        setting_field!(
+            "job_transfer_max_concurrency",
+            "转存任务并发",
+            "number",
+            "automation",
+            2
+        ),
+        setting_field!(
+            "job_metadata_max_concurrency",
+            "元数据任务并发",
+            "number",
+            "automation",
+            2
+        ),
+        setting_field!(
+            "job_push_max_concurrency",
+            "推送任务并发",
+            "number",
+            "automation",
+            4
+        ),
+        setting_field!(
+            "job_maintenance_mode",
+            "后台任务维护模式",
+            "boolean",
+            "automation",
+            false
         ),
         setting_field!(
             "aria2_batch_submit_limit",
@@ -600,6 +715,34 @@ async fn update_settings(
                                 normalize_external_api_max_concurrency(n);
                         }
                     }
+                    "job_max_concurrency" => {
+                        if let Some(n) = value.as_i64() {
+                            settings.job_max_concurrency = normalize_job_max_concurrency(n);
+                        }
+                    }
+                    "job_transfer_max_concurrency" => {
+                        if let Some(n) = value.as_i64() {
+                            settings.job_transfer_max_concurrency =
+                                normalize_job_class_max_concurrency(n);
+                        }
+                    }
+                    "job_metadata_max_concurrency" => {
+                        if let Some(n) = value.as_i64() {
+                            settings.job_metadata_max_concurrency =
+                                normalize_job_class_max_concurrency(n);
+                        }
+                    }
+                    "job_push_max_concurrency" => {
+                        if let Some(n) = value.as_i64() {
+                            settings.job_push_max_concurrency =
+                                normalize_job_class_max_concurrency(n);
+                        }
+                    }
+                    "job_maintenance_mode" => {
+                        if let Some(enabled) = value.as_bool() {
+                            settings.job_maintenance_mode = enabled;
+                        }
+                    }
                     "aria2_batch_submit_limit" => {
                         if let Some(n) = value.as_i64() {
                             settings.aria2_batch_submit_limit =
@@ -874,6 +1017,61 @@ async fn update_settings(
                     "webhook_secret" => {
                         if let Some(value) = non_mask_secret(&value) {
                             settings.webhook_secret = value;
+                        }
+                    }
+                    "push_event_routes" => {
+                        if let Ok(routes) = serde_json::from_value(value.clone()) {
+                            settings.push_event_routes = routes;
+                        }
+                    }
+                    "push_min_level" => {
+                        if let Some(text) = value.as_str() {
+                            settings.push_min_level = text.to_string();
+                        }
+                    }
+                    "push_quiet_hours_enabled" => {
+                        if let Some(v) = value.as_bool() {
+                            settings.push_quiet_hours_enabled = v;
+                        }
+                    }
+                    "push_quiet_start_hour" => {
+                        if let Some(v) = value.as_u64() {
+                            settings.push_quiet_start_hour = v.min(23) as u8;
+                        }
+                    }
+                    "push_quiet_end_hour" => {
+                        if let Some(v) = value.as_u64() {
+                            settings.push_quiet_end_hour = v.min(23) as u8;
+                        }
+                    }
+                    "push_quiet_allow_error" => {
+                        if let Some(v) = value.as_bool() {
+                            settings.push_quiet_allow_error = v;
+                        }
+                    }
+                    "push_dedup_window_seconds" => {
+                        if let Some(v) = value.as_i64() {
+                            settings.push_dedup_window_seconds = v.clamp(0, 86_400);
+                        }
+                    }
+                    "push_digest_enabled" => {
+                        if let Some(v) = value.as_bool() {
+                            settings.push_digest_enabled = v;
+                        }
+                    }
+                    "push_digest_window_minutes" => {
+                        if let Some(v) = value.as_i64() {
+                            settings.push_digest_window_minutes = v.clamp(1, 1_440);
+                        }
+                    }
+                    "push_title_template" => {
+                        if let Some(v) = value.as_str() {
+                            settings.push_title_template = v.chars().take(200).collect();
+                        }
+                    }
+                    "push_message_template" => {
+                        if let Some(v) = value.as_str() {
+                            settings.push_message_template = v.chars().take(2_000).collect();
                         }
                     }
                     "push_on_update" => {

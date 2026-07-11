@@ -13,11 +13,11 @@
 
 ## 当前执行指针
 
-- **当前阶段**：P14 已完成；按用户要求停在 P15 前
-- **当前任务**：保存 P13/P14 完成交接，不开始 P15
-- **下一任务**：等待用户确认后从 P15-01 任务优先级开始
-- **当前发布基线**：v1.10.0 已发布；下一开发阶段为 P15，不自动创建新 tag
-- **工作树状态**：P0 至 P12 已完成并推送；工作区干净，下一步从 P15-01 开始
+- **当前阶段**：P16 通知中心已完成
+- **当前任务**：P16-01 至 P16-03 全部完成并通过质量门
+- **下一任务**：P17-01 移动端详情、批量操作、筛选持久化和大列表性能
+- **当前发布基线**：v1.10.0 已发布；下一开发阶段为 P17，不自动创建新 tag
+- **工作树状态**：P15/P16 已实现并通过本地质量门；当前改动尚未提交，继续时不得回退
 
 ---
 
@@ -26,8 +26,8 @@
 - v1.10.0 已正式发布：GitHub Release、Linux x86_64 二进制及 GHCR Docker 镜像均成功。
 - 最新 `main` 提交包含 RustSec CI 修复；`quinn-proto` 已升级至 0.11.15，`RUSTSEC-2023-0071` 的临时例外记录于 `docs/security-audit.md`。
 - 最新完整 main CI `29138417078` 已通过编译、Clippy、测试、审计、Release 二进制、真实浏览器、持续运行和跨版本升级测试。
-- P13、P14 已完成；P15 尚未开始。
-- 重启 Codex 后先执行 `git status --short --branch`，阅读本节，然后从 P15-01 任务优先级开始。
+- P13、P14、P15 和整个 P16 已完成；P17 尚未开始。
+- 重启 Codex 后先执行 `git status --short --branch`，阅读本节，然后从 P17-01 移动端与大列表优化开始。
 - 继续冻结第二网盘与多用户计划；未经明确要求不创建新 tag 或 Release。
 
 ---
@@ -36,7 +36,7 @@
 
 - P13 已完成：订阅级搜索/排除/偏好词、稳定排序去重、PanSou 退避、候选探测缓存、集数覆盖预览、建议/自动模式、通知审计与回滚。
 - P14 已完成：同名冲突策略、安全文件名、最终计划预览、STRM 一致性审计、Aria2 幂等查重重试、Jellyfin/Emby/Plex/通用 Webhook 自动刷新。
-- P15 尚未开始；下一步必须从任务优先级、公平调度和分层并发限制开始。
+- P15-01 至 P15-03 已完成；下一步从 P16 通知中心开始。
 - 多网盘与多用户仍冻结；不创建 tag/Release，除非用户明确要求。
 
 ---
@@ -908,15 +908,44 @@ git diff --check
 
 ## P15. 任务队列与调度可靠性
 
-- [ ] 增加任务优先级、公平调度及分层并发限制。
-- [ ] 增加错误分类、指数退避、抖动、熔断和恢复探测。
-- [ ] 增加卡死检测、维护模式、队列积压告警和历史归档。
+- [x] `P15-01` 增加任务优先级、公平调度及分层并发限制。
+  - `Job.priority` 兼容持久化 high/normal/low；旧任务默认 normal，新手动转存/推送为 high、订阅转存为 normal、元数据为 low；排队任务可通过 API/WebUI 动态调整。
+  - 调度器使用 high/normal/low = 3:2:1 加权轮转，并在同优先级内按订阅轮转，持续高优先级流量不会饿死普通或低优先级任务。
+  - Worker 原子认领 queued 任务并并发执行；同时实施全局、transfer/metadata/push 类别和同订阅互斥三层限制，批量元数据任务与订阅范围任务互斥。
+  - 设置新增 `job_max_concurrency`、`job_transfer_max_concurrency`、`job_metadata_max_concurrency`、`job_push_max_concurrency`，保存时限制在 1–32，运行中修改会被后续调度动态采用。
+  - 恢复扫描在 JobQueue 对外可用前完成，全部恢复信号到齐后再启动 Worker，避免本次进程任务被误判为重启遗留或恢复遍历顺序绕过优先级。
+  - 证据：`src/jobs/{model,scheduler,queue,worker,store}.rs`、`src/api/jobs.rs`、`src/models/settings.rs`、`static/js/stores/jobs.js`、`static/index.html`；383 个 Rust 测试登记，382 个通过、1 个真实 PanSou 网络测试忽略，13 个前端 Node 测试通过；rustfmt、all-targets/all-features check、Clippy `-D warnings`、JS 语法和 `git diff --check` 通过。
+- [x] `P15-02` 增加错误分类、指数退避、抖动、熔断和恢复探测。
+  - Job 持久化 `attempt`、`next_attempt_at` 和 `error_class`，区分限流、临时网络、认证、验证、资源不存在、永久、内部及超时错误。
+  - 限流/临时/内部/超时错误最多自动执行 3 次，使用 5 秒起步、最高 300 秒及 ±20% 可复现抖动的指数退避；手动转存因外部副作用不自动重试。
+  - transfer/metadata/push 分层熔断：连续 3 次可重试失败打开 60 秒，冷却后只允许一个半开恢复探测，成功或可达的永久业务失败关闭熔断。
+  - 延迟重试状态随 Job 持久化，服务重启恢复时仍等待 `next_attempt_at`；每次自动重试使用独立 AutomationEvent 生命周期，保留完整审计。
+  - 证据：`src/jobs/reliability.rs`、`src/jobs/{model,worker}.rs`、`src/services/automation_events.rs` 及分类、退避、熔断单元测试。
+- [x] `P15-03` 增加卡死检测、维护模式、队列积压告警和历史归档。
+  - 单次 Job 执行超过 30 分钟会被 timeout 终止、标记 `timed_out` 并进入安全恢复策略。
+  - 持久化 `job_maintenance_mode` 暂停新任务认领但允许运行中任务收尾；Worker 每秒重新检查，关闭维护后无需重启。
+  - queued 达到 100 条时写入 `job_queue_backlog` warning 通知，同类告警每小时最多一次；诊断 API 暴露积压、延迟重试、重试、超时、维护及归档计数。
+  - 活跃 Store 保留最近 300 条终态历史，旧记录归档至私有权限 `jobs.archive.json`，最多 5,000 条；`GET /api/jobs/archive` 支持分页，完整 DATA_DIR 备份会收录并校验归档。
+  - 证据：`src/jobs/{worker,store}.rs`、`src/api/{jobs,diagnostics}.rs`、`src/services/backup.rs`、设置与 WebUI；归档仅移动终态任务测试通过。
+
+P15 最终验证：387 个 Rust 测试登记，386 个通过、1 个真实 PanSou 网络测试按设计忽略；13 个前端 Node 测试和全部 JavaScript 语法检查通过；rustfmt、all-targets/all-features check、Clippy `-D warnings`、完整 Rust 测试、OpenAPI JSON 解析和 `git diff --check` 通过。
 
 ## P16. 通知中心
 
-- [ ] 增加事件级别、渠道路由、安静时段、聚合摘要和重复限频。
-- [ ] 增加渠道状态诊断、模板预览、Webhook 重试和签名轮换。
-- [ ] 保证所有推送失败均不阻塞核心自动化流水线。
+- [x] `P16-01` 增加事件级别、渠道路由、安静时段、聚合摘要和重复限频。
+  - `push_min_level` 提供 info/success/warning/error 最低级别；`push_event_routes` 按事件选择渠道并自动过滤未配置渠道。
+  - 上海时区安静时段支持跨午夜，错误级别可单独绕过；重复事件按 event/title/message 及 0–86400 秒窗口限频。
+  - 摘要模式将带 Notification ID 的消息标记为 `digest_pending`，窗口到期后原子领取并生成单条 `notification_digest` Job，多定时器不会重复消费。
+- [x] `P16-02` 增加渠道状态诊断、模板预览、Webhook 重试和签名轮换。
+  - `GET /api/push/diagnostics` 返回渠道与策略状态，`POST /api/push/test` 继续负责真实连通测试。
+  - `POST /api/push/template/preview` 渲染 title/message/event/level 变量并返回最终路由，不执行发送。
+  - Webhook 每个 URL 独立执行 3 次退避重试；`POST /api/push/webhook/rotate-secret` 支持 1–168 小时双签名重叠轮换，上一密钥按 secret 脱敏。
+- [x] `P16-03` 保证所有推送失败均不阻塞核心自动化流水线。
+  - `dispatch_push_event_for_notification` 立即把策略、入队和直接发送移入 detached task；API/DNS/Store/Webhook/模板失败只记录日志或推送报告。
+  - PushDispatch 继续使用独立 Job 类别、重试与熔断，订阅检查、转存、下载监控和签到不接收推送错误返回值。
+  - 证据：`src/services/{notification,push}.rs`、`src/services/push/tests.rs`、`src/store/notification.rs`、`src/api/push.rs`、设置/WebUI/OpenAPI；策略路由、模板、安静时段、摘要原子领取、限频和重试测试通过。
+
+P16 最终验证：389 个 Rust 测试登记，388 个通过、1 个真实 PanSou 网络测试按设计忽略；13 个前端 Node 测试和全部 JavaScript 语法检查通过；rustfmt、all-targets/all-features check、Clippy `-D warnings`、完整 Rust 测试、OpenAPI JSON 解析和 `git diff --check` 通过。
 
 ## P17. WebUI 与移动端
 

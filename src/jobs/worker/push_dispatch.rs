@@ -28,9 +28,13 @@ impl JobWorker {
             return Ok(());
         }
 
-        if push_service.enabled_channels().is_empty() {
-            self.skip_push_dispatch(job_id, &payload, "未配置推送渠道，已跳过")
-                .await?;
+        if push_service.channels_for_event(event, level).is_empty() {
+            self.skip_push_dispatch(
+                job_id,
+                &payload,
+                "无符合路由、级别或安静时段策略的渠道，已跳过",
+            )
+            .await?;
             return Ok(());
         }
 
@@ -102,6 +106,10 @@ impl JobWorker {
         let job = Job {
             id: id.clone(),
             kind: JobKind::PushDispatch,
+            priority: JobPriority::High,
+            attempt: 1,
+            next_attempt_at: None,
+            error_class: None,
             status: JobStatus::Queued,
             progress: 0,
             title: "推送派发".to_string(),
