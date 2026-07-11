@@ -87,6 +87,9 @@ struct BackupDiagnostics {
     retention: usize,
     max_archive_bytes: u64,
     max_storage_bytes: u64,
+    verification_interval_seconds: u64,
+    external_copy_configured: bool,
+    latest_verification: Option<crate::services::backup::BackupVerificationReport>,
 }
 
 #[derive(Serialize)]
@@ -181,6 +184,7 @@ async fn build_snapshot(context: &AppContext) -> Result<DiagnosticsSnapshot> {
     let subscriptions = context.subscription_store.count().await;
     let automation_events = context.automation_event_store.list(usize::MAX).await;
     let backups = context.backup_service.list_stored_backups().await?;
+    let latest_backup_verification = context.backup_service.latest_verification().await?;
     let files = diagnostic_file_sizes(context.backup_service.data_dir())?;
     let total_bytes = files.values().copied().sum();
     let largest_store_bytes = files.values().copied().max().unwrap_or(0);
@@ -296,6 +300,9 @@ async fn build_snapshot(context: &AppContext) -> Result<DiagnosticsSnapshot> {
             retention: policy.retention,
             max_archive_bytes: policy.max_archive_bytes,
             max_storage_bytes: policy.max_storage_bytes,
+            verification_interval_seconds: policy.verification_interval.as_secs(),
+            external_copy_configured: policy.external_dir.is_some(),
+            latest_verification: latest_backup_verification,
         },
         metrics: context.metrics.snapshot(),
         security: SecurityDiagnostics {

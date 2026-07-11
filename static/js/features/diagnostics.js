@@ -22,6 +22,8 @@
       storedBackups: [],
       backupArchive: null,
       backupPreview: null,
+      backupVerification: null,
+      backupVerifying: false,
       restoreConfirmation: '',
       logFilter: 'info',
       logFilterSaving: false,
@@ -29,14 +31,16 @@
       async loadDiagnostics() {
         this.diagnosticsLoading = true;
         try {
-          const [diagnostics, backups, logFilter] = await Promise.all([
+          const [diagnostics, backups, logFilter, backupVerification] = await Promise.all([
             apiData('/api/diagnostics'),
             apiData('/api/backups'),
-            apiData('/api/observability/log-filter')
+            apiData('/api/observability/log-filter'),
+            apiData('/api/backups/verification')
           ]);
           this.diagnostics = diagnostics;
           this.storedBackups = backups || [];
           this.logFilter = (logFilter && logFilter.filter) || 'info';
+          this.backupVerification = backupVerification || null;
         } catch (error) {
           this.showNotification('error', getApiErrorMessage(error, '加载诊断信息失败'));
         } finally {
@@ -96,6 +100,19 @@
           await this.loadDiagnostics();
         } catch (error) {
           this.showNotification('error', getApiErrorMessage(error, '整理 JSON Store 失败'));
+        }
+      },
+
+      async verifyStoredBackup() {
+        this.backupVerifying = true;
+        try {
+          this.backupVerification = await apiData('/api/backups/verification', {method: 'POST'});
+          this.showNotification('success', '备份已通过隔离恢复验证');
+          await this.loadDiagnostics();
+        } catch (error) {
+          this.showNotification('error', getApiErrorMessage(error, '备份可恢复性验证失败'));
+        } finally {
+          this.backupVerifying = false;
         }
       },
 

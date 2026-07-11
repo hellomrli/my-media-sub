@@ -48,6 +48,22 @@ async fn create_backup(State(service): State<Arc<BackupService>>) -> Result<impl
     Ok((StatusCode::CREATED, Json(ApiResponse::ok(backup))))
 }
 
+async fn latest_verification(
+    State(service): State<Arc<BackupService>>,
+) -> Result<impl IntoResponse> {
+    Ok(Json(ApiResponse::ok(service.latest_verification().await?)))
+}
+
+async fn verify_latest_backup(
+    State(service): State<Arc<BackupService>>,
+) -> Result<impl IntoResponse> {
+    let report = service
+        .verify_latest_stored_backup()
+        .await?
+        .ok_or_else(|| AppError::NotFound("没有可验证的服务器备份".to_string()))?;
+    Ok(Json(ApiResponse::ok(report)))
+}
+
 async fn preview_backup(
     State(service): State<Arc<BackupService>>,
     Json(archive): Json<BackupArchive>,
@@ -73,6 +89,10 @@ pub fn routes(service: Arc<BackupService>) -> Router {
         .route("/api/backups", get(list_backups).post(create_backup))
         .route("/api/backups/export", get(export_backup))
         .route("/api/backups/preview", post(preview_backup))
+        .route(
+            "/api/backups/verification",
+            get(latest_verification).post(verify_latest_backup),
+        )
         .route("/api/backups/restore", post(restore_backup))
         .layer(DefaultBodyLimit::max(384 * 1024 * 1024))
         .with_state(service)

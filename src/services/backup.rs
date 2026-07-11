@@ -46,7 +46,34 @@ pub struct BackupPreview {
     pub file_count: usize,
     pub total_bytes: u64,
     pub files: Vec<BackupFilePreview>,
+    pub checks: Vec<BackupCheck>,
     pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BackupCheck {
+    pub code: &'static str,
+    pub label: &'static str,
+    pub status: &'static str,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupVerificationReport {
+    pub backup: String,
+    pub status: String,
+    pub checked_at: i64,
+    pub file_count: usize,
+    pub restored_files: usize,
+    pub total_bytes: u64,
+    pub checks: Vec<BackupVerificationCheck>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupVerificationCheck {
+    pub code: String,
+    pub status: String,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -74,18 +101,27 @@ pub struct RestoreResult {
 #[derive(Debug, Clone)]
 pub struct BackupPolicy {
     pub interval: Duration,
+    pub verification_interval: Duration,
     pub retention: usize,
     pub max_archive_bytes: u64,
     pub max_storage_bytes: u64,
+    pub external_dir: Option<PathBuf>,
 }
 
 impl BackupPolicy {
     pub fn from_env() -> Self {
         Self {
             interval: Duration::from_secs(env_u64("BACKUP_INTERVAL_HOURS", 24) * 3600),
+            verification_interval: Duration::from_secs(
+                env_u64("BACKUP_VERIFY_INTERVAL_HOURS", 24) * 3600,
+            ),
             retention: env_u64("BACKUP_RETENTION", DEFAULT_RETENTION as u64).clamp(1, 100) as usize,
             max_archive_bytes: env_u64("BACKUP_MAX_ARCHIVE_MB", 256) * 1024 * 1024,
             max_storage_bytes: env_u64("BACKUP_MAX_STORAGE_MB", 512) * 1024 * 1024,
+            external_dir: std::env::var("BACKUP_EXTERNAL_DIR")
+                .ok()
+                .map(|value| PathBuf::from(value.trim()))
+                .filter(|path| !path.as_os_str().is_empty()),
         }
     }
 }
@@ -120,19 +156,38 @@ impl BackupService {
     }
 
     pub fn start(self: Arc<Self>) {
-        if self.policy.interval.is_zero() {
-            return;
-        }
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(self.policy.interval);
-            interval.tick().await;
-            loop {
+        if !self.policy.interval.is_zero() {
+            let service = self.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(service.policy.interval);
                 interval.tick().await;
-                if let Err(error) = self.create_stored_backup("scheduled").await {
-                    tracing::error!("定时备份失败: {}", error);
+                loop {
+                    interval.tick().await;
+                    if let Err(error) = service.create_stored_backup("scheduled").await {
+                        tracing::error!(error = %error, "scheduled backup failed");
+                    }
                 }
-            }
-        });
+            });
+        }
+        if !self.policy.verification_interval.is_zero() {
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(self.policy.verification_interval);
+                loop {
+                    interval.tick().await;
+                    match self.verify_latest_stored_backup().await {
+                        Ok(Some(report)) => {
+                            tracing::info!(backup = %report.backup, restored_files = report.restored_files, "backup recoverability verified")
+                        }
+                        Ok(None) => tracing::info!(
+                            "backup recoverability verification skipped: no stored backup"
+                        ),
+                        Err(error) => {
+                            tracing::error!(error = %error, "backup recoverability verification failed")
+                        }
+                    }
+                }
+            });
+        }
     }
 
     pub async fn export_archive(&self) -> Result<BackupArchive> {
@@ -173,7 +228,13 @@ impl BackupService {
         }
         write_file_atomic(&path, &bytes, 0o600)?;
         set_file_mode(&path, 0o600)?;
+        if let Err(error) = self.verify_path_locked(&path) {
+            self.metrics.increment_backup_failure();
+            return Err(error);
+        }
+        self.copy_external_locked(&name, &bytes)?;
         self.prune_locked(self.policy.retention)?;
+        self.prune_external_locked(self.policy.retention)?;
         self.metrics.increment_backup_success();
         stored_backup_from_path(&path)
     }
@@ -234,6 +295,170 @@ impl BackupService {
             restart_required: true,
             message: "数据已原子恢复；当前进程仍持有旧内存快照，请安全重启服务".to_string(),
         })
+    }
+
+    pub async fn verify_latest_stored_backup(&self) -> Result<Option<BackupVerificationReport>> {
+        let _guard = self.operation_lock.lock().await;
+        let Some(backup) = list_backups(&self.backup_dir)?.into_iter().next() else {
+            return Ok(None);
+        };
+        self.verify_path_locked(&self.backup_dir.join(backup.name))
+            .map(Some)
+    }
+
+    pub async fn latest_verification(&self) -> Result<Option<BackupVerificationReport>> {
+        let path = self.backup_dir.join("verification.json");
+        match tokio::fs::read(path).await {
+            Ok(bytes) => serde_json::from_slice(&bytes)
+                .map(Some)
+                .map_err(|error| AppError::Database(format!("读取备份验证报告失败: {error}"))),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(AppError::Database(format!("读取备份验证报告失败: {error}"))),
+        }
+    }
+
+    fn verify_path_locked(&self, path: &Path) -> Result<BackupVerificationReport> {
+        match self.verify_path_inner(path) {
+            Ok(report) => {
+                self.write_verification_report(&report)?;
+                Ok(report)
+            }
+            Err(error) => {
+                let report = BackupVerificationReport {
+                    backup: path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("unknown")
+                        .to_string(),
+                    status: "failed".to_string(),
+                    checked_at: unix_now(),
+                    file_count: 0,
+                    restored_files: 0,
+                    total_bytes: 0,
+                    checks: vec![BackupVerificationCheck {
+                        code: "recoverability".to_string(),
+                        status: "failed".to_string(),
+                        message: error.to_string(),
+                    }],
+                };
+                let _ = self.write_verification_report(&report);
+                Err(error)
+            }
+        }
+    }
+
+    fn verify_path_inner(&self, path: &Path) -> Result<BackupVerificationReport> {
+        let metadata = std::fs::metadata(path)
+            .map_err(|error| AppError::Database(format!("读取待验证备份失败: {error}")))?;
+        let encoded_limit = self.policy.max_archive_bytes.saturating_mul(2);
+        if metadata.len() > encoded_limit {
+            return Err(AppError::RateLimited(
+                "备份文件超过可恢复性验证读取上限".to_string(),
+            ));
+        }
+        let bytes = std::fs::read(path)
+            .map_err(|error| AppError::Database(format!("读取待验证备份失败: {error}")))?;
+        let archive: BackupArchive = serde_json::from_slice(&bytes)
+            .map_err(|error| AppError::Validation(format!("备份 JSON 无效: {error}")))?;
+        let preview = validate_archive(&archive, self.policy.max_archive_bytes)?;
+        let verification_dir = self
+            .backup_dir
+            .join(format!(".verify-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&verification_dir)
+            .map_err(|error| AppError::Database(format!("创建隔离验证目录失败: {error}")))?;
+        let verification = (|| {
+            let files = decode_archive_files(&archive)?;
+            let restored_files = restore_files(&verification_dir, files)?;
+            for file in &archive.files {
+                let restored =
+                    std::fs::read(verification_dir.join(&file.path)).map_err(|error| {
+                        AppError::Database(format!("读取隔离恢复文件失败 {}: {error}", file.path))
+                    })?;
+                if restored.len() as u64 != file.size || sha256_hex(&restored) != file.sha256 {
+                    return Err(AppError::Validation(format!(
+                        "隔离恢复校验失败: {}",
+                        file.path
+                    )));
+                }
+            }
+            Ok(restored_files)
+        })();
+        let _ = std::fs::remove_dir_all(&verification_dir);
+        let restored_files = verification?;
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let mut checks = preview
+            .checks
+            .iter()
+            .map(|check| BackupVerificationCheck {
+                code: check.code.to_string(),
+                status: check.status.to_string(),
+                message: check.message.clone(),
+            })
+            .collect::<Vec<_>>();
+        checks.push(BackupVerificationCheck {
+            code: "isolated_restore".to_string(),
+            status: "passed".to_string(),
+            message: format!("已在隔离目录恢复并重新校验 {restored_files} 个文件"),
+        });
+        let report = BackupVerificationReport {
+            backup: name,
+            status: "passed".to_string(),
+            checked_at: unix_now(),
+            file_count: preview.file_count,
+            restored_files,
+            total_bytes: preview.total_bytes,
+            checks,
+        };
+        Ok(report)
+    }
+
+    fn write_verification_report(&self, report: &BackupVerificationReport) -> Result<()> {
+        std::fs::create_dir_all(&self.backup_dir)
+            .map_err(|error| AppError::Database(format!("创建备份目录失败: {error}")))?;
+        write_file_atomic(
+            &self.backup_dir.join("verification.json"),
+            &serde_json::to_vec_pretty(report)?,
+            0o600,
+        )
+    }
+
+    fn copy_external_locked(&self, name: &str, bytes: &[u8]) -> Result<()> {
+        let Some(external_dir) = &self.policy.external_dir else {
+            return Ok(());
+        };
+        if external_dir.starts_with(&self.data_dir) {
+            return Err(AppError::Validation(
+                "BACKUP_EXTERNAL_DIR 必须位于 DATA_DIR 之外".to_string(),
+            ));
+        }
+        if std::fs::symlink_metadata(external_dir)
+            .is_ok_and(|metadata| metadata.file_type().is_symlink())
+        {
+            return Err(AppError::Validation(
+                "BACKUP_EXTERNAL_DIR 不能是符号链接".to_string(),
+            ));
+        }
+        std::fs::create_dir_all(external_dir)
+            .map_err(|error| AppError::Database(format!("创建外部备份目录失败: {error}")))?;
+        let path = external_dir.join(name);
+        write_file_atomic(&path, bytes, 0o600)?;
+        set_file_mode(&path, 0o600)?;
+        Ok(())
+    }
+
+    fn prune_external_locked(&self, keep: usize) -> Result<()> {
+        let Some(external_dir) = &self.policy.external_dir else {
+            return Ok(());
+        };
+        for backup in list_backups(external_dir)?.into_iter().skip(keep) {
+            std::fs::remove_file(external_dir.join(backup.name))
+                .map_err(|error| AppError::Database(format!("删除外部过期备份失败: {error}")))?;
+        }
+        Ok(())
     }
 
     fn prune_locked(&self, keep: usize) -> Result<()> {
@@ -371,9 +596,54 @@ fn validate_archive(archive: &BackupArchive, max_bytes: u64) -> Result<BackupPre
             schema_version,
         });
     }
+    let mut checks = vec![
+        BackupCheck {
+            code: "format",
+            label: "格式版本",
+            status: "passed",
+            message: format!("备份格式 v{} 可读取", archive.format_version),
+        },
+        BackupCheck {
+            code: "schema",
+            label: "Schema 兼容",
+            status: "passed",
+            message: format!("Store schema v{} 受支持", archive.schema_version),
+        },
+        BackupCheck {
+            code: "paths",
+            label: "安全路径",
+            status: "passed",
+            message: format!("{} 个路径均为唯一安全相对路径", archive.files.len()),
+        },
+        BackupCheck {
+            code: "hashes",
+            label: "内容校验",
+            status: "passed",
+            message: format!("SHA-256、Base64 与大小校验通过，共 {total} 字节"),
+        },
+        BackupCheck {
+            code: "store_data",
+            label: "业务 Store",
+            status: "passed",
+            message: "已验证已知 Store 的 JSON、UTF-8 与数据模型".to_string(),
+        },
+    ];
     let mut warnings = Vec::new();
     if !seen.contains("settings.json") {
         warnings.push("备份不包含 settings.json，将保留当前设置".to_string());
+        checks.push(BackupCheck {
+            code: "settings",
+            label: "设置文件",
+            status: "warning",
+            message: "未包含 settings.json；恢复时会保留当前设置".to_string(),
+        });
+    } else {
+        checks.push(BackupCheck {
+            code: "settings",
+            label: "设置文件",
+            status: "passed",
+            message: "包含 settings.json".to_string(),
+        });
     }
     Ok(BackupPreview {
         valid: true,
@@ -384,6 +654,7 @@ fn validate_archive(archive: &BackupArchive, max_bytes: u64) -> Result<BackupPre
         file_count: archive.files.len(),
         total_bytes: total,
         files: previews,
+        checks,
         warnings,
     })
 }
@@ -594,9 +865,11 @@ mod tests {
             Arc::new(Metrics::default()),
             BackupPolicy {
                 interval: Duration::ZERO,
+                verification_interval: Duration::ZERO,
                 retention: 2,
                 max_archive_bytes: 1024 * 1024,
                 max_storage_bytes: 4 * 1024 * 1024,
+                external_dir: None,
             },
         )
     }
@@ -617,6 +890,7 @@ mod tests {
         let preview = service.preview(&archive).await.unwrap();
         assert!(preview.valid);
         assert_eq!(preview.file_count, 2);
+        assert!(preview.checks.iter().all(|check| check.status == "passed"));
 
         std::fs::write(dir.join("notes.txt"), b"after").unwrap();
         let restored = service.restore(&archive, "RESTORE DATA").await.unwrap();
@@ -657,6 +931,68 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("校验失败"));
+    }
+
+    #[tokio::test]
+    async fn stored_backup_is_verified_by_isolated_restore() {
+        let dir = temp_dir("verification");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("notes.txt"), b"recoverable").unwrap();
+        let service = service(&dir);
+        let backup = service.create_stored_backup("manual").await.unwrap();
+        let report = service.latest_verification().await.unwrap().unwrap();
+        assert_eq!(report.backup, backup.name);
+        assert_eq!(report.status, "passed");
+        assert_eq!(report.restored_files, 1);
+        assert!(report
+            .checks
+            .iter()
+            .any(|check| check.code == "isolated_restore"));
+        assert!(!std::fs::read_dir(dir.join("backups"))
+            .unwrap()
+            .any(|entry| entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".verify-")));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn failed_periodic_verification_persists_a_failed_report() {
+        let dir = temp_dir("verification-failure");
+        std::fs::create_dir_all(dir.join("backups")).unwrap();
+        std::fs::write(dir.join("backups/backup-1-broken.json"), b"not-json").unwrap();
+        let service = service(&dir);
+        assert!(service.verify_latest_stored_backup().await.is_err());
+        let report = service.latest_verification().await.unwrap().unwrap();
+        assert_eq!(report.status, "failed");
+        assert_eq!(report.checks[0].status, "failed");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn verified_backup_is_copied_to_external_directory() {
+        let dir = temp_dir("external-source");
+        let external = temp_dir("external-target");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("notes.txt"), b"offsite").unwrap();
+        let service = BackupService::with_policy(
+            &dir,
+            Arc::new(Metrics::default()),
+            BackupPolicy {
+                interval: Duration::ZERO,
+                verification_interval: Duration::ZERO,
+                retention: 2,
+                max_archive_bytes: 1024 * 1024,
+                max_storage_bytes: 4 * 1024 * 1024,
+                external_dir: Some(external.clone()),
+            },
+        );
+        let backup = service.create_stored_backup("manual").await.unwrap();
+        assert!(external.join(backup.name).is_file());
+        let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_dir_all(external);
     }
 
     #[tokio::test]
