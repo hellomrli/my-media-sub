@@ -13,14 +13,22 @@
 
 ## 当前执行指针
 
-- **当前阶段**：P21 Telegram 主动控制机器人已完成
-- **当前任务**：P21-01 至 P21-03 全部完成并通过质量门
-- **下一任务**：整理 P21 提交交接；未经明确要求不创建 tag 或 Release
+- **当前阶段**：P21 已完成，正在准备 v1.13.0 正式发布
+- **当前任务**：同步版本、README、CHANGELOG、升级指南和发布质量门
+- **下一任务**：创建 release prep 提交、annotated tag `v1.13.0` 并推送 GitHub Release
 - **后续阶段**：尚未规划 P22，需先确认下一阶段产品目标
-- **当前发布基线**：v1.12.0 已正式发布；Linux x86_64 归档/SHA256 与 GHCR 1.12.0/1.12 镜像可用
-- **工作树状态**：P21 全部实现并验证，工作区变更尚未提交
+- **当前发布基线**：v1.12.0 仍为线上 latest；v1.13.0 发布候选包含 P20–P21
+- **工作树状态**：P21 功能提交 `b6a0950` 已创建，release prep 变更尚未提交
 
 ---
+
+## v1.13.0 发布候选
+
+- 发布范围为 P20–P21：稳定自动化 API、scoped Token、幂等订阅交换，以及 Telegram 安全接入、受控写命令、主动通知交互、审计和限流。
+- 版本目标为 `1.13.0`，保持 `schema_version: 1`、JSON 单写和单实例管理员模型。
+- 必需资料：`README.md` 精确版本小节、`CHANGELOG-v1.13.0.md`、`docs/upgrade-v1.13.0.md`、`docs/v1.13.0-release-checklist.md`。
+- tag 和 Release 只在完整 locked 质量门、release build、二进制 smoke 与 OpenAPI 兼容检查通过后创建。
+- 本地发布门已通过：426 个 Rust 测试登记（425 通过、1 忽略）、14 个前端测试、locked check/Clippy/test、release build、二进制 smoke、OpenAPI 91/103 和差异检查均成功。
 
 ## v1.12.0 发布完成
 
