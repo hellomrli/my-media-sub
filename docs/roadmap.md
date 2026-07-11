@@ -16,17 +16,18 @@
 - **当前阶段**：P19 备份与数据生命周期已完成
 - **当前任务**：P19-01 至 P19-03 全部完成并通过质量门
 - **下一任务**：P20-01 OpenAPI 与路由同步及契约兼容回归测试
-- **当前发布基线**：v1.12.0 发布准备中；将发布 Linux x86_64 归档/SHA256 与 GHCR 1.12.0/1.12 镜像
-- **工作树状态**：P19 已推送；当前正在准备 v1.12.0 发布提交、tag 与云端资产
+- **当前发布基线**：v1.12.0 已正式发布；Linux x86_64 归档/SHA256 与 GHCR 1.12.0/1.12 镜像可用
+- **工作树状态**：v1.12.0 发布提交 `a03ed7b`、tag、Release 和镜像均已完成，工作区干净
 
 ---
 
-## v1.12.0 发布准备
+## v1.12.0 发布完成
 
 - 发布范围为 P17–P19：移动 WebUI、结构化可观测性/诊断，以及备份和 Store 生命周期治理。
-- 版本统一为 1.12.0；README、CHANGELOG、升级指南、OpenAPI 和 PWA 缓存均同步。
-- tag `v1.12.0` 将触发 GitHub Release Linux x86_64 压缩包/SHA256，以及 GHCR `1.12.0`、`1.12` 镜像。
-- 发布前后继续保持 `schema_version: 1` 和 JSON 单写，不创建 SQLite 或新用户体系。
+- 发布提交 `a03ed7b` 与 tag `v1.12.0` 已推送；GitHub Release 为正式 latest、非 draft/prerelease。
+- main CI `29153669598`、Release `29153721307`、tag Docker `29153721316` 和 main/latest Docker `29153669622` 均成功。
+- Linux x86_64 归档与 SHA256 已下载复核并通过云编译二进制 smoke；GHCR `1.12.0` 和 `1.12` manifest 指向同一 linux/amd64 镜像。
+- 发布继续保持 `schema_version: 1` 和 JSON 单写，不创建 SQLite 或新用户体系；下一步从 P20-01 开始。
 
 ## P19 完成交接
 
