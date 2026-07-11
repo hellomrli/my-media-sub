@@ -143,6 +143,8 @@ SERVER_PASSWORD='replace-with-a-strong-password' ./my-media-sub
 | `SERVER_PASSWORD` | `change-me` | 初始管理员密码，生产环境必须覆盖 |
 | `DATA_DIR` | `./data` | JSON 数据、备份与运行状态目录 |
 | `BACKUP_INTERVAL_HOURS` | `24` | 自动备份间隔，设为 `0` 关闭 |
+| `BACKUP_VERIFY_INTERVAL_HOURS` | `24` | 对最近备份执行隔离恢复验证的间隔，设为 `0` 关闭 |
+| `BACKUP_EXTERNAL_DIR` | 空 | 经校验后原子复制备份的 DATA_DIR 外部目录 |
 | `BACKUP_RETENTION` | `7` | 保留最近的服务器备份数 |
 | `BACKUP_MAX_ARCHIVE_MB` | `256` | 单个备份解码内容上限 |
 | `BACKUP_MAX_STORAGE_MB` | `512` | 服务器备份目录总预算 |

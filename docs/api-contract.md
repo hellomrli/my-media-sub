@@ -153,7 +153,8 @@
 - `GET /api/diagnostics/export`：下载不含 Cookie、Token 或密码的 JSON 诊断包。
 - `GET /api/backups/export`：下载完整 DATA_DIR 自描述 JSON 归档；归档含敏感配置，应加密保管。
 - `GET|POST /api/backups`：列出或立即创建服务器备份。
-- `POST /api/backups/preview`：校验格式版本、Store schema、SHA-256、大小和安全路径。
+- `POST /api/backups/preview`：返回格式版本、Store schema、安全路径、Base64、大小和 SHA-256 的逐项校验清单。
+- `GET|POST /api/backups/verification`：读取最近验证报告，或立即对最新服务器备份执行隔离目录恢复与逐文件哈希复核。
 - `POST /api/backups/restore`：请求体必须含 `confirmation: "RESTORE DATA"`；恢复前创建当前快照，响应要求安全重启。
 
 所有响应包含 `X-Request-ID` 和 `X-Correlation-ID`；客户端可提供格式安全的同名请求头。连续五次认证失败后，同一来源在 60 秒窗口内收到 `429` 和 `Retry-After: 60`。

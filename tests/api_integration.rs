@@ -1141,6 +1141,19 @@ async fn backup_export_preview_and_diagnostics_are_available() {
     assert_eq!(preview["ok"], true);
     assert_eq!(preview["data"]["valid"], true);
     assert!(preview["data"]["file_count"].as_u64().unwrap() >= 1);
+    assert!(preview["data"]["checks"].as_array().unwrap().len() >= 5);
+
+    let created_backup = json_body(&app, auth_post("/api/backups", serde_json::json!({}))).await;
+    assert_eq!(created_backup["ok"], true);
+    let verification = json_body(&app, auth_get("/api/backups/verification")).await;
+    assert_eq!(verification["data"]["status"], "passed");
+    assert!(verification["data"]["restored_files"].as_u64().is_some());
+    let reverified = json_body(
+        &app,
+        auth_post("/api/backups/verification", serde_json::json!({})),
+    )
+    .await;
+    assert_eq!(reverified["data"]["status"], "passed");
 
     let diagnostics = json_body(&app, auth_get("/api/diagnostics")).await;
     assert_eq!(diagnostics["ok"], true);
@@ -1158,6 +1171,10 @@ async fn backup_export_preview_and_diagnostics_are_available() {
     );
     assert!(diagnostics["data"]["environment"]["data_consistency"].is_array());
     assert!(diagnostics["data"]["recommendations"].is_array());
+    assert_eq!(
+        diagnostics["data"]["backups"]["latest_verification"]["status"],
+        "passed"
+    );
     assert!(diagnostics.to_string().find("change-me").is_none());
 
     let compacted = json_body(
@@ -1242,6 +1259,7 @@ async fn p10_openapi_browser_push_and_subscription_tags_are_exposed() {
     assert!(openapi["paths"]["/api/push/browser"].is_object());
     assert!(openapi["paths"]["/metrics"].is_object());
     assert!(openapi["paths"]["/api/observability/log-filter"].is_object());
+    assert!(openapi["paths"]["/api/backups/verification"].is_object());
 
     let browser = json_body(&app, auth_get("/api/push/browser")).await;
     assert_eq!(browser["ok"], true);
