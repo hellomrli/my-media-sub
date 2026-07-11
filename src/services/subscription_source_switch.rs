@@ -23,6 +23,8 @@ pub struct SourceSwitchPreview {
     pub probe_ok: bool,
     pub season_matches: bool,
     pub covers_progress: bool,
+    pub candidate_episodes: Vec<i32>,
+    pub missing_until_current: Vec<i32>,
     pub historical_link: bool,
     pub recent_failure: bool,
     pub cooldown_active: bool,
@@ -228,6 +230,32 @@ impl SubscriptionSourceSwitchService {
         let probe_ok = candidate.probe_info.as_ref().is_some_and(|probe| probe.ok);
         let season_matches = candidate_matches_season(subscription, &candidate);
         let covers_progress = candidate_covers_progress(subscription, &candidate);
+        let mut candidate_episodes = candidate
+            .probe_info
+            .as_ref()
+            .map(|probe| {
+                probe
+                    .files
+                    .iter()
+                    .filter(|file| !file.is_dir && is_video_name(&file.name))
+                    .flat_map(|file| {
+                        crate::services::episode::detect_episode_explained(&file.name).episodes
+                    })
+                    .collect::<HashSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        candidate_episodes.sort_unstable();
+        let current = subscription.current_episode_number.max(0);
+        let available = candidate_episodes.iter().copied().collect::<HashSet<_>>();
+        let missing_until_current = if current > 0 {
+            (1..=current)
+                .filter(|episode| !available.contains(episode))
+                .collect()
+        } else {
+            vec![]
+        };
         let historical_link = subscription.previous_share_links.contains(&candidate.url)
             || subscription.url == candidate.url;
         let cooldown_seconds = i64::from(settings.source_switch_cooldown_hours.max(1)) * 3600;
@@ -307,6 +335,8 @@ impl SubscriptionSourceSwitchService {
             probe_ok,
             season_matches,
             covers_progress,
+            candidate_episodes,
+            missing_until_current,
             historical_link,
             recent_failure,
             cooldown_active,

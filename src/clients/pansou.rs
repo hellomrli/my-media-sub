@@ -85,21 +85,34 @@ impl PanSouClient {
         }
 
         let api_url = format!("{}/api/search", self.base_url);
-        let resp = self
-            .client
-            .get(&api_url)
-            .header(reqwest::header::USER_AGENT, USER_AGENT)
-            .query(&[("kw", keyword), ("res", "merge"), ("src", "all")])
-            .send()
-            .await
-            .map_err(|e| AppError::Http(format!("PanSou 请求失败: {}", e)))?;
-
-        if !resp.status().is_success() {
-            return Err(AppError::Http(format!(
-                "PanSou 返回错误: {}",
-                resp.status()
-            )));
+        let mut last_error = String::new();
+        let mut response = None;
+        for attempt in 0..3u32 {
+            match self
+                .client
+                .get(&api_url)
+                .header(reqwest::header::USER_AGENT, USER_AGENT)
+                .query(&[("kw", keyword), ("res", "merge"), ("src", "all")])
+                .send()
+                .await
+            {
+                Ok(resp) if resp.status().is_success() => {
+                    response = Some(resp);
+                    break;
+                }
+                Ok(resp) => {
+                    last_error = format!("PanSou 返回错误: {}", resp.status());
+                    if !resp.status().is_server_error() && resp.status().as_u16() != 429 {
+                        break;
+                    }
+                }
+                Err(error) => last_error = format!("PanSou 请求失败: {error}"),
+            }
+            if attempt < 2 {
+                tokio::time::sleep(std::time::Duration::from_millis(200 * (1u64 << attempt))).await;
+            }
         }
+        let resp = response.ok_or_else(|| AppError::Http(last_error))?;
 
         let data: PanSouResponse = resp
             .json()
