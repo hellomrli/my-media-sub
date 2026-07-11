@@ -18,9 +18,13 @@
 <body class="bg-app text-text/90 min-h-screen" x-data="app()" x-cloak>
 
   <!-- Toast Container -->
-  <div class="toast-container" id="toastContainer"></div>
+  <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+  <div x-show="uiBusy" role="status" aria-live="polite" class="fixed inset-x-0 top-0 z-[90] h-1 overflow-hidden bg-primary/20"><span class="block h-full w-1/3 animate-pulse bg-primary"></span><span class="sr-only">正在加载</span></div>
+  <div x-show="uiError" role="alert" class="fixed inset-x-3 top-3 z-[70] mx-auto max-w-3xl rounded-xl border border-danger/40 bg-surface p-4 shadow-xl">
+    <div class="flex items-start justify-between gap-3"><div><strong class="text-danger">页面遇到错误</strong><p class="mt-1 text-sm text-muted" x-text="uiError"></p></div><div class="flex gap-2"><button @click="copyText(uiError)" class="btn-secondary px-3 py-2 text-sm">复制</button><button @click="uiError=''" class="btn-primary px-3 py-2 text-sm">关闭</button></div></div>
+  </div>
 
-  <div class="app-shell lg:flex">
+  <div class="app-shell lg:flex" :aria-busy="uiBusy">
 
     <!-- 侧边栏 -->
     <aside class="app-sidebar hidden lg:flex lg:sticky lg:top-0 h-screen w-64 flex-col">
@@ -1030,16 +1034,22 @@
           <div class="app-panel-soft p-2 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <div class="segmented-control">
               <template x-for="tab in subscriptionStatusTabs" :key="tab.id">
-                <button @click="subscriptionStatusTab = tab.id" :class="subscriptionStatusTab === tab.id ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm transition-colors">
+                <button @click="setSubscriptionStatusTab(tab.id)" :class="subscriptionStatusTab === tab.id ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm transition-colors">
                   <span x-text="tab.name"></span>
                   <span class="ml-1 tabular-nums" x-text="subscriptionStatusCount(tab.id)"></span>
                 </button>
               </template>
             </div>
             <div class="segmented-control">
-              <button @click="subscriptionViewMode = 'table'" :class="subscriptionViewMode === 'table' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">表格</button>
-              <button @click="subscriptionViewMode = 'poster'" :class="subscriptionViewMode === 'poster' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">海报墙</button>
+              <button @click="setSubscriptionViewMode('table')" :class="subscriptionViewMode === 'table' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">表格</button>
+              <button @click="setSubscriptionViewMode('poster')" :class="subscriptionViewMode === 'poster' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">海报墙</button>
             </div>
+          </div>
+          <div class="app-panel-soft p-2 flex flex-wrap items-center gap-2" x-show="filteredSubscriptions.length">
+            <label class="flex items-center gap-2 px-2 text-sm"><input type="checkbox" :checked="allVisibleSubscriptionsSelected" @change="toggleAllVisibleSubscriptions()" />选择当前显示</label>
+            <span class="text-xs text-muted" x-text="selectedSubscriptionIds.length + ' 个已选 · 显示 ' + visibleFilteredSubscriptions.length + '/' + filteredSubscriptions.length"></span>
+            <button @click="batchCheckSelectedSubscriptions()" :disabled="!selectedSubscriptionIds.length || subscriptionBatchLoading" class="btn-secondary px-3 py-2 text-sm disabled:opacity-40">检查所选</button>
+            <button @click="batchDeleteSelectedSubscriptions()" :disabled="!selectedSubscriptionIds.length || subscriptionBatchLoading" class="btn-danger px-3 py-2 text-sm disabled:opacity-40">删除所选</button>
           </div>
           <div x-show="subscriptionViewMode === 'table'" class="data-table">
             <div class="data-table-scroll">
@@ -1052,10 +1062,11 @@
                 <div>最近检查</div>
                 <div class="text-right">操作</div>
               </div>
-              <template x-for="sub in filteredSubscriptions" :key="sub.id">
+              <template x-for="sub in visibleFilteredSubscriptions" :key="sub.id">
                 <div>
                   <div class="data-table-row grid-cols-[minmax(300px,1.8fr)_88px_86px_150px_90px_130px_150px] px-3">
                     <div @click="openSubscriptionDetail(sub)" @keydown.enter.prevent="openSubscriptionDetail(sub)" tabindex="0" role="button" class="flex min-w-0 items-center gap-2 cursor-pointer">
+                      <input type="checkbox" :checked="selectedSubscriptionIds.includes(sub.id)" @click.stop="toggleSubscriptionSelection(sub.id)" @keydown.space.stop.prevent="toggleSubscriptionSelection(sub.id)" :aria-label="'选择订阅 ' + subscriptionDisplayTitle(sub)" />
                       <div class="h-11 w-8 shrink-0 overflow-hidden rounded border border-border bg-surface-2 grid place-items-center">
                         <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" class="h-full w-full object-cover" />
                         <span x-show="!subscriptionPoster(sub)" class="text-[10px] text-muted/60">N/A</span>
@@ -1096,8 +1107,9 @@
             </div>
           </div>
           <div x-show="subscriptionViewMode === 'poster'" class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
-            <template x-for="sub in filteredSubscriptions" :key="sub.id">
-              <div class="app-panel overflow-hidden hover:border-primary transition-colors">
+            <template x-for="sub in visibleFilteredSubscriptions" :key="sub.id">
+              <div class="app-panel relative overflow-hidden hover:border-primary transition-colors">
+                <input type="checkbox" :checked="selectedSubscriptionIds.includes(sub.id)" @change="toggleSubscriptionSelection(sub.id)" :aria-label="'选择订阅 ' + subscriptionDisplayTitle(sub)" class="absolute left-2 top-2 z-10 h-5 w-5" />
                 <button @click="openSubscriptionDetail(sub)" class="block w-full text-left">
                   <div class="aspect-[2/3] bg-app grid place-items-center overflow-hidden border-b border-border">
                     <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" class="h-full w-full object-cover" />
@@ -1143,6 +1155,7 @@
               </div>
             </template>
           </div>
+          <div x-show="hasMoreSubscriptions" class="flex justify-center"><button @click="subscriptionVisibleLimit += 100" class="btn-secondary px-5 py-2">加载更多订阅</button></div>
           <div x-show="subscriptions.length === 0" class="app-panel empty-state">暂无订阅</div>
           <div x-show="subscriptions.length > 0 && filteredSubscriptions.length === 0" class="app-panel empty-state" x-text="'暂无' + subscriptionStatusLabel(subscriptionStatusTab) + '订阅'"></div>
           </div>
@@ -1265,11 +1278,11 @@
                 </div>
 
                 <section class="app-panel subscription-activity-panel automation-event-panel">
-                  <div class="subscription-section-heading"><div><span class="panel-eyebrow">STRUCTURED EVENTS</span><h3>结构化自动化事件</h3><p>按 correlation、阶段、集数和任务记录真实执行轨迹。</p></div><span x-text="((subscriptionAutomationPipeline && subscriptionAutomationPipeline.events) || []).length + ' 条事件'"></span></div>
+                  <div class="subscription-section-heading"><div><span class="panel-eyebrow">STRUCTURED EVENTS</span><h3>结构化自动化时间线</h3><p>按 correlation、阶段、集数和任务记录真实执行轨迹。</p></div><div class="flex items-center gap-2"><span x-text="subscriptionAutomationTimeline.length + ' 条事件'"></span><button @click="copySubscriptionAutomationTimeline()" class="btn-secondary px-2 py-1 text-xs">复制</button></div></div>
                   <div x-show="subscriptionAutomationLoading" class="subscription-activity-empty">正在读取结构化事件...</div>
                   <div x-show="subscriptionAutomationError" class="subscription-detail-error" x-text="subscriptionAutomationError"></div>
                   <div x-show="subscriptionAutomationPipeline && subscriptionAutomationPipeline.events && subscriptionAutomationPipeline.events.length" class="subscription-activity-list">
-                    <template x-for="event in ((subscriptionAutomationPipeline && subscriptionAutomationPipeline.events) || []).slice().reverse().slice(0, 30)" :key="event.id">
+                    <template x-for="event in subscriptionAutomationTimeline.slice().reverse().slice(0, 30)" :key="event.id">
                       <div class="subscription-activity-item" :class="'is-' + automationStatusTone(event.status)">
                         <span class="subscription-activity-dot"></span>
                         <div class="min-w-0"><div><span x-text="automationStageLabel(event.stage) + (event.episode ? ' · E' + event.episode : '')"></span><strong x-text="automationStatusLabel(event.status)"></strong></div><p x-text="event.error || event.message || '无附加消息'"></p><small class="text-muted/75" x-text="'尝试 ' + event.attempt + ' · ' + automationEventDuration(event) + (event.job_id ? ' · Job ' + event.job_id.slice(0, 8) : '')"></small></div>
@@ -1500,7 +1513,7 @@
                   </div>
                 </template>
               </div>
-              <div x-show="recentBackgroundJobs.length === 0" class="empty-state">暂无后台日志</div>
+              <div x-show="filteredBackgroundJobs.length > recentBackgroundJobs.length" class="p-3 text-center"><button @click="backgroundJobVisibleLimit += 80" class="btn-secondary px-5 py-2">加载更多任务</button></div><div x-show="recentBackgroundJobs.length === 0" class="empty-state">暂无后台日志</div>
             </div>
           </div>
         </div>
@@ -1535,7 +1548,7 @@
                 <div>时间</div>
                 <div class="text-right">操作</div>
               </div>
-              <template x-for="notif in filteredNotifications" :key="notif.id">
+              <template x-for="notif in visibleNotifications" :key="notif.id">
                 <div>
                   <div class="data-table-row grid-cols-[30px_88px_110px_minmax(320px,1fr)_150px_100px] px-3" :class="!notif.read ? 'bg-primary/5' : ''">
                     <div><span x-show="!notif.read" class="block h-2 w-2 rounded-full bg-cyan"></span></div>
@@ -1577,14 +1590,14 @@
               </template>
             </div>
           </div>
-          <div x-show="filteredNotifications.length === 0" class="app-panel empty-state">暂无通知</div>
+          <div x-show="filteredNotifications.length > visibleNotifications.length" class="flex justify-center"><button @click="notificationVisibleLimit += 100" class="btn-secondary px-5 py-2">加载更多通知</button></div><div x-show="filteredNotifications.length === 0" class="app-panel empty-state">暂无通知</div>
         </div>
 
         <!-- 系统诊断与备份 -->
         <div x-show="currentTab === 'diagnostics'" class="page-stack">
           <section class="page-header app-panel p-5">
             <div><p class="section-kicker">Operations</p><h2>系统诊断与备份</h2><p>脱敏运行状态、指标、完整 DATA_DIR 备份与安全恢复。</p></div>
-            <div class="flex flex-wrap gap-2"><button @click="loadDiagnostics()" class="btn-secondary">刷新</button><button @click="exportDiagnostics()" class="btn-secondary">导出诊断包</button><button @click="exportBackup()" class="btn-primary">下载完整备份</button></div>
+            <div class="flex flex-wrap gap-2"><button @click="loadDiagnostics()" class="btn-secondary">刷新</button><button @click="copyDiagnostics()" class="btn-secondary">复制诊断</button><button @click="exportDiagnostics()" class="btn-secondary">导出诊断包</button><button @click="exportBackup()" class="btn-primary">下载完整备份</button></div>
           </section>
           <template x-if="diagnostics">
             <div class="space-y-4">
@@ -2894,6 +2907,15 @@
     </div>
   </div>
 
+  <!-- 统一危险操作确认 -->
+  <div x-show="showDangerConfirmDialog" @click.self="resolveDangerConfirmation(false)" class="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4" style="display:none">
+    <div class="app-panel dialog-panel w-full max-w-lg p-6" role="alertdialog" aria-modal="true" :aria-label="dangerConfirmTitle" tabindex="-1" @keydown.tab="trapDialogFocus($event)">
+      <h3 class="text-xl font-bold text-danger" x-text="dangerConfirmTitle"></h3><p class="mt-3 text-sm text-text/80" x-text="dangerConfirmMessage"></p>
+      <div x-show="dangerConfirmPhrase" class="mt-4"><label class="field-label" x-text="'输入 ' + dangerConfirmPhrase + ' 以确认'"></label><input x-ref="dangerConfirmInput" x-model="dangerConfirmInput" @keydown.enter.prevent="resolveDangerConfirmation(true)" class="app-input w-full" /></div>
+      <div class="mt-5 flex justify-end gap-2"><button @click="resolveDangerConfirmation(false)" class="btn-secondary px-4 py-2">取消</button><button @click="resolveDangerConfirmation(true)" :disabled="!dangerConfirmationReady()" class="btn-danger px-4 py-2 disabled:opacity-40">确认执行</button></div>
+    </div>
+  </div>
+
   <!-- 后台任务详情 -->
   <div x-show="showJobDetailDialog" @click.self="showJobDetailDialog = false" @keydown.escape.window="showJobDetailDialog = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
     <div class="app-panel dialog-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="后台任务详情" tabindex="-1">
@@ -2951,6 +2973,7 @@
   <!-- Alpine.js 应用逻辑 -->
   <script src="js/core/api.js"></script>
   <script src="js/core/formatters.js"></script>
+  <script src="js/core/ux.js"></script>
   <script src="js/features/search-results.js"></script>
   <script src="js/features/subscription-detail.js"></script>
   <script src="js/features/calendar.js"></script>

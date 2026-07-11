@@ -34,6 +34,7 @@
     notifications: [],
     notificationsPoller: null,
     notificationFilter: 'all',
+    notificationVisibleLimit: 100,
     notificationFilters: [
       {id: 'all', name: '全部'},
       {id: 'unread', name: '未读'}
@@ -67,6 +68,7 @@
     get filteredNotifications() {
       return filterNotificationItems(this.notificationCenterNotifications, this.notificationFilter);
     },
+    get visibleNotifications() { return this.filteredNotifications.slice(0, this.notificationVisibleLimit); },
 
     async loadNotifications() {
       try {
@@ -196,7 +198,7 @@
     },
 
     async clearNotifications() {
-      if (!confirm('确定清空所有通知？')) return;
+      if (this.requestDangerConfirmation && !await this.requestDangerConfirmation({title:'清空所有通知', message:'此操作会删除全部通知历史。', phrase:'CLEAR'})) return;
       try {
         await apiFetch('/api/notifications/clear', {method: 'POST'});
         this.showNotification('success', '已清空');

@@ -1,7 +1,7 @@
 /* global MediaSubPwaPolicy */
 importScripts('/js/pwa-policy.js');
 
-const CACHE_VERSION = 'v1.11.0-p16-1';
+const CACHE_VERSION = 'v1.11.0-p17-1';
 const SHELL_CACHE = `media-sub-shell-${CACHE_VERSION}`;
 const STATIC_CACHE = `media-sub-static-${CACHE_VERSION}`;
 const CACHE_PREFIX = 'media-sub-';
@@ -14,6 +14,7 @@ const PRECACHE_ASSETS = [
   '/js/pwa-policy.js',
   '/js/core/api.js',
   '/js/core/formatters.js',
+  '/js/core/ux.js',
   '/js/features/search-results.js',
   '/js/features/subscription-detail.js',
   '/js/features/calendar.js',

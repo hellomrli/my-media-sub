@@ -139,10 +139,14 @@ static/
 - `core/notifications.js` 负责通知中心、Toast 和通知轮询；
 - `core/api.js` 统一网络、HTTP 和新旧响应兼容；
 - `core/formatters.js` 统一时间、容量、速度和时长；
+- `core/ux.js` 统一安全偏好持久化、可见窗口、受限并发池、时间线和安全 JSON；
 - `features/search-results.js` 负责搜索结果分析、筛选与排序；
 - `features/subscription-detail.js` 负责剧集状态和活动视图工具；
 - `features/calendar.js` 负责自然周/月范围、日期移动、月/周单元格、列表分组和状态/来源/可信度标签；
 - feature 模块优先承载可测试纯逻辑，业务权威规则仍位于 Rust 服务；
+- Shell 提供全局加载状态、错误边界、危险 alertdialog、焦点圈和快捷键，Store 不直接调用原生 `confirm()`；
+- 订阅、Job、通知和网盘列表只渲染当前可见窗口并按需扩展；订阅批量检查/删除复用受限并发池；
+- 订阅详情在移动端使用粘性导航/操作区、44px 触控目标和 safe-area；真实 Chrome 同时验证 390px 与 1440px 视口及认证 API；
 - Router、Toast、Polling、Downloads、Drive、Updates、Settings、Dashboard 和 Subscriptions 已按 roadmap 完成渐进拆分；仍保持无打包器、无框架迁移。
 
 ## JSON 存储

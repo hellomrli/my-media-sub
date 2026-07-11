@@ -37,5 +37,8 @@
     return [...groups.entries()].sort((a,b)=>a[0]-b[0]).map(([episode, items])=>({episode, items}));
   }
   function canRetry(event) { return !!event && ['failed','canceled'].includes(event.status); }
-  return Object.freeze({canRetry, duration, episodeGroups, stageLabel, statusLabel, statusTone});
+  function timeline(events, limit = 100) {
+    return [...(events || [])].sort((a,b)=>Number(a.updated_at||a.created_at||0)-Number(b.updated_at||b.created_at||0)).slice(-limit);
+  }
+  return Object.freeze({canRetry, duration, episodeGroups, stageLabel, statusLabel, statusTone, timeline});
 });

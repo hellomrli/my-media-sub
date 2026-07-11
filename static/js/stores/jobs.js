@@ -21,6 +21,7 @@
     backgroundJobFilterKind: 'all',
     backgroundJobFilterStatus: 'all',
     backgroundJobQuery: '',
+    backgroundJobVisibleLimit: 80,
     selectedJob: null,
     showJobDetailDialog: false,
 
@@ -40,7 +41,7 @@
     },
 
     get recentBackgroundJobs() {
-      return this.filteredBackgroundJobs.slice(0, 80);
+      return this.filteredBackgroundJobs.slice(0, this.backgroundJobVisibleLimit);
     },
 
     get filteredBackgroundJobs() {
@@ -153,6 +154,7 @@
       this.backgroundJobFilterKind = 'all';
       this.backgroundJobFilterStatus = 'all';
       this.backgroundJobQuery = '';
+      this.backgroundJobVisibleLimit = 80;
     },
 
     openJobDetail(job) {

@@ -13,10 +13,19 @@
   const calendarTools = root.MediaSubCalendar || {};
   const sourceSwitchTools = root.MediaSubSourceSwitch || {};
   const automationEventTools = root.MediaSubAutomationEvents || {};
+  const ux = root.MediaSubUx || {};
 
   function createStore() {
     return {
     theme: 'dark',
+    uiError: '',
+    showDangerConfirmDialog: false,
+    dangerConfirmTitle: '', dangerConfirmMessage: '', dangerConfirmPhrase: '', dangerConfirmInput: '',
+    _dangerConfirmResolve: null,
+
+    get uiBusy() {
+      return !!(this.subscriptionDetailLoading || this.subscriptionBatchLoading || this.driveLoading || this.downloadsLoading || this.diagnosticsLoading || this.calendarLoading || this.searchLoading || this.checkingAllSubscriptions);
+    },
 
     async init() {
       this.setupLifecycleCleanup();
@@ -24,6 +33,9 @@
       this.applyTheme(this.resolveInitialTheme(), {persist: false});
       this.calendarCursor = this.calendarTodayKey();
       this.loadSearchPreferences();
+      if (this.loadSubscriptionPreferences) this.loadSubscriptionPreferences();
+      this.restoreUiPreferences();
+      this.setupErrorBoundary();
       this.initNavigation();
       await this.loadSubscriptions();
       await this.loadNotifications();
@@ -47,7 +59,45 @@
           this.selectTab('search');
           this.$nextTick(() => this.$refs.globalSearchInput && this.$refs.globalSearchInput.focus());
         }
+        if (event.key === 'Escape' && this.showDangerConfirmDialog) this.resolveDangerConfirmation(false);
       });
+    },
+
+    restoreUiPreferences() {
+      if (!ux.readPreference) return;
+      this.backgroundJobFilterKind = ux.readPreference('jobs.kind', 'all');
+      this.backgroundJobFilterStatus = ux.readPreference('jobs.status', 'all');
+      this.driveFilterType = ux.readPreference('drive.filter', 'all', ['all','folder','video','other']);
+      this.driveViewMode = ux.readPreference('drive.view', 'list', ['list','grid']);
+      this.notificationFilter = ux.readPreference('notifications.filter', 'all', ['all','unread']);
+      if (this.$watch) {
+        for (const [property,key] of [['backgroundJobFilterKind','jobs.kind'],['backgroundJobFilterStatus','jobs.status'],['driveFilterType','drive.filter'],['driveViewMode','drive.view'],['notificationFilter','notifications.filter']]) {
+          this.$watch(property, value => {
+            ux.writePreference(key, value);
+            if (property.startsWith('backgroundJob')) this.backgroundJobVisibleLimit = 80;
+            if (property.startsWith('drive')) this.driveVisibleLimit = 200;
+            if (property === 'notificationFilter') this.notificationVisibleLimit = 100;
+          });
+        }
+      }
+    },
+
+    setupErrorBoundary() {
+      this.listenLifecycle('ui-error', window, 'error', event => { this.uiError = event.message || '页面组件发生错误'; });
+      this.listenLifecycle('ui-rejection', window, 'unhandledrejection', event => { this.uiError = this.apiErrorMessage(event.reason, '后台操作发生未处理错误'); });
+    },
+
+    requestDangerConfirmation({title='确认危险操作', message='', phrase=''}) {
+      if (this._dangerConfirmResolve) this._dangerConfirmResolve(false);
+      this.dangerConfirmTitle = title; this.dangerConfirmMessage = message; this.dangerConfirmPhrase = phrase; this.dangerConfirmInput = '';
+      this.showDangerConfirmDialog = true;
+      return new Promise(resolve => { this._dangerConfirmResolve = resolve; this.$nextTick(() => this.$refs.dangerConfirmInput && this.$refs.dangerConfirmInput.focus()); });
+    },
+    dangerConfirmationReady() { return !this.dangerConfirmPhrase || this.dangerConfirmInput === this.dangerConfirmPhrase; },
+    resolveDangerConfirmation(approved) {
+      if (approved && !this.dangerConfirmationReady()) return;
+      this.showDangerConfirmDialog = false; const resolve = this._dangerConfirmResolve; this._dangerConfirmResolve = null;
+      if (resolve) resolve(!!approved);
     },
 
     resolveInitialTheme() {
