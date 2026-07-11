@@ -56,3 +56,6 @@ jobs:
 
       - name: Build release binary
         run: cargo build --release --locked
+
+      - name: Smoke test release binary
+        run: scripts/smoke-release.sh target/release/my-media-sub
