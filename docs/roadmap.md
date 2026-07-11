@@ -13,13 +13,19 @@
 
 ## 当前执行指针
 
-- **当前阶段**：P19 备份与数据生命周期
-- **当前任务**：P19-01 备份校验清单、定期可恢复性验证和外部目录复制已完成并通过质量门
-- **下一任务**：P19-02 Store 增长预警、独立保留周期及清理预览
-- **当前发布基线**：v1.11.0 已发布；P18 提交 `c9827b4` 已推送，P19 开发中，不自动创建新 tag
-- **工作树状态**：P19-01 已实现、验证并提交，工作区干净
+- **当前阶段**：P19 备份与数据生命周期已完成
+- **当前任务**：P19-01 至 P19-03 全部完成并通过质量门
+- **下一任务**：P20-01 OpenAPI 与路由同步及契约兼容回归测试
+- **当前发布基线**：v1.11.0 已发布；P19 完成，不自动创建新 tag
+- **工作树状态**：P19 全部实现、验证并提交，工作区干净
 
 ---
+
+## P19 完成交接
+
+- P19 已完成：备份逐项清单、隔离恢复定期验证、外部复制、Store 增长预警、独立保留策略、清理预览与 SQLite 决策门均已落地。
+- 当前继续使用 JSON 单写；SQLite 四类阈值未达到时不启动迁移，达到后也只进入 `decision_required`，不自动建库或双写。
+- 下一窗口从 P20-01 OpenAPI 路由同步与契约兼容测试开始；未经明确要求不创建 tag 或 Release。
 
 ## P18 完成交接
 
@@ -1012,8 +1018,18 @@ P18 最终验证：396 个 Rust 测试登记，395 个通过、1 个真实 PanSo
   - `BACKUP_EXTERNAL_DIR` 配置 DATA_DIR 外部目录；仅在本地备份通过隔离恢复后以 0600 原子复制，并按同一保留份数清理外部历史，不扫描或删除非 `backup-*.json` 文件。
   - 验证覆盖隔离恢复、失败报告持久化、外部复制、保留策略和 API/诊断合同；OpenAPI、README、环境示例、PWA `v1.11.0-p19-1` 与 WebUI 已同步。
   - 质量门：399 个 Rust 测试登记，398 个通过、1 个真实 PanSou 网络测试按设计忽略；14 个前端 Node 测试和全部 JavaScript 语法检查通过；Tailwind CSS 重建、rustfmt、Clippy `-D warnings`、完整 Rust 测试、真实浏览器 E2E、OpenAPI JSON 与 `git diff --check` 通过。
-- [ ] `P19-02` 增加 Store 增长预警、独立保留周期及清理预览。
-- [ ] `P19-03` 达到已记录阈值后再启动 SQLite 决策，不提前长期双写。
+- [x] `P19-02` 增加 Store 增长预警、独立保留周期及清理预览。
+  - `GET /api/storage/cleanup` 只读汇总订阅历史、通知、活跃终态 Job、Job 归档和自动化事件的当前记录、独立上限、预计处理数、文件大小及增长原因；预览明确 `mutates_data=false`。
+  - `RETENTION_*` 分别控制订阅检查/换源/历史链接、通知、活跃/归档 Job、普通/失败自动化事件数量或天数，并限制在现有安全硬上限内；`STORE_GROWTH_WARNING_MB` 默认 24 MiB。
+  - `POST /api/storage/cleanup` 要求 `CLEANUP DATA`，在任何变更前创建并隔离验证 `pre-cleanup` 备份，再通过各 Store 锁和原子写入应用策略；兼容 `COMPACT JSON` 入口复用同一流程。
+  - WebUI 展示逐 Store 容量、上限、预计处理数和增长预警，高风险清理使用统一短语确认；单元测试验证订阅、通知和自动化事件的预览与执行结果一致。
+- [x] `P19-03` 达到已记录阈值后再启动 SQLite 决策，不提前长期双写。
+  - 决策门继续使用 500 订阅、10,000 历史记录、32 MiB 最大 Store 或复杂查询需求四类已记录阈值，并把 Job 归档纳入历史规模。
+  - `GET /api/storage/decision` 和诊断快照明确返回 `runtime_backend=json`、`migration_phase=not_started|decision_required`、`threshold_evaluation_started` 与恒为 false 的 `dual_write_active`。
+  - 未达到阈值时只维持紧凑 JSON 单写；达到任一阈值也仅启动迁移决策，后续必须满足保留 JSON 源、可重复导入、数量/校验和验证、切换前回滚及禁止长期双写合同。
+  - 回归测试锁定门槛前后状态，并确认 Cargo 未提前引入 rusqlite/sqlx/diesel 依赖；当前未创建 SQLite 文件、schema 或双写路径。
+
+P19 最终验证：404 个 Rust 测试登记，403 个通过、1 个真实 PanSou 网络测试按设计忽略；14 个前端 Node 测试和全部 JavaScript 语法检查通过；Tailwind CSS 重建、rustfmt、all-targets/all-features check、Clippy `-D warnings`、完整 Rust 测试、真实浏览器 E2E、OpenAPI JSON 与 `git diff --check` 通过。
 
 ## P20. API 与自动化集成
 

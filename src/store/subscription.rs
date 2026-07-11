@@ -57,7 +57,10 @@ impl SubscriptionStore {
             Ok(decoded) => {
                 backup_store_before_migration(path, &content, decoded.source_version)?;
                 let mut subscriptions = decoded.data;
-                let compacted = compact_subscription_histories(&mut subscriptions);
+                let compacted = compact_subscription_histories(
+                    &mut subscriptions,
+                    configured_history_retention(),
+                );
                 if decoded.needs_write || compacted {
                     write_versioned_json_atomic_async(path, &subscriptions, 0o600).await?;
                 }
@@ -251,7 +254,7 @@ impl SubscriptionStore {
                     + item.previous_share_links.len()
             })
             .sum();
-        compact_subscription_histories(&mut snapshot);
+        compact_subscription_histories(&mut snapshot, configured_history_retention());
         let after: usize = snapshot
             .iter()
             .map(|item| {
@@ -265,25 +268,90 @@ impl SubscriptionStore {
         Ok(before.saturating_sub(after))
     }
 
+    pub async fn history_counts(&self) -> (usize, usize, usize) {
+        self.with_items(|items| {
+            items.iter().fold((0, 0, 0), |counts, item| {
+                (
+                    counts.0 + item.check_history.len(),
+                    counts.1 + item.source_switch_history.len(),
+                    counts.2 + item.previous_share_links.len(),
+                )
+            })
+        })
+        .await
+    }
+
+    pub async fn preview_history_retention(
+        &self,
+        check_history: usize,
+        source_switch_history: usize,
+        previous_share_links: usize,
+    ) -> usize {
+        let mut snapshot = self.items.read().await.clone();
+        let before = history_total(&snapshot);
+        compact_subscription_histories(
+            &mut snapshot,
+            (check_history, source_switch_history, previous_share_links),
+        );
+        before.saturating_sub(history_total(&snapshot))
+    }
+
+    pub async fn compact_with_retention(
+        &self,
+        check_history: usize,
+        source_switch_history: usize,
+        previous_share_links: usize,
+    ) -> Result<usize> {
+        let _guard = self.save_lock.lock().await;
+        let mut snapshot = self.items.read().await.clone();
+        let before = history_total(&snapshot);
+        compact_subscription_histories(
+            &mut snapshot,
+            (check_history, source_switch_history, previous_share_links),
+        );
+        let after = history_total(&snapshot);
+        self.save(&snapshot).await?;
+        self.replace_memory(snapshot).await;
+        Ok(before.saturating_sub(after))
+    }
+
     /// 数量
     pub async fn count(&self) -> usize {
         self.with_items(|items| items.len()).await
     }
 }
 
-fn compact_subscription_histories(items: &mut [Subscription]) -> bool {
+fn history_total(items: &[Subscription]) -> usize {
+    items
+        .iter()
+        .map(|item| {
+            item.check_history.len()
+                + item.source_switch_history.len()
+                + item.previous_share_links.len()
+        })
+        .sum()
+}
+
+fn compact_subscription_histories(
+    items: &mut [Subscription],
+    (check_history_retention, source_switch_retention, previous_links_retention): (
+        usize,
+        usize,
+        usize,
+    ),
+) -> bool {
     let mut changed = false;
     for item in items {
-        if item.check_history.len() > 30 {
-            item.check_history.truncate(30);
+        if item.check_history.len() > check_history_retention {
+            item.check_history.truncate(check_history_retention);
             changed = true;
         }
-        if item.source_switch_history.len() > 50 {
-            item.source_switch_history.truncate(50);
+        if item.source_switch_history.len() > source_switch_retention {
+            item.source_switch_history.truncate(source_switch_retention);
             changed = true;
         }
-        if item.previous_share_links.len() > 50 {
-            let remove = item.previous_share_links.len() - 50;
+        if item.previous_share_links.len() > previous_links_retention {
+            let remove = item.previous_share_links.len() - previous_links_retention;
             item.previous_share_links.drain(0..remove);
             changed = true;
         }
@@ -297,6 +365,21 @@ fn build_subscription_index(items: &[Subscription]) -> HashMap<String, usize> {
         .enumerate()
         .map(|(index, item)| (item.id.clone(), index))
         .collect()
+}
+
+fn configured_history_retention() -> (usize, usize, usize) {
+    let value = |key: &str, default: usize, max: usize| {
+        std::env::var(key)
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(default)
+            .clamp(1, max)
+    };
+    (
+        value("RETENTION_SUBSCRIPTION_CHECKS", 30, 30),
+        value("RETENTION_SOURCE_SWITCHES", 50, 50),
+        value("RETENTION_PREVIOUS_LINKS", 50, 50),
+    )
 }
 
 #[cfg(test)]
@@ -375,6 +458,23 @@ mod tests {
 
     #[cfg(not(unix))]
     fn assert_private_file_mode(_path: &std::path::Path) {}
+
+    #[tokio::test]
+    async fn custom_history_retention_previews_and_applies_exactly() {
+        let tmp = temp_path("subs-retention");
+        let store = SubscriptionStore::new(&tmp);
+        store.load().await.unwrap();
+        let mut sub = make_sub("retention");
+        sub.previous_share_links = vec!["a".into(), "b".into(), "c".into()];
+        store.create(sub).await.unwrap();
+        assert_eq!(store.preview_history_retention(30, 50, 1).await, 2);
+        assert_eq!(store.compact_with_retention(30, 50, 1).await.unwrap(), 2);
+        assert_eq!(
+            store.get("retention").await.unwrap().previous_share_links,
+            vec!["c"]
+        );
+        let _ = std::fs::remove_file(tmp);
+    }
 
     #[tokio::test]
     async fn test_subscription_store_crud() {

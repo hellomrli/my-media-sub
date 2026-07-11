@@ -171,7 +171,10 @@
 
 - `GET /api/diagnostics` 的 `metrics.store_io` 返回逐 Store 当前大小、读写次数/字节数、解析/写入累计微秒和失败数。
 - `storage_decision` 返回当前规模、显式 SQLite 门槛、建议和迁移合同。
-- `POST /api/storage/compact` 要求 `confirmation: "COMPACT JSON"`，重新应用订阅/通知/Job/自动化事件保留策略，并把所有业务 Store 原子改写为紧凑 JSON。
+- `GET /api/storage/cleanup`：只读返回各 Store 当前记录、独立保留上限、预计处理数、文件大小、增长预警和 SQLite 阈值决策。
+- `POST /api/storage/cleanup` 要求 `confirmation: "CLEANUP DATA"`；执行前创建并验证 `pre-cleanup` 备份，再应用订阅历史、通知、活跃/归档 Job 和自动化事件的独立保留策略。
+- `POST /api/storage/compact` 保留兼容入口并要求 `confirmation: "COMPACT JSON"`，内部执行相同的备份优先生命周期清理。
+- `GET /api/storage/decision`：返回当前 JSON/SQLite 门控状态；任一记录阈值未达到时 `migration_phase=not_started`，达到后仅变为 `decision_required`，始终报告 `dual_write_active=false`。
 
 ## P10 扩展接口
 

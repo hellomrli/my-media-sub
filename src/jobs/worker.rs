@@ -22,9 +22,8 @@ use super::model::{
     ManualTransferPayload, MetadataScrapePayload, PushDispatchPayload, SubscriptionTransferPayload,
 };
 use super::reliability::{
-    classify_app_error, is_retryable, job_error_class, retry_delay_seconds, CircuitBreakers,
-    JOB_BACKLOG_WARNING_THRESHOLD, JOB_HISTORY_RETAIN, JOB_STUCK_TIMEOUT_SECONDS,
-    MAX_AUTO_ATTEMPTS,
+    classify_app_error, is_retryable, job_error_class, job_history_retain, retry_delay_seconds,
+    CircuitBreakers, JOB_BACKLOG_WARNING_THRESHOLD, JOB_STUCK_TIMEOUT_SECONDS, MAX_AUTO_ATTEMPTS,
 };
 use super::scheduler::{FairScheduler, JobConcurrencyLimits, RunningJobs};
 use super::store::JobStore;
@@ -180,7 +179,7 @@ impl JobWorker {
                             running.finish(&job);
                             self.handle_task_result(&job.id, outcome).await;
                             self.apply_reliability(&job, &mut circuits).await;
-                            if let Err(error) = self.store.archive_completed(JOB_HISTORY_RETAIN).await {
+                            if let Err(error) = self.store.archive_completed(job_history_retain()).await {
                                 warn!("归档历史任务失败: {}", error);
                             }
                         }

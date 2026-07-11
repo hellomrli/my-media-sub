@@ -182,7 +182,7 @@ async fn build_snapshot(context: &AppContext) -> Result<DiagnosticsSnapshot> {
     let jobs = context.job_store.list().await;
     let notifications = context.notification_store.list(true).await;
     let subscriptions = context.subscription_store.count().await;
-    let automation_events = context.automation_event_store.list(usize::MAX).await;
+    let automation_event_count = context.automation_event_store.count().await;
     let backups = context.backup_service.list_stored_backups().await?;
     let latest_backup_verification = context.backup_service.latest_verification().await?;
     let files = diagnostic_file_sizes(context.backup_service.data_dir())?;
@@ -246,7 +246,7 @@ async fn build_snapshot(context: &AppContext) -> Result<DiagnosticsSnapshot> {
             ("subscriptions", Some(subscriptions)),
             ("notifications", Some(notifications.len())),
             ("jobs", Some(jobs.len())),
-            ("automation_events", Some(automation_events.len())),
+            ("automation_events", Some(automation_event_count)),
         ],
     );
     let dns = dns_diagnostics(&settings).await;
@@ -269,7 +269,7 @@ async fn build_snapshot(context: &AppContext) -> Result<DiagnosticsSnapshot> {
             files,
             subscriptions,
             notifications: notifications.len(),
-            automation_events: automation_events.len(),
+            automation_events: automation_event_count,
         },
         queue: QueueDiagnostics {
             total: jobs.len(),
@@ -317,7 +317,7 @@ async fn build_snapshot(context: &AppContext) -> Result<DiagnosticsSnapshot> {
             subscriptions,
             jobs: jobs.len(),
             notifications: notifications.len(),
-            automation_events: automation_events.len(),
+            automation_events: automation_event_count,
             largest_store_bytes,
             complex_query_required: false,
         }),

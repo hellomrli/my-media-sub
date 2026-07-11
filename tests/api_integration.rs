@@ -1177,15 +1177,32 @@ async fn backup_export_preview_and_diagnostics_are_available() {
     );
     assert!(diagnostics.to_string().find("change-me").is_none());
 
+    let lifecycle = json_body(&app, auth_get("/api/storage/cleanup")).await;
+    assert_eq!(lifecycle["ok"], true);
+    assert_eq!(lifecycle["data"]["mutates_data"], false);
+    assert_eq!(lifecycle["data"]["execution_requires"], "CLEANUP DATA");
+    assert_eq!(
+        lifecycle["data"]["sqlite_decision"]["runtime_backend"],
+        "json"
+    );
+    assert_eq!(
+        lifecycle["data"]["sqlite_decision"]["dual_write_active"],
+        false
+    );
+    assert!(lifecycle["data"]["stores"].as_array().unwrap().len() >= 5);
+    let decision = json_body(&app, auth_get("/api/storage/decision")).await;
+    assert_eq!(decision["data"]["migration_phase"], "not_started");
+
     let compacted = json_body(
         &app,
         auth_post(
-            "/api/storage/compact",
-            serde_json::json!({"confirmation":"COMPACT JSON"}),
+            "/api/storage/cleanup",
+            serde_json::json!({"confirmation":"CLEANUP DATA"}),
         ),
     )
     .await;
     assert_eq!(compacted["ok"], true);
+    assert!(compacted["data"]["snapshot_backup"].as_str().is_some());
     let settings_bytes = std::fs::read(dir.join("settings.json")).unwrap();
     assert!(!String::from_utf8_lossy(&settings_bytes).contains("\n  "));
     let _ = std::fs::remove_dir_all(dir);
@@ -1260,6 +1277,8 @@ async fn p10_openapi_browser_push_and_subscription_tags_are_exposed() {
     assert!(openapi["paths"]["/metrics"].is_object());
     assert!(openapi["paths"]["/api/observability/log-filter"].is_object());
     assert!(openapi["paths"]["/api/backups/verification"].is_object());
+    assert!(openapi["paths"]["/api/storage/cleanup"].is_object());
+    assert!(openapi["paths"]["/api/storage/decision"].is_object());
 
     let browser = json_body(&app, auth_get("/api/push/browser")).await;
     assert_eq!(browser["ok"], true);

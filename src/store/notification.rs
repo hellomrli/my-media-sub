@@ -135,6 +135,23 @@ impl NotificationStore {
         Ok(())
     }
 
+    pub async fn count(&self) -> usize {
+        self.items.read().await.len()
+    }
+
+    pub async fn compact_to(&self, retain: usize) -> Result<usize> {
+        let _guard = self.save_lock.lock().await;
+        let mut snapshot = self.items.read().await.clone();
+        let before = snapshot.len();
+        if snapshot.len() > retain {
+            snapshot.drain(0..snapshot.len() - retain);
+        }
+        self.save(&snapshot).await?;
+        let removed = before.saturating_sub(snapshot.len());
+        *self.items.write().await = snapshot;
+        Ok(removed)
+    }
+
     pub async fn compact(&self) -> Result<usize> {
         let _guard = self.save_lock.lock().await;
         let mut snapshot = self.items.read().await.clone();
@@ -214,10 +231,19 @@ impl NotificationStore {
 }
 
 fn truncate_notifications(items: &mut Vec<Notification>) {
-    if items.len() > MAX_NOTIFICATIONS {
-        let remove_count = items.len() - MAX_NOTIFICATIONS;
+    let retention = configured_notification_retention();
+    if items.len() > retention {
+        let remove_count = items.len() - retention;
         items.drain(0..remove_count);
     }
+}
+
+fn configured_notification_retention() -> usize {
+    std::env::var("RETENTION_NOTIFICATIONS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(MAX_NOTIFICATIONS)
+        .clamp(1, MAX_NOTIFICATIONS)
 }
 
 #[cfg(test)]
@@ -331,6 +357,25 @@ mod tests {
         );
         assert_eq!(store.take_digest_pending().await.unwrap().len(), 1);
         assert!(store.take_digest_pending().await.unwrap().is_empty());
+        let _ = std::fs::remove_file(tmp);
+    }
+
+    #[tokio::test]
+    async fn compact_to_uses_independent_notification_retention() {
+        let tmp = temp_path("notif-independent-retention");
+        let store = NotificationStore::new(&tmp);
+        store.load().await.unwrap();
+        for index in 0..4 {
+            store
+                .add(make_notif(&format!("n{index}"), false))
+                .await
+                .unwrap();
+        }
+        assert_eq!(store.compact_to(2).await.unwrap(), 2);
+        let all = store.list(true).await;
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].id, "n3");
+        assert_eq!(all[1].id, "n2");
         let _ = std::fs::remove_file(tmp);
     }
 

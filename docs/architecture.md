@@ -338,6 +338,8 @@ sequenceDiagram
 | 新云盘 | 实现 `CloudDriveProvider` 并在 registry 注册；供应商扩展能力保持在通用 trait 之外。 |
 | 新通知事件 | `services/push.rs` 的 PushEvent 和结构化 notification metadata。 |
 | 新指标 | `src/utils/metrics.rs`，通过 `/api/metrics`（JSON）和 `/metrics`（Prometheus）暴露。 |
+| 新保留策略 | `services/storage.rs` 定义独立上限，先走 `/api/storage/cleanup` 预览，执行前必须创建可恢复备份。 |
+| SQLite 决策 | 只由记录数、Store 大小或复杂查询阈值触发；门槛前保持 JSON 单写，门槛后先决策和可重复导入验证，不长期双写。 |
 | 新后台调度器 | `src/services/*_scheduler.rs`，由 AppContext 初始化和启动。 |
 
 ## 当前边界与下一步
