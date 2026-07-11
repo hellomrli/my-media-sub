@@ -296,3 +296,27 @@ fn versioned_webhook_contract_has_stable_identity_and_data() {
     assert!(payload["occurred_at"].as_i64().is_some());
     assert_eq!(payload["data"]["level"], "success");
 }
+
+#[test]
+fn telegram_active_notification_actions_are_signed_and_bounded() {
+    let settings = Settings {
+        telegram_bot_token: "123456:test".to_string(),
+        telegram_chat_id: "42".to_string(),
+        telegram_bot_mode: "long_polling".to_string(),
+        telegram_bot_allowed_user_ids: vec![42],
+        telegram_bot_allowed_chat_ids: vec![42],
+        telegram_bot_webhook_secret: "a".repeat(64),
+        ..Settings::default()
+    };
+    let service = PushService::new(settings).with_telegram_actions(
+        PushEvent::SubscriptionFailed,
+        Some("12345678-1234-1234-1234-123456789012"),
+        Some("87654321-4321-4321-4321-210987654321"),
+    );
+    let markup = service.telegram_reply_markup.unwrap();
+    let buttons = markup["inline_keyboard"][0].as_array().unwrap();
+    assert_eq!(buttons.len(), 3);
+    assert!(buttons.iter().all(|button| button["callback_data"]
+        .as_str()
+        .is_some_and(|data| data.starts_with("prompt:") && data.len() <= 64)));
+}

@@ -26,6 +26,7 @@ macro_rules! subscription_transfer_notification_methods {
             None,
             PushDispatchRequest {
                 notification_id: notification.ok().map(|notification| notification.id),
+                subscription_id: Some(sub.id.clone()),
                 event: PushEvent::SubscriptionCompleted,
                 title,
                 message,

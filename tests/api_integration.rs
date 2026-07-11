@@ -1136,6 +1136,11 @@ async fn backup_export_preview_and_diagnostics_are_available() {
         .unwrap();
     let archive: serde_json::Value = serde_json::from_slice(&archive_bytes).unwrap();
     assert_eq!(archive["format"], "my-media-sub-backup");
+    assert!(archive["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|file| file["path"] == "telegram_bot.json"));
 
     let preview = json_body(&app, auth_post("/api/backups/preview", archive)).await;
     assert_eq!(preview["ok"], true);
@@ -1460,5 +1465,167 @@ async fn subscription_export_import_preview_and_idempotency_are_stable() {
     let repeated = json_response(&app, import_request()).await;
     assert_eq!(repeated.0, StatusCode::OK);
     assert_eq!(repeated.2["data"], first.2["data"]);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn telegram_webhook_requires_both_path_and_header_secrets_without_basic_auth() {
+    let (ctx, dir) = test_context().await;
+    ctx.settings_store
+        .update(|settings| {
+            settings.telegram_bot_mode = "webhook".to_string();
+            settings.telegram_bot_webhook_path_secret = "path-secret-0123456789abcdef".to_string();
+            settings.telegram_bot_webhook_secret = "header-secret-0123456789abcdef".to_string();
+        })
+        .await
+        .unwrap();
+    ctx.telegram_bot_store
+        .add_audit(my_media_sub::store::TelegramCommandAudit {
+            id: "telegram-audit-1".to_string(),
+            update_id: 1,
+            callback_id: None,
+            user_id: 42,
+            chat_id: 42,
+            command: "status".to_string(),
+            target: String::new(),
+            result: "succeeded".to_string(),
+            message: "ok".to_string(),
+            duration_ms: 1,
+            correlation_id: "telegram-correlation-1".to_string(),
+            created_at: 1,
+        })
+        .await
+        .unwrap();
+    let app = create_app(ctx.clone());
+    let request = |path: &str, secret: Option<&str>| {
+        let mut builder = Request::builder()
+            .method(Method::POST)
+            .uri(format!("/api/telegram/webhook/{path}"))
+            .header(header::CONTENT_TYPE, "application/json");
+        if let Some(secret) = secret {
+            builder = builder.header("x-telegram-bot-api-secret-token", secret);
+        }
+        builder.body(Body::from(r#"{"update_id":123}"#)).unwrap()
+    };
+
+    assert_eq!(
+        status(
+            &app,
+            request(
+                "wrong-path-secret-0123456789",
+                Some("header-secret-0123456789abcdef")
+            )
+        )
+        .await,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        status(
+            &app,
+            request(
+                "path-secret-0123456789abcdef",
+                Some("wrong-header-secret-0123456789")
+            )
+        )
+        .await,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        status(
+            &app,
+            request(
+                "path-secret-0123456789abcdef",
+                Some("header-secret-0123456789abcdef")
+            )
+        )
+        .await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        status(
+            &app,
+            request(
+                "path-secret-0123456789abcdef",
+                Some("header-secret-0123456789abcdef")
+            )
+        )
+        .await,
+        StatusCode::OK
+    );
+    let cross_site_webhook = Request::builder()
+        .method(Method::POST)
+        .uri("/api/telegram/webhook/path-secret-0123456789abcdef")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::ORIGIN, "https://telegram.example")
+        .header(
+            "x-telegram-bot-api-secret-token",
+            "header-secret-0123456789abcdef",
+        )
+        .body(Body::from(r#"{"update_id":124}"#))
+        .unwrap();
+    assert_eq!(status(&app, cross_site_webhook).await, StatusCode::OK);
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let public_settings = json_body(&app, auth_get("/api/settings")).await;
+    assert_ne!(
+        public_settings["data"]["telegram_bot_webhook_path_secret"],
+        "path-secret-0123456789abcdef"
+    );
+    assert_ne!(
+        public_settings["data"]["telegram_bot_webhook_secret"],
+        "header-secret-0123456789abcdef"
+    );
+    assert_eq!(
+        public_settings["data"]["telegram_bot_webhook_secret_configured"],
+        true
+    );
+
+    let diagnostics = json_body(&app, auth_get("/api/diagnostics")).await;
+    assert_eq!(diagnostics["data"]["telegram_bot"]["mode"], "disabled");
+    assert_eq!(
+        diagnostics["data"]["telegram_bot"]["deduplicated_updates"],
+        1
+    );
+    assert_eq!(diagnostics["data"]["telegram_bot"]["audit_count"], 1);
+    let audits = json_body(&app, auth_get("/api/telegram/audits")).await;
+    assert_eq!(audits["data"][0]["command"], "status");
+    assert_eq!(
+        audits["data"][0]["correlation_id"],
+        "telegram-correlation-1"
+    );
+    assert!(diagnostics["data"]["telegram_bot"]
+        .get("last_error")
+        .is_some());
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn quark_signin_automation_scope_is_minimal_and_bot_compatible() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+    let rotated = json_body(
+        &app,
+        auth_post(
+            "/api/automation-token",
+            serde_json::json!({"scopes":["quark:signin"],"expires_days":1}),
+        ),
+    )
+    .await;
+    let token = rotated["data"]["token"].as_str().unwrap();
+    let signin = Request::builder()
+        .method(Method::POST)
+        .uri("/api/quark/signin")
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    // Scope authentication succeeds; the missing test Cookie is rejected by the existing service.
+    assert_eq!(status(&app, signin).await, StatusCode::BAD_REQUEST);
+    let subscriptions = Request::builder()
+        .uri("/api/subscriptions")
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(status(&app, subscriptions).await, StatusCode::UNAUTHORIZED);
     let _ = std::fs::remove_dir_all(dir);
 }

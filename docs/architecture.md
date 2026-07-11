@@ -274,6 +274,15 @@ sequenceDiagram
 - 模板支持 title/message/event/level 变量并提供只读预览；Webhook 每个目标独立执行三次退避重试。
 - Webhook 签名轮换在最长 168 小时重叠期同时发送 `X-Media-Sub-Signature-256` 与 `X-Media-Sub-Signature-256-Previous`，上一密钥始终按 secret 脱敏。
 
+### Telegram 主动控制 Bot
+
+- `TelegramBotService` 由 AppContext 单例持有，动态协调 disabled、long polling 与 webhook；外部 API 失败只更新 Bot 诊断和退避状态。
+- Webhook 公开路由使用随机路径与 Telegram Header Secret 双重常量时间校验；命令授权只比较数字 user/chat ID，默认拒绝群聊。
+- 只读命令直接读取现有 Store 聚合；写命令映射到 P20 最小 scope，并复用 SubscriptionCheckService、JobQueue、QuarkSigninService 与 NotificationStore。
+- 写动作使用绑定 user/chat/action/resource/scope 的 120 秒一次性确认；Update ID、Callback ID 与业务幂等键由 `TelegramBotStore` 持久化去重，待确认 nonce 不持久化以便重启时安全失效。
+- 主动通知按钮在 PushService 已完成路由、安静时段、摘要和限频决策后附加；15 分钟 HMAC Callback 绑定目标 user/chat，再进入相同的一次性确认流程。
+- 命令审计、三层限流和失败冷却只属于 Bot 控制面，不与普通 Telegram 推送共享熔断或限流状态。
+
 ### CloudDriveProvider
 
 - `providers::CloudDriveProvider` 定义分享探测、目录列举/查找/确保、转存、重命名、删除、下载信息和健康检查能力；
@@ -351,7 +360,6 @@ sequenceDiagram
 - 第二个生产 CloudDriveProvider（需明确产品需求）；
 - PWA；
 - SQLite；
-- Telegram 主动控制（已规划为 P21，当前版本尚未实现）；
 - NAS 同步。
 
 完整顺序和状态见 [`roadmap.md`](roadmap.md)。

@@ -37,6 +37,7 @@ pub async fn add_notification(
 
 pub struct PushDispatchRequest {
     pub notification_id: Option<String>,
+    pub subscription_id: Option<String>,
     pub event: PushEvent,
     pub title: String,
     pub message: String,
@@ -58,6 +59,7 @@ pub async fn dispatch_push_event(
         job_queue,
         PushDispatchRequest {
             notification_id: None,
+            subscription_id: None,
             event,
             title: title.into(),
             message: message.into(),
@@ -88,6 +90,7 @@ async fn dispatch_push_event_impl(
 ) {
     let PushDispatchRequest {
         notification_id,
+        subscription_id,
         event,
         title,
         message,
@@ -183,7 +186,7 @@ async fn dispatch_push_event_impl(
                 level: level.as_str().to_string(),
                 notification_id: notification_id.clone(),
                 correlation_id: String::new(),
-                subscription_id: None,
+                subscription_id: subscription_id.clone(),
                 episode: None,
             })
             .await
@@ -207,11 +210,13 @@ async fn dispatch_push_event_impl(
             &message,
             level,
             notification_id.as_deref(),
+            subscription_id.as_deref(),
         )
         .await;
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn send_push_event(
     settings_store: &SettingsStore,
     notification_store: &NotificationStore,
@@ -220,9 +225,11 @@ async fn send_push_event(
     message: &str,
     level: PushLevel,
     notification_id: Option<&str>,
+    subscription_id: Option<&str>,
 ) {
     let settings = settings_store.get().await;
-    let push_service = PushService::new(settings);
+    let push_service =
+        PushService::new(settings).with_telegram_actions(event, notification_id, subscription_id);
     let report = push_service
         .send_event_with_retry_detailed(
             event,

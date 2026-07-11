@@ -16,6 +16,7 @@ pub enum StoreKind {
     Notifications,
     Jobs,
     AutomationEvents,
+    TelegramBot,
 }
 
 impl fmt::Display for StoreKind {
@@ -26,6 +27,7 @@ impl fmt::Display for StoreKind {
             StoreKind::Notifications => "notifications",
             StoreKind::Jobs => "jobs",
             StoreKind::AutomationEvents => "automation_events",
+            StoreKind::TelegramBot => "telegram_bot",
         })
     }
 }

@@ -15,6 +15,7 @@ pub const TOKEN_SCOPES: &[&str] = &[
     "jobs:write",
     "notifications:read",
     "notifications:write",
+    "quark:signin",
     "diagnostics:read",
 ];
 

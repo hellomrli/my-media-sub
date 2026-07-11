@@ -23,6 +23,8 @@ pub const SECRET_KEYS: &[&str] = &[
     "bark_url",
     "wxpusher_app_token",
     "telegram_bot_token",
+    "telegram_bot_webhook_path_secret",
+    "telegram_bot_webhook_secret",
     "gotify_token",
     "pushplus_token",
     "serverchan_key",
@@ -40,6 +42,23 @@ pub struct SettingsStore {
     path: PathBuf,
     settings: RwLock<Settings>,
     save_lock: Mutex<()>,
+}
+
+fn ensure_telegram_webhook_secrets(settings: &mut Settings) -> bool {
+    let mut changed = false;
+    if settings.telegram_bot_webhook_path_secret.len() < 24 {
+        settings.telegram_bot_webhook_path_secret = uuid::Uuid::new_v4().simple().to_string();
+        changed = true;
+    }
+    if settings.telegram_bot_webhook_secret.len() < 24 {
+        settings.telegram_bot_webhook_secret = format!(
+            "{}{}",
+            uuid::Uuid::new_v4().simple(),
+            uuid::Uuid::new_v4().simple()
+        );
+        changed = true;
+    }
+    changed
 }
 
 fn ensure_browser_push_keys(settings: &mut Settings) -> Result<bool> {
@@ -69,6 +88,7 @@ impl SettingsStore {
         let mut settings = self.settings.write().await;
         if !self.path.exists() {
             ensure_browser_push_keys(&mut settings)?;
+            ensure_telegram_webhook_secrets(&mut settings);
             self.write_to_disk(&settings).await?;
             return Ok(());
         }
@@ -99,6 +119,7 @@ impl SettingsStore {
             should_write = true;
         }
         should_write |= ensure_browser_push_keys(&mut settings)?;
+        should_write |= ensure_telegram_webhook_secrets(&mut settings);
         if should_write {
             self.write_to_disk(&settings).await?;
         }

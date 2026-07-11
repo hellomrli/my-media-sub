@@ -89,12 +89,15 @@ macro_rules! push_channel_methods {
         }
 
         let text = format!("{} <b>{}</b>\n\n{}", level.emoji(), title, message);
-        let payload = json!({
+        let mut payload = json!({
             "chat_id": chat_id,
             "text": text,
             "parse_mode": "HTML",
             "disable_notification": silent,
         });
+        if let Some(reply_markup) = &self.telegram_reply_markup {
+            payload["reply_markup"] = reply_markup.clone();
+        }
 
         let url = format!("https://api.telegram.org/bot{}/sendMessage", token);
         let resp = self

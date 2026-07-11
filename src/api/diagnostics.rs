@@ -34,6 +34,7 @@ struct DiagnosticsSnapshot {
     backups: BackupDiagnostics,
     metrics: MetricsSnapshot,
     security: SecurityDiagnostics,
+    telegram_bot: crate::services::telegram_bot::TelegramBotDiagnostics,
     environment: EnvironmentDiagnostics,
     recommendations: Vec<DiagnosticRecommendation>,
     storage_decision: StorageDecision,
@@ -210,6 +211,7 @@ async fn build_snapshot(context: &AppContext) -> Result<DiagnosticsSnapshot> {
         .filter(|job| job.error_class == Some(JobErrorClass::TimedOut))
         .count();
     let archived = context.job_store.archived_count()?;
+    let telegram_bot = context.telegram_bot.diagnostics().await;
     context
         .metrics
         .set_job_queue_depth((queued + running) as u64);
@@ -247,6 +249,7 @@ async fn build_snapshot(context: &AppContext) -> Result<DiagnosticsSnapshot> {
             ("notifications", Some(notifications.len())),
             ("jobs", Some(jobs.len())),
             ("automation_events", Some(automation_event_count)),
+            ("telegram_bot", None),
         ],
     );
     let dns = dns_diagnostics(&settings).await;
@@ -311,6 +314,7 @@ async fn build_snapshot(context: &AppContext) -> Result<DiagnosticsSnapshot> {
             default_password_risk: is_default_password(&settings.app_password),
             csp_enabled: true,
         },
+        telegram_bot,
         environment,
         recommendations,
         storage_decision: evaluate_storage(StorageDecisionInput {

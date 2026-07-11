@@ -230,6 +230,7 @@ pub fn file_sizes(data_dir: &std::path::Path) -> BTreeMap<String, u64> {
         "jobs.json",
         "jobs.archive.json",
         "automation_events.json",
+        "telegram_bot.json",
     ]
     .into_iter()
     .map(|name| {

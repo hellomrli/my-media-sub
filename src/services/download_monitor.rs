@@ -140,6 +140,7 @@ impl DownloadMonitorService {
             Some(self.job_queue.clone()),
             PushDispatchRequest {
                 notification_id: Some(notification.id),
+                subscription_id: None,
                 event: PushEvent::DownloadCompleted,
                 title,
                 message,
@@ -247,6 +248,7 @@ impl DownloadMonitorService {
             Some(self.job_queue.clone()),
             PushDispatchRequest {
                 notification_id: Some(notification.id),
+                subscription_id: Some(updated.id.clone()),
                 event: PushEvent::SubscriptionCompleted,
                 title,
                 message,

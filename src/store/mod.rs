@@ -5,9 +5,11 @@ pub mod schema;
 pub mod session;
 pub mod settings;
 pub mod subscription;
+pub mod telegram_bot;
 
 pub use automation_event::AutomationEventStore;
 pub use automation_token::AutomationTokenStore;
 pub use notification::NotificationStore;
 pub use settings::SettingsStore;
 pub use subscription::SubscriptionStore;
+pub use telegram_bot::{TelegramBotPersistentState, TelegramBotStore, TelegramCommandAudit};
