@@ -16,6 +16,7 @@
 - **当前阶段**：P19 备份与数据生命周期已完成
 - **当前任务**：P19-01 至 P19-03 全部完成并通过质量门
 - **下一任务**：P20-01 OpenAPI 与路由同步及契约兼容回归测试
+- **后续阶段**：P21 Telegram 主动控制机器人（已纳入计划，P20 完成后启动）
 - **当前发布基线**：v1.12.0 已正式发布；Linux x86_64 归档/SHA256 与 GHCR 1.12.0/1.12 镜像可用
 - **工作树状态**：v1.12.0 发布提交 `a03ed7b`、tag、Release 和镜像均已完成，工作区干净
 
@@ -1041,6 +1042,28 @@ P19 最终验证：404 个 Rust 测试登记，403 个通过、1 个真实 PanSo
 
 ## P20. API 与自动化集成
 
-- [ ] 保持 OpenAPI 与路由同步并建立契约兼容回归测试。
-- [ ] 增加单实例自动化 Token 的轮换、撤销和最小作用域；不扩展为多用户认证。
-- [ ] 增加幂等键、版本化 Webhook、订阅导入导出和自动化示例。
+- [ ] `P20-01` 保持 OpenAPI 与路由同步并建立契约兼容回归测试。
+- [ ] `P20-02` 增加单实例自动化 Token 的轮换、撤销和最小作用域；不扩展为多用户认证。
+- [ ] `P20-03` 增加幂等键、版本化 Webhook、订阅导入导出和自动化示例。
+
+## P21. Telegram 主动控制机器人
+
+> P21 在 P20 的 API 契约、Token 作用域、幂等键和版本化事件基础上实施。机器人继续服务单实例、单管理员场景，不扩展为多用户账号、群组租户或通用远程 Shell。
+
+- [ ] `P21-01` 建立安全 Bot 接入、身份白名单与只读命令。
+  - 支持 Telegram long polling 与带随机路径/secret token 校验的 webhook 两种模式，单实例只能启用一种；Bot Token 按 secret 脱敏、日志永不输出明文。
+  - 配置允许的 Telegram user ID 和 chat ID，默认只允许私聊；未授权 update 静默拒绝并记录限频安全审计，不以用户名作为授权依据。
+  - 首批只读命令包括 `/start`、`/help`、`/status`、`/subscriptions`、`/calendar`、`/jobs`、`/notifications` 和 `/diagnostics`，列表分页并限制单条消息长度。
+  - 诊断页展示接入模式、轮询/Webhook 状态、最近 update 时间和脱敏错误；Telegram API 失败不得阻塞订阅、转存、下载或推送流水线。
+- [ ] `P21-02` 增加受控写命令、交互确认与幂等执行。
+  - 支持检查单个/全部订阅、重试或取消允许的 Job、执行签到、标记通知已读等白名单动作；不提供任意命令执行、文件读取、直接 Store 编辑或绕过现有 API 验证的入口。
+  - 所有有副作用命令使用带过期时间的一次性确认 nonce 和 Inline Keyboard；高风险动作继续使用明确短语或二次确认，回调绑定 user/chat/action/resource，防止跨会话重放。
+  - Telegram `update_id`、callback query ID 和业务 Idempotency-Key 共同去重；执行结果返回 request/correlation/job 标识，可从 WebUI 自动化时间线继续排查。
+  - 写命令复用 P20 最小作用域和既有 Service/JobQueue，不在 Bot Handler 中复制业务逻辑；默认不开放删除订阅、恢复备份和清理 Store。
+- [ ] `P21-03` 完成主动通知交互、审计、限流和端到端验证。
+  - 追更、失败、转存、下载和积压通知可附带“查看详情/重试/标记已读”等受限按钮，并继续遵守安静时段、事件路由、重复限频和摘要策略。
+  - 每条命令记录 update、授权主体、命令、目标、结果、耗时和 correlation 的脱敏审计；按 user/chat/command 分层限流，连续失败触发冷却但不影响普通 Telegram 推送。
+  - 覆盖 webhook secret、白名单、伪造用户名、重复 update、过期/跨用户 callback、并发确认、Telegram 429/5xx、重启恢复和核心流水线失败隔离测试。
+  - 增加 BotFather 配置、Webhook/long polling 部署、反向代理、命令权限、吊销 Token 和应急停用文档，并纳入真实 Telegram 沙箱可选 smoke 与无网络确定性 CI。
+
+P21 明确边界：仅允许预定义命令和预定义资源操作；不执行 shell、不接受任意文件路径、不回显 Cookie/Token/密码、不把群聊成员视为系统用户、不绕过 Basic Auth/自动化 Token 的单实例安全模型。

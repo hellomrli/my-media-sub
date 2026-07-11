@@ -349,7 +349,7 @@ sequenceDiagram
 - 第二个生产 CloudDriveProvider（需明确产品需求）；
 - PWA；
 - SQLite；
-- Telegram 主动控制；
+- Telegram 主动控制（已规划为 P21，当前版本尚未实现）；
 - NAS 同步。
 
 完整顺序和状态见 [`roadmap.md`](roadmap.md)。
