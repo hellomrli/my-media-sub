@@ -79,7 +79,7 @@ docker run -d \
 从 [GitHub Releases](https://github.com/hellomrli/my-media-sub/releases) 下载 Linux x86_64 压缩包并校验 SHA256：
 
 ```bash
-VERSION=v1.3.0
+VERSION=v1.9.0
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz"
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
 sha256sum -c "my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
@@ -309,8 +309,8 @@ static/
 - [PWA、离线壳层与缓存安全](docs/pwa.md)
 - [JSON Store 性能基线与 SQLite 决策](docs/storage-scaling.md)
 - [OpenAPI 3.1 文档](/api-docs.html)
-- [v1.3.0 升级指南](docs/upgrade-v1.3.0.md)
-- [v1.3.0 发布检查表](docs/v1.3.0-release-checklist.md)
+- [v1.9.0 升级指南](docs/upgrade-v1.9.0.md)
+- [v1.9.0 完整变更记录](CHANGELOG-v1.9.0.md)
 
 ## 升级
 
@@ -332,6 +332,15 @@ docker compose up -d
 不要只替换二进制而继续使用旧版 `static/`。详细步骤见对应版本的升级指南。
 
 ## 版本说明
+
+### 1.9.0
+
+- 完成 P0–P10 路线图：Provider 抽象、备份恢复、诊断指标、安全加固、PWA、JSON 性能治理和 OpenAPI 文档；
+- 新增标准 Browser Push、签名 Webhook、统一推送报告和可安装离线应用；
+- 新增完整数据备份、恢复预览、自动备份保留策略及脱敏诊断包；
+- 新增 CloudDriveProvider 能力边界与 Quark/Mock Provider，降低业务层对夸克客户端的直接耦合；
+- 增强请求关联 ID、登录限流、CSP、安全响应头、敏感日志脱敏和危险操作确认；
+- 保持 `schema_version: 1`，历史数据可兼容读取；升级时必须同时替换二进制和 `static/`。
 
 ### 1.3.0
 
