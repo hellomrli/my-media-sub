@@ -78,11 +78,11 @@ docker run -d \
   ghcr.io/hellomrli/my-media-sub:latest
 ```
 
-生产环境建议固定版本标签；v1.13.0 同时发布 `1.13.0` 和 `1.13`：
+生产环境建议固定版本标签；v1.13.1 同时发布 `1.13.1` 和 `1.13`：
 
 ```bash
-docker pull ghcr.io/hellomrli/my-media-sub:1.13.0
-docker image inspect ghcr.io/hellomrli/my-media-sub:1.13.0 --format '{{.RepoDigests}}'
+docker pull ghcr.io/hellomrli/my-media-sub:1.13.1
+docker image inspect ghcr.io/hellomrli/my-media-sub:1.13.1 --format '{{.RepoDigests}}'
 ```
 
 ### Linux 二进制
@@ -90,7 +90,7 @@ docker image inspect ghcr.io/hellomrli/my-media-sub:1.13.0 --format '{{.RepoDige
 从 [GitHub Releases](https://github.com/hellomrli/my-media-sub/releases) 下载 Linux x86_64 压缩包并校验 SHA256：
 
 ```bash
-VERSION=v1.13.0
+VERSION=v1.13.1
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz"
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
 sha256sum -c "my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
@@ -295,7 +295,7 @@ sha256sum target/release/my-media-sub
 
 ```bash
 docker build \
-  -t my-media-sub:1.13.0 \
+  -t my-media-sub:1.13.1 \
   -t my-media-sub:latest \
   .
 ```
@@ -352,6 +352,8 @@ static/
 - [PWA、离线壳层与缓存安全](docs/pwa.md)
 - [JSON Store 性能基线与 SQLite 决策](docs/storage-scaling.md)
 - [OpenAPI 3.1 文档](/api-docs.html)
+- [v1.13.1 升级指南](docs/upgrade-v1.13.1.md)
+- [v1.13.1 完整变更记录](CHANGELOG-v1.13.1.md)
 - [v1.13.0 升级指南](docs/upgrade-v1.13.0.md)
 - [v1.13.0 完整变更记录](CHANGELOG-v1.13.0.md)
 - [v1.12.0 升级指南](docs/upgrade-v1.12.0.md)
@@ -379,6 +381,15 @@ docker compose up -d
 不要只替换二进制而继续使用旧版 `static/`。详细步骤见对应版本的升级指南。
 
 ## 版本说明
+
+### 1.13.1
+
+- 修复目标集已经完成但前端因展示进度滞后而未归入“已完结”的问题，并在元数据、总集数或规则变化后重新协调权威完结状态；
+- 修复 TMDB 部分季详情请求失败或图片首次加载失败后，剧集缩略图偶发永久丢失的问题；
+- 修复轮询列表遇到重复/缺失业务 ID 时 Alpine 偶发 `Cannot read properties of undefined (reading 'after')`，并对 Aria2 状态快照去重；
+- 工作台改为直接展示失效订阅、失败任务和未读通知，移除含义不明的广告式文案和装饰信息；
+- 重写并重新生成当前架构文档与架构图，移除过时的 v1.3.0 架构描述；
+- 保持 `schema_version: 1`、JSON 单写和单实例管理员模型，可从 v1.13.0 直接升级。
 
 ### 1.13.0
 

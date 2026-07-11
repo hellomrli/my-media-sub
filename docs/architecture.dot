@@ -8,7 +8,7 @@ digraph MyMediaSub {
     splines=polyline,
     fontname="Noto Sans CJK SC",
     fontcolor="#dbeafe",
-    label="my-media-sub v1.13.0+ 当前架构",
+    label="my-media-sub v1.13.1 当前架构",
     labelloc=t,
     fontsize=21
   ];
