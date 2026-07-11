@@ -27,3 +27,5 @@ pub use subscription_check::SubscriptionCheckService;
 pub use subscription_scheduler::SubscriptionScheduler;
 pub use subscription_source_switch::SubscriptionSourceSwitchService;
 pub use subscription_transfer::SubscriptionTransferService;
+
+pub mod telegram_bot;

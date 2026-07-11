@@ -351,6 +351,56 @@ fn settings_schema() -> SettingsSchemaResponse {
         ),
         setting_field!("telegram_chat_id", "Telegram Chat ID", "text", "push", ""),
         setting_field!(
+            "telegram_bot_mode",
+            "Telegram Bot 接入模式",
+            "select",
+            "push",
+            "disabled",
+            ["disabled", "long_polling", "webhook"]
+        ),
+        setting_field!(
+            "telegram_bot_allowed_user_ids",
+            "Telegram Bot 用户 ID 白名单",
+            "array",
+            "push",
+            Vec::<i64>::new()
+        ),
+        setting_field!(
+            "telegram_bot_allowed_chat_ids",
+            "Telegram Bot Chat ID 白名单",
+            "array",
+            "push",
+            Vec::<i64>::new()
+        ),
+        setting_field!(
+            "telegram_bot_private_only",
+            "Telegram Bot 仅允许私聊",
+            "boolean",
+            "push",
+            true
+        ),
+        setting_field!(
+            "telegram_bot_webhook_public_url",
+            "Telegram Bot Webhook 公网地址",
+            "url",
+            "push",
+            ""
+        ),
+        setting_field!(
+            "telegram_bot_webhook_path_secret",
+            "Telegram Bot Webhook 随机路径",
+            "password",
+            "push",
+            ""
+        ),
+        setting_field!(
+            "telegram_bot_webhook_secret",
+            "Telegram Bot Webhook Header Secret",
+            "password",
+            "push",
+            ""
+        ),
+        setting_field!(
             "wxpusher_app_token",
             "WxPusher App Token",
             "password",
@@ -604,6 +654,8 @@ fn setting_secret(settings: &crate::models::Settings, key: &str) -> Option<Strin
         "bark_url" => &settings.bark_url,
         "wxpusher_app_token" => &settings.wxpusher_app_token,
         "telegram_bot_token" => &settings.telegram_bot_token,
+        "telegram_bot_webhook_path_secret" => &settings.telegram_bot_webhook_path_secret,
+        "telegram_bot_webhook_secret" => &settings.telegram_bot_webhook_secret,
         "gotify_token" => &settings.gotify_token,
         "pushplus_token" => &settings.pushplus_token,
         "serverchan_key" => &settings.serverchan_key,
@@ -637,6 +689,18 @@ fn non_empty_string(value: &serde_json::Value) -> Option<String> {
 
 fn string_value(value: &serde_json::Value) -> Option<String> {
     value.as_str().map(ToString::to_string)
+}
+
+fn integer_ids(value: &serde_json::Value) -> Option<Vec<i64>> {
+    if let Some(items) = value.as_array() {
+        return Some(items.iter().filter_map(serde_json::Value::as_i64).collect());
+    }
+    value.as_str().map(|items| {
+        items
+            .split(',')
+            .filter_map(|item| item.trim().parse::<i64>().ok())
+            .collect()
+    })
 }
 
 /// 更新设置
@@ -955,6 +1019,47 @@ async fn update_settings(
                     "telegram_chat_id" => {
                         if let Some(s) = value.as_str() {
                             settings.telegram_chat_id = s.to_string();
+                        }
+                    }
+                    "telegram_bot_mode" => {
+                        if let Some(mode) = value.as_str() {
+                            settings.telegram_bot_mode = match mode {
+                                "long_polling" => "long_polling",
+                                "webhook" => "webhook",
+                                _ => "disabled",
+                            }
+                            .to_string();
+                        }
+                    }
+                    "telegram_bot_allowed_user_ids" => {
+                        if let Some(ids) = integer_ids(&value) {
+                            settings.telegram_bot_allowed_user_ids = ids;
+                        }
+                    }
+                    "telegram_bot_allowed_chat_ids" => {
+                        if let Some(ids) = integer_ids(&value) {
+                            settings.telegram_bot_allowed_chat_ids = ids;
+                        }
+                    }
+                    "telegram_bot_private_only" => {
+                        if let Some(enabled) = value.as_bool() {
+                            settings.telegram_bot_private_only = enabled;
+                        }
+                    }
+                    "telegram_bot_webhook_public_url" => {
+                        if let Some(url) = value.as_str() {
+                            settings.telegram_bot_webhook_public_url =
+                                url.trim_end_matches('/').to_string();
+                        }
+                    }
+                    "telegram_bot_webhook_path_secret" => {
+                        if let Some(secret) = non_mask_secret(&value) {
+                            settings.telegram_bot_webhook_path_secret = secret;
+                        }
+                    }
+                    "telegram_bot_webhook_secret" => {
+                        if let Some(secret) = non_mask_secret(&value) {
+                            settings.telegram_bot_webhook_secret = secret;
                         }
                     }
                     "bark_url" => {

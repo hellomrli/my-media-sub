@@ -53,6 +53,13 @@ jobs:
       - name: Run tests
         run: cargo test --all --locked
 
+      - name: Optional real Telegram sandbox smoke
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_SMOKE_SEND: "false"
+        run: scripts/smoke-telegram.sh
+
       - name: Audit Rust dependencies
         uses: rustsec/audit-check@v2
         with:

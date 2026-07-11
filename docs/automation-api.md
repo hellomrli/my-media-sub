@@ -9,7 +9,7 @@
 ```bash
 curl -u admin:password -X POST http://localhost:56001/api/automation-token \
   -H 'Content-Type: application/json' \
-  -d '{"scopes":["subscriptions:read","subscriptions:write","subscriptions:check","jobs:read"],"expires_days":90}'
+  -d '{"scopes":["subscriptions:read","subscriptions:write","subscriptions:check","jobs:read","quark:signin"],"expires_days":90}'
 ```
 
 后续调用：
@@ -110,3 +110,7 @@ jobs:
       MMS_URL: ${{ secrets.MMS_URL }}
       MMS_TOKEN: ${{ secrets.MMS_TOKEN }}
 ```
+
+## 夸克签到最小作用域
+
+`POST /api/quark/signin` 可由仅含 `quark:signin` 的自动化 Token 调用。该 scope 不授予订阅读写、Job 控制或设置访问权限；Telegram 受控 `/signin` 使用同一 scope 映射和既有 `QuarkSigninService`。

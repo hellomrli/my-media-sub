@@ -82,6 +82,7 @@ pub enum PushEvent {
     DownloadCompleted,
     QuarkSignin,
     NotificationDigest,
+    JobQueueBacklog,
 }
 
 impl PushEvent {
@@ -94,6 +95,7 @@ impl PushEvent {
             "download_completed" => Some(Self::DownloadCompleted),
             "quark_signin" => Some(Self::QuarkSignin),
             "notification_digest" => Some(Self::NotificationDigest),
+            "job_queue_backlog" => Some(Self::JobQueueBacklog),
             _ => None,
         }
     }
@@ -107,6 +109,7 @@ impl PushEvent {
             Self::DownloadCompleted => "download_completed",
             Self::QuarkSignin => "quark_signin",
             Self::NotificationDigest => "notification_digest",
+            Self::JobQueueBacklog => "job_queue_backlog",
         }
     }
 }
@@ -394,13 +397,78 @@ include!("push/channel_methods.rs");
 pub struct PushService {
     settings: Settings,
     client: Client,
+    telegram_reply_markup: Option<serde_json::Value>,
 }
 
 impl PushService {
     pub fn new(settings: Settings) -> Self {
         let client = http_pool::short_client();
 
-        Self { settings, client }
+        Self {
+            settings,
+            client,
+            telegram_reply_markup: None,
+        }
+    }
+
+    pub fn with_telegram_actions(
+        mut self,
+        event: PushEvent,
+        notification_id: Option<&str>,
+        subscription_id: Option<&str>,
+    ) -> Self {
+        if self.settings.telegram_bot_mode == "disabled"
+            || self.settings.telegram_bot_allowed_user_ids.len() != 1
+            || self
+                .settings
+                .telegram_chat_id
+                .trim()
+                .parse::<i64>()
+                .is_err()
+        {
+            return self;
+        }
+        let expires_at = crate::utils::unix_now() + 15 * 60;
+        let mut buttons = Vec::new();
+        if let Some(notification_id) = notification_id {
+            if let Some(data) = crate::services::telegram_bot::telegram_prompt_callback_data(
+                &self.settings,
+                "view",
+                notification_id,
+                expires_at,
+            ) {
+                buttons.push(json!({"text": "查看详情", "callback_data": data}));
+            }
+            if let Some(data) = crate::services::telegram_bot::telegram_prompt_callback_data(
+                &self.settings,
+                "read",
+                notification_id,
+                expires_at,
+            ) {
+                buttons.push(json!({"text": "标记已读", "callback_data": data}));
+            }
+        }
+        if matches!(
+            event,
+            PushEvent::SubscriptionUpdated
+                | PushEvent::SubscriptionFailed
+                | PushEvent::SubscriptionCompleted
+        ) {
+            if let Some(subscription_id) = subscription_id {
+                if let Some(data) = crate::services::telegram_bot::telegram_prompt_callback_data(
+                    &self.settings,
+                    "check",
+                    subscription_id,
+                    expires_at,
+                ) {
+                    buttons.push(json!({"text": "重新检查", "callback_data": data}));
+                }
+            }
+        }
+        if !buttons.is_empty() {
+            self.telegram_reply_markup = Some(json!({"inline_keyboard": [buttons]}));
+        }
+        self
     }
 
     /// 获取已启用的推送渠道
@@ -420,7 +488,7 @@ impl PushService {
             PushEvent::TransferSaved => self.settings.push_on_save,
             PushEvent::DownloadCompleted => self.settings.push_on_download_completed,
             PushEvent::QuarkSignin => self.settings.push_on_quark_signin,
-            PushEvent::NotificationDigest => true,
+            PushEvent::NotificationDigest | PushEvent::JobQueueBacklog => true,
         }
     }
 

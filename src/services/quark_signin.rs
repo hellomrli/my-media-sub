@@ -139,6 +139,7 @@ impl QuarkSigninService {
             self.job_queue.clone(),
             PushDispatchRequest {
                 notification_id,
+                subscription_id: None,
                 event: PushEvent::QuarkSignin,
                 title: "夸克签到成功".to_string(),
                 message: signin_message(result),
@@ -155,6 +156,7 @@ impl QuarkSigninService {
             self.job_queue.clone(),
             PushDispatchRequest {
                 notification_id,
+                subscription_id: None,
                 event: PushEvent::QuarkSignin,
                 title: "夸克签到失败".to_string(),
                 message: signin_failure_message(err),

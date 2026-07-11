@@ -368,12 +368,15 @@ impl JobWorker {
             return;
         }
         *last_alert_at = now();
-        let _ = add_notification(
+        let title = "后台任务队列积压";
+        let message =
+            format!("当前有 {queued} 个任务等待执行，请检查维护模式、并发限制和外部服务状态");
+        if let Ok(notification) = add_notification(
             &self.notification_store,
             "warning",
             "job_queue_backlog",
-            "后台任务队列积压",
-            format!("当前有 {queued} 个任务等待执行，请检查维护模式、并发限制和外部服务状态"),
+            title,
+            &message,
             HashMap::from([
                 ("queued".to_string(), json!(queued)),
                 (
@@ -382,7 +385,21 @@ impl JobWorker {
                 ),
             ]),
         )
-        .await;
+        .await
+        {
+            let _ = self
+                .enqueue_push_dispatch(PushDispatchPayload {
+                    event: PushEvent::JobQueueBacklog.as_str().to_string(),
+                    title: title.to_string(),
+                    message,
+                    level: PushLevel::Warning.as_str().to_string(),
+                    notification_id: Some(notification.id),
+                    correlation_id: format!("job-backlog-{}", now()),
+                    subscription_id: None,
+                    episode: None,
+                })
+                .await;
+        }
     }
 
     fn worker_for_job(&self) -> Self {

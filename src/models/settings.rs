@@ -226,9 +226,37 @@ pub struct Settings {
     #[serde(default)]
     pub telegram_bot_token: String,
 
-    /// Telegram Chat ID
+    /// Telegram Chat ID（推送目标；也可作为 Bot 允许 chat ID 的兼容回退）。
     #[serde(default)]
     pub telegram_chat_id: String,
+
+    /// Telegram 主动控制模式：disabled / long_polling / webhook。
+    #[serde(default = "default_telegram_bot_mode")]
+    pub telegram_bot_mode: String,
+
+    /// 允许执行 Bot 命令的 Telegram 数字 user ID。
+    #[serde(default)]
+    pub telegram_bot_allowed_user_ids: Vec<i64>,
+
+    /// 允许执行 Bot 命令的 Telegram 数字 chat ID。
+    #[serde(default)]
+    pub telegram_bot_allowed_chat_ids: Vec<i64>,
+
+    /// 默认只允许 private chat，群组即使 ID 在白名单中也会拒绝。
+    #[serde(default = "default_true")]
+    pub telegram_bot_private_only: bool,
+
+    /// Webhook 对外 HTTPS 根地址，不包含 Bot 的随机路径。
+    #[serde(default)]
+    pub telegram_bot_webhook_public_url: String,
+
+    /// Webhook URL 随机路径片段。
+    #[serde(default)]
+    pub telegram_bot_webhook_path_secret: String,
+
+    /// Telegram X-Telegram-Bot-Api-Secret-Token 校验值。
+    #[serde(default)]
+    pub telegram_bot_webhook_secret: String,
 
     /// Bark URL
     #[serde(default)]
@@ -596,6 +624,10 @@ fn default_media_library_type() -> String {
     "webhook".to_string()
 }
 
+fn default_telegram_bot_mode() -> String {
+    "disabled".to_string()
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -655,6 +687,13 @@ impl Default for Settings {
             media_library_token: String::new(),
             telegram_bot_token: String::new(),
             telegram_chat_id: String::new(),
+            telegram_bot_mode: default_telegram_bot_mode(),
+            telegram_bot_allowed_user_ids: vec![],
+            telegram_bot_allowed_chat_ids: vec![],
+            telegram_bot_private_only: true,
+            telegram_bot_webhook_public_url: String::new(),
+            telegram_bot_webhook_path_secret: String::new(),
+            telegram_bot_webhook_secret: String::new(),
             bark_url: String::new(),
             gotify_url: String::new(),
             gotify_token: String::new(),

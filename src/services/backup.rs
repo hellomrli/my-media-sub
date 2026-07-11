@@ -11,6 +11,7 @@ use crate::error::{AppError, Result};
 use crate::jobs::Job;
 use crate::models::{AutomationEvent, Notification, Settings, Subscription};
 use crate::store::schema::{decode_store_json, StoreKind, CURRENT_SCHEMA_VERSION};
+use crate::store::TelegramBotPersistentState;
 use crate::utils::metrics::Metrics;
 use crate::utils::{set_file_mode, unix_now, write_file_atomic};
 
@@ -675,6 +676,10 @@ fn validate_store_file(path: &str, bytes: &[u8]) -> Result<Option<u32>> {
         }
         "automation_events.json" => {
             decode_store_json::<Vec<AutomationEvent>>(content, StoreKind::AutomationEvents)
+                .map(|_| ())
+        }
+        "telegram_bot.json" => {
+            decode_store_json::<TelegramBotPersistentState>(content, StoreKind::TelegramBot)
                 .map(|_| ())
         }
         _ => return Ok(None),

@@ -20,7 +20,11 @@ impl JobWorker {
         };
 
         let settings = self.settings_store.get().await;
-        let push_service = PushService::new(settings);
+        let push_service = PushService::new(settings).with_telegram_actions(
+            event,
+            payload.notification_id.as_deref(),
+            payload.subscription_id.as_deref(),
+        );
 
         if !push_service.event_enabled(event) {
             self.skip_push_dispatch(job_id, &payload, "推送事件开关未启用，已跳过")

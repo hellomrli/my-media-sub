@@ -5,12 +5,14 @@ use crate::error::Result;
 use crate::jobs::{JobQueue, JobStore};
 use crate::providers::CloudDriveProviderRegistry;
 use crate::services::{
-    backup::BackupService, DownloadMonitorService, MetadataService, QuarkSigninScheduler,
-    QuarkSigninService, SubscriptionCheckService, SubscriptionScheduler,
-    SubscriptionTransferService,
+    backup::BackupService,
+    telegram_bot::{TelegramBotDependencies, TelegramBotService},
+    DownloadMonitorService, MetadataService, QuarkSigninScheduler, QuarkSigninService,
+    SubscriptionCheckService, SubscriptionScheduler, SubscriptionTransferService,
 };
 use crate::store::{
-    AutomationEventStore, AutomationTokenStore, NotificationStore, SettingsStore, SubscriptionStore,
+    AutomationEventStore, AutomationTokenStore, NotificationStore, SettingsStore,
+    SubscriptionStore, TelegramBotStore,
 };
 use crate::utils::metrics::{global_metrics, Metrics};
 
@@ -35,6 +37,8 @@ pub struct AppContext {
     pub download_monitor: Arc<DownloadMonitorService>,
     pub metrics: Arc<Metrics>,
     pub backup_service: Arc<BackupService>,
+    pub telegram_bot: Arc<TelegramBotService>,
+    pub telegram_bot_store: Arc<TelegramBotStore>,
 }
 
 impl AppContext {
@@ -65,6 +69,11 @@ impl AppContext {
         ));
         automation_event_store.load().await?;
         tracing::info!("✅ Loaded automation events");
+
+        let telegram_bot_store = Arc::new(TelegramBotStore::new(
+            config.data_dir.join("telegram_bot.json"),
+        ));
+        telegram_bot_store.load().await?;
 
         let automation_token_store = Arc::new(AutomationTokenStore::new(
             config.data_dir.join("automation-token.json"),
@@ -141,6 +150,17 @@ impl AppContext {
             notification_store.clone(),
             job_queue.clone(),
         ));
+        let telegram_bot = Arc::new(TelegramBotService::new(TelegramBotDependencies {
+            settings_store: settings_store.clone(),
+            subscription_store: subscription_store.clone(),
+            notification_store: notification_store.clone(),
+            automation_event_store: automation_event_store.clone(),
+            job_store: job_store.clone(),
+            job_queue: job_queue.clone(),
+            check_service: check_service.clone(),
+            signin_service: quark_signin_service.clone(),
+            telegram_store: telegram_bot_store.clone(),
+        }));
         Ok(Arc::new(Self {
             subscription_store,
             settings_store,
@@ -158,6 +178,8 @@ impl AppContext {
             download_monitor,
             metrics,
             backup_service,
+            telegram_bot,
+            telegram_bot_store,
         }))
     }
 
@@ -170,6 +192,7 @@ impl AppContext {
         }
         self.download_monitor.clone().start();
         self.backup_service.clone().start();
+        self.telegram_bot.clone().start();
         tracing::info!("✅ Services initialized");
         Ok(())
     }
@@ -196,6 +219,13 @@ const SETTINGS_ENV_KEYS: &[&str] = &[
     "WXPUSHER_UIDS",
     "TELEGRAM_BOT_TOKEN",
     "TELEGRAM_CHAT_ID",
+    "TELEGRAM_BOT_MODE",
+    "TELEGRAM_BOT_ALLOWED_USER_IDS",
+    "TELEGRAM_BOT_ALLOWED_CHAT_IDS",
+    "TELEGRAM_BOT_PRIVATE_ONLY",
+    "TELEGRAM_BOT_WEBHOOK_PUBLIC_URL",
+    "TELEGRAM_BOT_WEBHOOK_PATH_SECRET",
+    "TELEGRAM_BOT_WEBHOOK_SECRET",
     "BARK_URL",
     "GOTIFY_URL",
     "GOTIFY_TOKEN",
@@ -268,6 +298,27 @@ async fn apply_env_overrides(settings_store: &SettingsStore) -> Result<()> {
             }
             if let Some(value) = env_non_empty("TELEGRAM_CHAT_ID") {
                 settings.telegram_chat_id = value;
+            }
+            if let Some(value) = env_non_empty("TELEGRAM_BOT_MODE") {
+                settings.telegram_bot_mode = value;
+            }
+            if let Some(value) = env_non_empty("TELEGRAM_BOT_ALLOWED_USER_IDS") {
+                settings.telegram_bot_allowed_user_ids = parse_i64_csv(&value);
+            }
+            if let Some(value) = env_non_empty("TELEGRAM_BOT_ALLOWED_CHAT_IDS") {
+                settings.telegram_bot_allowed_chat_ids = parse_i64_csv(&value);
+            }
+            if let Some(value) = env_non_empty("TELEGRAM_BOT_PRIVATE_ONLY") {
+                settings.telegram_bot_private_only = parse_bool_env(&value);
+            }
+            if let Some(value) = env_non_empty("TELEGRAM_BOT_WEBHOOK_PUBLIC_URL") {
+                settings.telegram_bot_webhook_public_url = value;
+            }
+            if let Some(value) = env_non_empty("TELEGRAM_BOT_WEBHOOK_PATH_SECRET") {
+                settings.telegram_bot_webhook_path_secret = value;
+            }
+            if let Some(value) = env_non_empty("TELEGRAM_BOT_WEBHOOK_SECRET") {
+                settings.telegram_bot_webhook_secret = value;
             }
             if let Some(value) = env_non_empty("BARK_URL") {
                 settings.bark_url = value;
@@ -348,6 +399,13 @@ async fn warn_weak_auth_settings(settings_store: &SettingsStore) {
     } else if crate::api::diagnostics::password_strength(&settings.app_password) == "weak" {
         tracing::warn!("应用密码强度较弱：建议至少 12 位并混合字母、数字和符号");
     }
+}
+
+fn parse_i64_csv(value: &str) -> Vec<i64> {
+    value
+        .split(',')
+        .filter_map(|item| item.trim().parse::<i64>().ok())
+        .collect()
 }
 
 fn parse_bool_env(value: &str) -> bool {
@@ -507,6 +565,13 @@ mod tests {
             "WXPUSHER_UIDS",
             "TELEGRAM_BOT_TOKEN",
             "TELEGRAM_CHAT_ID",
+            "TELEGRAM_BOT_MODE",
+            "TELEGRAM_BOT_ALLOWED_USER_IDS",
+            "TELEGRAM_BOT_ALLOWED_CHAT_IDS",
+            "TELEGRAM_BOT_PRIVATE_ONLY",
+            "TELEGRAM_BOT_WEBHOOK_PUBLIC_URL",
+            "TELEGRAM_BOT_WEBHOOK_PATH_SECRET",
+            "TELEGRAM_BOT_WEBHOOK_SECRET",
             "BARK_URL",
             "GOTIFY_URL",
             "GOTIFY_TOKEN",

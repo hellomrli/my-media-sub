@@ -17,6 +17,7 @@ pub mod strm;
 pub mod subscription_exchange;
 pub mod subscription_source;
 pub mod subscriptions;
+pub mod telegram;
 pub mod transfer;
 pub mod update;
 
@@ -128,6 +129,11 @@ fn auth_rate_key(headers: &HeaderMap) -> String {
 }
 
 async fn basic_auth(State(state): State<AuthState>, req: Request<Body>, next: Next) -> Response {
+    // Telegram 回调使用随机路径和 Header Secret 双重认证，不属于浏览器会话；
+    // 必须先于 Origin/Fetch-Metadata CSRF 判断放行到专用 Handler 校验。
+    if req.uri().path().starts_with("/api/telegram/webhook/") {
+        return next.run(req).await;
+    }
     if is_cross_site_state_change(&req) {
         tracing::warn!("拒绝跨站状态修改请求: {} {}", req.method(), req.uri());
         return forbidden_response();
@@ -194,7 +200,7 @@ async fn basic_auth(State(state): State<AuthState>, req: Request<Body>, next: Ne
     }
 }
 
-fn required_token_scope(method: &Method, path: &str) -> Option<&'static str> {
+pub(crate) fn required_token_scope(method: &Method, path: &str) -> Option<&'static str> {
     if path.starts_with("/api/automation-token")
         || path.starts_with("/api/settings")
         || path.starts_with("/api/backups")
@@ -214,13 +220,19 @@ fn required_token_scope(method: &Method, path: &str) -> Option<&'static str> {
         })
     } else if path.starts_with("/api/jobs") {
         Some(if read { "jobs:read" } else { "jobs:write" })
+    } else if path == "/api/quark/signin" {
+        Some("quark:signin")
     } else if path.starts_with("/api/notifications") {
         Some(if read {
             "notifications:read"
         } else {
             "notifications:write"
         })
-    } else if path.starts_with("/api/diagnostics") || path == "/api/metrics" || path == "/metrics" {
+    } else if path.starts_with("/api/diagnostics")
+        || path.starts_with("/api/telegram/audits")
+        || path == "/api/metrics"
+        || path == "/metrics"
+    {
         Some("diagnostics:read")
     } else if read {
         Some("read")
@@ -513,6 +525,7 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
             context.notification_store.clone(),
         ))
         .merge(strm::routes(settings_store.clone()))
+        .merge(telegram::routes(context.telegram_bot.clone()))
         .merge(transfer::routes(context.job_queue.clone()))
         .merge(update::routes())
         .merge(push::routes(

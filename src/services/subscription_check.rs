@@ -501,6 +501,7 @@ impl SubscriptionCheckService {
                                     None,
                                     PushDispatchRequest {
                                         notification_id: result.push_notification_id,
+                                        subscription_id: Some(sub.id.clone()),
                                         event: PushEvent::TransferSaved,
                                         title,
                                         message,
@@ -821,6 +822,7 @@ impl SubscriptionCheckService {
                 self.job_queue.clone(),
                 PushDispatchRequest {
                     notification_id: Some(notification.id),
+                    subscription_id: Some(sub.id.clone()),
                     event: PushEvent::SubscriptionFailed,
                     title,
                     message,
@@ -869,6 +871,7 @@ impl SubscriptionCheckService {
             self.job_queue.clone(),
             PushDispatchRequest {
                 notification_id: notification.ok().map(|notification| notification.id),
+                subscription_id: Some(sub.id.clone()),
                 event: PushEvent::SubscriptionUpdated,
                 title,
                 message,
@@ -903,6 +906,7 @@ impl SubscriptionCheckService {
             self.job_queue.clone(),
             PushDispatchRequest {
                 notification_id: notification.ok().map(|notification| notification.id),
+                subscription_id: Some(sub.id.clone()),
                 event: PushEvent::SubscriptionCompleted,
                 title,
                 message,
@@ -1102,6 +1106,7 @@ impl SubscriptionCheckService {
             self.job_queue.clone(),
             PushDispatchRequest {
                 notification_id: notification.ok().map(|n| n.id),
+                subscription_id: Some(sub.id.clone()),
                 event: PushEvent::SubscriptionFailed,
                 title,
                 message,
