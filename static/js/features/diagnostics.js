@@ -23,20 +23,40 @@
       backupArchive: null,
       backupPreview: null,
       restoreConfirmation: '',
+      logFilter: 'info',
+      logFilterSaving: false,
 
       async loadDiagnostics() {
         this.diagnosticsLoading = true;
         try {
-          const [diagnostics, backups] = await Promise.all([
+          const [diagnostics, backups, logFilter] = await Promise.all([
             apiData('/api/diagnostics'),
-            apiData('/api/backups')
+            apiData('/api/backups'),
+            apiData('/api/observability/log-filter')
           ]);
           this.diagnostics = diagnostics;
           this.storedBackups = backups || [];
+          this.logFilter = (logFilter && logFilter.filter) || 'info';
         } catch (error) {
           this.showNotification('error', getApiErrorMessage(error, '加载诊断信息失败'));
         } finally {
           this.diagnosticsLoading = false;
+        }
+      },
+
+      async updateLogFilter() {
+        this.logFilterSaving = true;
+        try {
+          const result = await apiData('/api/observability/log-filter', {
+            method: 'PUT', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({filter: this.logFilter})
+          });
+          this.logFilter = result.filter;
+          this.showNotification('success', '运行时日志过滤规则已更新');
+        } catch (error) {
+          this.showNotification('error', getApiErrorMessage(error, '更新日志过滤规则失败'));
+        } finally {
+          this.logFilterSaving = false;
         }
       },
 

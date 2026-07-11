@@ -89,22 +89,59 @@ impl JobWorker {
                     running.start(&job);
                     let runner = self.worker_for_job();
                     let task_job_id = job.id.clone();
+                    let log_context = crate::observability::LogContext {
+                        request_id: job.request_id.clone(),
+                        correlation_id: job.correlation_id.clone(),
+                        subscription_id: job.subscription_id.clone(),
+                        job_id: Some(job.id.clone()),
+                    };
+                    let job_span = crate::observability::job_span(
+                        &log_context,
+                        job.kind.as_str(),
+                        job.attempt,
+                    );
                     tasks.spawn(async move {
-                        // 内层 task 保留 panic 隔离；外层 task 始终带回 Job，以便准确释放
-                        // 全局、类别和订阅资源计数。
-                        let handle = tokio::spawn(async move {
-                            tokio::time::timeout(
-                                std::time::Duration::from_secs(JOB_STUCK_TIMEOUT_SECONDS),
-                                runner.run_job(&task_job_id),
-                            )
-                            .await
-                        });
-                        let outcome = match handle.await {
-                            Ok(Ok(result)) => JobTaskResult::Finished(result),
-                            Ok(Err(_elapsed)) => JobTaskResult::TimedOut,
-                            Err(join_error) => JobTaskResult::Panicked(join_error.to_string()),
-                        };
-                        (job, outcome)
+                        crate::observability::in_context(log_context, job_span, async move {
+                            let job_started = std::time::Instant::now();
+                            info!("job execution started");
+                            // 内层 task 保留 panic 隔离；外层 task 始终带回 Job，以便准确释放
+                            // 全局、类别和订阅资源计数。
+                            let execution_span = tracing::Span::current();
+                            let execution_context = crate::observability::current_context();
+                            let handle = tokio::spawn(async move {
+                                crate::observability::in_context(
+                                    execution_context,
+                                    execution_span,
+                                    async move {
+                                        tokio::time::timeout(
+                                            std::time::Duration::from_secs(
+                                                JOB_STUCK_TIMEOUT_SECONDS,
+                                            ),
+                                            runner.run_job(&task_job_id),
+                                        )
+                                        .await
+                                    },
+                                )
+                                .await
+                            });
+                            let outcome = match handle.await {
+                                Ok(Ok(result)) => JobTaskResult::Finished(result),
+                                Ok(Err(_elapsed)) => JobTaskResult::TimedOut,
+                                Err(join_error) => JobTaskResult::Panicked(join_error.to_string()),
+                            };
+                            let duration = job_started.elapsed();
+                            crate::utils::metrics::global_metrics().observe_slow_operation(
+                                &format!("job:{}", job.kind.as_str()),
+                                duration,
+                            );
+                            info!(
+                                outcome = outcome.as_str(),
+                                duration_ms = duration.as_millis(),
+                                "job execution finished"
+                            );
+                            (job, outcome)
+                        })
+                        .await
                     });
                 }
             }
@@ -494,6 +531,17 @@ enum JobTaskResult {
     Finished(Result<()>),
     Panicked(String),
     TimedOut,
+}
+
+impl JobTaskResult {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Finished(Ok(())) => "succeeded",
+            Self::Finished(Err(_)) => "failed",
+            Self::Panicked(_) => "panicked",
+            Self::TimedOut => "timed_out",
+        }
+    }
 }
 
 #[cfg(test)]

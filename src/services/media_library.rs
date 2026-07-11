@@ -1,3 +1,4 @@
+use crate::clients::http_pool::ObservedRequestBuilder;
 use crate::error::{AppError, Result};
 use crate::models::{Settings, Subscription};
 use serde::Serialize;
@@ -37,7 +38,7 @@ pub async fn refresh_media_library(
             _ => request.bearer_auth(token),
         };
     }
-    match request.send().await {
+    match request.send_observed("media_library").await {
         Ok(response) if response.status().is_success() => Some(MediaLibraryRefreshReport {
             provider,
             success: true,

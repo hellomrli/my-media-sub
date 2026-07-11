@@ -1,4 +1,5 @@
 use super::ensure_upstream_status;
+use crate::clients::http_pool::ObservedRequestBuilder;
 use crate::error::{AppError, Result};
 use regex::Regex;
 use reqwest::header::HeaderValue;
@@ -182,7 +183,7 @@ impl QuarkShareProbe {
             .post(&url)
             .query(&[("pr", "ucpro"), ("fr", "pc")])
             .json(&payload)
-            .send()
+            .send_observed("quark")
             .await
             .map_err(|e| AppError::Http(format!("请求夸克 token 失败: {}", e)))?;
         ensure_upstream_status(&resp, "请求夸克 token")?;
@@ -239,7 +240,7 @@ impl QuarkShareProbe {
                 ("_fetch_sub_dirs", "0"),
                 ("_sort", "file_type:asc,file_name:asc"),
             ])
-            .send()
+            .send_observed("quark")
             .await
             .map_err(|e| AppError::Http(format!("请求夸克文件列表失败: {}", e)))?;
         ensure_upstream_status(&resp, "请求夸克文件列表")?;

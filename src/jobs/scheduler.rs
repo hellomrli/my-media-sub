@@ -289,6 +289,9 @@ mod tests {
         Job {
             id: id.to_string(),
             kind,
+            request_id: None,
+            correlation_id: None,
+            subscription_id: None,
             priority,
             attempt: 1,
             next_attempt_at: None,

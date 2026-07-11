@@ -33,6 +33,9 @@ mod tests {
         let job = Job {
             id: "job1".to_string(),
             kind: JobKind::ManualTransfer,
+            request_id: None,
+            correlation_id: None,
+            subscription_id: None,
             priority: JobPriority::Normal,
             attempt: 1,
             next_attempt_at: None,
@@ -82,6 +85,9 @@ mod tests {
             .add(Job {
                 id: "running".to_string(),
                 kind: JobKind::ManualTransfer,
+                request_id: None,
+                correlation_id: None,
+                subscription_id: None,
                 priority: JobPriority::Normal,
                 attempt: 1,
                 next_attempt_at: None,
@@ -105,6 +111,9 @@ mod tests {
             .add(Job {
                 id: "queued".to_string(),
                 kind: JobKind::ManualTransfer,
+                request_id: None,
+                correlation_id: None,
+                subscription_id: None,
                 priority: JobPriority::Normal,
                 attempt: 1,
                 next_attempt_at: None,

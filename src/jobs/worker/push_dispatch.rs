@@ -102,10 +102,14 @@ impl JobWorker {
     pub(super) async fn enqueue_push_dispatch(&self, payload: PushDispatchPayload) -> Result<Job> {
         let id = uuid::Uuid::new_v4().to_string();
         let created_at = now();
-        let payload_value = serde_json::to_value(payload)?;
+        let payload_value = serde_json::to_value(&payload)?;
         let job = Job {
             id: id.clone(),
             kind: JobKind::PushDispatch,
+            request_id: crate::observability::current_context().request_id,
+            correlation_id: (!payload.correlation_id.is_empty())
+                .then(|| payload.correlation_id.clone()),
+            subscription_id: payload.subscription_id.clone(),
             priority: JobPriority::High,
             attempt: 1,
             next_attempt_at: None,

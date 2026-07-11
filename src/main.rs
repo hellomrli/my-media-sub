@@ -3,7 +3,7 @@ use my_media_sub::error::Result;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
+    my_media_sub::observability::init_tracing();
     tracing::info!("🦀 Starting my-media-sub Rust v2...");
 
     let config = my_media_sub::config::Config::load()?;

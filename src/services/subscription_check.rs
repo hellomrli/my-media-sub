@@ -144,9 +144,29 @@ impl SubscriptionCheckService {
         let subscription_lock = Self::named_lock(&self.subscription_locks, subscription_id).await;
         let _subscription_guard = subscription_lock.lock().await;
         metrics.increment_subscription_checks();
-        let result = self
-            .do_check_subscription_with_options(subscription_id, cookie, force_transfer)
-            .await;
+        let ambient = crate::observability::current_context();
+        let correlation_id = ambient
+            .correlation_id
+            .clone()
+            .unwrap_or_else(|| format!("check:{}:{}", subscription_id, unix_now()));
+        let context = crate::observability::LogContext {
+            request_id: ambient.request_id,
+            correlation_id: Some(correlation_id.clone()),
+            subscription_id: Some(subscription_id.to_string()),
+            job_id: ambient.job_id,
+        };
+        let span = crate::observability::subscription_span(&context);
+        let result = crate::observability::in_context(
+            context,
+            span,
+            self.do_check_subscription_with_options(
+                subscription_id,
+                cookie,
+                force_transfer,
+                &correlation_id,
+            ),
+        )
+        .await;
         if result.is_err() {
             metrics.increment_subscription_check_failures();
         }
@@ -158,6 +178,7 @@ impl SubscriptionCheckService {
         subscription_id: &str,
         cookie: &str,
         force_transfer: bool,
+        correlation_id: &str,
     ) -> Result<CheckResult> {
         let sub = self
             .subscription_store
@@ -179,10 +200,9 @@ impl SubscriptionCheckService {
             return Err(AppError::Validation("订阅已完成".to_string()));
         }
 
-        let correlation_id = format!("check:{}:{}", sub.id, unix_now());
         crate::services::automation_events::record_stage_event(
             self.automation_event_store.as_ref(),
-            &correlation_id,
+            correlation_id,
             Some(&sub.id),
             None,
             None,
@@ -201,7 +221,7 @@ impl SubscriptionCheckService {
             Err(error) => {
                 crate::services::automation_events::record_stage_event(
                     self.automation_event_store.as_ref(),
-                    &correlation_id,
+                    correlation_id,
                     Some(&sub.id),
                     None,
                     None,
@@ -219,7 +239,7 @@ impl SubscriptionCheckService {
         if !probe_result.ok {
             crate::services::automation_events::record_stage_event(
                 self.automation_event_store.as_ref(),
-                &correlation_id,
+                correlation_id,
                 Some(&sub.id),
                 None,
                 None,
@@ -258,6 +278,7 @@ impl SubscriptionCheckService {
                                     subscription_id,
                                     cookie,
                                     force_transfer,
+                                    correlation_id,
                                 ))
                                 .await;
                             }
@@ -295,6 +316,7 @@ impl SubscriptionCheckService {
                                 subscription_id,
                                 cookie,
                                 force_transfer,
+                                correlation_id,
                             ))
                             .await;
                         }
@@ -325,7 +347,7 @@ impl SubscriptionCheckService {
 
         crate::services::automation_events::record_stage_event(
             self.automation_event_store.as_ref(),
-            &correlation_id,
+            correlation_id,
             Some(&sub.id),
             None,
             None,
@@ -355,7 +377,7 @@ impl SubscriptionCheckService {
         let details = self.build_check_details(&sub, &probe_result.files);
         crate::services::automation_events::record_stage_event(
             self.automation_event_store.as_ref(),
-            &correlation_id,
+            correlation_id,
             Some(&sub.id),
             None,
             None,
@@ -385,7 +407,7 @@ impl SubscriptionCheckService {
 
         crate::services::automation_events::record_stage_event(
             self.automation_event_store.as_ref(),
-            &correlation_id,
+            correlation_id,
             Some(&sub.id),
             None,
             None,
@@ -451,7 +473,7 @@ impl SubscriptionCheckService {
                         subscription_id: sub.id.clone(),
                         file_names: transfer_file_names.clone(),
                         force_transfer,
-                        correlation_id: correlation_id.clone(),
+                        correlation_id: correlation_id.to_string(),
                     })
                     .await
                 {

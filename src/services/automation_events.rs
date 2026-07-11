@@ -313,6 +313,9 @@ mod tests {
         let job = Job {
             id: "job-1".to_string(),
             kind: JobKind::SubscriptionTransfer,
+            request_id: None,
+            correlation_id: None,
+            subscription_id: None,
             priority: JobPriority::Normal,
             attempt: 1,
             next_attempt_at: None,
@@ -349,6 +352,9 @@ mod tests {
         let mut job = Job {
             id: "job-lifecycle".to_string(),
             kind: JobKind::MetadataScrape,
+            request_id: None,
+            correlation_id: None,
+            subscription_id: None,
             priority: JobPriority::Low,
             attempt: 1,
             next_attempt_at: None,
@@ -393,6 +399,9 @@ mod tests {
         let job = Job {
             id: "job-transfer".to_string(),
             kind: JobKind::SubscriptionTransfer,
+            request_id: None,
+            correlation_id: None,
+            subscription_id: None,
             priority: JobPriority::Normal,
             attempt: 1,
             next_attempt_at: None,

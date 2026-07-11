@@ -158,6 +158,14 @@
 
 所有响应包含 `X-Request-ID` 和 `X-Correlation-ID`；客户端可提供格式安全的同名请求头。连续五次认证失败后，同一来源在 60 秒窗口内收到 `429` 和 `Retry-After: 60`。
 
+## P18 可观测性与只读诊断接口
+
+- `GET /api/metrics`：返回 JSON 指标快照，包括 HTTP、外部依赖、慢操作与 Store I/O。
+- `GET /metrics`：返回 Prometheus 0.0.4 文本格式；与管理 API 一样受 Basic Auth 保护。
+- `GET|PUT /api/observability/log-filter`：读取或热更新 tracing `EnvFilter`；PUT 请求为 `{ "filter": "info,my_media_sub=debug" }`，无需重启。
+- `GET /api/diagnostics` 的 `environment` 返回 DATA_DIR 容量/权限提示、上海时区偏移、已配置外部服务 DNS 结果及五类 JSON Store 只读一致性检查。
+- `recommendations` 仅提供分级建议，不创建文件、不修改权限、不修复数据，也不回显 Cookie、Token、密码或完整外部 URL。
+
 ## P9 存储维护
 
 - `GET /api/diagnostics` 的 `metrics.store_io` 返回逐 Store 当前大小、读写次数/字节数、解析/写入累计微秒和失败数。

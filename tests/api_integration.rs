@@ -967,6 +967,9 @@ async fn automation_event_pipeline_summary_and_safe_retry_are_structured() {
     let job = my_media_sub::jobs::Job {
         id: "failed-job-for-retry".to_string(),
         kind: my_media_sub::jobs::JobKind::MetadataScrape,
+        request_id: Some("request-test".to_string()),
+        correlation_id: Some("correlation-test".to_string()),
+        subscription_id: Some(subscription_id.to_string()),
         priority: my_media_sub::jobs::JobPriority::Low,
         attempt: 1,
         next_attempt_at: None,
@@ -1147,6 +1150,14 @@ async fn backup_export_preview_and_diagnostics_are_available() {
         "keep_json"
     );
     assert!(diagnostics["data"]["metrics"]["store_io"].is_object());
+    assert!(diagnostics["data"]["metrics"]["external_dependencies"].is_object());
+    assert!(
+        diagnostics["data"]["environment"]["filesystem"]["data_dir_exists"]
+            .as_bool()
+            .unwrap()
+    );
+    assert!(diagnostics["data"]["environment"]["data_consistency"].is_array());
+    assert!(diagnostics["data"]["recommendations"].is_array());
     assert!(diagnostics.to_string().find("change-me").is_none());
 
     let compacted = json_body(
@@ -1229,6 +1240,8 @@ async fn p10_openapi_browser_push_and_subscription_tags_are_exposed() {
     let openapi = json_body(&app, auth_get("/openapi.json")).await;
     assert_eq!(openapi["openapi"], "3.1.0");
     assert!(openapi["paths"]["/api/push/browser"].is_object());
+    assert!(openapi["paths"]["/metrics"].is_object());
+    assert!(openapi["paths"]["/api/observability/log-filter"].is_object());
 
     let browser = json_body(&app, auth_get("/api/push/browser")).await;
     assert_eq!(browser["ok"], true);
@@ -1249,5 +1262,80 @@ async fn p10_openapi_browser_push_and_subscription_tags_are_exposed() {
     )
     .await;
     assert_eq!(created["data"]["tags"], serde_json::json!(["追更", "4K"]));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn submitted_job_keeps_request_and_correlation_context() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/api/subscriptions/metadata/scrape")
+        .header(
+            header::AUTHORIZATION,
+            basic_auth_header("admin", "change-me"),
+        )
+        .header(header::CONTENT_TYPE, "application/json")
+        .header("x-request-id", "request-job-1")
+        .header("x-correlation-id", "correlation-job-1")
+        .body(Body::from(r#"{"overwrite":false}"#))
+        .unwrap();
+
+    let (status, _, body) = json_response(&app, request).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(body["data"]["request_id"], "request-job-1");
+    assert_eq!(body["data"]["correlation_id"], "correlation-job-1");
+    assert!(body["data"]["id"].as_str().is_some());
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn prometheus_and_runtime_log_filter_are_available() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+
+    let response = app.clone().oneshot(auth_get("/metrics")).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .starts_with("text/plain"));
+    let body = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    let body = std::str::from_utf8(&body).unwrap();
+    assert!(body.contains("my_media_sub_subscription_checks_total"));
+    assert!(body.contains("my_media_sub_http_requests_total"));
+
+    let updated = json_body(
+        &app,
+        auth_put(
+            "/api/observability/log-filter",
+            serde_json::json!({"filter":"info,my_media_sub=debug"}),
+        ),
+    )
+    .await;
+    assert_eq!(updated["ok"], true);
+    assert!(updated["data"]["filter"]
+        .as_str()
+        .unwrap()
+        .contains("my_media_sub=debug"));
+
+    let invalid = json_response(
+        &app,
+        auth_put(
+            "/api/observability/log-filter",
+            serde_json::json!({"filter":"["}),
+        ),
+    )
+    .await;
+    assert_eq!(invalid.0, StatusCode::BAD_REQUEST);
+    assert_eq!(invalid.2["error"], "validation_error");
+
     let _ = std::fs::remove_dir_all(dir);
 }

@@ -331,6 +331,9 @@ mod tests {
         Job {
             id: id.to_string(),
             kind: JobKind::ManualTransfer,
+            request_id: None,
+            correlation_id: None,
+            subscription_id: None,
             priority: JobPriority::Normal,
             attempt: 1,
             next_attempt_at: None,

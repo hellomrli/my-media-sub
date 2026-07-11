@@ -1,4 +1,5 @@
 use super::ensure_upstream_status;
+use crate::clients::http_pool::ObservedRequestBuilder;
 use crate::error::{AppError, Result};
 use reqwest::header::{HeaderValue, SET_COOKIE};
 use reqwest::{Client, Url};
@@ -196,7 +197,7 @@ impl QuarkSaveClient {
             .client
             .get(&url)
             .query(&all_params)
-            .send()
+            .send_observed("quark")
             .await
             .map_err(|e| AppError::Http(format!("夸克 GET 请求失败: {}", e)))?;
         ensure_upstream_status(&resp, "夸克 GET")?;
@@ -230,7 +231,7 @@ impl QuarkSaveClient {
             .post(&url)
             .query(&[("pr", "ucpro"), ("fr", "pc")])
             .json(payload)
-            .send()
+            .send_observed("quark")
             .await
             .map_err(|e| AppError::Http(format!("夸克 POST 请求失败: {}", e)))?;
         ensure_upstream_status(&resp, "夸克 POST")?;
@@ -301,7 +302,7 @@ impl QuarkSaveClient {
                 ("sign", params.sign.as_str()),
                 ("vcode", params.vcode.as_str()),
             ])
-            .send()
+            .send_observed("quark")
             .await
             .map_err(|e| AppError::Http(format!("夸克移动端 GET 请求失败: {}", e)))?;
         ensure_upstream_status(&response, "夸克移动端 GET")?;
@@ -329,7 +330,7 @@ impl QuarkSaveClient {
                 ("vcode", params.vcode.as_str()),
             ])
             .json(payload)
-            .send()
+            .send_observed("quark")
             .await
             .map_err(|e| AppError::Http(format!("夸克移动端 POST 请求失败: {}", e)))?;
         ensure_upstream_status(&response, "夸克移动端 POST")?;

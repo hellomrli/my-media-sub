@@ -318,15 +318,28 @@ async fn request_context(mut req: Request<Body>, next: Next) -> Response {
     req.extensions_mut().insert(request_id.clone());
     let method = req.method().clone();
     let path = req.uri().path().to_string();
+    let context = crate::observability::LogContext {
+        request_id: Some(request_id.clone()),
+        correlation_id: Some(correlation_id.clone()),
+        subscription_id: None,
+        job_id: None,
+    };
+    let span = crate::observability::request_span(&context, method.as_str(), &path);
     let started = Instant::now();
-    let mut response = next.run(req).await;
+    let mut response = crate::observability::in_context(context, span, next.run(req)).await;
     if let Ok(value) = header::HeaderValue::from_str(&request_id) {
         response.headers_mut().insert("x-request-id", value);
     }
     if let Ok(value) = header::HeaderValue::from_str(&correlation_id) {
         response.headers_mut().insert("x-correlation-id", value);
     }
-    tracing::info!(request_id = %request_id, correlation_id = %correlation_id, method = %method, path = %path, status = response.status().as_u16(), duration_ms = started.elapsed().as_millis(), "request completed");
+    let duration = started.elapsed();
+    crate::utils::metrics::global_metrics().observe_http_request(
+        method.as_str(),
+        response.status().as_u16(),
+        duration,
+    );
+    tracing::info!(request_id = %request_id, correlation_id = %correlation_id, method = %method, path = %path, status = response.status().as_u16(), duration_ms = duration.as_millis(), "request completed");
     response
 }
 

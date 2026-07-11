@@ -1,4 +1,5 @@
 use super::http_pool;
+use crate::clients::http_pool::ObservedRequestBuilder;
 use crate::error::{AppError, Result};
 use crate::models::SourceQuality;
 use reqwest::Client;
@@ -93,7 +94,7 @@ impl PanSouClient {
                 .get(&api_url)
                 .header(reqwest::header::USER_AGENT, USER_AGENT)
                 .query(&[("kw", keyword), ("res", "merge"), ("src", "all")])
-                .send()
+                .send_observed("pansou")
                 .await
             {
                 Ok(resp) if resp.status().is_success() => {

@@ -1,4 +1,5 @@
 use super::http_pool;
+use crate::clients::http_pool::ObservedRequestBuilder;
 use crate::error::{AppError, Result};
 use reqwest::Client;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -245,7 +246,7 @@ impl Aria2Client {
             .client
             .post(self.rpc_url.trim())
             .json(&payload)
-            .send()
+            .send_observed("aria2")
             .await
             .map_err(|e| AppError::Http(format!("请求 Aria2 失败: {}", e)))?;
 

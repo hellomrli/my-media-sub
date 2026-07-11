@@ -1,4 +1,5 @@
 use crate::clients::http_pool;
+use crate::clients::http_pool::ObservedRequestBuilder;
 use crate::error::{AppError, Result};
 use crate::models::{Notification, Settings};
 use crate::store::NotificationStore;
@@ -729,7 +730,7 @@ impl PushService {
                     }
                     async move {
                         request
-                            .send()
+                            .send_observed("push")
                             .await
                             .map(|response| response.status().is_success())
                             .map_err(AppError::from)
