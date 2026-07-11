@@ -13,7 +13,11 @@ use std::sync::Arc;
 use super::response::ApiResponse;
 use crate::app::AppContext;
 use crate::error::{AppError, Result};
-use crate::jobs::JobStatus;
+use crate::jobs::reliability::{
+    CIRCUIT_FAILURE_THRESHOLD, CIRCUIT_RECOVERY_SECONDS, JOB_BACKLOG_WARNING_THRESHOLD,
+    JOB_STUCK_TIMEOUT_SECONDS, MAX_AUTO_ATTEMPTS,
+};
+use crate::jobs::{JobErrorClass, JobStatus};
 use crate::services::storage::{evaluate_storage, StorageDecision, StorageDecisionInput};
 use crate::store::schema::CURRENT_SCHEMA_VERSION;
 use crate::utils::metrics::MetricsSnapshot;
@@ -48,6 +52,16 @@ struct QueueDiagnostics {
     queued: usize,
     running: usize,
     failed: usize,
+    delayed_retry: usize,
+    retrying: usize,
+    timed_out: usize,
+    archived: usize,
+    maintenance_mode: bool,
+    backlog_warning: bool,
+    retry_max_attempts: u32,
+    stuck_timeout_seconds: u64,
+    circuit_failure_threshold: u32,
+    circuit_recovery_seconds: i64,
 }
 
 #[derive(Serialize)]
@@ -125,6 +139,16 @@ async fn build_snapshot(context: &AppContext) -> Result<DiagnosticsSnapshot> {
         .iter()
         .filter(|job| job.status == JobStatus::Failed)
         .count();
+    let delayed_retry = jobs
+        .iter()
+        .filter(|job| job.status == JobStatus::Queued && job.next_attempt_at.is_some())
+        .count();
+    let retrying = jobs.iter().filter(|job| job.attempt > 1).count();
+    let timed_out = jobs
+        .iter()
+        .filter(|job| job.error_class == Some(JobErrorClass::TimedOut))
+        .count();
+    let archived = context.job_store.archived_count()?;
     context
         .metrics
         .set_job_queue_depth((queued + running) as u64);
@@ -168,6 +192,16 @@ async fn build_snapshot(context: &AppContext) -> Result<DiagnosticsSnapshot> {
             queued,
             running,
             failed,
+            delayed_retry,
+            retrying,
+            timed_out,
+            archived,
+            maintenance_mode: settings.job_maintenance_mode,
+            backlog_warning: queued >= JOB_BACKLOG_WARNING_THRESHOLD,
+            retry_max_attempts: MAX_AUTO_ATTEMPTS,
+            stuck_timeout_seconds: JOB_STUCK_TIMEOUT_SECONDS,
+            circuit_failure_threshold: CIRCUIT_FAILURE_THRESHOLD,
+            circuit_recovery_seconds: CIRCUIT_RECOVERY_SECONDS,
         },
         schedulers: SchedulerDiagnostics {
             subscription_enabled: settings.subscription_scheduler_enabled,

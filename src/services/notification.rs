@@ -73,6 +73,19 @@ pub async fn dispatch_push_event_for_notification(
     job_queue: Option<Arc<JobQueue>>,
     request: PushDispatchRequest,
 ) {
+    // 所有渠道选择、持久化入队和直接发送都脱离核心自动化调用栈；调用方永远
+    // 不会因推送 DNS、超时、磁盘或渠道错误而失败或延迟业务结果。
+    tokio::spawn(async move {
+        dispatch_push_event_impl(settings_store, notification_store, job_queue, request).await;
+    });
+}
+
+async fn dispatch_push_event_impl(
+    settings_store: Arc<SettingsStore>,
+    notification_store: Arc<NotificationStore>,
+    job_queue: Option<Arc<JobQueue>>,
+    request: PushDispatchRequest,
+) {
     let PushDispatchRequest {
         notification_id,
         event,
@@ -81,8 +94,82 @@ pub async fn dispatch_push_event_for_notification(
         level,
     } = request;
 
+    let settings = settings_store.get().await;
+    if settings.push_dedup_window_seconds > 0
+        && notification_store
+            .recent_push_duplicate(
+                event.as_str(),
+                &title,
+                &message,
+                notification_id.as_deref(),
+                now() - settings.push_dedup_window_seconds,
+            )
+            .await
+    {
+        info!("重复推送已在限频窗口内跳过: {}", event.as_str());
+        return;
+    }
+
+    if settings.push_digest_enabled
+        && event != PushEvent::NotificationDigest
+        && notification_id.is_some()
+    {
+        if let Some(id) = notification_id.as_deref() {
+            let _ = notification_store.mark_digest_pending(id).await;
+        }
+        let delay = settings.push_digest_window_minutes.clamp(1, 1_440) as u64;
+        let stores = (settings_store.clone(), notification_store.clone());
+        let queue = job_queue.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(delay * 60)).await;
+            let Ok(items) = stores.1.take_digest_pending().await else {
+                return;
+            };
+            if items.is_empty() {
+                return;
+            }
+            let digest_message = items
+                .iter()
+                .take(20)
+                .map(|item| format!("• [{}] {}", item.level, item.title))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let title = format!("通知摘要（{} 条）", items.len());
+            let level = if items.iter().any(|item| item.level == "error") {
+                PushLevel::Error
+            } else {
+                PushLevel::Info
+            };
+            if let Some(queue) = queue {
+                let _ = queue
+                    .submit_push_dispatch(PushDispatchPayload {
+                        event: PushEvent::NotificationDigest.as_str().to_string(),
+                        title,
+                        message: digest_message,
+                        level: level.as_str().to_string(),
+                        notification_id: None,
+                        correlation_id: String::new(),
+                        subscription_id: None,
+                        episode: None,
+                    })
+                    .await;
+            } else {
+                let service = PushService::new(stores.0.get().await);
+                let _ = service
+                    .send_event_with_retry_detailed(
+                        PushEvent::NotificationDigest,
+                        &title,
+                        &digest_message,
+                        level,
+                        PushRetryPolicy::background_default(),
+                    )
+                    .await;
+            }
+        });
+        return;
+    }
+
     if let Some(job_queue) = job_queue {
-        let settings = settings_store.get().await;
         let push_service = PushService::new(settings);
         if !push_service.event_enabled(event) || push_service.enabled_channels().is_empty() {
             return;

@@ -153,6 +153,64 @@ impl NotificationStore {
         *self.items.write().await = snapshot;
         Ok(())
     }
+
+    pub async fn recent_push_duplicate(
+        &self,
+        event: &str,
+        title: &str,
+        message: &str,
+        exclude_id: Option<&str>,
+        since: i64,
+    ) -> bool {
+        self.items.read().await.iter().rev().any(|item| {
+            item.created_at >= since
+                && Some(item.id.as_str()) != exclude_id
+                && item.event == event
+                && item.title == title
+                && item.message == message
+                && item.meta.contains_key("push")
+        })
+    }
+
+    pub async fn mark_digest_pending(&self, id: &str) -> Result<()> {
+        self.update(id, |item| {
+            item.meta
+                .insert("digest_pending".to_string(), serde_json::json!(true));
+        })
+        .await?;
+        Ok(())
+    }
+
+    pub async fn take_digest_pending(&self) -> Result<Vec<Notification>> {
+        let _guard = self.save_lock.lock().await;
+        let (taken, snapshot) = {
+            let items = self.items.read().await;
+            let mut snapshot = items.clone();
+            let mut taken = Vec::new();
+            for item in &mut snapshot {
+                if item
+                    .meta
+                    .get("digest_pending")
+                    .and_then(serde_json::Value::as_bool)
+                    == Some(true)
+                {
+                    taken.push(item.clone());
+                    item.meta
+                        .insert("digest_pending".to_string(), serde_json::json!(false));
+                    item.meta.insert(
+                        "digest_consumed_at".to_string(),
+                        serde_json::json!(crate::utils::unix_now()),
+                    );
+                }
+            }
+            (taken, snapshot)
+        };
+        if !taken.is_empty() {
+            self.save(&snapshot).await?;
+            *self.items.write().await = snapshot;
+        }
+        Ok(taken)
+    }
 }
 
 fn truncate_notifications(items: &mut Vec<Notification>) {
@@ -248,6 +306,32 @@ mod tests {
         assert_eq!(store.list(true).await.len(), 0);
 
         let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[tokio::test]
+    async fn digest_take_is_atomic_and_duplicate_requires_delivery_report() {
+        let tmp = temp_path("notif-digest");
+        let store = NotificationStore::new(&tmp);
+        store.load().await.unwrap();
+        let mut delivered = make_notif("delivered", false);
+        delivered.event = "subscription_updated".to_string();
+        delivered.title = "A".to_string();
+        delivered.message = "B".to_string();
+        delivered
+            .meta
+            .insert("push".to_string(), serde_json::json!({"success_count":1}));
+        store.add(delivered).await.unwrap();
+        store.add(make_notif("pending", false)).await.unwrap();
+        store.mark_digest_pending("pending").await.unwrap();
+
+        assert!(
+            store
+                .recent_push_duplicate("subscription_updated", "A", "B", None, 0)
+                .await
+        );
+        assert_eq!(store.take_digest_pending().await.unwrap().len(), 1);
+        assert!(store.take_digest_pending().await.unwrap().is_empty());
+        let _ = std::fs::remove_file(tmp);
     }
 
     #[tokio::test]

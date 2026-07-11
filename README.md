@@ -80,7 +80,7 @@ docker run -d \
 从 [GitHub Releases](https://github.com/hellomrli/my-media-sub/releases) 下载 Linux x86_64 压缩包并校验 SHA256：
 
 ```bash
-VERSION=v1.10.0
+VERSION=v1.11.0
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz"
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
 sha256sum -c "my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
@@ -111,6 +111,8 @@ SERVER_PASSWORD='replace-with-a-strong-password' ./my-media-sub
   → 文件过滤、季度匹配和同集版本选择
   → 更新订阅快照（批量检查只提交一次真实存储）
   → 创建幂等 SubscriptionTransfer Job
+  → 按 high/normal/low 加权公平调度
+  → 全局、任务类别和同订阅三层并发限制
   → 夸克转存
   → 重命名
   → STRM 生成
@@ -118,6 +120,12 @@ SERVER_PASSWORD='replace-with-a-strong-password' ./my-media-sub
   → 通知与推送
   → AutomationEvent 流水线审计
 ```
+
+后台任务页可查看并调整排队任务优先级。系统设置可分别配置 Job 全局、转存、元数据和推送并发；类别上限同时受全局上限约束，同一订阅始终串行。
+
+可重试故障会按错误类别执行最多 3 次带确定性抖动的指数退避；同类别连续临时故障会打开熔断器，冷却后仅放行一个恢复探测。任务超过 30 分钟会被卡死检测终止；维护模式暂停新任务，队列达到 100 条时生成限频告警，旧终态任务自动归档到 `jobs.archive.json`。
+
+通知中心支持事件到渠道路由、最低级别、上海时区安静时段、错误绕过、重复限频、延迟摘要和模板预览。Webhook 按目标独立重试并支持双签名重叠轮换；所有推送工作均与订阅检查、转存、下载监控和签到调用栈隔离。
 
 分享失效时，可按配置进入仅搜索或自动应用模式。自动换源会检查候选质量、当前进度覆盖、季别、历史链接、近期失败和冷却时间，并保留可回滚审计记录。
 
@@ -310,8 +318,9 @@ static/
 - [PWA、离线壳层与缓存安全](docs/pwa.md)
 - [JSON Store 性能基线与 SQLite 决策](docs/storage-scaling.md)
 - [OpenAPI 3.1 文档](/api-docs.html)
+- [v1.11.0 升级指南](docs/upgrade-v1.11.0.md)
+- [v1.11.0 完整变更记录](CHANGELOG-v1.11.0.md)
 - [v1.10.0 升级指南](docs/upgrade-v1.10.0.md)
-- [v1.10.0 完整变更记录](CHANGELOG-v1.10.0.md)
 
 ## 升级
 
@@ -333,6 +342,14 @@ docker compose up -d
 不要只替换二进制而继续使用旧版 `static/`。详细步骤见对应版本的升级指南。
 
 ## 版本说明
+
+### 1.11.0
+
+- 完成 P15–P16：优先级公平队列、分层并发、错误恢复、熔断、维护与历史归档，以及通知策略中心；
+- Job 支持 high/normal/low、3:2:1 公平轮转、同订阅互斥、延迟重试、卡死检测和 `jobs.archive.json`；
+- 通知支持事件渠道路由、最低级别、安静时段、重复限频、摘要聚合和模板预览；
+- Webhook 支持逐目标退避重试与双签名重叠轮换，所有推送失败与核心自动化调用栈隔离；
+- 保持 `schema_version: 1`，旧 Job 和 Settings 数据通过默认字段兼容读取。
 
 ### 1.10.0
 

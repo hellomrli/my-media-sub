@@ -13,7 +13,7 @@ use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 
 use super::response::ApiResponse as Response;
 use crate::error::{AppError, Result};
-use crate::jobs::{Job, JobQueue, JobStore};
+use crate::jobs::{Job, JobPriority, JobQueue, JobStore};
 
 pub struct JobState {
     pub store: Arc<JobStore>,
@@ -24,6 +24,11 @@ pub struct JobState {
 struct ListQuery {
     offset: Option<usize>,
     limit: Option<usize>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct SetPriorityRequest {
+    priority: JobPriority,
 }
 
 async fn list_jobs(
@@ -40,6 +45,21 @@ async fn list_jobs(
         None => state.store.list().await,
     };
     Ok(Json(Response::ok(jobs)))
+}
+
+async fn list_archived_jobs(
+    State(state): State<Arc<JobState>>,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<Response<Vec<Job>>>> {
+    Ok(Json(Response::ok(
+        state
+            .store
+            .list_archived(
+                query.offset.unwrap_or(0),
+                query.limit.unwrap_or(100).min(500),
+            )
+            .await?,
+    )))
 }
 
 async fn get_job(
@@ -66,6 +86,16 @@ async fn retry_job(
     Ok(Json(Response::ok(state.queue.retry(&id).await?)))
 }
 
+async fn set_job_priority(
+    State(state): State<Arc<JobState>>,
+    Path(id): Path<String>,
+    Json(request): Json<SetPriorityRequest>,
+) -> Result<Json<Response<Job>>> {
+    Ok(Json(Response::ok(
+        state.queue.set_priority(&id, request.priority).await?,
+    )))
+}
+
 async fn job_events(
     State(state): State<Arc<JobState>>,
 ) -> Result<Sse<impl tokio_stream::Stream<Item = std::result::Result<Event, Infallible>>>> {
@@ -90,9 +120,11 @@ pub fn routes(store: Arc<JobStore>, queue: Arc<JobQueue>) -> Router {
 
     Router::new()
         .route("/api/jobs", get(list_jobs))
+        .route("/api/jobs/archive", get(list_archived_jobs))
         .route("/api/jobs/events", get(job_events))
         .route("/api/jobs/{id}", get(get_job))
         .route("/api/jobs/{id}/cancel", post(cancel_job))
         .route("/api/jobs/{id}/retry", post(retry_job))
+        .route("/api/jobs/{id}/priority", post(set_job_priority))
         .with_state(state)
 }

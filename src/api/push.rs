@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use super::response::{json_ok, ApiResponse as Response};
 use crate::error::Result;
-use crate::services::push::{record_push_message_with_errors, PushLevel, PushService};
+use crate::services::push::{record_push_message_with_errors, PushEvent, PushLevel, PushService};
 use crate::store::{NotificationStore, SettingsStore};
 
 /// 推送路由状态
@@ -142,6 +142,111 @@ struct PushTestResponse {
 
     /// 失败数量
     failed_count: usize,
+}
+
+#[derive(Debug, Deserialize)]
+struct TemplatePreviewRequest {
+    event: String,
+    title: String,
+    message: String,
+    level: String,
+}
+
+#[derive(Debug, Serialize)]
+struct TemplatePreviewResponse {
+    title: String,
+    message: String,
+    channels: Vec<String>,
+}
+
+async fn preview_template(
+    State(state): State<Arc<PushState>>,
+    Json(request): Json<TemplatePreviewRequest>,
+) -> Result<Json<Response<TemplatePreviewResponse>>> {
+    let event = PushEvent::from_name(&request.event)
+        .ok_or_else(|| crate::error::AppError::Validation("未知推送事件".to_string()))?;
+    let level = PushLevel::from_name(&request.level)
+        .ok_or_else(|| crate::error::AppError::Validation("未知推送级别".to_string()))?;
+    let service = PushService::new(state.settings_store.get().await);
+    let (title, message) = service.render_template(event, &request.title, &request.message, level);
+    Ok(json_ok(TemplatePreviewResponse {
+        title,
+        message,
+        channels: service.channels_for_event(event, level),
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct RotateWebhookSecretRequest {
+    #[serde(default = "default_overlap_hours")]
+    overlap_hours: i64,
+}
+fn default_overlap_hours() -> i64 {
+    24
+}
+
+#[derive(Debug, Serialize)]
+struct RotateWebhookSecretResponse {
+    secret: String,
+    previous_expires_at: i64,
+}
+
+async fn rotate_webhook_secret(
+    State(state): State<Arc<PushState>>,
+    Json(request): Json<RotateWebhookSecretRequest>,
+) -> Result<Json<Response<RotateWebhookSecretResponse>>> {
+    let secret = format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    );
+    let expires = crate::utils::unix_now() + request.overlap_hours.clamp(1, 168) * 3600;
+    let returned = secret.clone();
+    state
+        .settings_store
+        .update(|settings| {
+            settings.webhook_previous_secret = std::mem::take(&mut settings.webhook_secret);
+            settings.webhook_previous_secret_expires_at = expires;
+            settings.webhook_secret = secret;
+        })
+        .await?;
+    Ok(json_ok(RotateWebhookSecretResponse {
+        secret: returned,
+        previous_expires_at: expires,
+    }))
+}
+
+#[derive(Debug, Serialize)]
+struct PushDiagnosticsResponse {
+    enabled_channels: Vec<String>,
+    event_routes: std::collections::HashMap<String, Vec<String>>,
+    minimum_level: String,
+    quiet_hours_enabled: bool,
+    quiet_hours: String,
+    digest_enabled: bool,
+    dedup_window_seconds: i64,
+    webhook_rotation_active: bool,
+}
+
+async fn push_diagnostics(
+    State(state): State<Arc<PushState>>,
+) -> Result<Json<Response<PushDiagnosticsResponse>>> {
+    let settings = state.settings_store.get().await;
+    let service = PushService::new(settings.clone());
+    Ok(json_ok(PushDiagnosticsResponse {
+        enabled_channels: service.enabled_channels(),
+        event_routes: settings.push_event_routes,
+        minimum_level: settings.push_min_level,
+        quiet_hours_enabled: settings.push_quiet_hours_enabled,
+        quiet_hours: format!(
+            "{:02}:00-{:02}:00",
+            settings.push_quiet_start_hour, settings.push_quiet_end_hour
+        ),
+        digest_enabled: settings.push_digest_enabled,
+        dedup_window_seconds: settings.push_dedup_window_seconds,
+        webhook_rotation_active: !settings.webhook_previous_secret.is_empty()
+            && settings.webhook_previous_secret_expires_at >= crate::utils::unix_now(),
+    }))
 }
 
 /// 推送测试 API
@@ -337,6 +442,12 @@ pub fn routes(
 
     Router::new()
         .route("/api/push/test", post(test_push))
+        .route("/api/push/diagnostics", get(push_diagnostics))
+        .route("/api/push/template/preview", post(preview_template))
+        .route(
+            "/api/push/webhook/rotate-secret",
+            post(rotate_webhook_secret),
+        )
         .route(
             "/api/push/browser",
             get(browser_push_status)

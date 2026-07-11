@@ -113,6 +113,20 @@
       return labels[kind] || kind || '后台任务';
     },
 
+    jobPriorityLabel(priority) {
+      const labels = {high: '高', normal: '普通', low: '低'};
+      return labels[priority || 'normal'] || priority;
+    },
+
+    jobErrorClassLabel(errorClass) {
+      const labels = {
+        rate_limited: '上游限流', transient: '临时故障', authentication: '认证失败',
+        validation: '参数错误', not_found: '资源不存在', permanent: '永久失败',
+        internal: '内部错误', timed_out: '执行超时'
+      };
+      return labels[errorClass] || errorClass || '-';
+    },
+
     jobStatusClass(status) {
       const classes = {
         queued: 'bg-warning/20 text-warning',
@@ -165,6 +179,10 @@
       const lines = [
         `任务：${job.title || '-'}`,
         `类型：${this.jobKindLabel(job.kind)}`,
+        `优先级：${this.jobPriorityLabel(job.priority)}`,
+        `执行次数：${job.attempt || 1}`,
+        `错误分类：${this.jobErrorClassLabel(job.error_class)}`,
+        `下次重试：${job.next_attempt_at ? this.formatTime(job.next_attempt_at) : '-'}`,
         `状态：${this.jobStatusLabel(job.status)}`,
         `进度：${job.progress || 0}%`,
         `创建：${this.formatTime(job.created_at)}`,
@@ -198,6 +216,28 @@
 
     canRetryJob(job) {
       return job && ['failed', 'canceled'].includes(job.status);
+    },
+
+    async setJobPriority(job, priority) {
+      if (!job || job.status !== 'queued' || !['high', 'normal', 'low'].includes(priority)) return;
+      try {
+        const response = await apiFetch(`/api/jobs/${job.id}/priority`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({priority})
+        });
+        const data = await response.json();
+        if (response.ok) {
+          this.upsertJob(data.data);
+          this.showNotification('success', `任务优先级已调整为${this.jobPriorityLabel(priority)}`);
+        } else {
+          this.showNotification('error', data.message || '调整任务优先级失败');
+          await this.loadJobs();
+        }
+      } catch (error) {
+        this.showNotification('error', this.apiErrorMessage(error, '调整任务优先级失败'));
+        await this.loadJobs();
+      }
     },
 
     async cancelJob(job) {
@@ -240,6 +280,7 @@
       } else {
         this.jobs.unshift(job);
       }
+      if (this.selectedJob && this.selectedJob.id === job.id) this.selectedJob = job;
     },
 
     setupJobEvents() {

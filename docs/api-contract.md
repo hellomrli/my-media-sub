@@ -68,6 +68,16 @@
 
 新增例外必须同时更新本文、README、前端请求处理和集成测试。
 
+### Job 队列接口
+
+- `GET /api/jobs` 返回的每个 Job 包含 `priority: high|normal|low`；历史数据缺失该字段时按 `normal` 读取。
+- `POST /api/jobs/{id}/priority` 请求体为 `{ "priority": "high|normal|low" }`，只允许调整 `queued` 任务；响应为更新后的 Job 标准成功信封。
+- 新任务默认优先级：手动转存和推送为 `high`，订阅转存为 `normal`，元数据刮削为 `low`；重试保留原任务优先级。
+- `job_max_concurrency` 控制全局 Job 并发，`job_transfer_max_concurrency`、`job_metadata_max_concurrency`、`job_push_max_concurrency` 控制类别并发，所有值范围为 1–32；同一订阅无论类别始终互斥。
+- Job 还返回 `attempt`、`next_attempt_at` 和 `error_class`；错误分类为 `rate_limited|transient|authentication|validation|not_found|permanent|internal|timed_out`。
+- `GET /api/jobs/archive?offset=0&limit=100` 分页返回已归档终态任务，单次 limit 最大 500。
+- `job_maintenance_mode=true` 时暂停认领新任务但不取消运行中任务；诊断 API 的 `queue` 同时返回延迟重试、重试、超时、归档、维护和积压状态。
+
 ### 结构化自动化事件接口
 
 以下接口使用标准 JSON 信封：
@@ -160,3 +170,11 @@
 - `POST /api/push/test` 支持 `browser` 和 `webhook` 渠道；Webhook 可使用 HMAC-SHA256 签名。
 - `/openapi.json` 为 OpenAPI 3.1 机器契约，`/api-docs.html` 为同源受保护查看页。
 - 完整数据导入导出使用 `/api/backups/export|preview|restore`；订阅 create/update 支持 `tags`。
+
+## P16 通知策略接口
+
+- `GET /api/push/diagnostics` 返回已配置渠道、事件路由、最低级别、安静时段、摘要/限频和 Webhook 轮换状态；实际连通性继续使用 `POST /api/push/test`。
+- `POST /api/push/template/preview` 接收 `{event,title,message,level}`，返回模板渲染结果及最终路由渠道，不执行发送。
+- `POST /api/push/webhook/rotate-secret` 接收可选 `overlap_hours`（1–168），响应只显示一次新密钥；重叠期同时发送当前和 previous HMAC-SHA256 签名头。
+- 设置支持 `push_event_routes`、`push_min_level`、安静时段、错误绕过、重复窗口、摘要窗口及 `{{title}}/{{message}}/{{event}}/{{level}}` 模板。
+- 推送调度使用 detached task 和后台 Job；任何渠道、DNS、Webhook、Store 或模板失败均不得改变核心订阅检查、转存、下载监控和签到结果。

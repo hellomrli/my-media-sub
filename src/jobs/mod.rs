@@ -1,11 +1,13 @@
 mod model;
 mod queue;
+pub(crate) mod reliability;
+mod scheduler;
 mod store;
 mod worker;
 
 pub use model::{
-    Job, JobKind, JobStatus, ManualTransferPayload, MetadataScrapePayload, PushDispatchPayload,
-    SubscriptionTransferPayload,
+    Job, JobErrorClass, JobKind, JobPriority, JobStatus, ManualTransferPayload,
+    MetadataScrapePayload, PushDispatchPayload, SubscriptionTransferPayload,
 };
 pub use queue::JobQueue;
 pub use store::JobStore;
@@ -17,7 +19,7 @@ mod tests {
     use serde_json::json;
     use tokio::sync::mpsc;
 
-    use super::model::{Job, JobKind, JobStatus};
+    use super::model::{Job, JobKind, JobPriority, JobStatus};
     use super::queue::recover_jobs;
     use super::store::JobStore;
 
@@ -31,6 +33,10 @@ mod tests {
         let job = Job {
             id: "job1".to_string(),
             kind: JobKind::ManualTransfer,
+            priority: JobPriority::Normal,
+            attempt: 1,
+            next_attempt_at: None,
+            error_class: None,
             status: JobStatus::Queued,
             progress: 0,
             title: "测试任务".to_string(),
@@ -76,6 +82,10 @@ mod tests {
             .add(Job {
                 id: "running".to_string(),
                 kind: JobKind::ManualTransfer,
+                priority: JobPriority::Normal,
+                attempt: 1,
+                next_attempt_at: None,
+                error_class: None,
                 status: JobStatus::Running,
                 progress: 50,
                 title: "运行中".to_string(),
@@ -95,6 +105,10 @@ mod tests {
             .add(Job {
                 id: "queued".to_string(),
                 kind: JobKind::ManualTransfer,
+                priority: JobPriority::Normal,
+                attempt: 1,
+                next_attempt_at: None,
+                error_class: None,
                 status: JobStatus::Queued,
                 progress: 0,
                 title: "排队中".to_string(),

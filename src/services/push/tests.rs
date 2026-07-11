@@ -42,6 +42,30 @@ mod tests {
         assert_eq!(policy.delay_for_retry(2), Duration::from_secs(5));
     }
 
+    #[test]
+    fn policy_routes_levels_quiet_hours_and_templates() {
+        let settings = Settings {
+            wecom_bot_url: "https://test".to_string(),
+            telegram_bot_token: "token".to_string(),
+            telegram_chat_id: "chat".to_string(),
+            push_min_level: "warning".to_string(),
+            push_event_routes: HashMap::from([(
+                "subscription_failed".to_string(),
+                vec!["telegram".to_string()],
+            )]),
+            push_title_template: "[{{level}}] {{title}}".to_string(),
+            push_message_template: "{{event}}: {{message}}".to_string(),
+            ..Default::default()
+        };
+        let service = PushService::new(settings);
+        assert!(service.channels_for_event(PushEvent::SubscriptionFailed, PushLevel::Info).is_empty());
+        assert_eq!(service.channels_for_event(PushEvent::SubscriptionFailed, PushLevel::Error), vec!["telegram"]);
+        assert_eq!(service.render_template(PushEvent::SubscriptionFailed, "A", "B", PushLevel::Error), ("[error] A".to_string(), "subscription_failed: B".to_string()));
+        assert!(quiet_hour(23, 23, 8));
+        assert!(quiet_hour(7, 23, 8));
+        assert!(!quiet_hour(12, 23, 8));
+    }
+
     #[tokio::test]
     async fn test_send_to_channels_retries_until_success() {
         use std::sync::atomic::{AtomicUsize, Ordering};

@@ -10,12 +10,14 @@ use crate::store::schema::{
 };
 use crate::utils::{quarantine_corrupt_file, set_file_mode};
 
-use super::model::{now, Job};
+use super::model::{now, Job, JobStatus};
 
 const MAX_JOBS: usize = 500;
+const MAX_ARCHIVED_JOBS: usize = 5_000;
 
 pub struct JobStore {
     path: PathBuf,
+    archive_path: PathBuf,
     jobs: RwLock<Vec<Job>>,
     id_index: RwLock<HashMap<String, usize>>,
     save_lock: Mutex<()>,
@@ -24,8 +26,16 @@ pub struct JobStore {
 
 impl JobStore {
     pub fn new(path: impl Into<PathBuf>) -> Self {
+        let path = path.into();
+        let archive_path = path.with_file_name(format!(
+            "{}.archive.json",
+            path.file_stem()
+                .and_then(|name| name.to_str())
+                .unwrap_or("jobs")
+        ));
         Self {
-            path: path.into(),
+            path,
+            archive_path,
             jobs: RwLock::new(Vec::new()),
             id_index: RwLock::new(HashMap::new()),
             save_lock: Mutex::new(()),
@@ -172,6 +182,34 @@ impl JobStore {
         Ok(updated.map(|(job, _)| job))
     }
 
+    /// 仅在调用方谓词接受当前状态时更新。
+    ///
+    /// 返回 `None` 表示任务不存在或状态已不满足条件；拒绝更新时不会落盘、更新时间
+    /// 或发送事件，适合 Worker 原子认领排队任务。
+    pub async fn update_if<F>(&self, id: &str, updater: F) -> Result<Option<Job>>
+    where
+        F: FnOnce(&mut Job) -> bool,
+    {
+        let _save_guard = self.save_lock.lock().await;
+        let updated = {
+            let jobs = self.jobs.read().await;
+            let mut snapshot = jobs.clone();
+            let Some(job) = snapshot.iter_mut().find(|job| job.id == id) else {
+                return Ok(None);
+            };
+            if !updater(job) {
+                return Ok(None);
+            }
+            job.updated_at = now();
+            (job.clone(), snapshot)
+        };
+
+        self.save_snapshot(&updated.1).await?;
+        self.replace_memory(updated.1).await;
+        self.emit(updated.0.clone());
+        Ok(Some(updated.0))
+    }
+
     pub async fn compact(&self) -> Result<usize> {
         let _guard = self.save_lock.lock().await;
         let mut snapshot = self.jobs.read().await.clone();
@@ -181,6 +219,55 @@ impl JobStore {
         let removed = before.saturating_sub(snapshot.len());
         self.replace_memory(snapshot).await;
         Ok(removed)
+    }
+
+    pub async fn archive_completed(&self, retain: usize) -> Result<usize> {
+        let _guard = self.save_lock.lock().await;
+        let current = self.jobs.read().await.clone();
+        let terminal_count = current.iter().filter(|job| is_terminal(job)).count();
+        let move_count = terminal_count.saturating_sub(retain);
+        if move_count == 0 {
+            return Ok(0);
+        }
+        let move_ids = current
+            .iter()
+            .filter(|job| is_terminal(job))
+            .take(move_count)
+            .map(|job| job.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        let (mut archived_now, active): (Vec<_>, Vec<_>) = current
+            .into_iter()
+            .partition(|job| move_ids.contains(&job.id));
+        let mut archive = self.read_archive()?;
+        archive.append(&mut archived_now);
+        if archive.len() > MAX_ARCHIVED_JOBS {
+            archive.drain(0..archive.len() - MAX_ARCHIVED_JOBS);
+        }
+        write_versioned_json_atomic_async(&self.archive_path, &archive, 0o600).await?;
+        self.save_snapshot(&active).await?;
+        self.replace_memory(active).await;
+        Ok(move_count)
+    }
+
+    pub async fn list_archived(&self, offset: usize, limit: usize) -> Result<Vec<Job>> {
+        let archive = self.read_archive()?;
+        Ok(archive.into_iter().rev().skip(offset).take(limit).collect())
+    }
+
+    pub fn archived_count(&self) -> Result<usize> {
+        Ok(self.read_archive()?.len())
+    }
+
+    fn read_archive(&self) -> Result<Vec<Job>> {
+        if !self.archive_path.exists() {
+            return Ok(Vec::new());
+        }
+        let content = std::fs::read_to_string(&self.archive_path)
+            .map_err(|error| AppError::Database(format!("读取任务归档失败: {error}")))?;
+        set_file_mode(&self.archive_path, 0o600)?;
+        decode_store_json::<Vec<Job>>(&content, StoreKind::Jobs)
+            .map(|decoded| decoded.data)
+            .map_err(|error| AppError::Database(format!("解析任务归档失败: {error}")))
     }
 
     async fn replace_memory(&self, jobs: Vec<Job>) {
@@ -204,6 +291,13 @@ impl JobStore {
     }
 }
 
+fn is_terminal(job: &Job) -> bool {
+    matches!(
+        job.status,
+        JobStatus::Succeeded | JobStatus::Failed | JobStatus::Canceled
+    )
+}
+
 fn build_job_index(jobs: &[Job]) -> HashMap<String, usize> {
     jobs.iter()
         .enumerate()
@@ -221,7 +315,7 @@ fn truncate_jobs(jobs: &mut Vec<Job>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::jobs::{JobKind, JobStatus};
+    use crate::jobs::{JobKind, JobPriority, JobStatus};
     use crate::store::schema::migration_backup_path;
     use serde_json::json;
 
@@ -237,6 +331,10 @@ mod tests {
         Job {
             id: id.to_string(),
             kind: JobKind::ManualTransfer,
+            priority: JobPriority::Normal,
+            attempt: 1,
+            next_attempt_at: None,
+            error_class: None,
             status: JobStatus::Queued,
             progress: 0,
             title: "测试任务".to_string(),
@@ -375,5 +473,57 @@ mod tests {
         assert_eq!(store.list().await.len(), 1);
 
         let _ = std::fs::remove_file(tmp);
+    }
+
+    #[tokio::test]
+    async fn update_if_rejects_without_mutating_or_emitting() {
+        let tmp = temp_path("jobs-conditional-update");
+        let store = JobStore::new(&tmp);
+        store.load().await.unwrap();
+        store.add(make_job("conditional")).await.unwrap();
+        let mut events = store.subscribe();
+
+        let updated = store
+            .update_if("conditional", |job| {
+                job.message = "should-not-stick".to_string();
+                false
+            })
+            .await
+            .unwrap();
+
+        assert!(updated.is_none());
+        assert_eq!(store.get("conditional").await.unwrap().message, "queued");
+        assert!(events.try_recv().is_err());
+
+        let _ = std::fs::remove_file(tmp);
+    }
+
+    #[tokio::test]
+    async fn archive_completed_moves_only_old_terminal_jobs() {
+        let tmp = temp_path("jobs-archive");
+        let store = JobStore::new(&tmp);
+        store.load().await.unwrap();
+        for index in 0..4 {
+            let mut job = make_job(&format!("done-{index}"));
+            job.status = JobStatus::Succeeded;
+            job.created_at = index;
+            store.add(job).await.unwrap();
+        }
+        store.add(make_job("queued-kept")).await.unwrap();
+
+        assert_eq!(store.archive_completed(2).await.unwrap(), 2);
+        let active = store.list().await;
+        assert_eq!(active.len(), 3);
+        assert!(active.iter().any(|job| job.id == "queued-kept"));
+        let archived = store.list_archived(0, 10).await.unwrap();
+        assert_eq!(archived.len(), 2);
+        assert_eq!(store.archived_count().unwrap(), 2);
+
+        let archive_path = tmp.with_file_name(format!(
+            "{}.archive.json",
+            tmp.file_stem().unwrap().to_string_lossy()
+        ));
+        let _ = std::fs::remove_file(tmp);
+        let _ = std::fs::remove_file(archive_path);
     }
 }

@@ -399,7 +399,9 @@ fn validate_store_file(path: &str, bytes: &[u8]) -> Result<Option<u32>> {
         "notifications.json" => {
             decode_store_json::<Vec<Notification>>(content, StoreKind::Notifications).map(|_| ())
         }
-        "jobs.json" => decode_store_json::<Vec<Job>>(content, StoreKind::Jobs).map(|_| ()),
+        "jobs.json" | "jobs.archive.json" => {
+            decode_store_json::<Vec<Job>>(content, StoreKind::Jobs).map(|_| ())
+        }
         "automation_events.json" => {
             decode_store_json::<Vec<AutomationEvent>>(content, StoreKind::AutomationEvents)
                 .map(|_| ())

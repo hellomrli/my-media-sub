@@ -29,6 +29,7 @@ pub const SECRET_KEYS: &[&str] = &[
     "browser_push_vapid_private_key",
     "browser_push_subscriptions",
     "webhook_secret",
+    "webhook_previous_secret",
 ];
 
 /// 支持的云盘类型
@@ -136,7 +137,25 @@ impl SettingsStore {
                 settings.subscription_check_max_concurrency.clamp(1, 32);
             settings.external_api_max_concurrency =
                 settings.external_api_max_concurrency.clamp(1, 64);
+            settings.job_max_concurrency = settings.job_max_concurrency.clamp(1, 32);
+            settings.job_transfer_max_concurrency =
+                settings.job_transfer_max_concurrency.clamp(1, 32);
+            settings.job_metadata_max_concurrency =
+                settings.job_metadata_max_concurrency.clamp(1, 32);
+            settings.job_push_max_concurrency = settings.job_push_max_concurrency.clamp(1, 32);
             settings.aria2_batch_submit_limit = settings.aria2_batch_submit_limit.clamp(1, 100);
+            settings.push_quiet_start_hour = settings.push_quiet_start_hour.min(23);
+            settings.push_quiet_end_hour = settings.push_quiet_end_hour.min(23);
+            settings.push_dedup_window_seconds =
+                settings.push_dedup_window_seconds.clamp(0, 86_400);
+            settings.push_digest_window_minutes =
+                settings.push_digest_window_minutes.clamp(1, 1_440);
+            if !matches!(
+                settings.push_min_level.as_str(),
+                "info" | "success" | "warning" | "error"
+            ) {
+                settings.push_min_level = "info".to_string();
+            }
             // 校验：cloud_types 只保留支持的类型，为空则默认 quark
             settings
                 .cloud_types
@@ -210,12 +229,20 @@ mod tests {
             .update(|s| {
                 s.subscription_check_max_concurrency = 0;
                 s.external_api_max_concurrency = usize::MAX;
+                s.job_max_concurrency = 0;
+                s.job_transfer_max_concurrency = usize::MAX;
+                s.job_metadata_max_concurrency = 0;
+                s.job_push_max_concurrency = usize::MAX;
                 s.aria2_batch_submit_limit = 0;
             })
             .await
             .unwrap();
         assert_eq!(updated.subscription_check_max_concurrency, 1);
         assert_eq!(updated.external_api_max_concurrency, 64);
+        assert_eq!(updated.job_max_concurrency, 1);
+        assert_eq!(updated.job_transfer_max_concurrency, 32);
+        assert_eq!(updated.job_metadata_max_concurrency, 1);
+        assert_eq!(updated.job_push_max_concurrency, 32);
         assert_eq!(updated.aria2_batch_submit_limit, 1);
 
         // 校验：无效云盘类型被过滤

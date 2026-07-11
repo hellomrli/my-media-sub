@@ -110,6 +110,26 @@ pub struct Settings {
     #[serde(default = "default_external_api_max_concurrency")]
     pub external_api_max_concurrency: usize,
 
+    /// 后台 Job 全局最大并发数。
+    #[serde(default = "default_job_max_concurrency")]
+    pub job_max_concurrency: usize,
+
+    /// 转存类 Job 最大并发数（手动和订阅转存共享）。
+    #[serde(default = "default_job_transfer_max_concurrency")]
+    pub job_transfer_max_concurrency: usize,
+
+    /// 元数据 Job 最大并发数。
+    #[serde(default = "default_job_metadata_max_concurrency")]
+    pub job_metadata_max_concurrency: usize,
+
+    /// 推送 Job 最大并发数。
+    #[serde(default = "default_job_push_max_concurrency")]
+    pub job_push_max_concurrency: usize,
+
+    /// 维护模式下暂停认领新 Job，已运行任务继续收尾。
+    #[serde(default)]
+    pub job_maintenance_mode: bool,
+
     /// 单次提交到 Aria2 的最大文件数。
     #[serde(default = "default_aria2_batch_submit_limit")]
     pub aria2_batch_submit_limit: usize,
@@ -258,6 +278,41 @@ pub struct Settings {
     #[serde(default)]
     pub webhook_secret: String,
 
+    /// Webhook 签名轮换期间保留的上一密钥。
+    #[serde(default)]
+    pub webhook_previous_secret: String,
+
+    #[serde(default)]
+    pub webhook_previous_secret_expires_at: i64,
+
+    /// 事件到渠道 ID 的显式路由；缺失事件回退到全部已配置渠道。
+    #[serde(default)]
+    pub push_event_routes: std::collections::HashMap<String, Vec<String>>,
+
+    #[serde(default = "default_push_min_level")]
+    pub push_min_level: String,
+
+    #[serde(default)]
+    pub push_quiet_hours_enabled: bool,
+    #[serde(default = "default_push_quiet_start_hour")]
+    pub push_quiet_start_hour: u8,
+    #[serde(default = "default_push_quiet_end_hour")]
+    pub push_quiet_end_hour: u8,
+    #[serde(default = "default_true")]
+    pub push_quiet_allow_error: bool,
+
+    #[serde(default = "default_push_dedup_window_seconds")]
+    pub push_dedup_window_seconds: i64,
+    #[serde(default)]
+    pub push_digest_enabled: bool,
+    #[serde(default = "default_push_digest_window_minutes")]
+    pub push_digest_window_minutes: i64,
+
+    #[serde(default = "default_push_title_template")]
+    pub push_title_template: String,
+    #[serde(default = "default_push_message_template")]
+    pub push_message_template: String,
+
     // ===== 推送场景开关 =====
     /// 订阅更新时推送
     #[serde(default = "default_true")]
@@ -301,6 +356,27 @@ pub struct BrowserPushSubscription {
 
 fn default_browser_push_subject() -> String {
     "mailto:admin@localhost".to_string()
+}
+fn default_push_min_level() -> String {
+    "info".to_string()
+}
+fn default_push_quiet_start_hour() -> u8 {
+    23
+}
+fn default_push_quiet_end_hour() -> u8 {
+    8
+}
+fn default_push_dedup_window_seconds() -> i64 {
+    300
+}
+fn default_push_digest_window_minutes() -> i64 {
+    15
+}
+fn default_push_title_template() -> String {
+    "{{title}}".to_string()
+}
+fn default_push_message_template() -> String {
+    "{{message}}".to_string()
 }
 
 /// 自定义分类
@@ -454,6 +530,18 @@ fn default_subscription_check_max_concurrency() -> usize {
 fn default_external_api_max_concurrency() -> usize {
     8
 }
+fn default_job_max_concurrency() -> usize {
+    4
+}
+fn default_job_transfer_max_concurrency() -> usize {
+    2
+}
+fn default_job_metadata_max_concurrency() -> usize {
+    2
+}
+fn default_job_push_max_concurrency() -> usize {
+    4
+}
 fn default_aria2_batch_submit_limit() -> usize {
     20
 }
@@ -463,6 +551,12 @@ pub fn normalize_subscription_check_max_concurrency(value: i64) -> usize {
 }
 pub fn normalize_external_api_max_concurrency(value: i64) -> usize {
     value.clamp(1, 64) as usize
+}
+pub fn normalize_job_max_concurrency(value: i64) -> usize {
+    value.clamp(1, 32) as usize
+}
+pub fn normalize_job_class_max_concurrency(value: i64) -> usize {
+    value.clamp(1, 32) as usize
 }
 pub fn normalize_aria2_batch_submit_limit(value: i64) -> usize {
     value.clamp(1, 100) as usize
@@ -530,6 +624,11 @@ impl Default for Settings {
             subscription_check_interval_minutes: default_check_interval(),
             subscription_check_max_concurrency: default_subscription_check_max_concurrency(),
             external_api_max_concurrency: default_external_api_max_concurrency(),
+            job_max_concurrency: default_job_max_concurrency(),
+            job_transfer_max_concurrency: default_job_transfer_max_concurrency(),
+            job_metadata_max_concurrency: default_job_metadata_max_concurrency(),
+            job_push_max_concurrency: default_job_push_max_concurrency(),
+            job_maintenance_mode: false,
             aria2_batch_submit_limit: default_aria2_batch_submit_limit(),
             auto_download_new_subscription_items: false,
             auto_source_switch_enabled: false,
@@ -571,6 +670,19 @@ impl Default for Settings {
             webhook_enabled: false,
             webhook_urls: vec![],
             webhook_secret: String::new(),
+            webhook_previous_secret: String::new(),
+            webhook_previous_secret_expires_at: 0,
+            push_event_routes: std::collections::HashMap::new(),
+            push_min_level: default_push_min_level(),
+            push_quiet_hours_enabled: false,
+            push_quiet_start_hour: default_push_quiet_start_hour(),
+            push_quiet_end_hour: default_push_quiet_end_hour(),
+            push_quiet_allow_error: true,
+            push_dedup_window_seconds: default_push_dedup_window_seconds(),
+            push_digest_enabled: false,
+            push_digest_window_minutes: default_push_digest_window_minutes(),
+            push_title_template: default_push_title_template(),
+            push_message_template: default_push_message_template(),
             push_on_update: true,
             push_on_failed: true,
             push_on_completed: true,
@@ -600,6 +712,8 @@ mod tests {
         assert_eq!(settings.quark_signin_hour, 8);
         assert!(settings.default_rename_template.is_empty());
         assert!(!settings.rule_presets.is_empty());
+        assert_eq!(settings.job_max_concurrency, 4);
+        assert_eq!(settings.job_transfer_max_concurrency, 2);
     }
 
     #[test]
