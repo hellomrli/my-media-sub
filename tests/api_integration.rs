@@ -325,7 +325,7 @@ async fn malformed_json_rejection_uses_the_error_envelope() {
 
     assert!(matches!(
         status,
-        StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY
+        StatusCode::BAD_REQUEST | StatusCode::BAD_REQUEST
     ));
     assert_json_content_type(&headers);
     assert_eq!(body["ok"], false);
@@ -1037,6 +1037,53 @@ async fn security_headers_and_request_ids_are_present() {
     );
     assert!(response.headers().get("content-security-policy").is_some());
     assert_eq!(response.headers().get("x-frame-options").unwrap(), "DENY");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn backup_restore_is_confirmed_snapshotted_and_rejects_tampering() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+    let export = app
+        .clone()
+        .oneshot(auth_get("/api/backups/export"))
+        .await
+        .unwrap();
+    let archive_bytes = axum::body::to_bytes(export.into_body(), 16 << 20)
+        .await
+        .unwrap();
+    let archive: serde_json::Value = serde_json::from_slice(&archive_bytes).unwrap();
+
+    let wrong = auth_post(
+        "/api/backups/restore",
+        serde_json::json!({
+            "archive": archive.clone(), "confirmation": "RESTORE"
+        }),
+    );
+    assert_eq!(status(&app, wrong).await, StatusCode::BAD_REQUEST);
+    assert!(!dir.join("restart-required.json").exists());
+
+    let mut tampered = archive.clone();
+    tampered["files"][0]["sha256"] = serde_json::Value::String("00".repeat(32));
+    let preview = json_response(&app, auth_post("/api/backups/preview", tampered)).await;
+    assert_eq!(preview.0, StatusCode::BAD_REQUEST);
+    assert!(!dir.join("restart-required.json").exists());
+
+    let restored = json_body(
+        &app,
+        auth_post(
+            "/api/backups/restore",
+            serde_json::json!({
+                "archive": archive, "confirmation": "RESTORE DATA"
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(restored["ok"], true);
+    assert_eq!(restored["data"]["restart_required"], true);
+    assert!(dir.join("restart-required.json").exists());
+    let snapshot = restored["data"]["snapshot"].as_str().unwrap();
+    assert!(dir.join("backups").join(snapshot).is_file());
     let _ = std::fs::remove_dir_all(dir);
 }
 

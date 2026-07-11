@@ -115,8 +115,10 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
     const names = await caches.keys();
-    await Promise.all(names.filter(name => name.startsWith(CACHE_PREFIX)
-      && ![SHELL_CACHE, STATIC_CACHE].includes(name)).map(name => caches.delete(name)));
+    const obsolete = MediaSubPwaPolicy.obsoleteCacheNames(
+      names, [SHELL_CACHE, STATIC_CACHE], CACHE_PREFIX
+    );
+    await Promise.all(obsolete.map(name => caches.delete(name)));
     await self.clients.claim();
     const clients = await self.clients.matchAll({type: 'window'});
     clients.forEach(client => client.postMessage({type: 'PWA_ACTIVATED', version: CACHE_VERSION}));

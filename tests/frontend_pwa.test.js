@@ -45,8 +45,8 @@ test('manifest contains install icons and all six required shortcuts', () => {
 
 test('service worker has version cleanup, offline shell and safe update flow', () => {
   const source = fs.readFileSync(path.join(root, 'static/service-worker.js'), 'utf8');
-  assert.match(source, /CACHE_VERSION\s*=\s*'v1\.9\.0-p10-1'/);
-  assert.match(source, /names\.filter\(name => name\.startsWith\(CACHE_PREFIX\)/);
+  assert.match(source, /CACHE_VERSION\s*=\s*'v1\.9\.0-p11-1'/);
+  assert.match(source, /obsoleteCacheNames/);
   assert.match(source, /response\.status === 401 \|\| response\.status === 403/);
   assert.match(source, /cache\.match\(new Request\(`\$\{self\.location\.origin\}\/`\)\)/);
   assert.match(source, /SKIP_WAITING/);
@@ -69,4 +69,13 @@ test('390px mobile contract and install hooks are present', () => {
   assert.match(html, /manifest\.webmanifest/);
   assert.match(html, /pwaInstallAvailable/);
   assert.match(html, /pwaUpdateReady/);
+});
+
+
+test('cache upgrades keep the active pair and delete every older PWA generation', () => {
+  const names = ['media-sub-shell-v1.9.0-p10-1', 'media-sub-static-v1.9.0-p10-1',
+    'media-sub-shell-v1.9.0-p11-1', 'media-sub-static-v1.9.0-p11-1', 'unrelated-cache'];
+  assert.deepEqual(policy.obsoleteCacheNames(names, [
+    'media-sub-shell-v1.9.0-p11-1', 'media-sub-static-v1.9.0-p11-1'
+  ]), ['media-sub-shell-v1.9.0-p10-1', 'media-sub-static-v1.9.0-p10-1']);
 });
