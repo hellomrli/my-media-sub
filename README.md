@@ -78,11 +78,11 @@ docker run -d \
   ghcr.io/hellomrli/my-media-sub:latest
 ```
 
-生产环境建议固定版本标签；v1.12.0 同时发布 `1.12.0` 和 `1.12`：
+生产环境建议固定版本标签；v1.13.0 同时发布 `1.13.0` 和 `1.13`：
 
 ```bash
-docker pull ghcr.io/hellomrli/my-media-sub:1.12.0
-docker image inspect ghcr.io/hellomrli/my-media-sub:1.12.0 --format '{{.RepoDigests}}'
+docker pull ghcr.io/hellomrli/my-media-sub:1.13.0
+docker image inspect ghcr.io/hellomrli/my-media-sub:1.13.0 --format '{{.RepoDigests}}'
 ```
 
 ### Linux 二进制
@@ -90,7 +90,7 @@ docker image inspect ghcr.io/hellomrli/my-media-sub:1.12.0 --format '{{.RepoDige
 从 [GitHub Releases](https://github.com/hellomrli/my-media-sub/releases) 下载 Linux x86_64 压缩包并校验 SHA256：
 
 ```bash
-VERSION=v1.12.0
+VERSION=v1.13.0
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz"
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
 sha256sum -c "my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
@@ -352,6 +352,8 @@ static/
 - [PWA、离线壳层与缓存安全](docs/pwa.md)
 - [JSON Store 性能基线与 SQLite 决策](docs/storage-scaling.md)
 - [OpenAPI 3.1 文档](/api-docs.html)
+- [v1.13.0 升级指南](docs/upgrade-v1.13.0.md)
+- [v1.13.0 完整变更记录](CHANGELOG-v1.13.0.md)
 - [v1.12.0 升级指南](docs/upgrade-v1.12.0.md)
 - [v1.12.0 完整变更记录](CHANGELOG-v1.12.0.md)
 - [v1.11.0 升级指南](docs/upgrade-v1.11.0.md)
@@ -377,6 +379,17 @@ docker compose up -d
 不要只替换二进制而继续使用旧版 `static/`。详细步骤见对应版本的升级指南。
 
 ## 版本说明
+
+### 1.13.0
+
+- 完成 P20–P21：OpenAPI 自动化契约、单实例 scoped Token、幂等订阅交换，以及 Telegram 主动控制机器人；
+- OpenAPI 与 Axum 路由自动同步并兼容校验 v1.12.0 基线，当前覆盖 91 条路径、103 个操作；自动化 Token 支持轮换、撤销、过期和最小 scope；
+- 订阅导入/导出使用版本化信封、冲突预览、原子批量写入和 Idempotency-Key，版本化 Webhook 贯通 request/correlation/job 标识；
+- Telegram Bot 支持 long polling 或双 Secret Webhook、数字 user/chat ID 白名单、默认私聊限制、分页只读命令和脱敏运行诊断；
+- 受控 `/check`、`/retry`、`/cancel`、`/signin`、`/read` 写命令使用绑定 user/chat/action/resource/scope 的 120 秒一次性确认，Update、Callback 和业务键三层去重；
+- Telegram 主动通知可附带 HMAC 签名的查看详情、标记已读和重新检查按钮，并继续遵守渠道路由、安静时段、摘要与重复限频；
+- 新增持久化 `telegram_bot.json`、脱敏命令审计、user/chat/command 分层限流、失败冷却、诊断页 Bot 卡片及可选真实 Telegram 沙箱 smoke；
+- 保持 `schema_version: 1` 和 JSON 单写；升级必须同时替换二进制与完整 `static/`，启用 Bot 前请阅读 Telegram 部署与应急指南。
 
 ### 1.12.0
 

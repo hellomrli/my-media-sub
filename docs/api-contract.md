@@ -197,7 +197,7 @@
 
 ## P20 API 与自动化集成
 
-- `scripts/check-openapi.py` 在 CI 和 Release 中双向核对 89 条 Axum 路径、101 个操作与 OpenAPI；v1.12.0 基线禁止删除既有路径/方法或修改稳定 Success/Error 信封。
+- `scripts/check-openapi.py` 在 CI 和 Release 中双向核对 91 条 Axum 路径、103 个操作与 OpenAPI；v1.12.0 基线禁止删除既有路径/方法或修改稳定 Success/Error 信封。
 - `GET|POST|DELETE /api/automation-token` 仅允许管理员 Basic Auth，用于读取脱敏状态、轮换和撤销单实例 Token；明文只在轮换响应显示一次，磁盘只保存 SHA-256、前缀、scope、有效期和审计时间。
 - Bearer Token 按 subscriptions/jobs/notifications/diagnostics 的 read/write/check 最小作用域鉴权；设置、Token 管理、备份恢复、Store 清理和在线升级始终拒绝 Bearer Token。
 - `GET /api/subscriptions/export` 返回版本化订阅信封；`POST /api/subscriptions/import/preview` 只读报告冲突，执行接口支持 skip/update/new_id、确认短语及 24 小时有界 Idempotency-Key 去重。
