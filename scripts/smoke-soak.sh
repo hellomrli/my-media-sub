@@ -16,12 +16,12 @@ SERVER_HOST=127.0.0.1 SERVER_PORT="$PORT" SERVER_USERNAME="$USER" SERVER_PASSWOR
 for _ in $(seq 1 80); do curl -fsS "$BASE/health" >/dev/null && break; kill -0 "$PID" 2>/dev/null || { cat "$TMP/server.log" >&2; exit 1; }; sleep .25; done
 end=$((SECONDS + DURATION)); requests=0
 while (( SECONDS < end )); do
-  curl -fsS "$BASE/health" >/dev/null
-  curl -fsS -u "$USER:$PASSWORD" "$BASE/api/diagnostics" | grep -F '"ok":true' >/dev/null
+  curl -fsS --retry 2 --retry-delay 0 --retry-all-errors "$BASE/health" >/dev/null
+  curl -fsS --retry 2 --retry-delay 0 --retry-all-errors -u "$USER:$PASSWORD" "$BASE/api/diagnostics" | grep -F '"ok":true' >/dev/null
   requests=$((requests + 2))
 done
-for _ in $(seq 1 4); do curl -fsS -u "$USER:$PASSWORD" -X POST "$BASE/api/backups" | grep -F '"ok":true' >/dev/null; done
-count="$(curl -fsS -u "$USER:$PASSWORD" "$BASE/api/backups" | grep -o 'backup-[^"]*\.json' | sort -u | wc -l)"
+for _ in $(seq 1 4); do curl -fsS --retry 2 --retry-delay 0 --retry-all-errors -u "$USER:$PASSWORD" -X POST "$BASE/api/backups" | grep -F '"ok":true' >/dev/null; done
+count="$(curl -fsS --retry 2 --retry-delay 0 --retry-all-errors -u "$USER:$PASSWORD" "$BASE/api/backups" | grep -o 'backup-[^"]*\.json' | sort -u | wc -l)"
 (( count <= 3 )) || { echo "backup retention exceeded: $count" >&2; exit 1; }
 kill -0 "$PID"
 find "$TMP/data" -type f -name '*.corrupt-*' -print -quit | grep -q . && { echo 'soak produced corrupt files' >&2; exit 1; }
