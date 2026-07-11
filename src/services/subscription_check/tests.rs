@@ -622,6 +622,17 @@ mod tests {
         assert_eq!(second.files[0].file_key, "fid1");
     }
 
+    #[test]
+    fn check_details_expose_episode_detection_method_and_confidence() {
+        let (service, _, _) = make_service();
+        let sub = make_subscription();
+        let files = vec![probe_file("Example.S01E03.mkv", "Season 1", "f1")];
+        let details = service.build_check_details(&sub, &files);
+        assert_eq!(details.items[0].episode, Some(3));
+        assert_eq!(details.items[0].detection_method, "season_episode");
+        assert_eq!(details.items[0].detection_confidence, "high");
+    }
+
     #[tokio::test]
     async fn test_auto_transfer_disabled_reason_respects_switches() {
         let (service, _, _) = make_service();

@@ -9,6 +9,7 @@ pub const VIDEO_EXTS: &[&str] = &[
 ];
 
 struct EpisodePattern {
+    id: &'static str,
     regex: Regex,
 }
 
@@ -29,15 +30,25 @@ fn hardcoded_regex(pattern: &str) -> Regex {
 static EPISODE_PATTERNS: LazyLock<Vec<EpisodePattern>> = LazyLock::new(|| {
     vec![
         EpisodePattern {
+            id: "season_episode",
             regex: hardcoded_regex(r"(?i)S(?P<season>\d{1,2})[._\-\s]*E(?P<episode>\d{1,4})"),
         },
         EpisodePattern {
+            id: "episode_marker",
             regex: hardcoded_regex(r"(?i)(?:^|[^\p{L}\d])EP?[._\-\s]*(?P<episode>\d{1,4})"),
         },
         EpisodePattern {
+            id: "special_marker",
+            regex: hardcoded_regex(
+                r"(?i)(?:^|[^\p{L}\d])(?:SP|OVA|OAD)[._\-\s]*(?P<episode>\d{1,4})(?:$|[^\p{L}\d])",
+            ),
+        },
+        EpisodePattern {
+            id: "chinese_episode",
             regex: hardcoded_regex(r"第\s*(?P<episode>\d{1,4})\s*[集话話期]"),
         },
         EpisodePattern {
+            id: "bracket_number",
             regex: hardcoded_regex(r"[\[【]\s*(?P<episode>\d{1,4})\s*[\]】]"),
         },
     ]
@@ -95,6 +106,16 @@ static NON_CURRENT_COLLECTION_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| 
 pub struct EpisodeInfo {
     pub episode: Option<i32>,
     pub season: Option<i32>,
+}
+
+/// Explainable episode detection used by previews and diagnostics.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EpisodeDetection {
+    pub episode: Option<i32>,
+    pub season: Option<i32>,
+    pub method: &'static str,
+    pub confidence: &'static str,
+    pub reason: String,
 }
 
 fn is_likely_explicit_episode_number(episode: i32) -> bool {
@@ -331,7 +352,7 @@ pub fn is_better_episode_duplicate_candidate(
 }
 
 /// 从文件名提取集数和季度
-pub fn detect_episode(name: &str) -> EpisodeInfo {
+pub fn detect_episode_explained(name: &str) -> EpisodeDetection {
     for pattern in EPISODE_PATTERNS.iter() {
         for caps in pattern.regex.captures_iter(name) {
             let episode = caps
@@ -341,28 +362,49 @@ pub fn detect_episode(name: &str) -> EpisodeInfo {
                 .name("season")
                 .and_then(|m| m.as_str().parse::<i32>().ok());
             let season = if season == Some(0) { None } else { season };
-
             if !episode
                 .map(is_likely_explicit_episode_number)
                 .unwrap_or(false)
             {
                 continue;
             }
-
-            return EpisodeInfo { episode, season };
+            return EpisodeDetection {
+                episode,
+                season,
+                method: pattern.id,
+                confidence: "high",
+                reason: format!(
+                    "通过 {} 明确格式识别到第 {} 集",
+                    pattern.id,
+                    episode.unwrap_or_default()
+                ),
+            };
         }
     }
-
     if let Some(episode) = numeric_fallback_episode(name) {
-        return EpisodeInfo {
+        return EpisodeDetection {
             episode: Some(episode),
             season: None,
+            method: "numeric_fallback",
+            confidence: "low",
+            reason: format!("未匹配明确标记，使用独立数字兜底识别为第 {episode} 集"),
         };
     }
-
-    EpisodeInfo {
+    EpisodeDetection {
         episode: None,
         season: None,
+        method: "unrecognized",
+        confidence: "none",
+        reason: "未找到有效的季度或集数标记".to_string(),
+    }
+}
+
+/// 从文件名提取集数和季度。
+pub fn detect_episode(name: &str) -> EpisodeInfo {
+    let detected = detect_episode_explained(name);
+    EpisodeInfo {
+        episode: detected.episode,
+        season: detected.season,
     }
 }
 
@@ -644,5 +686,36 @@ mod tests {
     fn test_match_file_regex() {
         assert!(match_file("E01.mkv", &[], &[], r"E\d{2}"));
         assert!(!match_file("E01.mkv", &[], &[], r"E\d{3}"));
+    }
+}
+
+#[cfg(test)]
+mod episode_corpus_tests {
+    use super::*;
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    struct Fixture {
+        name: String,
+        season: Option<i32>,
+        episode: Option<i32>,
+        method: String,
+    }
+
+    #[test]
+    fn authoritative_episode_name_corpus_stays_compatible() {
+        let fixtures: Vec<Fixture> =
+            serde_json::from_str(include_str!("../../tests/fixtures/episode_names.json")).unwrap();
+        for fixture in fixtures {
+            let detected = detect_episode_explained(&fixture.name);
+            assert_eq!(detected.season, fixture.season, "season: {}", fixture.name);
+            assert_eq!(
+                detected.episode, fixture.episode,
+                "episode: {}",
+                fixture.name
+            );
+            assert_eq!(detected.method, fixture.method, "method: {}", fixture.name);
+            assert!(!detected.reason.is_empty());
+        }
     }
 }

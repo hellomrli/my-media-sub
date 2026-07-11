@@ -1,0 +1,11 @@
+[
+  {"name":"庆余年.S02E08.2160p.mkv","season":2,"episode":8,"method":"season_episode"},
+  {"name":"葬送的芙莉莲 EP 12 1080p.mkv","season":null,"episode":12,"method":"episode_marker"},
+  {"name":"动画 OVA02 BDRip.mkv","season":null,"episode":2,"method":"special_marker"},
+  {"name":"剧集.SP01.简中.mp4","season":null,"episode":1,"method":"special_marker"},
+  {"name":"某剧第 23 集.mp4","season":null,"episode":23,"method":"chinese_episode"},
+  {"name":"[NC-Raws] 示例 [07][WEB-DL].mkv","season":null,"episode":7,"method":"bracket_number"},
+  {"name":"08 - Episode title.mkv","season":null,"episode":8,"method":"numeric_fallback"},
+  {"name":"Example.2026.1080p.mkv","season":null,"episode":null,"method":"unrecognized"},
+  {"name":"Trailer.2160p.mp4","season":null,"episode":null,"method":"unrecognized"}
+]
