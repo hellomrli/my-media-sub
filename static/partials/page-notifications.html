@@ -1,0 +1,75 @@
+        <!-- 通知页面 -->
+        <div x-show="currentTab === 'notifications'" class="page-stack">
+          <div class="app-panel p-4 toolbar-panel">
+            <div>
+              <h3 class="section-title">通知中心</h3>
+              <p class="text-sm text-muted/75 mt-1">系统通知会保留在这里，相关推送状态会合并显示在同一条通知内。</p>
+            </div>
+            <div class="control-row">
+              <button @click="markAllRead()" class="btn-secondary px-4 py-2 rounded-lg transition-colors text-sm">全部已读</button>
+              <button @click="clearNotifications()" class="btn-danger px-4 py-2 rounded-lg transition-colors text-sm">清空通知</button>
+            </div>
+          </div>
+          <div class="app-panel p-2 flex gap-2 overflow-x-auto">
+            <template x-for="filter in notificationFilters" :key="filter.id">
+              <button @click="notificationFilter = filter.id" :class="notificationFilter === filter.id ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg text-sm transition-colors whitespace-nowrap">
+                <span x-text="filter.name"></span>
+                <span class="ml-1 text-xs opacity-70" x-text="notificationFilterCount(filter.id)"></span>
+              </button>
+            </template>
+          </div>
+          <div class="data-table">
+            <div class="data-table-scroll">
+              <div class="data-table-head grid-cols-[30px_88px_110px_minmax(320px,1fr)_150px_100px] px-3">
+                <div></div>
+                <div>级别</div>
+                <div>事件</div>
+                <div>内容</div>
+                <div>时间</div>
+                <div class="text-right">操作</div>
+              </div>
+              <template x-for="(notif, notifIndex) in visibleNotifications" :key="'notification-' + (notif.id || 'missing') + '-' + notifIndex">
+                <div>
+                  <div class="data-table-row grid-cols-[30px_88px_110px_minmax(320px,1fr)_150px_100px] px-3" :class="!notif.read ? 'bg-primary/5' : ''">
+                    <div><span x-show="!notif.read" class="block h-2 w-2 rounded-full bg-cyan"></span></div>
+                    <div><span :class="notificationLevelBadgeClass(notif.level)" x-text="notificationLevelLabel(notif.level)"></span></div>
+                    <div><span class="badge badge-primary" x-text="notificationEventLabel(notif.event)"></span></div>
+                    <div class="min-w-0">
+                      <div class="truncate text-sm font-medium text-text" x-text="notif.title"></div>
+                      <div class="truncate text-xs text-muted/75" x-text="notif.message"></div>
+                    </div>
+                    <div class="text-xs text-muted/75" x-text="formatTime(notif.created_at)"></div>
+                    <div class="flex justify-end">
+                      <button x-show="!notif.read" @click="markRead(notif.id)" class="btn-primary px-2 py-1 rounded text-xs transition-colors">已读</button>
+                    </div>
+                  </div>
+                  <div x-show="notificationHasPush(notif)" class="border-b border-border bg-app/40 px-3 py-2 text-xs text-text/80">
+                    <details>
+                      <summary class="cursor-pointer text-muted hover:text-text">推送详情</summary>
+                      <div class="mt-2 flex flex-wrap gap-2">
+                        <template x-for="(item, channelIndex) in notificationPushChannelStatuses(notif)" :key="'push-channel-' + (item.channel || 'missing') + '-' + channelIndex">
+                          <span class="inline-flex items-center gap-1.5 rounded border px-2 py-1" :class="item.success ? 'border-success/30 bg-success/10 text-success/85' : 'border-danger/30 bg-danger/10 text-danger/85'">
+                            <span class="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold" :class="item.success ? 'bg-success/20 text-success/85' : 'bg-danger/20 text-danger/85'" x-text="item.success ? '✓' : '!'"></span>
+                            <span x-text="item.name"></span>
+                            <span x-show="item.attempts > 1" class="text-muted" x-text="'x' + item.attempts"></span>
+                          </span>
+                        </template>
+                      </div>
+                      <div class="mt-2 flex flex-wrap gap-2 text-muted">
+                        <span>推送成功: <span class="text-success" x-text="notificationPushMeta(notif).success_count || 0"></span></span>
+                        <span>推送失败: <span class="text-danger" x-text="notificationPushMeta(notif).failed_count || 0"></span></span>
+                      </div>
+                      <div x-show="notificationPushErrors(notif).length > 0" class="mt-2 space-y-1 text-danger/85">
+                        <template x-for="(item, errorIndex) in notificationPushErrors(notif)" :key="'push-error-' + (item.channel || 'missing') + '-' + errorIndex">
+                          <div><span x-text="pushChannelName(item.channel)"></span>: <span x-text="item.error"></span></div>
+                        </template>
+                      </div>
+                    </details>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+          <div x-show="filteredNotifications.length > visibleNotifications.length" class="flex justify-center"><button @click="notificationVisibleLimit += 100" class="btn-secondary px-5 py-2">加载更多通知</button></div><div x-show="filteredNotifications.length === 0" class="app-panel empty-state">暂无通知</div>
+        </div>
+

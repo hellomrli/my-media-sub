@@ -15,6 +15,12 @@ pub struct Settings {
     #[serde(default = "default_password")]
     pub app_password: String,
 
+    /// 是否信任反向代理转发头（X-Forwarded-For）。
+    /// 仅当部署在可信反向代理之后时开启；默认 false，防止客户端伪造
+    /// X-Forwarded-For 绕过登录失败锁定。
+    #[serde(default)]
+    pub trust_proxy_headers: bool,
+
     // ===== 搜索配置 =====
     /// 支持的云盘类型
     #[serde(default = "default_cloud_types")]
@@ -633,6 +639,7 @@ impl Default for Settings {
         Self {
             app_username: default_username(),
             app_password: default_password(),
+            trust_proxy_headers: false,
             cloud_types: default_cloud_types(),
             check_links: true,
             probe_quark_files: true,
@@ -791,7 +798,15 @@ mod tests {
         assert_eq!(settings.app_username, "test");
         assert_eq!(settings.quark_cookie, "test_cookie");
         assert_eq!(settings.app_password, "change-me"); // 默认值
+        assert!(!settings.trust_proxy_headers); // 默认不信任代理头
         assert!(settings.check_links); // 默认值
+    }
+
+    #[test]
+    fn trust_proxy_headers_defaults_false_and_deserializes() {
+        assert!(!Settings::default().trust_proxy_headers);
+        let settings: Settings = serde_json::from_str(r#"{"trust_proxy_headers": true}"#).unwrap();
+        assert!(settings.trust_proxy_headers);
     }
 
     #[test]

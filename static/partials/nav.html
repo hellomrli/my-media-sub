@@ -1,0 +1,119 @@
+    <!-- 侧边栏 -->
+    <aside class="app-sidebar hidden lg:flex lg:sticky lg:top-0 h-screen w-64 flex-col">
+      <div class="brand-block">
+        <button @click="selectTab('dashboard')" class="brand-mark" aria-label="返回工作台">
+          <span class="brand-symbol" aria-hidden="true">
+            <svg viewBox="0 0 32 32" fill="none"><path d="M7 8.5h18v15H7z" stroke="currentColor" stroke-width="1.8"/><path d="M11 5v22M21 5v22M7 13h4m10 0h4M7 19h4m10 0h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          </span>
+          <span class="min-w-0 text-left">
+            <span class="brand-name">MEDIA<span>/SUB</span></span>
+            <span class="brand-caption">个人媒体自动化中心</span>
+          </span>
+        </button>
+        <div class="brand-status"><span class="status-pulse"></span><span>服务在线</span></div>
+      </div>
+
+      <nav class="sidebar-nav flex-1 overflow-y-auto">
+        <div class="nav-group">
+          <div class="nav-group-label">媒体中心</div>
+          <template x-for="tab in tabs.filter(item => ['dashboard', 'calendar', 'search', 'subscriptions', 'drive', 'downloads'].includes(item.id))" :key="tab.id">
+            <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : ''" class="nav-button">
+              <span x-html="tab.icon" class="nav-icon"></span>
+              <span class="min-w-0 flex-1 text-left">
+                <span x-text="tab.name" class="nav-title"></span>
+                <span x-text="tab.description" class="nav-description"></span>
+              </span>
+              <span class="nav-indicator"></span>
+            </button>
+          </template>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-label">运行记录</div>
+          <template x-for="tab in tabs.filter(item => ['transferHistory', 'notifications', 'diagnostics'].includes(item.id))" :key="tab.id">
+            <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : ''" class="nav-button">
+              <span x-html="tab.icon" class="nav-icon"></span>
+              <span class="min-w-0 flex-1 text-left">
+                <span x-text="tab.name" class="nav-title"></span>
+                <span x-text="tab.description" class="nav-description"></span>
+              </span>
+              <span x-show="tab.id === 'notifications' && unreadNotifications" class="nav-count" x-text="unreadNotifications"></span>
+              <span class="nav-indicator"></span>
+            </button>
+          </template>
+        </div>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button @click="selectTab('settings')" :class="currentTab === 'settings' ? 'is-active' : ''" class="nav-button settings-entry">
+          <span x-html="tabs.find(tab => tab.id === 'settings')?.icon" class="nav-icon"></span>
+          <span class="min-w-0 flex-1 text-left">
+            <span class="nav-title">系统设置</span>
+            <span class="nav-description">连接与自动化配置</span>
+          </span>
+          <span class="nav-indicator"></span>
+        </button>
+        <div class="automation-card">
+          <div class="automation-card-head">
+            <span>自动化节点</span>
+            <span class="automation-dot" :class="settings.subscription_scheduler_enabled ? 'is-on' : ''"></span>
+          </div>
+          <div class="automation-value" x-text="settings.subscription_scheduler_enabled ? '正在运行' : '等待启用'"></div>
+          <div class="automation-meta">
+            <span><strong x-text="subscriptions.length"></strong> 个订阅</span>
+            <span><strong x-text="dashboardStats.runningJobs"></strong> 个任务</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 主内容区 -->
+    <main class="min-w-0 flex-1 flex flex-col lg:h-screen">
+      <header class="app-header sticky top-0 z-30 px-4 sm:px-6 py-3">
+        <div class="header-row">
+          <div class="page-heading min-w-0">
+            <div class="eyebrow">单实例管理 <span>/</span> <span x-text="tabs.find(t => t.id === currentTab)?.name"></span></div>
+            <div class="flex items-end gap-3 min-w-0">
+              <h2 class="page-title" x-text="tabs.find(t => t.id === currentTab)?.name"></h2>
+              <span class="page-description hidden sm:block" x-text="tabs.find(t => t.id === currentTab)?.description"></span>
+            </div>
+          </div>
+          <div class="header-actions">
+            <button @click="selectTab('search')" class="command-button hidden md:flex" title="搜索媒体资源">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5-5m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+              <span>搜索资源</span><kbd>/</kbd>
+            </button>
+            <div class="header-health hidden sm:flex">
+              <span class="status-pulse"></span>
+              <span x-text="dashboardStats.runningJobs ? dashboardStats.runningJobs + ' 项运行中' : '系统空闲'"></span>
+            </div>
+            <button x-show="browserPushSupported" @click="toggleBrowserPush()" class="icon-button" :class="browserPushEnabled ? 'text-success' : ''" :title="browserPushEnabled ? '关闭浏览器 Push' : '启用浏览器 Push'" aria-label="切换浏览器 Push">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.4-1.4A2 2 0 0118 14v-3a6 6 0 00-12 0v3a2 2 0 01-.6 1.4L4 17h5m6 0a3 3 0 01-6 0"/></svg>
+            </button>
+            <button x-show="pwaInstallAvailable" @click="installPwa()" class="icon-button" aria-label="安装 MEDIA/SUB" title="安装到设备">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/></svg>
+            </button>
+            <button @click="toggleTheme()" class="icon-button" :aria-label="themeToggleLabel()" :title="themeToggleLabel()">
+              <svg x-show="theme === 'dark'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.4-6.4-1.4 1.4M7 17l-1.4 1.4m12.8 0L17 17M7 7 5.6 5.6M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+              <svg x-show="theme === 'light'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12.8A8.5 8.5 0 1111.2 3 6.5 6.5 0 0021 12.8z"/></svg>
+            </button>
+            <button @click="refresh()" class="icon-button" aria-label="刷新当前页面" title="刷新当前页面">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5m11 11v-5h-5M5.1 9A8 8 0 0119 6.3M18.9 15A8 8 0 015 17.7"/></svg>
+            </button>
+          </div>
+        </div>
+        <nav class="mobile-tab-grid mt-3 lg:hidden flex gap-2 overflow-x-auto pb-1">
+          <template x-for="tab in tabs" :key="tab.id">
+            <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : ''" class="nav-button flex min-w-[4.75rem] flex-none flex-col items-center justify-center gap-1 px-2 py-2 rounded-lg">
+              <span x-html="tab.icon" class="w-4 h-4"></span>
+              <span x-text="tab.name" class="text-xs leading-4 text-center"></span>
+            </button>
+          </template>
+        </nav>
+      </header>
+
+      <div x-show="pwaOffline" class="pwa-status-banner is-offline" role="status"><span>离线模式：API 与媒体流不会使用缓存</span></div>
+      <div x-show="pwaUpdateReady" class="pwa-status-banner is-update" role="status"><span>新版本静态资源已就绪</span><div><button @click="dismissPwaUpdate()">稍后</button><button @click="applyPwaUpdate()">立即更新</button></div></div>
+
+      <div class="app-content flex-1 overflow-y-auto px-4 sm:px-5 py-4 sm:py-5">
+

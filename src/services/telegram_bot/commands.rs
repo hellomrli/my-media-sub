@@ -227,16 +227,36 @@ impl TelegramBotService {
                 if write { 6 } else { 15 },
             ),
         ];
-        let allowed = checks.iter().all(|(key, limit)| {
-            let attempts = rates.attempts.entry(key.clone()).or_default();
-            while attempts
-                .front()
-                .is_some_and(|at| now.saturating_sub(*at) >= RATE_WINDOW_SECONDS)
-            {
-                attempts.pop_front();
-            }
-            attempts.len() < *limit
+        // 全局清理：整个窗口内没有新尝试的键直接移除，
+        // 避免 attempts map 随用户/命令组合无界增长。
+        rates.attempts.retain(|_, attempts| {
+            attempts
+                .back()
+                .is_some_and(|at| now.saturating_sub(*at) < RATE_WINDOW_SECONDS)
         });
+        let mut allowed = true;
+        for (key, limit) in &checks {
+            let mut remove_key = false;
+            let count = match rates.attempts.get_mut(key) {
+                Some(attempts) => {
+                    while attempts
+                        .front()
+                        .is_some_and(|at| now.saturating_sub(*at) >= RATE_WINDOW_SECONDS)
+                    {
+                        attempts.pop_front();
+                    }
+                    remove_key = attempts.is_empty();
+                    attempts.len()
+                }
+                None => 0,
+            };
+            if remove_key {
+                rates.attempts.remove(key);
+            }
+            if count >= *limit {
+                allowed = false;
+            }
+        }
         if allowed {
             for (key, _) in checks {
                 rates.attempts.entry(key).or_default().push_back(now);

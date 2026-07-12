@@ -249,33 +249,52 @@ impl SubscriptionTransferService {
             .collect();
         let transferred_count = transfer_outcome.transferred_files.len();
 
-        // 9. 等待转存文件落盘，并按规则重命名
+        // 9. 转存成功后立即持久化 transferred_files，
+        //    后续列目录/重命名的瞬时失败不能丢失转存状态（否则下轮会重复转存）。
+        self.mark_files_as_transferred(&sub, &transfer_file_names)
+            .await?;
+
+        // 10. 等待转存文件落盘，并按规则重命名；失败仅记录日志，可稍后手动重试重命名。
         let (renamed_count, transferred_files) = if has_rename_rules(&sub.rules) {
             info!("开始按订阅规则重命名文件");
-            let result = self
+            match self
                 .rename_transferred_files(
                     provider.as_ref(),
                     &target_fid,
                     &sub,
                     Some(&transfer_file_names),
                 )
-                .await?;
-            (result.renamed_count, result.files)
+                .await
+            {
+                Ok(result) => (result.renamed_count, result.files),
+                Err(error) => {
+                    warn!(
+                        "订阅 {} 转存后重命名失败（转存状态已保存，可稍后重试重命名）: {}",
+                        sub.title, error
+                    );
+                    (0, Vec::new())
+                }
+            }
         } else {
             let expected_names = expected_video_names(&transfer_file_names);
-            let files = wait_for_rename_candidates(
+            match wait_for_rename_candidates(
                 || collect_video_files_recursive(provider.as_ref(), &target_fid),
                 Some(&expected_names),
                 30,
                 Duration::from_secs(2),
             )
-            .await?;
-            (0, files)
+            .await
+            {
+                Ok(files) => (0, files),
+                Err(error) => {
+                    warn!(
+                        "订阅 {} 等待转存文件落盘失败（转存状态已保存）: {}",
+                        sub.title, error
+                    );
+                    (0, Vec::new())
+                }
+            }
         };
-
-        // 10. 更新订阅的 transferred_files
-        self.mark_files_as_transferred(&sub, &transfer_file_names)
-            .await?;
 
         // 11. 如果订阅开启了同步下载，提交 Aria2 下载任务
         let sync_report = self

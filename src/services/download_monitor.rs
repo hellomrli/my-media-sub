@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -23,6 +23,38 @@ use crate::utils::unix_now;
 
 const MONITOR_INTERVAL: Duration = Duration::from_secs(15);
 const STOPPED_LIMIT: u64 = 50;
+/// 内存去重键上限（每个下载最多 2 个键，约等于最近 1000 个下载）。
+/// 超出后按插入顺序淘汰最旧的键，防止长期运行时无界增长。
+const MAX_TRACKED_DEDUPE_KEYS: usize = 2_000;
+
+/// 插入有序、带上限的去重键缓存。
+#[derive(Default)]
+struct DedupeKeyCache {
+    order: VecDeque<String>,
+    keys: HashSet<String>,
+}
+
+impl DedupeKeyCache {
+    fn contains(&self, key: &str) -> bool {
+        self.keys.contains(key)
+    }
+
+    fn insert(&mut self, key: String) {
+        if !self.keys.insert(key.clone()) {
+            return;
+        }
+        self.order.push_back(key);
+        while self.order.len() > MAX_TRACKED_DEDUPE_KEYS {
+            if let Some(oldest) = self.order.pop_front() {
+                self.keys.remove(&oldest);
+            }
+        }
+    }
+
+    fn snapshot(&self) -> HashSet<String> {
+        self.keys.clone()
+    }
+}
 
 /// 后台监控 Aria2 已停止任务，并在下载完成时发出通知。
 pub struct DownloadMonitorService {
@@ -30,7 +62,7 @@ pub struct DownloadMonitorService {
     subscription_store: Arc<SubscriptionStore>,
     notification_store: Arc<NotificationStore>,
     job_queue: Arc<JobQueue>,
-    notified_completed_downloads: RwLock<HashSet<String>>,
+    notified_completed_downloads: RwLock<DedupeKeyCache>,
 }
 
 impl DownloadMonitorService {
@@ -45,11 +77,19 @@ impl DownloadMonitorService {
             subscription_store,
             notification_store,
             job_queue,
-            notified_completed_downloads: RwLock::new(HashSet::new()),
+            notified_completed_downloads: RwLock::new(DedupeKeyCache::default()),
         }
     }
 
     pub fn start(self: Arc<Self>) {
+        // 通知摘要的定时器只存在于内存中；随后台监控一起在启动时恢复
+        // 重启前遗留的 digest_pending 通知，避免它们永远不被推送。
+        crate::services::notification::recover_digest_pending_on_startup(
+            self.settings_store.clone(),
+            self.notification_store.clone(),
+            Some(self.job_queue.clone()),
+        );
+        crate::services::push::register_settings_store_for_pruning(&self.settings_store);
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(MONITOR_INTERVAL);
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -81,7 +121,7 @@ impl DownloadMonitorService {
             .job_queue
             .successful_push_dispatch_messages(PushEvent::DownloadCompleted.as_str())
             .await;
-        let known_keys = self.notified_completed_downloads.read().await.clone();
+        let known_keys = self.notified_completed_downloads.read().await.snapshot();
         let pending_tasks = tasks
             .iter()
             .filter(|task| task.status == "complete")
@@ -458,6 +498,26 @@ mod tests {
             error_message: String::new(),
             files: vec![],
         }
+    }
+
+    #[test]
+    fn dedupe_key_cache_evicts_oldest_keys_beyond_cap() {
+        let mut cache = DedupeKeyCache::default();
+        for index in 0..(MAX_TRACKED_DEDUPE_KEYS + 10) {
+            cache.insert(format!("gid:{index}"));
+        }
+        assert_eq!(cache.keys.len(), MAX_TRACKED_DEDUPE_KEYS);
+        assert_eq!(cache.order.len(), MAX_TRACKED_DEDUPE_KEYS);
+        assert!(!cache.contains("gid:0"));
+        assert!(!cache.contains("gid:9"));
+        assert!(cache.contains("gid:10"));
+        assert!(cache.contains(&format!("gid:{}", MAX_TRACKED_DEDUPE_KEYS + 9)));
+
+        // 重复插入不产生重复的淘汰顺序条目。
+        let newest = format!("gid:{}", MAX_TRACKED_DEDUPE_KEYS + 9);
+        cache.insert(newest.clone());
+        assert_eq!(cache.order.len(), MAX_TRACKED_DEDUPE_KEYS);
+        assert!(cache.contains(&newest));
     }
 
     #[test]

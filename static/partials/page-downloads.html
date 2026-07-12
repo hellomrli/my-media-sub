@@ -1,0 +1,123 @@
+        <!-- 下载任务页面 -->
+        <div x-show="currentTab === 'downloads'" class="page-stack">
+          <div class="metric-grid">
+            <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">下载中</div>
+              <div class="mt-2 text-2xl font-semibold text-text" x-text="downloads.active.length"></div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">排队中</div>
+              <div class="mt-2 text-2xl font-semibold text-text" x-text="downloads.waiting.length"></div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">总速度</div>
+              <div class="mt-2 text-lg font-semibold text-success" x-text="formatSpeed(downloadStats.speed)"></div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">最近结束</div>
+              <div class="mt-2 text-2xl font-semibold text-text" x-text="downloads.stopped.length"></div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">订阅关联</div>
+              <div class="mt-2 text-2xl font-semibold text-primary" x-text="downloadAutomationStats.linked"></div>
+            </div>
+          </div>
+
+          <div class="app-panel list-surface">
+            <div class="p-4 border-b border-border toolbar-panel">
+              <div>
+                <h3 class="section-title">Aria2 下载任务</h3>
+                <p class="text-sm text-muted/75 mt-1" x-text="downloadsError || (downloadsUpdatedAt ? '更新时间 ' + new Date(downloadsUpdatedAt).toLocaleTimeString() : '等待刷新')"></p>
+              </div>
+              <div class="control-row">
+                <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer">
+                  <input type="checkbox" x-model="downloadsAutoRefresh" @change="downloadsAutoRefresh ? startDownloadsPolling() : stopDownloadsPolling()" class="rounded" />
+                  <span>实时刷新</span>
+                </label>
+                <button @click="controlAllDownloads('pause')" :disabled="downloadsBulkAction || !hasRunningDownloadTasks()" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
+                  <span x-show="downloadsBulkAction !== 'pause'">全部暂停</span>
+                  <span x-show="downloadsBulkAction === 'pause'">暂停中</span>
+                </button>
+                <button @click="controlAllDownloads('stop')" :disabled="downloadsBulkAction || !hasRunningDownloadTasks()" class="btn-danger px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
+                  <span x-show="downloadsBulkAction !== 'stop'">全部停止</span>
+                  <span x-show="downloadsBulkAction === 'stop'">停止中</span>
+                </button>
+                <button @click="loadDownloads()" :disabled="downloadsLoading" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
+                  <span x-show="!downloadsLoading">刷新</span>
+                  <span x-show="downloadsLoading">刷新中</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="data-table">
+              <div class="data-table-scroll">
+                <div class="data-table-head grid-cols-[minmax(280px,1.7fr)_92px_150px_92px_92px_110px_190px] px-3">
+                  <div>任务</div>
+                  <div>状态</div>
+                  <div>进度</div>
+                  <div>速度</div>
+                  <div>剩余</div>
+                  <div>连接</div>
+                  <div class="text-right">操作</div>
+                </div>
+                <template x-for="(task, taskIndex) in allDownloadTasks" :key="'download-task-' + (task.gid || 'missing') + '-' + taskIndex">
+                  <div>
+                    <div class="data-table-row grid-cols-[minmax(280px,1.7fr)_92px_150px_92px_92px_110px_190px] px-3">
+                      <div class="min-w-0">
+                        <div class="truncate text-sm font-medium text-text" x-text="task.file_name || task.gid"></div>
+                        <div class="truncate text-xs text-muted/75" x-text="task.dir || ('GID ' + task.gid)"></div>
+                        <button x-show="task.automation" @click="openDownloadTaskSubscription(task)" class="download-task-origin is-subscription" x-text="downloadTaskOriginLabel(task)"></button>
+                        <span x-show="!task.automation" class="download-task-origin" x-text="downloadTaskOriginLabel(task)"></span>
+                      </div>
+                      <div><span :class="downloadStatusBadgeClass(task.status)" x-text="downloadStatusLabel(task.status)"></span></div>
+                      <div class="space-y-1">
+                        <div class="progress-inline"><span :style="downloadProgressStyle(task)"></span></div>
+                        <div class="text-xs text-muted/75 tabular-nums" x-text="formatDownloadSize(task.completed_length) + ' / ' + formatDownloadSize(task.total_length)"></div>
+                      </div>
+                      <div class="text-xs text-muted/80" x-text="formatSpeed(task.download_speed)"></div>
+                      <div class="text-xs text-muted/80" x-text="formatDuration(task.eta_seconds)"></div>
+                      <div class="text-xs text-muted/80" x-text="task.connections + ' 连接'"></div>
+                      <div class="flex flex-wrap justify-end gap-1">
+                        <button x-show="canPauseDownloadTask(task)" @click="controlDownloadTask(task, 'pause')" :disabled="downloadTaskActionLoading(task)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">暂停</button>
+                        <button x-show="canResumeDownloadTask(task)" @click="controlDownloadTask(task, 'resume')" :disabled="downloadTaskActionLoading(task)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">继续</button>
+                        <button x-show="canStopDownloadTask(task)" @click="controlDownloadTask(task, 'stop')" :disabled="downloadTaskActionLoading(task)" class="btn-danger px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">停止</button>
+                        <button @click="controlDownloadTask(task, 'delete')" :disabled="downloadTaskActionLoading(task)" class="btn-danger px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">删除</button>
+                      </div>
+                    </div>
+                    <div x-show="task.automation" class="download-automation-strip">
+                      <div class="download-automation-source"><span>订阅自动化</span><strong x-text="downloadTaskOriginLabel(task)"></strong><small x-text="task.automation ? (task.automation.target_dir || '目标目录未记录') : ''"></small></div>
+                      <div class="download-pipeline-steps">
+                        <template x-for="step in downloadTaskAutomationSteps(task)" :key="task.gid + '-' + step.id">
+                          <div :class="downloadTaskStepClass(step)"><i></i><span x-text="step.label"></span></div>
+                        </template>
+                      </div>
+                      <button @click="openDownloadTaskSubscription(task)">查看订阅详情 →</button>
+                    </div>
+                    <div x-show="task.error_message || (task.files && task.files.length)" class="border-b border-border bg-app/40 px-3 py-2 text-xs">
+                      <div x-show="task.error_message" class="mb-2 text-danger break-all" x-text="task.error_code ? task.error_code + ': ' + task.error_message : task.error_message"></div>
+                      <details>
+                        <summary class="cursor-pointer text-muted hover:text-text">文件详情</summary>
+                        <div class="mt-2 divide-y divide-border border border-border rounded-lg overflow-hidden">
+                          <template x-for="(file, fileIndex) in task.files" :key="'download-file-' + (task.gid || 'missing') + '-' + (file.index ?? fileIndex) + '-' + fileIndex">
+                            <div class="grid grid-cols-[minmax(0,1fr)_160px] gap-3 p-2">
+                              <div class="min-w-0">
+                                <div class="text-text/85 truncate" x-text="file.file_name || file.path || ('文件 ' + file.index)"></div>
+                                <div class="text-muted/75 truncate" x-text="file.path"></div>
+                              </div>
+                              <div class="text-right text-muted" x-text="formatDownloadSize(file.completed_length) + ' / ' + formatDownloadSize(file.length)"></div>
+                            </div>
+                          </template>
+                          <div x-show="!task.files || task.files.length === 0" class="p-2 text-muted/75">暂无文件详情</div>
+                        </div>
+                      </details>
+                    </div>
+                  </div>
+                </template>
+              </div>
+              <div x-show="allDownloadTasks.length === 0" class="empty-state">
+                <p x-text="downloadsError || '暂无 Aria2 下载任务'"></p>
+              </div>
+            </div>
+          </div>
+        </div>
+

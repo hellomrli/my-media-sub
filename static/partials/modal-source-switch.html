@@ -1,0 +1,66 @@
+        <!-- 换源候选弹窗 -->
+        <div x-show="showSourceSwitchDialog" @click.self="closeSourceSwitchDialog()" @keydown.escape.window="closeSourceSwitchDialog()" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
+          <div class="app-panel dialog-panel p-6 max-w-3xl w-full max-h-[92vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="换源候选" tabindex="-1">
+            <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div class="min-w-0">
+                <h3 class="text-xl font-bold text-text">换源候选</h3>
+                <p class="mt-1 text-sm text-muted/75 truncate" x-text="sourceSwitchSubscriptionTitle"></p>
+              </div>
+              <div class="flex gap-2">
+                <button @click="loadSourceCandidates()" :disabled="sourceSwitchLoading || sourceSwitchSearching" class="btn-secondary px-3 py-2 rounded text-sm disabled:opacity-50">刷新</button>
+                <button @click="searchSourceCandidates()" :disabled="sourceSwitchSearching" class="btn-primary px-3 py-2 rounded text-sm disabled:opacity-50">
+                  <span x-show="!sourceSwitchSearching">搜索</span>
+                  <span x-show="sourceSwitchSearching">搜索中</span>
+                </button>
+              </div>
+            </div>
+
+            <div x-show="sourceSwitchError" class="mt-4 rounded border border-danger/30 bg-danger/5 p-3 text-sm text-danger break-all" x-text="sourceSwitchError"></div>
+
+            <div class="mt-5 space-y-3">
+              <div x-show="sourceSwitchLoading" class="app-panel-soft p-6 text-center text-sm text-muted/75">正在读取候选...</div>
+              <div x-show="!sourceSwitchLoading && sourceSwitchCandidates.length === 0" class="app-panel-soft p-6 text-center text-sm text-muted/75">暂无候选</div>
+              <template x-for="(candidate, candidateIndex) in sourceSwitchCandidates" :key="'source-candidate-' + (candidate.id || 'missing') + '-' + candidateIndex">
+                <div class="border border-border rounded-lg bg-app p-4 space-y-3">
+                  <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div class="min-w-0 space-y-2">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <span class="badge badge-primary" x-text="candidate.source || '来源'"></span>
+                        <span class="badge" :class="sourceCandidateQuality(candidate).tone === 'danger' ? 'badge-danger' : 'badge-success'" x-text="sourceCandidateQuality(candidate).score + ' 分 · ' + sourceCandidateQuality(candidate).grade"></span>
+                        <span class="badge badge-muted" x-text="sourceCandidateEpisodeRange(candidate)"></span>
+                        <span class="text-xs text-muted/75" x-text="sourceCandidateMeta(candidate)"></span>
+                      </div>
+                      <div class="text-sm font-medium text-text break-all" x-text="sourceCandidateNote(candidate)"></div>
+                      <div class="text-xs text-muted/75 break-all" x-text="candidate.url"></div>
+                      <div x-show="candidate.password" class="text-xs text-muted/75">提取码：<span x-text="candidate.password"></span></div>
+                      <div class="flex flex-wrap gap-1"><template x-for="tag in sourceCandidateQuality(candidate).tags || []" :key="tag"><span class="badge badge-muted" x-text="tag"></span></template></div>
+                      <div x-show="(sourceCandidateQuality(candidate).risks || []).length" class="text-xs text-danger" x-text="'风险：' + sourceCandidateQuality(candidate).risks.join('、')"></div>
+                      <div x-show="(sourceCandidateQuality(candidate).recommendation_reasons || []).length" class="text-xs text-success" x-text="sourceCandidateQuality(candidate).recommendation_reasons.join(' · ')"></div>
+                    </div>
+                    <div class="flex gap-2 sm:flex-col">
+                      <button @click="previewSourceCandidate(candidate)" :disabled="sourceSwitchPreviewingId === candidate.id || sourceSwitchApplyingId === candidate.id" class="btn-secondary px-3 py-2 rounded text-sm whitespace-nowrap disabled:opacity-50"><span x-show="sourceSwitchPreviewingId !== candidate.id">预览</span><span x-show="sourceSwitchPreviewingId === candidate.id">探测中</span></button>
+                      <button @click="applySourceCandidate(candidate)" :disabled="sourceSwitchApplyingId === candidate.id || !(sourceSwitchPreview && sourceSwitchPreview.candidate && sourceSwitchPreview.candidate.id === candidate.id && sourceSwitchPreview.can_apply)" class="btn-primary px-3 py-2 rounded text-sm whitespace-nowrap disabled:opacity-50"><span x-show="sourceSwitchApplyingId !== candidate.id">确认应用</span><span x-show="sourceSwitchApplyingId === candidate.id">应用中</span></button>
+                    </div>
+                  </div>
+                  <div x-show="sourceSwitchPreview && sourceSwitchPreview.candidate && sourceSwitchPreview.candidate.id === candidate.id" class="rounded border border-border bg-panel p-3 space-y-2 text-xs">
+                    <div class="grid grid-cols-2 gap-2 sm:grid-cols-4"><span>当前 <strong x-text="sourceSwitchPreview && sourceSwitchPreview.current_quality ? sourceSwitchPreview.current_quality.score : 0"></strong> 分</span><span>候选 <strong x-text="sourceSwitchPreview && sourceSwitchPreview.candidate && sourceSwitchPreview.candidate.quality ? sourceSwitchPreview.candidate.quality.score : 0"></strong> 分</span><span>分差 <strong x-text="sourceSwitchPreview ? sourceSwitchPreview.score_delta : 0"></strong></span><span :class="sourceSwitchPreview && sourceSwitchPreview.can_apply ? 'text-success' : 'text-danger'" x-text="sourceSwitchPreview && sourceSwitchPreview.can_apply ? '可安全应用' : '禁止应用'"></span></div>
+                    <div class="flex flex-wrap gap-1"><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.probe_ok ? 'badge-success' : 'badge-danger'">链接探测</span><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.season_matches ? 'badge-success' : 'badge-danger'">季度匹配</span><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.covers_progress ? 'badge-success' : 'badge-danger'">进度覆盖</span><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.auto_eligible ? 'badge-success' : 'badge-muted'">自动策略</span></div>
+                    <div x-show="sourceSwitchPreview && sourceSwitchPreview.warnings && sourceSwitchPreview.warnings.length" class="text-warning" x-text="sourceSwitchPreview && sourceSwitchPreview.warnings ? sourceSwitchPreview.warnings.join('；') : ''"></div>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <div class="mt-6 border-t border-border pt-5 space-y-3">
+              <div class="flex items-center justify-between gap-3"><div><h4 class="font-semibold text-text">换源历史</h4><p class="text-xs text-muted/75">保留最近 50 条成功、失败和回滚审计记录。</p></div><button @click="rollbackSourceSwitch()" :disabled="sourceSwitchRollbackLoading || !sourceSwitchHistory.some(item => item.status === 'succeeded' && !item.rolled_back_at)" class="btn-secondary px-3 py-2 rounded text-sm disabled:opacity-50"><span x-show="!sourceSwitchRollbackLoading">回滚上一来源</span><span x-show="sourceSwitchRollbackLoading">回滚中</span></button></div>
+              <div x-show="sourceSwitchHistoryLoading" class="text-sm text-muted/75">正在读取历史...</div>
+              <div x-show="!sourceSwitchHistoryLoading && sourceSwitchHistory.length === 0" class="text-sm text-muted/75">暂无换源历史</div>
+              <template x-for="(item, itemIndex) in sourceSwitchHistory" :key="'source-history-' + (item.id || 'missing') + '-' + itemIndex"><div class="rounded border border-border bg-app p-3 text-xs space-y-1"><div class="flex flex-wrap items-center gap-2"><span class="badge" :class="item.status === 'failed' ? 'badge-danger' : (item.status === 'rolled_back' ? 'badge-warning' : 'badge-success')" x-text="sourceSwitchHistoryLabel(item)"></span><span x-text="formatTime(item.created_at)"></span><span x-show="item.quality && item.quality.score" x-text="item.quality.score + ' 分'"></span></div><div class="break-all"><span x-text="item.from_url"></span> → <span x-text="item.to_url"></span></div><div class="text-muted/75" x-text="item.reason || '-'"></div><div x-show="item.error" class="text-danger" x-text="item.error"></div></div></template>
+            </div>
+
+            <div class="mt-6 flex justify-end">
+              <button @click="closeSourceSwitchDialog()" class="btn-secondary px-4 py-2 rounded-lg transition-colors">关闭</button>
+            </div>
+          </div>
+        </div>
+

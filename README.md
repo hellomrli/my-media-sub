@@ -52,7 +52,7 @@ docker compose up -d
 
 访问：`http://服务器地址:56001`
 
-默认账号为 `admin`，默认密码为 `change-me`。如果没有通过环境变量覆盖，**首次登录后必须立即修改密码**。
+默认账号为 `admin`。自 v2.0.0 起，登录**不再接受默认密码 `change-me`**：必须先通过 `SERVER_PASSWORD`/`APP_PASSWORD` 环境变量或系统设置设置一个真实密码，否则无法登录。
 
 常用维护命令：
 
@@ -78,11 +78,11 @@ docker run -d \
   ghcr.io/hellomrli/my-media-sub:latest
 ```
 
-生产环境建议固定版本标签；v1.13.1 同时发布 `1.13.1` 和 `1.13`：
+生产环境建议固定版本标签；v2.0.0 同时发布 `2.0.0` 和 `2.0`：
 
 ```bash
-docker pull ghcr.io/hellomrli/my-media-sub:1.13.1
-docker image inspect ghcr.io/hellomrli/my-media-sub:1.13.1 --format '{{.RepoDigests}}'
+docker pull ghcr.io/hellomrli/my-media-sub:2.0.0
+docker image inspect ghcr.io/hellomrli/my-media-sub:2.0.0 --format '{{.RepoDigests}}'
 ```
 
 ### Linux 二进制
@@ -90,7 +90,7 @@ docker image inspect ghcr.io/hellomrli/my-media-sub:1.13.1 --format '{{.RepoDige
 从 [GitHub Releases](https://github.com/hellomrli/my-media-sub/releases) 下载 Linux x86_64 压缩包并校验 SHA256：
 
 ```bash
-VERSION=v1.13.1
+VERSION=v2.0.0
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz"
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
 sha256sum -c "my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
@@ -150,7 +150,7 @@ SERVER_PASSWORD='replace-with-a-strong-password' ./my-media-sub
 | `SERVER_HOST` | `0.0.0.0` | 监听地址 |
 | `SERVER_PORT` | `56001` | HTTP 端口 |
 | `SERVER_USERNAME` | `admin` | 初始管理员账号 |
-| `SERVER_PASSWORD` | `change-me` | 初始管理员密码，生产环境必须覆盖 |
+| `SERVER_PASSWORD` | 无（必填） | 管理员密码；未设置或仍为默认 `change-me` 时登录被拒绝，必须显式设置 |
 | `DATA_DIR` | `./data` | JSON 数据、备份与运行状态目录 |
 | `BACKUP_INTERVAL_HOURS` | `24` | 自动备份间隔，设为 `0` 关闭 |
 | `BACKUP_VERIFY_INTERVAL_HOURS` | `24` | 对最近备份执行隔离恢复验证的间隔，设为 `0` 关闭 |
@@ -295,9 +295,18 @@ sha256sum target/release/my-media-sub
 
 ```bash
 docker build \
-  -t my-media-sub:1.13.1 \
+  -t my-media-sub:2.0.0 \
   -t my-media-sub:latest \
   .
+```
+
+### 重新生成前端 HTML
+
+`static/index.html` 由 `static/index.tmpl.html` 与 `static/partials/` 下的分片拼装生成，请勿直接编辑。修改分片后重新生成：
+
+```bash
+node scripts/build-frontend.mjs          # 生成 static/index.html
+node scripts/build-frontend.mjs --check  # 校验 index.html 是否与分片一致
 ```
 
 ### 重新生成前端 CSS
@@ -330,7 +339,9 @@ src/
 
 static/
 ├── app.js                Alpine 装配层
-├── index.html
+├── index.html            由 index.tmpl.html + partials/ 生成（scripts/build-frontend.mjs）
+├── index.tmpl.html       页面拼装模板（@include 标记）
+├── partials/             各页面 / 弹窗 HTML 分片
 ├── styles.css
 └── js/
     ├── core/             API、路由、通知、轮询和 Shell
@@ -352,8 +363,8 @@ static/
 - [PWA、离线壳层与缓存安全](docs/pwa.md)
 - [JSON Store 性能基线与 SQLite 决策](docs/storage-scaling.md)
 - [OpenAPI 3.1 文档](/api-docs.html)
-- [v1.13.1 升级指南](docs/upgrade-v1.13.1.md)
-- [v1.13.1 完整变更记录](CHANGELOG-v1.13.1.md)
+- [v2.0.0 升级指南](docs/upgrade-v2.0.0.md)
+- [v2.0.0 完整变更记录](CHANGELOG-v2.0.0.md)
 - [v1.13.0 升级指南](docs/upgrade-v1.13.0.md)
 - [v1.13.0 完整变更记录](CHANGELOG-v1.13.0.md)
 - [v1.12.0 升级指南](docs/upgrade-v1.12.0.md)
@@ -381,6 +392,18 @@ docker compose up -d
 不要只替换二进制而继续使用旧版 `static/`。详细步骤见对应版本的升级指南。
 
 ## 版本说明
+
+### 2.0.0
+
+- 安全加固：登录拒绝默认密码 `change-me`，未设置密码时直接拒绝并提示运维；
+- 登录限流默认按连接对端 IP 计数，仅在新增设置 `trust_proxy_headers` 显式开启时才信任 `X-Forwarded-For`，失败计数满时淘汰最旧记录、失败 Token 也计入限流；
+- 自动化 Token 读权限改为显式路径白名单，设置密钥掩码改为固定长度不再泄漏长度；
+- 后台任务：裁剪只淘汰终态任务，新增 SIGTERM/Ctrl+C 优雅停机，卡死看门狗改为心跳判定，取消运行中任务真正中止并释放并发槽；
+- 订阅：批量检查回写改为按字段合并，跳过检查期间被删除的订阅，转存成功后立即持久化，消除重复转存与并发更新丢失；
+- 通知：摘要推送支持重启恢复与单定时器，浏览器推送逐订阅容错并清理 404/410 失效端点，Telegram 并发处理更新，安静时段改用主机时区；
+- 部署：容器改为非 root 运行，`docker-compose.yml` 通过 `.env` 读取口令；
+- 工程化：单文件 WebUI 拆分为 `static/partials/`，经 `scripts/build-frontend.mjs` 从模板组装，行为与外观不变；
+- 保持 `schema_version: 1`，可从 v1.13.x 直接升级；二进制与完整 `static/` 必须配套替换，公网直连实例请确认已设强密码。
 
 ### 1.13.1
 

@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 
 use serde_json::json;
-use tokio::sync::mpsc;
-use tokio::task::JoinSet;
+use tokio::sync::{mpsc, watch};
+use tokio::task::{AbortHandle, JoinSet};
 use tracing::{error, info, warn};
 
 use crate::error::{AppError, Result};
@@ -36,6 +36,13 @@ mod push_dispatch;
 mod subscription_transfer;
 
 const MAX_SIGNAL_DRAIN_PER_TICK: usize = 512;
+/// 关闭时给运行中任务的宽限时间（秒）。
+pub(crate) const SHUTDOWN_GRACE_SECONDS: u64 = 30;
+/// 卡死看门狗的心跳轮询间隔（秒）。
+const WATCHDOG_POLL_SECONDS: u64 = 60;
+
+/// 运行中任务的中止句柄注册表：取消 API 通过它真正终止已在执行的任务。
+pub(crate) type RunningJobHandles = Arc<StdMutex<HashMap<String, AbortHandle>>>;
 
 pub(crate) struct JobWorker {
     pub(crate) store: Arc<JobStore>,
@@ -46,6 +53,8 @@ pub(crate) struct JobWorker {
     pub(crate) metadata_service: Arc<MetadataService>,
     pub(crate) transfer_service: Arc<SubscriptionTransferService>,
     pub(crate) receiver: mpsc::Receiver<String>,
+    pub(crate) shutdown_rx: watch::Receiver<bool>,
+    pub(crate) running_handles: RunningJobHandles,
 }
 
 impl JobWorker {
@@ -59,6 +68,10 @@ impl JobWorker {
         let mut last_backlog_alert_at = 0_i64;
 
         loop {
+            if *self.shutdown_rx.borrow() {
+                self.drain_for_shutdown(&mut tasks, &mut running).await;
+                break;
+            }
             // 限制单轮信号吸收量，避免持续提交者让调度阶段永远得不到执行机会。
             for _ in 0..MAX_SIGNAL_DRAIN_PER_TICK {
                 let Ok(job_id) = self.receiver.try_recv() else {
@@ -101,6 +114,7 @@ impl JobWorker {
                         job.kind.as_str(),
                         job.attempt,
                     );
+                    let handles = self.running_handles.clone();
                     tasks.spawn(async move {
                         crate::observability::in_context(log_context, job_span, async move {
                             let job_started = std::time::Instant::now();
@@ -109,27 +123,55 @@ impl JobWorker {
                             // 全局、类别和订阅资源计数。
                             let execution_span = tracing::Span::current();
                             let execution_context = crate::observability::current_context();
-                            let handle = tokio::spawn(async move {
+                            let watchdog_store = runner.store.clone();
+                            let watchdog_job_id = task_job_id.clone();
+                            let mut handle = tokio::spawn(async move {
                                 crate::observability::in_context(
                                     execution_context,
                                     execution_span,
-                                    async move {
-                                        tokio::time::timeout(
-                                            std::time::Duration::from_secs(
-                                                JOB_STUCK_TIMEOUT_SECONDS,
-                                            ),
-                                            runner.run_job(&task_job_id),
-                                        )
-                                        .await
-                                    },
+                                    async move { runner.run_job(&task_job_id).await },
                                 )
                                 .await
                             });
-                            let outcome = match handle.await {
-                                Ok(Ok(result)) => JobTaskResult::Finished(result),
-                                Ok(Err(_elapsed)) => JobTaskResult::TimedOut,
-                                Err(join_error) => JobTaskResult::Panicked(join_error.to_string()),
+                            handles
+                                .lock()
+                                .expect("running job handle registry poisoned")
+                                .insert(job.id.clone(), handle.abort_handle());
+                            // 看门狗只在任务超过阈值没有任何心跳（store 更新会刷新
+                            // updated_at）时才判定卡死；缓慢但持续汇报进度的批量转存
+                            // 不会被误杀。
+                            let watchdog = async {
+                                loop {
+                                    tokio::time::sleep(std::time::Duration::from_secs(
+                                        WATCHDOG_POLL_SECONDS,
+                                    ))
+                                    .await;
+                                    let stale = watchdog_store
+                                        .get(&watchdog_job_id)
+                                        .await
+                                        .is_none_or(|current| {
+                                            now().saturating_sub(current.updated_at)
+                                                >= JOB_STUCK_TIMEOUT_SECONDS as i64
+                                        });
+                                    if stale {
+                                        break;
+                                    }
+                                }
                             };
+                            let outcome = tokio::select! {
+                                joined = &mut handle => match joined {
+                                    Ok(result) => JobTaskResult::Finished(result),
+                                    Err(join_error) => JobTaskResult::Panicked(join_error.to_string()),
+                                },
+                                _ = watchdog => {
+                                    handle.abort();
+                                    JobTaskResult::TimedOut
+                                }
+                            };
+                            handles
+                                .lock()
+                                .expect("running job handle registry poisoned")
+                                .remove(&job.id);
                             let duration = job_started.elapsed();
                             crate::utils::metrics::global_metrics().observe_slow_operation(
                                 &format!("job:{}", job.kind.as_str()),
@@ -152,9 +194,17 @@ impl JobWorker {
                     break;
                 }
                 if scheduler.is_empty() {
-                    match self.receiver.recv().await {
-                        Some(job_id) => self.queue_pending_job(&mut scheduler, &job_id).await,
-                        None => receiver_open = false,
+                    tokio::select! {
+                        maybe_job_id = self.receiver.recv() => match maybe_job_id {
+                            Some(job_id) => self.queue_pending_job(&mut scheduler, &job_id).await,
+                            None => receiver_open = false,
+                        },
+                        changed = self.shutdown_rx.changed() => {
+                            if changed.is_err() {
+                                self.drain_for_shutdown(&mut tasks, &mut running).await;
+                                break;
+                            }
+                        }
                     }
                 } else {
                     tokio::select! {
@@ -162,6 +212,12 @@ impl JobWorker {
                             Some(job_id) => self.queue_pending_job(&mut scheduler, &job_id).await,
                             None => receiver_open = false,
                         },
+                        changed = self.shutdown_rx.changed() => {
+                            if changed.is_err() {
+                                self.drain_for_shutdown(&mut tasks, &mut running).await;
+                                break;
+                            }
+                        }
                         _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {}
                     }
                 }
@@ -173,6 +229,12 @@ impl JobWorker {
                     match maybe_job_id {
                         Some(job_id) => self.queue_pending_job(&mut scheduler, &job_id).await,
                         None => receiver_open = false,
+                    }
+                }
+                changed = self.shutdown_rx.changed() => {
+                    if changed.is_err() {
+                        self.drain_for_shutdown(&mut tasks, &mut running).await;
+                        break;
                     }
                 }
                 completed = tasks.join_next() => {
@@ -199,6 +261,57 @@ impl JobWorker {
             }
         }
         warn!("后台任务 worker 已停止");
+    }
+
+    /// 关闭流程：不再认领新任务，给运行中任务一个有限宽限期完成；超时则中止
+    /// 剩余任务并把仍处于 Running 的任务标记为已中断（需手动重试），确保状态
+    /// 在进程退出前落盘。
+    async fn drain_for_shutdown(
+        &self,
+        tasks: &mut JoinSet<(Job, JobTaskResult)>,
+        running: &mut RunningJobs,
+    ) {
+        info!(
+            "收到关闭信号，等待运行中任务在 {} 秒内到达持久化点",
+            SHUTDOWN_GRACE_SECONDS
+        );
+        let deadline =
+            tokio::time::Instant::now() + std::time::Duration::from_secs(SHUTDOWN_GRACE_SECONDS);
+        while !tasks.is_empty() {
+            match tokio::time::timeout_at(deadline, tasks.join_next()).await {
+                Ok(Some(Ok((job, outcome)))) => {
+                    running.finish(&job);
+                    self.handle_task_result(&job.id, outcome).await;
+                }
+                Ok(Some(Err(join_error))) => {
+                    error!("关闭期间任务调度包装器异常退出: {}", join_error);
+                }
+                Ok(None) => break,
+                Err(_elapsed) => {
+                    warn!("关闭宽限期已到，强制终止剩余任务");
+                    tasks.abort_all();
+                    while tasks.join_next().await.is_some() {}
+                    break;
+                }
+            }
+        }
+        self.running_handles
+            .lock()
+            .expect("running job handle registry poisoned")
+            .clear();
+        // 每次 store 更新都会原子写盘，这里把残留 Running 任务收敛为终态即完成
+        // 最终一次落盘。
+        for job in self.store.list().await {
+            if job.status == JobStatus::Running {
+                if let Err(error) = self
+                    .store
+                    .update(&job.id, super::queue::mark_interrupted_on_shutdown)
+                    .await
+                {
+                    warn!("关闭时标记中断任务 {} 失败: {}", job.id, error);
+                }
+            }
+        }
     }
 
     async fn queue_pending_job(&self, scheduler: &mut FairScheduler, job_id: &str) {
@@ -415,6 +528,8 @@ impl JobWorker {
             metadata_service: self.metadata_service.clone(),
             transfer_service: self.transfer_service.clone(),
             receiver,
+            shutdown_rx: self.shutdown_rx.clone(),
+            running_handles: self.running_handles.clone(),
         }
     }
 
@@ -677,6 +792,7 @@ mod tests {
             notification_store.clone(),
         ));
         let (sender, receiver) = mpsc::channel(1);
+        let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
         (
             JobWorker {
@@ -688,6 +804,8 @@ mod tests {
                 metadata_service,
                 transfer_service,
                 receiver,
+                shutdown_rx,
+                running_handles: RunningJobHandles::default(),
             },
             settings_path,
             notifications_path,

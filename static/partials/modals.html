@@ -1,0 +1,616 @@
+  <!-- 模态框：在线升级进度 -->
+  <div x-show="showUpdateProgressDialog" @click.self="closeUpdateProgressDialog()" @keydown.escape.window="closeUpdateProgressDialog()" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel dialog-panel p-6 max-w-lg w-full" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="在线升级" tabindex="-1">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h3 class="text-xl font-bold text-text" x-text="updateDialogTitle()"></h3>
+          <p class="text-sm text-muted/75 mt-1">升级过程中请保持当前页面打开。</p>
+        </div>
+        <button x-show="updateDialogCanClose()" @click="closeUpdateProgressDialog()" class="btn-secondary px-3 py-2 rounded-lg text-sm">关闭</button>
+      </div>
+
+      <div class="mt-6 space-y-4">
+        <div class="space-y-2">
+          <div class="flex items-center justify-between gap-3 text-sm">
+            <span class="text-text/80 break-words" x-text="updateProgressMessage()"></span>
+            <span class="font-semibold text-text tabular-nums whitespace-nowrap" x-text="updateProgressPercent() + '%'"></span>
+          </div>
+          <div class="h-2.5 rounded-full bg-app overflow-hidden border border-border">
+            <div class="h-full transition-all duration-300" :class="updateProgressBarClass()" :style="'width: ' + updateProgressPercent() + '%'"></div>
+          </div>
+        </div>
+
+        <div x-show="updateProgress && updateProgress.total_bytes" x-cloak class="text-xs text-muted/75">
+          <span x-text="formatSize(updateProgress ? updateProgress.downloaded_bytes : 0)"></span>
+          <span> / </span>
+          <span x-text="formatSize(updateProgress ? updateProgress.total_bytes : 0)"></span>
+        </div>
+
+        <div x-show="updateRestartRequired()" x-cloak class="rounded-lg border border-success/30 bg-success/10 p-3 text-sm text-success/85">
+          新版本已替换完成，点击下方按钮后服务会重启，恢复后自动刷新当前页面。
+        </div>
+        <div x-show="updateRestarting" x-cloak class="rounded-lg border border-primary/30 bg-primary/10 p-3 text-sm text-primary/85">
+          服务正在重启，页面会在服务恢复后自动刷新。
+        </div>
+        <div x-show="updateRestartError" x-cloak class="rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger/85 break-words" x-text="updateRestartError"></div>
+        <div x-show="updateProgress && updateProgress.error && !updateRestartError" x-cloak class="rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger/85 break-words" x-text="updateProgress ? updateProgress.error : ''"></div>
+      </div>
+
+      <div class="mt-6 flex flex-col sm:flex-row gap-3 sm:justify-end">
+        <button x-show="updateRestartRequired()" @click="restartAfterUpdate()" :disabled="updateRestarting" class="btn-primary px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
+          <span x-show="!updateRestarting">重启服务并刷新页面</span>
+          <span x-show="updateRestarting">重启中</span>
+        </button>
+        <button x-show="updateDialogCanClose()" @click="closeUpdateProgressDialog()" class="btn-secondary px-4 py-2 rounded-lg text-sm">稍后处理</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模态框：新建文件夹 -->
+  <div x-show="showNewFolderModal" @click.self="showNewFolderModal = false" @keydown.escape.window="showNewFolderModal = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel dialog-panel p-6 max-w-md w-full" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="新建文件夹" tabindex="-1">
+      <h3 class="text-xl font-bold text-text mb-4">新建文件夹</h3>
+      <div><label class="field-label">文件夹名称</label><input type="text" x-model="newFolderName" placeholder="输入名称" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text placeholder:text-muted/70" /></div>
+      <div class="flex gap-3 mt-6">
+        <button @click="showNewFolderModal = false" class="btn-secondary flex-1 px-4 py-2 rounded-lg transition-colors">取消</button>
+        <button @click="createFolder()" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors">创建</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模态框：选择转存目录 -->
+  <div x-show="showTransferModal" @click.self="showTransferModal = false" @keydown.escape.window="showTransferModal = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel dialog-panel p-6 max-w-2xl w-full" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="选择转存目录" tabindex="-1">
+      <h3 class="text-xl font-bold text-text mb-4">选择转存目录</h3>
+
+      <!-- 快速选择 -->
+      <div class="mb-4">
+        <label class="field-label">快速选择</label>
+        <div class="flex flex-wrap gap-2">
+          <template x-for="item in configuredDirectoryItems(true)" :key="item.type">
+            <button @click="selectQuickDir(item.type)" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors" x-text="item.name"></button>
+          </template>
+        </div>
+      </div>
+
+      <!-- 当前路径 -->
+      <div class="mb-4 p-3 bg-app rounded-lg border border-border">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2 text-sm text-text/80">
+            <svg class="w-4 h-4 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+            <span x-text="transferTargetPath"></span>
+          </div>
+          <button @click="transferBrowseBack()" :disabled="transferBrowseFidStack.length <= 1" class="btn-secondary px-3 py-1 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm transition-colors">← 返回上级</button>
+        </div>
+      </div>
+
+      <!-- 目录列表 -->
+      <div class="max-h-80 overflow-y-auto mb-4 border border-border rounded-lg">
+        <div x-show="transferBrowseItems.filter(i => !i.file).length === 0" class="p-8 text-center text-muted/75">
+          当前目录下没有文件夹
+        </div>
+        <template x-for="item in transferBrowseItems.filter(i => !i.file)" :key="item.fid">
+          <button @click="transferBrowseEnter(item)" class="w-full flex items-center gap-3 p-3 hover:bg-surface-2 transition-colors text-left border-b border-border last:border-b-0">
+            <svg class="w-5 h-5 text-primary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+            <span class="text-text flex-1" x-text="item.file_name"></span>
+            <svg class="w-4 h-4 text-muted/75" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </button>
+        </template>
+      </div>
+
+      <!-- 操作按钮 -->
+      <div class="flex gap-3">
+        <button @click="showTransferModal = false" class="btn-secondary flex-1 px-4 py-2 rounded-lg transition-colors">取消</button>
+        <button @click="confirmTransfer()" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors">确认转存到此目录</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 手动元数据刮削对话框 -->
+  <div x-show="showManualMetadataDialog" @click.self="closeManualMetadataDialog()" @keydown.escape.window="closeManualMetadataDialog()" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel dialog-panel p-6 max-w-3xl w-full max-h-[88vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="手动刮削元数据" tabindex="-1">
+          <div class="flex flex-col sm:flex-row gap-3 sm:items-start sm:justify-between mb-5">
+            <div>
+              <h3 class="text-xl font-bold text-text">手动刮削元数据</h3>
+              <p class="text-sm text-muted/75 mt-1" x-text="manualMetadataSubscriptionTitle"></p>
+            </div>
+            <button @click="closeManualMetadataDialog()" class="btn-secondary px-3 py-2 rounded text-sm">关闭</button>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-4">
+            <div class="sm:col-span-2">
+              <label class="field-label">搜索关键词</label>
+              <input type="text" x-model="manualMetadataQuery" @keydown.enter.prevent="searchManualMetadata()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+            </div>
+            <div>
+              <label class="field-label">媒体类型</label>
+              <select x-model="manualMetadataMediaType" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text">
+                <option value="movie">电影</option>
+                <option value="series">连续剧</option>
+                <option value="anime">动画</option>
+              </select>
+            </div>
+            <div class="flex items-end">
+              <button @click="searchManualMetadata()" :disabled="manualMetadataSearching" class="btn-primary w-full px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
+                <span x-show="!manualMetadataSearching">搜索</span>
+                <span x-show="manualMetadataSearching">搜索中</span>
+              </button>
+            </div>
+          </div>
+
+          <div x-show="manualMetadataResults.length === 0 && !manualMetadataSearching" class="empty-state app-panel-soft">暂无候选结果</div>
+          <div x-show="manualMetadataResults.length > 0" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <template x-for="item in manualMetadataResults" :key="'manual-' + item.provider + '-' + item.provider_id">
+              <div class="border border-border bg-app rounded-lg p-3 min-h-28">
+                <div class="flex gap-3">
+                  <img x-show="item.poster_url" :src="item.poster_url" class="w-14 h-20 object-cover rounded border border-border shrink-0" alt="" />
+                  <div class="min-w-0 flex-1">
+                    <div class="text-sm text-text font-medium break-words" x-text="item.title"></div>
+                    <div class="text-xs text-muted/75 mt-1" x-text="metadataSubtitle(item)"></div>
+                    <div class="text-xs text-muted mt-2 line-clamp-3" x-text="item.overview || '暂无简介'"></div>
+                  </div>
+                </div>
+                <button @click="applyManualMetadata(item)" :disabled="manualMetadataApplying" class="btn-primary w-full mt-3 px-3 py-2 rounded text-sm disabled:opacity-50">应用这个结果</button>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
+  <!-- Aria2 下载目录选择对话框 -->
+  <div x-show="showAria2DirDialog" @click.self="showAria2DirDialog = false" @keydown.escape.window="showAria2DirDialog = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-[60]" style="display: none;">
+    <div class="app-panel dialog-panel p-6 max-w-2xl w-full max-h-[88vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="选择 Aria2 下载目录" tabindex="-1">
+      <div class="flex flex-col sm:flex-row gap-3 sm:items-start sm:justify-between mb-4">
+        <div>
+          <h3 class="text-xl font-bold text-text">选择 Aria2 下载目录</h3>
+          <p class="text-sm text-muted/75 mt-1" x-text="aria2DirRoot ? '浏览根目录 ' + aria2DirRoot : '从当前媒体类型的 Aria2 下载目录开始浏览'"></p>
+        </div>
+        <button @click="showAria2DirDialog = false" class="btn-secondary px-3 py-2 rounded text-sm">关闭</button>
+      </div>
+
+      <div class="mb-4 p-3 bg-app rounded-lg border border-border">
+        <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+          <div class="min-w-0 text-sm text-text/80 break-all" x-text="aria2DirCurrent || '-'"></div>
+          <button @click="aria2DirBack()" :disabled="!aria2DirParent || aria2DirLoading" class="btn-secondary px-3 py-2 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed">返回上级</button>
+        </div>
+      </div>
+
+      <div x-show="aria2DirError" class="mb-4 text-sm text-danger break-all" x-text="aria2DirError"></div>
+      <div x-show="aria2DirLoading" class="empty-state app-panel-soft mb-4">正在读取目录...</div>
+      <div x-show="!aria2DirLoading" class="max-h-80 overflow-y-auto mb-4 border border-border rounded-lg">
+        <div x-show="aria2DirItems.length === 0" class="p-8 text-center text-muted/75">当前目录下没有文件夹</div>
+        <template x-for="item in aria2DirItems" :key="item.path">
+          <button @click="aria2DirEnter(item)" class="w-full flex items-center gap-3 p-3 hover:bg-surface-2 transition-colors text-left border-b border-border last:border-b-0">
+            <svg class="w-5 h-5 text-primary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+            <span class="text-text flex-1 break-all" x-text="item.name"></span>
+            <svg class="w-4 h-4 text-muted/75" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </button>
+        </template>
+      </div>
+
+      <div class="flex gap-3">
+        <button @click="showAria2DirDialog = false" class="btn-secondary flex-1 px-4 py-2 rounded-lg transition-colors">取消</button>
+        <button @click="selectAria2Dir()" :disabled="!aria2DirCurrent" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors disabled:opacity-50">选择当前目录</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 订阅配置对话框 -->
+  <div x-show="showSubscriptionDialog" @click.self="showSubscriptionDialog = false" @keydown.escape.window="showSubscriptionDialog = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel dialog-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="订阅配置" tabindex="-1">
+      <h3 class="text-xl font-bold text-text mb-6" x-text="subscriptionEditingId ? '编辑订阅' : '创建订阅'"></h3>
+
+      <div class="mb-6 grid grid-cols-3 gap-2">
+        <template x-for="(step, index) in subscriptionWizardSteps" :key="step.id">
+          <button @click="subscriptionDialogTab = step.id" class="border rounded-lg px-3 py-2 text-sm transition-colors" :class="subscriptionWizardStepClass(step, index)">
+            <span class="font-semibold" x-text="index + 1"></span>
+            <span class="ml-1" x-text="step.name"></span>
+          </button>
+        </template>
+      </div>
+
+      <!-- 订阅模式选择 -->
+      <div x-show="!subscriptionEditingId" class="mb-6">
+        <label class="block text-sm font-medium text-text/80 mb-3">订阅类型</label>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <button @click="setSubscriptionMode('once')" :class="subscriptionMode === 'once' ? 'bg-primary/20 border-primary' : 'bg-surface-2 border-border hover:border-border'" class="p-4 rounded-lg border transition-all text-left">
+            <div class="text-text font-semibold mb-1">仅转存一次</div>
+            <div class="text-sm text-muted">立即转存到网盘，不创建订阅记录</div>
+          </button>
+          <button @click="setSubscriptionMode('continuous')" :class="subscriptionMode === 'continuous' ? 'bg-primary/20 border-primary' : 'bg-surface-2 border-border hover:border-border'" class="p-4 rounded-lg border transition-all text-left">
+            <div class="text-text font-semibold mb-1">持续追更</div>
+            <div class="text-sm text-muted">创建订阅，定期检查并自动转存</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- 订阅配置 -->
+      <div class="mb-6">
+        <div class="border-b border-border flex gap-2 overflow-x-auto">
+          <button @click="subscriptionDialogTab = 'content'" :class="subscriptionDialogTab === 'content' ? 'text-text border-primary' : 'text-muted border-transparent hover:text-text/90'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">订阅内容</button>
+          <button x-show="subscriptionMode === 'continuous' || subscriptionEditingId" @click="subscriptionDialogTab = 'schedule'" :class="subscriptionDialogTab === 'schedule' ? 'text-text border-primary' : 'text-muted border-transparent hover:text-text/90'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">播出排期</button>
+          <button x-show="subscriptionMode === 'continuous' || subscriptionEditingId" @click="subscriptionDialogTab = 'rename'" :class="subscriptionDialogTab === 'rename' ? 'text-text border-primary' : 'text-muted border-transparent hover:text-text/90'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">高级规则</button>
+          <button x-show="subscriptionMode === 'continuous' || subscriptionEditingId" @click="subscriptionDialogTab = 'download'" :class="subscriptionDialogTab === 'download' ? 'text-text border-primary' : 'text-muted border-transparent hover:text-text/90'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">下载/STRM</button>
+        </div>
+      </div>
+
+      <div class="space-y-4 mb-6">
+        <div x-show="subscriptionDialogTab === 'content'" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-text/80 mb-2">订阅名称</label>
+            <input type="text" x-model="newSubscription.title" @input="updateSubscriptionDefaults()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="例如：风起洛阳 第二季" />
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-text/80 mb-2">分享链接</label>
+            <input type="text" x-model="newSubscription.url" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="粘贴夸克分享链接" />
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-text/80 mb-2">提取码</label>
+            <input type="text" x-model="newSubscription.password" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="没有可留空" />
+          </div>
+
+          <div x-show="subscriptionEditingId && subscriptionSourceChanged()" class="app-panel-soft p-4 space-y-3">
+            <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+              <div>
+                <div class="text-sm font-medium text-text/80">更换资源处理</div>
+                <div class="text-xs text-muted/75" x-text="sourceChangeSummary()"></div>
+              </div>
+              <span class="chip">换源</span>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer">
+                <input type="checkbox" x-model="newSubscription.keep_progress_on_source_change" class="rounded" />
+                <span>保留追更记录</span>
+              </label>
+              <label x-show="newSubscription.media_type !== 'movie' && newSubscription.keep_progress_on_source_change" class="flex items-center gap-2 text-sm text-text/80 cursor-pointer">
+                <input type="checkbox" x-model="newSubscription.continue_from_current_episode" class="rounded" />
+                <span>从当前进度下一集继续</span>
+              </label>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <template x-for="item in sourceChangeStats()" :key="item.label">
+                <div class="stat-tile p-3 min-h-0">
+                  <div class="text-xs text-muted/75" x-text="item.label"></div>
+                  <div class="mt-1 text-sm font-semibold text-text" x-text="item.value"></div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <div x-show="metadataSearchAvailable()" class="app-panel-soft p-3 space-y-3">
+            <div class="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
+              <div>
+                <div class="text-sm font-medium text-text/80">媒体元数据</div>
+                <div class="text-xs text-muted/75" x-text="selectedMetadataLabel()"></div>
+              </div>
+              <button @click="searchMetadataForSubscription()" :disabled="metadataSearching" class="btn-secondary px-3 py-2 rounded text-xs transition-colors disabled:opacity-50">匹配</button>
+            </div>
+            <div x-show="metadataSearching" class="text-xs text-muted/75">正在匹配 TMDB...</div>
+            <div x-show="metadataResults.length > 0" class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <template x-for="item in metadataResults" :key="item.provider + '-' + item.provider_id">
+                <button @click="applyMetadata(item)" :class="isSelectedMetadata(item) ? 'border-primary bg-primary/10' : 'border-border bg-app hover:border-border'" class="border rounded-lg p-2 text-left transition-colors min-h-20">
+                  <div class="flex gap-3">
+                    <img x-show="item.poster_url" :src="item.poster_url" class="w-10 h-14 object-cover rounded border border-border" alt="" />
+                    <div class="min-w-0">
+                      <div class="text-sm text-text font-medium truncate" x-text="item.title"></div>
+                      <div class="text-xs text-muted/75 mt-1" x-text="metadataSubtitle(item)"></div>
+                      <div class="text-xs text-muted mt-1 line-clamp-2" x-text="item.overview || '暂无简介'"></div>
+                    </div>
+                  </div>
+                </button>
+              </template>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-text/80 mb-2">媒体类型</label>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <button @click="setSubscriptionMediaType('movie')" :class="newSubscription.media_type === 'movie' ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors">电影</button>
+              <button @click="setSubscriptionMediaType('series')" :class="newSubscription.media_type === 'series' ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors">连续剧</button>
+              <button @click="setSubscriptionMediaType('anime')" :class="newSubscription.media_type === 'anime' ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors">动画</button>
+              <template x-for="category in settings.custom_categories" :key="category.id">
+                <button @click="setSubscriptionMediaType(customCategoryMediaType(category))" :class="newSubscription.media_type === customCategoryMediaType(category) ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors truncate" x-text="category.name || '自定义类别'"></button>
+              </template>
+            </div>
+          </div>
+
+          <div x-show="newSubscription.media_type !== 'movie'">
+            <label class="block text-sm font-medium text-text/80 mb-2">季号</label>
+            <input type="number" min="1" x-model="newSubscription.season" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+            <p class="text-xs text-muted/75 mt-1">默认第 1 季；填 2 会保存到 Season 2。</p>
+          </div>
+
+          <div x-show="subscriptionMode === 'continuous' || subscriptionEditingId" class="space-y-4">
+            <div x-show="newSubscription.media_type !== 'movie'">
+              <label class="block text-sm font-medium text-text/80 mb-2">从第几集开始转存</label>
+              <input type="number" min="1" x-model="newSubscription.start_episode_number" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="留空不限制，例如：13" />
+              <p class="text-xs text-muted/75 mt-1">低于该集数的新增文件会记为已知，但不会通知或自动转存。</p>
+            </div>
+
+            <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer">
+              <input type="checkbox" x-model="newSubscription.notify_only" class="rounded" />
+              <span>仅通知不自动转存（需要手动确认）</span>
+            </label>
+          </div>
+        </div>
+
+        <div x-show="subscriptionDialogTab === 'rename' && (subscriptionMode === 'continuous' || subscriptionEditingId)" class="space-y-4">
+          <div class="app-panel-soft p-4 space-y-3">
+            <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+              <div>
+                <div class="text-sm font-medium text-text/80">默认跟随系统规则</div>
+                <div class="text-xs text-muted/75">未开启自定义模板时，订阅会按规则中心/系统默认模板重命名。</div>
+              </div>
+              <button @click="showSubscriptionDialog = false; selectTab('settings'); selectSettingsTab('naming')" class="btn-secondary px-3 py-2 rounded text-xs">规则中心</button>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <div class="p-3 bg-app rounded-lg border border-border">
+                <span class="block text-xs text-muted/75 mb-1">重命名模板</span>
+                <span class="text-success break-all" x-text="getDefaultRenameTemplate()"></span>
+              </div>
+              <div class="p-3 bg-app rounded-lg border border-border">
+                <span class="block text-xs text-muted/75 mb-1">保存目录</span>
+                <span class="text-success break-all" x-text="getDefaultTargetDir()"></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="app-panel-soft p-4 space-y-3">
+            <div class="flex flex-col sm:flex-row sm:items-end gap-3">
+              <div class="flex-1">
+                <label class="field-label">规则预设</label>
+                <select x-model="newSubscription.rule_preset_id" @change="applyRulePresetToSubscription(newSubscription.rule_preset_id)" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
+                  <option value="">不使用预设</option>
+                  <template x-for="preset in rulePresets" :key="preset.id">
+                    <option :value="preset.id" x-text="preset.name"></option>
+                  </template>
+                </select>
+              </div>
+              <button @click="showSubscriptionDialog = false; selectTab('settings'); selectSettingsTab('naming')" class="btn-secondary px-3 py-2 rounded text-sm">管理预设</button>
+            </div>
+            <div x-show="newSubscription.rule_preset_id" class="text-xs text-muted/75" x-text="rulePresetById(newSubscription.rule_preset_id)?.description || ruleSummary(rulePresetById(newSubscription.rule_preset_id)?.rules)"></div>
+          </div>
+
+          <details class="app-panel-soft p-4">
+            <summary class="cursor-pointer text-sm font-medium text-text/80 hover:text-text">本订阅覆盖设置</summary>
+            <div class="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div>
+                <label class="flex items-center justify-between text-sm font-medium text-text/80 mb-2">
+                  <span>转存目录</span>
+                  <button @click="newSubscription.custom_dir = !newSubscription.custom_dir" class="text-xs text-primary hover:text-primary">
+                    <span x-text="newSubscription.custom_dir ? '使用默认' : '自定义'"></span>
+                  </button>
+                </label>
+                <div x-show="!newSubscription.custom_dir" class="p-3 bg-app rounded-lg border border-border text-sm">
+                  <span class="text-muted">自动：</span>
+                  <span class="text-success" x-text="getDefaultTargetDir()"></span>
+                </div>
+                <div x-show="newSubscription.custom_dir" class="space-y-2">
+                  <input type="text" x-model="newSubscription.target_dir_name" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="目录名称，例如：庆余年（2024）" />
+                  <p class="text-xs text-muted/75">电影保存到该目录；连续剧和动画会在该目录下保存到 Season X。</p>
+                </div>
+              </div>
+              <div>
+                <label class="flex items-center justify-between text-sm font-medium text-text/80 mb-2">
+                  <span>重命名模板</span>
+                  <button @click="newSubscription.custom_rename = !newSubscription.custom_rename" class="text-xs text-primary hover:text-primary">
+                    <span x-text="newSubscription.custom_rename ? '使用默认' : '自定义'"></span>
+                  </button>
+                </label>
+                <div x-show="!newSubscription.custom_rename" class="p-3 bg-app rounded-lg border border-border text-sm">
+                  <span class="text-muted">自动：</span>
+                  <span class="text-success" x-text="getDefaultRenameTemplate()"></span>
+                </div>
+                <div x-show="newSubscription.custom_rename" class="space-y-2">
+                  <input type="text" x-model="newSubscription.rename_template" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="例如：庆余年.S01E{} 或 影片名" />
+                  <p class="text-xs text-muted/75">支持 <code class="text-text/80">{title}</code>、<code class="text-text/80">{season}</code>、<code class="text-text/80">{episode}</code>、<code class="text-text/80">{ext}</code>。</p>
+                </div>
+              </div>
+            </div>
+            <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div><label class="field-label">包含关键词</label><input type="text" x-model="newSubscription.include_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="多个用逗号或换行分隔" /></div>
+              <div><label class="field-label">排除关键词</label><input type="text" x-model="newSubscription.exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="预告, 花絮, trailer" /></div>
+              <div><label class="field-label">匹配正则</label><input type="text" x-model="newSubscription.match_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：S01E\\d+|第\\d+集" /></div>
+              <div><label class="field-label">集数识别覆盖正则</label><input type="text" x-model="newSubscription.episode_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：\\[(?P&lt;episode&gt;\\d+)\\]" /><small class="field-help">必须包含命名捕获 episode，可选 season。</small></div>
+              <div><label class="field-label">换源搜索关键词</label><input type="text" x-model="newSubscription.source_search_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="多个关键词用逗号分隔" /></div>
+              <div><label class="field-label">候选排除词</label><input type="text" x-model="newSubscription.source_exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" /></div>
+              <div><label class="field-label">候选质量偏好</label><input type="text" x-model="newSubscription.source_prefer_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="2160p, 简中, HEVC" /></div>
+              <div><label class="field-label">完成集数</label><input type="number" min="1" x-model="newSubscription.finish_after_episode" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：12" /></div>
+              <div>
+                <label class="field-label">同集保留策略</label>
+                <select x-model="newSubscription.duplicate_episode_strategy" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
+                  <option value="highest_quality">清晰度最高</option>
+                  <option value="latest_upload">上传时间最新</option>
+                  <option value="largest_size">文件最大</option>
+                  <option value="first">最先出现</option>
+                </select>
+              <div><label class="field-label">目标同名冲突</label><select x-model="newSubscription.conflict_strategy" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text"><option value="skip">跳过已有文件</option><option value="overwrite">覆盖已有文件</option><option value="keep_both">保留两份</option></select></div>
+              </div>
+              <div><label class="field-label">重命名正则</label><input type="text" x-model="newSubscription.rename_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：^\\d+\\." /></div>
+              <div><label class="field-label">替换文本</label><input type="text" x-model="newSubscription.rename_replacement" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：S01E$0" /></div>
+            </div>
+            <div class="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-3">
+              <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="newSubscription.ignore_extensions" class="rounded" />忽略扩展名匹配</label>
+              <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="newSubscription.only_latest" class="rounded" />仅处理最新一集</label>
+              <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="newSubscription.skip_existing_transferred" class="rounded" />跳过已转存</label>
+              <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="newSubscription.auto_create_target_dir" class="rounded" />自动创建目录</label>
+            </div>
+          </details>
+
+          <div class="app-panel-soft p-4 space-y-3">
+            <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+              <div>
+                <div class="text-sm font-medium text-text/80">重命名预览</div>
+                <div class="text-xs text-muted/75" x-text="renamePreview ? renamePreview.summary : '使用搜索嗅探文件、最近探测文件或下面的样例文件预览规则。'"></div>
+              </div>
+              <button @click="previewSubscriptionRename()" :disabled="renamePreviewLoading" class="btn-secondary px-3 py-2 rounded text-sm disabled:opacity-50">
+                <span x-show="!renamePreviewLoading">预览</span>
+                <span x-show="renamePreviewLoading">预览中</span>
+              </button>
+            </div>
+            <textarea x-model="newSubscription.preview_samples" rows="4" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="每行一个样例文件名，例如：&#10;第01集.mkv&#10;Show.S01E02.1080p.mkv"></textarea>
+            <div x-show="renamePreviewError" class="text-sm text-danger" x-text="renamePreviewError"></div>
+            <div x-show="renamePreview && renamePreview.items && renamePreview.items.length > 0" class="border border-border rounded-lg overflow-hidden">
+              <div class="hidden md:grid grid-cols-12 gap-2 px-3 py-2 bg-app text-xs text-muted/75">
+                <div class="col-span-4">原文件名</div>
+                <div class="col-span-4">目标文件名</div>
+                <div class="col-span-2">集数</div>
+                <div class="col-span-2">结果</div>
+              </div>
+              <template x-for="(item, itemIndex) in (renamePreview && renamePreview.items) || []" :key="'rename-preview-' + item.source_name + '-' + item.target_name + '-' + itemIndex">
+                <div class="grid gap-2 px-3 py-3 border-t border-border text-xs md:grid-cols-12">
+                  <div class="text-text/80 break-all md:col-span-4" x-text="item.source_name"></div>
+                  <div class="text-success break-all md:col-span-4" x-text="item.target_name"></div>
+                  <div class="text-muted md:col-span-2"><span class="text-muted/75 md:hidden">集数 </span><span x-text="item.episode ? '第 ' + item.episode + ' 集' : '-'"></span></div>
+                  <div class="md:col-span-2">
+                    <span :class="item.action === 'transfer' ? 'text-success' : 'text-warning'" x-text="item.action === 'transfer' ? '会转存' : (item.skip_reason || '跳过')"></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+
+        <div x-show="subscriptionDialogTab === 'schedule' && (subscriptionMode === 'continuous' || subscriptionEditingId)" class="space-y-4">
+          <div class="app-panel-soft p-4 space-y-3">
+            <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer">
+              <input type="checkbox" x-model="newSubscription.manual_schedule_enabled" class="rounded" />
+              <span>使用手动播出排期</span>
+            </label>
+            <p class="text-xs text-muted/75">手动排期优先于 TMDB 逐集日期，但不会修改已刮削的原始元数据。关闭后恢复使用元数据和周期推断。</p>
+          </div>
+
+          <div x-show="newSubscription.manual_schedule_enabled" class="app-panel-soft p-4 space-y-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div><label class="field-label">开播日期</label><input type="date" x-model="newSubscription.manual_schedule_start_date" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" /></div>
+              <div><label class="field-label">播出时间（上海）</label><input type="time" x-model="newSubscription.manual_schedule_air_time" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" /></div>
+            </div>
+            <div>
+              <label class="field-label">播出星期 <span class="text-muted/60">未选择时使用开播日期的星期</span></label>
+              <div class="schedule-weekdays">
+                <template x-for="day in [{id:1,name:'一'},{id:2,name:'二'},{id:3,name:'三'},{id:4,name:'四'},{id:5,name:'五'},{id:6,name:'六'},{id:7,name:'日'}]" :key="day.id">
+                  <button type="button" @click="toggleManualScheduleWeekday(day.id)" :class="newSubscription.manual_schedule_weekdays.map(Number).includes(day.id) ? 'is-active' : ''" x-text="'周' + day.name"></button>
+                </template>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div><label class="field-label">周期（周）</label><input type="number" min="1" max="52" x-model.number="newSubscription.manual_schedule_interval_weeks" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" /></div>
+              <div><label class="field-label">首集编号</label><input type="number" min="1" x-model.number="newSubscription.manual_schedule_first_episode" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" /></div>
+              <div><label class="field-label">总集数</label><input type="number" min="1" x-model="newSubscription.manual_schedule_total_episodes" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="可留空" /></div>
+            </div>
+            <div class="text-xs text-muted/75 leading-6">
+              示例：开播日期为周一，选择“周一、周四”，周期为 1，将按每周两集生成排期；周期为 2 则隔周播出。
+            </div>
+          </div>
+
+          <div x-show="!newSubscription.manual_schedule_enabled" class="app-panel-soft p-4">
+            <div class="text-sm font-medium text-text/80">自动排期来源</div>
+            <p class="mt-2 text-xs text-muted/75">优先使用逐集元数据和下一集日期；只有发布日期时显示开播/上映日期；数据不足时会标记为“排期未知”。</p>
+          </div>
+        </div>
+
+        <div x-show="subscriptionDialogTab === 'download' && (subscriptionMode === 'continuous' || subscriptionEditingId)" class="space-y-4">
+          <div class="app-panel-soft p-4 space-y-3">
+            <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer">
+              <input type="checkbox" x-model="newSubscription.sync_download_enabled" class="rounded" />
+              <span>同步用Aria2下载</span>
+            </label>
+            <div x-show="newSubscription.sync_download_enabled" class="space-y-3">
+              <div>
+                <label class="field-label">下载地址</label>
+                <div class="flex gap-2">
+                  <input type="text" x-model="newSubscription.sync_download_dir" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" :placeholder="aria2DirForMediaType() || '/downloads/剧集/Season 1'" />
+                  <button type="button" @click="openAria2DirBrowser()" class="btn-secondary px-4 py-2 rounded-lg text-sm whitespace-nowrap">浏览</button>
+                </div>
+              </div>
+              <p class="text-xs text-muted/75">留空时按媒体类型使用系统设置中的 Aria2 下载目录；未配置时不指定目录，由 Aria2 自身决定。订阅检查发现更新并完成转存后，会提交重命名后的文件到 Aria2。</p>
+            </div>
+          </div>
+
+          <div class="app-panel-soft p-4 space-y-3">
+            <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer">
+              <input type="checkbox" x-model="newSubscription.strm_enabled" class="rounded" />
+              <span>转存后生成 STRM 文件</span>
+            </label>
+            <p class="text-xs text-muted/75">需要先在系统设置中启用 STRM 并配置输出目录与 HTTPStrm 访问地址。</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 操作按钮 -->
+      <div class="flex flex-col sm:flex-row gap-3">
+        <button @click="showSubscriptionDialog = false" class="btn-secondary flex-1 px-4 py-2 rounded-lg transition-colors">取消</button>
+        <button x-show="canGoPreviousSubscriptionStep()" @click="previousSubscriptionStep()" class="btn-secondary flex-1 px-4 py-2 rounded-lg transition-colors">上一步</button>
+        <button x-show="canGoNextSubscriptionStep()" @click="nextSubscriptionStep()" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors">下一步</button>
+        <button x-show="!canGoNextSubscriptionStep()" @click="confirmSubscription()" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors">
+          <span x-text="subscriptionEditingId ? '保存订阅' : (subscriptionMode === 'once' ? '立即转存' : '创建订阅')"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 统一危险操作确认 -->
+  <div x-show="showDangerConfirmDialog" @click.self="resolveDangerConfirmation(false)" class="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4" style="display:none">
+    <div class="app-panel dialog-panel w-full max-w-lg p-6" role="alertdialog" aria-modal="true" :aria-label="dangerConfirmTitle" tabindex="-1" @keydown.tab="trapDialogFocus($event)">
+      <h3 class="text-xl font-bold text-danger" x-text="dangerConfirmTitle"></h3><p class="mt-3 text-sm text-text/80" x-text="dangerConfirmMessage"></p>
+      <div x-show="dangerConfirmPhrase" class="mt-4"><label class="field-label" x-text="'输入 ' + dangerConfirmPhrase + ' 以确认'"></label><input x-ref="dangerConfirmInput" x-model="dangerConfirmInput" @keydown.enter.prevent="resolveDangerConfirmation(true)" class="app-input w-full" /></div>
+      <div class="mt-5 flex justify-end gap-2"><button @click="resolveDangerConfirmation(false)" class="btn-secondary px-4 py-2">取消</button><button @click="resolveDangerConfirmation(true)" :disabled="!dangerConfirmationReady()" class="btn-danger px-4 py-2 disabled:opacity-40">确认执行</button></div>
+    </div>
+  </div>
+
+  <!-- 后台任务详情 -->
+  <div x-show="showJobDetailDialog" @click.self="showJobDetailDialog = false" @keydown.escape.window="showJobDetailDialog = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
+    <div class="app-panel dialog-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="后台任务详情" tabindex="-1">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
+        <div class="min-w-0">
+          <h3 class="text-xl font-bold text-text break-all" x-text="selectedJob ? selectedJob.title : '任务详情'"></h3>
+          <p class="text-sm text-muted/75 mt-1" x-text="selectedJob ? selectedJob.id : ''"></p>
+        </div>
+        <div class="flex gap-2">
+          <button @click="copySelectedJobDetail()" class="btn-secondary px-3 py-2 rounded text-sm">复制详情</button>
+          <button @click="showJobDetailDialog = false" class="btn-secondary px-3 py-2 rounded text-sm">关闭</button>
+        </div>
+      </div>
+
+      <template x-if="selectedJob">
+        <div class="space-y-4">
+          <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
+            <div class="stat-tile p-3"><div class="text-xs text-muted/75">类型</div><div class="mt-1 text-sm font-semibold text-text" x-text="jobKindLabel(selectedJob.kind)"></div></div>
+            <div class="stat-tile p-3"><div class="text-xs text-muted/75">优先级</div><div class="mt-1 text-sm font-semibold text-text" x-text="jobPriorityLabel(selectedJob.priority)"></div></div>
+            <div class="stat-tile p-3"><div class="text-xs text-muted/75">执行 / 错误分类</div><div class="mt-1 text-sm font-semibold text-text" x-text="'第 ' + (selectedJob.attempt || 1) + ' 次 · ' + jobErrorClassLabel(selectedJob.error_class)"></div></div>
+            <div class="stat-tile p-3"><div class="text-xs text-muted/75">状态</div><div class="mt-1 text-sm font-semibold" :class="jobStatusClass(selectedJob.status)" x-text="jobStatusLabel(selectedJob.status)"></div></div>
+            <div class="stat-tile p-3"><div class="text-xs text-muted/75">进度</div><div class="mt-1 text-sm font-semibold text-primary" x-text="(selectedJob.progress || 0) + '%'"></div></div>
+            <div class="stat-tile p-3"><div class="text-xs text-muted/75">耗时</div><div class="mt-1 text-sm font-semibold text-text" x-text="jobDurationLabel(selectedJob)"></div></div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+            <div class="app-panel-soft p-3">
+              <div class="text-xs text-muted/75 mb-1">创建 / 开始 / 结束</div>
+              <div class="text-text/80" x-text="'创建：' + formatTime(selectedJob.created_at)"></div>
+              <div class="text-text/80" x-text="'开始：' + formatTime(selectedJob.started_at)"></div>
+              <div class="text-text/80" x-text="'结束：' + formatTime(selectedJob.finished_at)"></div>
+            </div>
+            <div class="app-panel-soft p-3">
+              <div class="text-xs text-muted/75 mb-1">消息</div>
+              <div class="text-text/80 break-all" x-text="selectedJob.message || '-'"></div>
+              <div x-show="selectedJob.error" class="text-danger break-all mt-2" x-text="selectedJob.error"></div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <div>
+              <div class="text-sm font-medium text-text/80 mb-2">Payload</div>
+              <pre class="app-panel-soft p-3 max-h-72 overflow-auto whitespace-pre-wrap text-xs text-text/80" x-text="jobPayloadPretty(selectedJob)"></pre>
+            </div>
+            <div>
+              <div class="text-sm font-medium text-text/80 mb-2">Result</div>
+              <pre class="app-panel-soft p-3 max-h-72 overflow-auto whitespace-pre-wrap text-xs text-text/80" x-text="jobResultPretty(selectedJob)"></pre>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+

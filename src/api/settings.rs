@@ -88,6 +88,13 @@ fn settings_schema() -> SettingsSchemaResponse {
     let fields = vec![
         setting_field!("app_username", "用户名", "text", "basic", "admin"),
         setting_field!("app_password", "密码", "password", "basic", "change-me"),
+        setting_field!(
+            "trust_proxy_headers",
+            "信任反向代理转发头",
+            "boolean",
+            "advanced",
+            false
+        ),
         setting_field!("aria2_rpc_url", "Aria2 RPC URL", "url", "basic", ""),
         setting_field!("aria2_secret", "Aria2 Secret", "password", "basic", ""),
         setting_field!("aria2_movie_dir", "Aria2 电影下载目录", "path", "basic", ""),
@@ -629,7 +636,12 @@ fn public_settings(settings: crate::models::Settings) -> Result<serde_json::Valu
 }
 
 fn mask_secret(value: &str) -> String {
-    "*".repeat(value.chars().count())
+    // 固定长度掩码，避免泄露密钥的真实长度。
+    if value.is_empty() {
+        String::new()
+    } else {
+        "********".to_string()
+    }
 }
 
 fn is_secret_mask(value: &str) -> bool {
@@ -724,6 +736,11 @@ async fn update_settings(
                     "app_password" => {
                         if let Some(s) = non_mask_secret(&value) {
                             settings.app_password = s;
+                        }
+                    }
+                    "trust_proxy_headers" => {
+                        if let Some(b) = value.as_bool() {
+                            settings.trust_proxy_headers = b;
                         }
                     }
                     "check_links" => {
@@ -1285,5 +1302,28 @@ mod tests {
                 key
             );
         }
+    }
+
+    #[test]
+    fn mask_secret_uses_fixed_length() {
+        assert_eq!(mask_secret("short"), "********");
+        assert_eq!(
+            mask_secret("a-very-long-secret-value-with-many-characters"),
+            "********"
+        );
+        assert_eq!(mask_secret(""), "");
+    }
+
+    #[test]
+    fn masked_secret_round_trip_does_not_overwrite_real_secret() {
+        // 前端把掩码值原样回传时，不应覆盖真实密钥
+        let masked = mask_secret("real-secret-value");
+        assert!(is_secret_mask(&masked));
+        assert_eq!(non_mask_secret(&serde_json::json!(masked)), None);
+        // 真实的新密钥仍可通过
+        assert_eq!(
+            non_mask_secret(&serde_json::json!("new-secret")),
+            Some("new-secret".to_string())
+        );
     }
 }

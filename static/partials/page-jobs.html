@@ -1,0 +1,137 @@
+        <!-- 后台日志页面 -->
+        <div x-show="currentTab === 'transferHistory'" class="page-stack">
+          <div class="metric-grid">
+            <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">后台任务</div>
+              <div class="mt-2 text-2xl font-semibold text-text" x-text="backgroundLogStats.total"></div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">进行中</div>
+              <div class="mt-2 text-2xl font-semibold text-warning" x-text="backgroundLogStats.active"></div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">成功</div>
+              <div class="mt-2 text-2xl font-semibold text-success" x-text="backgroundLogStats.success"></div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">失败</div>
+              <div class="mt-2 text-2xl font-semibold text-danger" x-text="backgroundLogStats.failed"></div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">已取消</div>
+              <div class="mt-2 text-2xl font-semibold text-text/80" x-text="backgroundLogStats.canceled"></div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">处理文件</div>
+              <div class="mt-2 text-2xl font-semibold text-primary" x-text="backgroundLogStats.saved"></div>
+            </div>
+          </div>
+
+          <div x-show="lastCheckResult" class="app-panel p-4 space-y-4">
+            <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+              <div>
+                <h3 class="section-title">最近检查结果</h3>
+                <p class="text-sm text-muted/75 mt-1" x-text="lastCheckResult ? lastCheckResult.summary : ''"></p>
+              </div>
+              <button @click="lastCheckResult = null" class="btn-secondary px-3 py-2 rounded text-sm">关闭</button>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
+              <div class="stat-tile p-3"><div class="text-xs text-muted/75">扫描文件</div><div class="mt-1 text-xl font-semibold text-text" x-text="lastCheckMetric('scanned_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-muted/75">新增</div><div class="mt-1 text-xl font-semibold text-success" x-text="lastCheckMetric('new_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-muted/75">已知</div><div class="mt-1 text-xl font-semibold text-primary" x-text="lastCheckMetric('known_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-muted/75">目录跳过</div><div class="mt-1 text-xl font-semibold text-text/80" x-text="lastCheckMetric('skipped_directory_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-muted/75">跨季跳过</div><div class="mt-1 text-xl font-semibold text-secondary" x-text="lastCheckMetric('skipped_other_season_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-muted/75">起始集跳过</div><div class="mt-1 text-xl font-semibold text-warning" x-text="lastCheckMetric('skipped_before_start_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-muted/75">同集跳过</div><div class="mt-1 text-xl font-semibold text-secondary" x-text="lastCheckMetric('skipped_duplicate_episode_count')"></div></div>
+            </div>
+            <div x-show="checkDetailItems().length > 0" class="data-table">
+              <div class="data-table-scroll">
+                <div class="data-table-head grid-cols-[minmax(320px,1fr)_90px_90px_minmax(240px,0.8fr)] px-3">
+                  <div>文件名</div>
+                  <div>集数</div>
+                  <div>结果</div>
+                  <div>原因</div>
+                </div>
+                <template x-for="(item, itemIndex) in checkDetailItems()" :key="'check-detail-' + (item.file_key || item.name || 'missing') + '-' + itemIndex">
+                  <div class="data-table-row grid-cols-[minmax(320px,1fr)_90px_90px_minmax(240px,0.8fr)] px-3">
+                    <div class="min-w-0">
+                      <div class="truncate text-text/85" x-text="item.name"></div>
+                      <div x-show="item.parent_path" class="truncate text-xs text-muted/75" x-text="item.parent_path"></div>
+                    </div>
+                    <div class="text-xs text-muted/80" x-text="item.episode ? '第 ' + item.episode + ' 集' : '-'"></div>
+                    <div><span class="badge" :class="item.action === 'new' ? 'badge-success' : (item.action === 'skip' ? 'badge-warning' : 'badge-primary')" x-text="checkActionLabel(item.action)"></span></div>
+                    <div class="truncate text-xs text-muted/80" x-text="item.reason || '-'"></div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <div class="app-panel list-surface">
+            <div class="p-4 border-b border-border toolbar-panel">
+              <div>
+                <h3 class="section-title">任务日志</h3>
+                <p class="text-sm text-muted/75 mt-1">记录转存、元数据刮削和推送派发等后台任务，排队和运行中的任务可取消，失败任务可重试。</p>
+              </div>
+              <button @click="loadJobs()" class="btn-secondary px-4 py-2 rounded-lg transition-colors text-sm">刷新任务</button>
+            </div>
+            <div class="p-4 border-b border-border grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_180px_180px_auto] gap-3">
+              <input type="search" x-model="backgroundJobQuery" placeholder="搜索标题、消息、错误或任务参数" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" />
+              <select x-model="backgroundJobFilterKind" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
+                <template x-for="kind in backgroundJobKinds" :key="kind.id">
+                  <option :value="kind.id" x-text="kind.name"></option>
+                </template>
+              </select>
+              <select x-model="backgroundJobFilterStatus" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
+                <template x-for="status in backgroundJobStatuses" :key="status.id">
+                  <option :value="status.id" x-text="status.name"></option>
+                </template>
+              </select>
+              <button @click="resetBackgroundJobFilters()" class="btn-secondary px-4 py-2 rounded-lg text-sm">清空筛选</button>
+            </div>
+            <div class="data-table">
+              <div class="data-table-scroll">
+                <div class="data-table-head grid-cols-[92px_110px_minmax(300px,1.8fr)_150px_90px_150px] px-3">
+                  <div>状态</div>
+                  <div>类型</div>
+                  <div>任务</div>
+                  <div>进度</div>
+                  <div>耗时</div>
+                  <div class="text-right">操作</div>
+                </div>
+                <template x-for="(job, jobIndex) in recentBackgroundJobs" :key="'job-' + (job.id || 'missing') + '-' + jobIndex">
+                  <div>
+                    <div class="data-table-row grid-cols-[92px_110px_minmax(300px,1.8fr)_150px_90px_150px] px-3">
+                      <div><span :class="jobStatusBadgeClass(job.status)" x-text="jobStatusLabel(job.status)"></span></div>
+                      <div class="flex flex-col items-start gap-1">
+                        <span class="badge badge-primary" x-text="jobKindLabel(job.kind)"></span>
+                        <span class="text-[10px] text-muted/75" x-text="'优先级 ' + jobPriorityLabel(job.priority)"></span>
+                      </div>
+                      <div class="min-w-0">
+                        <div class="truncate text-sm font-medium text-text" x-text="job.title"></div>
+                        <div class="truncate text-xs text-muted/75" x-text="job.message || job.error || formatTime(job.created_at)"></div>
+                        <div x-show="(job.attempt || 1) > 1 || job.error_class" class="truncate text-[10px] text-warning/80" x-text="'第 ' + (job.attempt || 1) + ' 次 · ' + jobErrorClassLabel(job.error_class)"></div>
+                      </div>
+                      <div class="space-y-1">
+                        <div class="progress-inline"><span :style="'width: ' + (job.progress || 0) + '%'"></span></div>
+                        <div class="text-xs text-muted/75 tabular-nums" x-text="(job.progress || 0) + '%'"></div>
+                      </div>
+                      <div class="text-xs text-muted/80" x-text="jobDurationLabel(job)"></div>
+                      <div class="flex flex-wrap justify-end gap-1">
+                        <select x-show="job.status === 'queued'" :value="job.priority || 'normal'" @change="setJobPriority(job, $event.target.value)" class="app-select px-1 py-1 text-xs" aria-label="任务优先级">
+                          <option value="high">高</option><option value="normal">普通</option><option value="low">低</option>
+                        </select>
+                        <button @click="openJobDetail(job)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">详情</button>
+                        <button x-show="canCancelJob(job)" @click="cancelJob(job)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">取消</button>
+                        <button x-show="canRetryJob(job)" @click="retryJob(job)" class="btn-primary px-2 py-1 rounded text-xs transition-colors">重试</button>
+                      </div>
+                    </div>
+                    <div x-show="job.error" class="border-b border-border bg-danger/5 px-3 py-2 text-xs text-danger break-all" x-text="job.error"></div>
+                  </div>
+                </template>
+              </div>
+              <div x-show="filteredBackgroundJobs.length > recentBackgroundJobs.length" class="p-3 text-center"><button @click="backgroundJobVisibleLimit += 80" class="btn-secondary px-5 py-2">加载更多任务</button></div><div x-show="recentBackgroundJobs.length === 0" class="empty-state">暂无后台日志</div>
+            </div>
+          </div>
+        </div>
+

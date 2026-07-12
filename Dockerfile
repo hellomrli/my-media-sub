@@ -43,8 +43,16 @@ COPY --from=builder /app/target/release/my-media-sub /usr/local/bin/my-media-sub
 # 复制静态文件
 COPY static /app/static
 
-# 创建数据目录
-RUN mkdir -p /app/data
+# 创建非 root 运行用户和数据目录。
+# 注意：/app/data 通常由 docker-compose 以宿主目录 bind mount 挂载，
+# 挂载后目录属主以宿主机为准。请确保宿主目录对 UID/GID 1000 可写，
+# 例如：chown -R 1000:1000 ./data；或在 compose 中用 `user:` 覆盖为宿主用户。
+RUN groupadd --gid 1000 app \
+    && useradd --uid 1000 --gid 1000 --home-dir /app --no-create-home app \
+    && mkdir -p /app/data \
+    && chown -R app:app /app
+
+USER app
 
 # 设置环境变量
 ENV SERVER_HOST=0.0.0.0

@@ -263,6 +263,29 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    #[tokio::test]
+    async fn rate_limit_attempt_keys_are_removed_once_window_expires() {
+        let (service, _context, dir) = test_service().await;
+        service.allow_command(42, 42, "status", false).await;
+        assert!(!service.command_rates.lock().await.attempts.is_empty());
+        // 将所有尝试时间戳挪到窗口之外，下一次检查应把空键清理掉。
+        {
+            let mut rates = service.command_rates.lock().await;
+            for attempts in rates.attempts.values_mut() {
+                for at in attempts.iter_mut() {
+                    *at -= RATE_WINDOW_SECONDS * 2;
+                }
+            }
+        }
+        assert!(service.allow_command(7, 7, "status", false).await);
+        let rates = service.command_rates.lock().await;
+        assert!(rates
+            .attempts
+            .keys()
+            .all(|key| !key.contains("42")), "过期键应被移除: {:?}", rates.attempts.keys().collect::<Vec<_>>());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn write_actions_reuse_automation_api_minimum_scopes() {
         assert_eq!(

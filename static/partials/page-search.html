@@ -1,0 +1,287 @@
+        <!-- 搜索页面 -->
+        <div x-show="currentTab === 'search'" class="page-stack search-page">
+          <div class="metric-grid search-metric-grid">
+            <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">结果范围</div>
+              <div class="mt-2 flex items-end gap-2">
+                <span class="text-2xl font-semibold text-text" x-text="visibleSearchResults.length"></span>
+                <span class="pb-1 text-xs text-muted/60" x-text="'/ ' + searchResultStats.total"></span>
+              </div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">链接健康</div>
+              <div class="mt-2 text-2xl font-semibold" :class="searchResultStats.valid ? 'text-success' : 'text-muted'" x-text="searchResultStats.valid + ' / ' + searchResultStats.checked"></div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">优质资源</div>
+              <div class="mt-2 text-2xl font-semibold text-primary" x-text="searchResultStats.quality"></div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">已嗅探文件</div>
+              <div class="mt-2 text-2xl font-semibold text-text" x-text="searchResultStats.files"></div>
+            </div>
+          </div>
+
+          <section class="app-panel search-command-panel">
+            <div class="search-command-copy">
+              <span class="panel-eyebrow">DISCOVER</span>
+              <h3>查找下一部媒体</h3>
+              <p>输入片名、年份、季度或版本关键词；搜索后可先检查质量与文件，再决定立即转存或持续追更。</p>
+            </div>
+
+            <div class="search-command-row">
+              <div class="search-input-shell">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5.2-5.2m2.2-5.3a7.5 7.5 0 11-15 0 7.5 7.5 0 0115 0z"/></svg>
+                <input type="text" x-ref="globalSearchInput" x-model="searchQuery" @keyup.enter="search()" placeholder="例如：沙丘 2 4K、葬送的芙莉莲 S01..." list="searchHistoryList" />
+              </div>
+              <datalist id="searchHistoryList">
+                <template x-for="item in searchHistory" :key="item"><option :value="item"></option></template>
+              </datalist>
+              <button @click="search()" :disabled="searching || !searchQuery.trim()" class="btn-primary search-submit-button disabled:opacity-50 disabled:cursor-not-allowed">
+                <svg x-show="!searching" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14m-6-6 6 6-6 6"/></svg>
+                <span x-text="searching ? '搜索中' : '开始搜索'"></span>
+              </button>
+            </div>
+
+            <div x-show="searching || searchProgress.value > 0" x-cloak class="search-progress">
+              <div class="flex items-center justify-between gap-3 text-xs">
+                <span class="text-text/80" x-text="searchProgress.label || '准备搜索'"></span>
+                <span class="text-muted/75 tabular-nums" x-text="(searchProgress.value || 0) + '%'"></span>
+              </div>
+              <div class="mt-2 h-2 rounded-full bg-app overflow-hidden border border-border">
+                <div class="h-full search-progress-bar transition-all duration-500" :style="searchProgressStyle()"></div>
+              </div>
+              <div x-show="searchProgress.detail" class="mt-2 text-xs text-muted/75" x-text="searchProgress.detail"></div>
+            </div>
+
+            <div class="search-command-meta">
+              <div x-show="searchHistory.length > 0 && !searchQuery" class="search-history-strip">
+                <span>最近</span>
+                <template x-for="(item, idx) in searchHistory.slice(0, 6)" :key="idx">
+                  <button @click="searchQuery = item; search()" x-text="item"></button>
+                </template>
+                <button @click="clearSearchHistory()" class="is-clear">清空</button>
+              </div>
+
+              <details class="search-options">
+                <summary>
+                  <span>搜索策略</span>
+                  <span x-text="(searchOptions.probeFiles ? '嗅探文件' : '快速搜索') + ' · ' + (searchOptions.filterBad ? '过滤失效' : '保留全部')"></span>
+                </summary>
+                <div class="search-options-popover">
+                  <label>
+                    <input type="checkbox" x-model="searchOptions.filterBad" />
+                    <span><strong>过滤失效链接</strong><small>不展示已经无法访问的分享</small></span>
+                  </label>
+                  <label>
+                    <input type="checkbox" x-model="searchOptions.probeFiles" />
+                    <span><strong>嗅探文件列表</strong><small>读取文件数、剧集数、容量和质量标签</small></span>
+                  </label>
+                </div>
+              </details>
+            </div>
+          </section>
+
+          <section x-show="searchResults.length > 0" class="app-panel search-results-panel">
+            <div class="search-results-toolbar">
+              <div class="min-w-0">
+                <span class="panel-eyebrow">RESULTS</span>
+                <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <h3>资源候选</h3>
+                  <span class="text-xs text-muted/60" x-text="visibleSearchResults.length + ' 个结果符合当前筛选'"></span>
+                </div>
+              </div>
+
+              <div class="search-results-controls">
+                <div class="search-view-toggle" aria-label="搜索结果视图">
+                  <button @click="setSearchViewMode('poster')" :class="searchViewMode === 'poster' ? 'is-active' : ''" :aria-pressed="searchViewMode === 'poster'" title="海报视图">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-width="2" d="M4 4h6v7H4zM14 4h6v7h-6zM4 15h6v5H4zM14 15h6v5h-6z"/></svg>
+                  </button>
+                  <button @click="setSearchViewMode('list')" :class="searchViewMode === 'list' ? 'is-active' : ''" :aria-pressed="searchViewMode === 'list'" title="紧凑列表">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-width="2" d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>
+                  </button>
+                </div>
+                <select x-model="searchSort" @change="setSearchSort($event.target.value)" aria-label="搜索结果排序">
+                  <option value="quality">质量优先</option>
+                  <option value="updated">最近更新</option>
+                  <option value="files">文件最多</option>
+                  <option value="title">标题排序</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="search-filter-bar" role="tablist" aria-label="搜索结果筛选">
+              <button @click="setSearchResultFilter('all')" :class="searchResultFilter === 'all' ? 'is-active' : ''">全部 <span x-text="searchResultFilterCount('all')"></span></button>
+              <button @click="setSearchResultFilter('valid')" :class="searchResultFilter === 'valid' ? 'is-active' : ''">有效 <span x-text="searchResultFilterCount('valid')"></span></button>
+              <button @click="setSearchResultFilter('quality')" :class="searchResultFilter === 'quality' ? 'is-active' : ''">优质 <span x-text="searchResultFilterCount('quality')"></span></button>
+              <button @click="setSearchResultFilter('risky')" :class="searchResultFilter === 'risky' ? 'is-active' : ''">需留意 <span x-text="searchResultFilterCount('risky')"></span></button>
+            </div>
+
+            <div x-show="searchViewMode === 'poster' && visibleSearchResults.length > 0" class="search-result-grid">
+              <template x-for="(result, resultIndex) in visibleSearchResults" :key="'search-result-' + (result.unique_id || result.url || 'missing') + '-' + resultIndex">
+                <article class="search-result-card" @click="openSearchResultPreview(result)" tabindex="0" @keydown.enter.prevent="openSearchResultPreview(result)">
+                  <div class="search-result-poster">
+                    <div class="search-result-poster-fallback">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M4 5h16v14H4zM8 3v4m8-4v4M4 10h16M8 15h.01M12 15h.01M16 15h.01"/></svg>
+                      <span x-text="cloudTypeLabel(result.cloud_type)"></span>
+                    </div>
+                    <img x-show="searchResultInsights(result).poster" :src="searchResultInsights(result).poster" :alt="searchResultTitle(result)" class="search-result-poster-image" @error="$el.hidden = true" @load="$el.hidden = false" />
+                    <div class="search-result-poster-shade"></div>
+                    <div class="search-card-badges">
+                      <span :class="searchResultValidityBadgeClass(result)" x-text="searchResultValidityLabel(result)"></span>
+                      <span :class="searchResultQualityClass(result)"><strong x-text="searchResultInsights(result).score"></strong><span x-text="searchResultInsights(result).grade"></span></span>
+                    </div>
+                    <span class="search-result-updated" x-text="searchResultUpdateLabel(result)"></span>
+                  </div>
+
+                  <div class="search-result-body">
+                    <div class="search-result-heading">
+                      <h4 x-text="searchResultTitle(result)"></h4>
+                      <p><span x-text="result.source || '未知来源'"></span><span>·</span><span x-text="cloudTypeLabel(result.cloud_type)"></span></p>
+                    </div>
+
+                    <div class="search-result-tags">
+                      <template x-for="tag in searchResultInsights(result).tags.slice(0, 4)" :key="tag"><span x-text="tag"></span></template>
+                      <span x-show="searchResultInsights(result).tags.length === 0">等待质量识别</span>
+                    </div>
+
+                    <div class="search-result-metrics">
+                      <div><span>文件</span><strong x-text="searchResultInsights(result).fileCount || '-' "></strong></div>
+                      <div><span>视频</span><strong x-text="searchResultInsights(result).videoCount || '-' "></strong></div>
+                      <div><span>容量</span><strong x-text="searchResultInsights(result).totalSize ? formatSize(searchResultInsights(result).totalSize) : '-' "></strong></div>
+                    </div>
+
+                    <div x-show="searchResultInsights(result).risks.length > 0" class="search-result-risk">
+                      <span>!</span><p x-text="searchResultInsights(result).risks.join(' · ')"></p>
+                    </div>
+
+                    <div class="search-result-actions">
+                      <button @click.stop="openSearchResultPreview(result)" class="btn-primary">查看并添加</button>
+                      <a @click.stop :href="result.url" target="_blank" rel="noopener noreferrer" aria-label="打开原始分享链接">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 3h7v7m0-7-9 9M5 7v12h12v-5"/></svg>
+                      </a>
+                    </div>
+                  </div>
+                </article>
+              </template>
+            </div>
+
+            <div x-show="searchViewMode === 'list' && visibleSearchResults.length > 0" class="search-result-list">
+              <div class="search-result-list-head">
+                <span>资源与版本</span><span>质量</span><span>内容</span><span>更新时间</span><span>操作</span>
+              </div>
+              <template x-for="(result, resultIndex) in visibleSearchResults" :key="'search-result-' + (result.unique_id || result.url || 'missing') + '-' + resultIndex">
+                <div class="search-result-list-row" @dblclick="openSearchResultPreview(result)">
+                  <div class="search-list-resource">
+                    <div class="search-list-thumb">
+                      <span x-text="cloudTypeLabel(result.cloud_type).slice(0, 1)"></span>
+                      <img x-show="searchResultInsights(result).poster" :src="searchResultInsights(result).poster" :alt="searchResultTitle(result)" @error="$el.hidden = true" @load="$el.hidden = false" />
+                    </div>
+                    <div class="min-w-0">
+                      <strong x-text="searchResultTitle(result)"></strong>
+                      <small><span x-text="result.source || '未知来源'"></span><span> · </span><span x-text="searchResultInsights(result).host || result.url"></span></small>
+                      <div class="search-list-tags"><template x-for="tag in searchResultInsights(result).tags.slice(0, 3)" :key="tag"><span x-text="tag"></span></template></div>
+                    </div>
+                  </div>
+                  <div class="search-list-quality"><span :class="searchResultQualityClass(result)"><strong x-text="searchResultInsights(result).score"></strong><span x-text="searchResultInsights(result).grade"></span></span><span :class="searchResultValidityBadgeClass(result)" x-text="searchResultValidityLabel(result)"></span></div>
+                  <div class="search-list-content"><strong x-text="searchResultFileSummary(result)"></strong><small x-text="searchResultInsights(result).totalSize ? formatSize(searchResultInsights(result).totalSize) : '容量未知'"></small></div>
+                  <div class="search-list-updated"><strong x-text="searchResultUpdateLabel(result)"></strong><small x-text="searchResultInsights(result).risks[0] || '未发现明显风险'"></small></div>
+                  <div class="search-list-actions"><button @click="openSearchResultPreview(result)" class="btn-primary">查看并添加</button><a :href="result.url" target="_blank" rel="noopener noreferrer">打开</a></div>
+                </div>
+              </template>
+            </div>
+
+            <div x-show="visibleSearchResults.length === 0" class="search-filter-empty">
+              <span>没有结果符合当前筛选</span>
+              <button @click="setSearchResultFilter('all')">查看全部结果</button>
+            </div>
+          </section>
+
+          <section x-show="searchHasRun && !searching && searchResults.length === 0" class="app-panel search-empty-state">
+            <div class="search-empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" d="M21 21l-5-5m2-6a8 8 0 11-16 0 8 8 0 0116 0zM8 10h4"/></svg></div>
+            <h3>没有找到可用资源</h3>
+            <p>尝试减少版本关键词、关闭失效过滤，或仅使用片名重新搜索。</p>
+            <button @click="searchOptions.filterBad = false" class="btn-secondary">保留全部链接后重试</button>
+          </section>
+
+          <!-- 搜索结果预览与创建入口 -->
+          <div x-show="showSearchResultPreview" @click.self="closeSearchResultPreview()" @keydown.escape.window="closeSearchResultPreview()" class="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50" style="display: none;">
+            <div class="app-panel dialog-panel search-preview-dialog" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="资源预览与添加" tabindex="-1">
+              <template x-if="selectedSearchResult">
+                <div>
+                  <div class="search-preview-header">
+                    <div class="min-w-0">
+                      <span class="panel-eyebrow">RESOURCE PREVIEW</span>
+                      <h3 x-text="searchResultTitle(selectedSearchResult)"></h3>
+                      <p><span x-text="selectedSearchResult.source || '未知来源'"></span><span> · </span><span x-text="selectedSearchResultInsight.host || selectedSearchResult.url"></span></p>
+                    </div>
+                    <button @click="closeSearchResultPreview()" class="icon-button" aria-label="关闭资源预览">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-width="2" d="M6 6l12 12M18 6 6 18"/></svg>
+                    </button>
+                  </div>
+
+                  <div class="search-preview-layout">
+                    <div class="search-preview-visual">
+                      <div class="search-preview-poster">
+                        <div class="search-result-poster-fallback"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 5h16v14H4zM8 3v4m8-4v4M4 10h16"/></svg><span>MEDIA/SUB</span></div>
+                        <img x-show="selectedSearchResultInsight.poster" :src="selectedSearchResultInsight.poster" :alt="searchResultTitle(selectedSearchResult)" @error="$el.hidden = true" @load="$el.hidden = false" />
+                      </div>
+                      <div class="search-preview-score" :class="'is-' + selectedSearchResultInsight.tone" :style="'--score:' + selectedSearchResultInsight.score">
+                        <div><strong x-text="selectedSearchResultInsight.score"></strong><span>质量分</span></div>
+                        <p x-text="selectedSearchResultInsight.grade + '资源'"></p>
+                      </div>
+                    </div>
+
+                    <div class="search-preview-details">
+                      <div class="search-preview-badges"><span :class="searchResultValidityBadgeClass(selectedSearchResult)" x-text="searchResultValidityLabel(selectedSearchResult)"></span><span class="badge badge-primary" x-text="cloudTypeLabel(selectedSearchResult.cloud_type)"></span><span class="badge badge-muted" x-text="searchResultUpdateLabel(selectedSearchResult)"></span></div>
+
+                      <div class="search-preview-tags">
+                        <template x-for="tag in selectedSearchResultInsight.tags" :key="tag"><span x-text="tag"></span></template>
+                        <span x-show="selectedSearchResultInsight.tags.length === 0">未识别到清晰度或编码标签</span>
+                      </div>
+
+                      <div class="search-preview-facts">
+                        <div><span>文件</span><strong x-text="selectedSearchResultInsight.fileCount || '-' "></strong></div>
+                        <div><span>视频</span><strong x-text="selectedSearchResultInsight.videoCount || '-' "></strong></div>
+                        <div><span>剧集</span><strong x-text="selectedSearchResultInsight.episodeCount || '-' "></strong></div>
+                        <div><span>总容量</span><strong x-text="selectedSearchResultInsight.totalSize ? formatSize(selectedSearchResultInsight.totalSize) : '-' "></strong></div>
+                      </div>
+
+                      <div x-show="selectedSearchResultInsight.risks.length > 0" class="search-preview-warning">
+                        <strong>转存前请留意</strong>
+                        <p x-text="selectedSearchResultInsight.risks.join('；')"></p>
+                      </div>
+                      <div x-show="selectedSearchResultInsight.risks.length === 0" class="search-preview-safe"><span>✓</span><p>未发现明显的失效、广告或跨季合集风险。</p></div>
+
+                      <div class="search-preview-link">
+                        <span>分享链接</span>
+                        <code x-text="selectedSearchResult.url"></code>
+                        <button @click="copyText(selectedSearchResult.url)">复制</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="search-preview-files">
+                    <div class="search-preview-section-heading">
+                      <div><h4>文件预览</h4><p x-text="selectedSearchResultFiles.length ? ('展示前 ' + Math.min(selectedSearchResultFiles.length, 40) + ' 项') : '搜索时未启用文件嗅探或分享为空'"></p></div>
+                      <span x-text="searchResultFileSummary(selectedSearchResult)"></span>
+                    </div>
+                    <div x-show="selectedSearchResultFiles.length > 0" class="search-preview-file-list">
+                      <template x-for="(file, index) in selectedSearchResultFiles.slice(0, 40)" :key="'search-file-' + (file.fid || file.file_key || 'missing') + '-' + index">
+                        <div><span class="search-preview-file-icon" :class="file.is_dir ? 'is-folder' : ''" x-text="file.is_dir ? 'DIR' : 'FILE'"></span><strong x-text="file.name"></strong><small x-text="!file.is_dir && file.size ? formatSize(file.size) : '-' "></small></div>
+                      </template>
+                    </div>
+                    <div x-show="selectedSearchResultFiles.length === 0" class="search-preview-file-empty">暂无文件明细，可打开原始链接确认内容。</div>
+                  </div>
+
+                  <div class="search-preview-actions">
+                    <a :href="selectedSearchResult.url" target="_blank" rel="noopener noreferrer" class="btn-secondary">打开原始分享</a>
+                    <button @click="startSearchResultAction('once')" class="btn-secondary"><span>立即转存</span><small>只保存当前资源</small></button>
+                    <button @click="startSearchResultAction('continuous')" class="btn-primary"><span>创建追更订阅</span><small>持续检查后续更新</small></button>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+

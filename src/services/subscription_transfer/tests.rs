@@ -484,4 +484,56 @@ mod tests {
         assert!(error.to_string().contains("mock transfer failed"));
     }
 
+    #[tokio::test]
+    async fn transfer_persists_transferred_state_even_when_listing_fails_afterwards() {
+        let subscriptions = Arc::new(SubscriptionStore::new(test_path("listing_subscriptions")));
+        let settings = Arc::new(SettingsStore::new(test_path("listing_settings")));
+        let notifications = Arc::new(NotificationStore::new(test_path("listing_notifications")));
+        let mut sub = subscription("series", 1);
+        sub.cloud_type = "mock".to_string();
+        sub.url = "mock://show".to_string();
+        subscriptions.create(sub).await.unwrap();
+        settings
+            .update(|settings| {
+                settings.auto_download_new_subscription_items = true;
+                settings.quark_save_enabled = true;
+            })
+            .await
+            .unwrap();
+
+        let mock = Arc::new(crate::providers::MockCloudDriveProvider::new());
+        mock.set_probe_result(crate::providers::ProviderProbeResult {
+            ok: true,
+            state: "ok".to_string(),
+            message: String::new(),
+            files: vec![crate::providers::ProviderFile {
+                id: "episode-1".to_string(),
+                name: "Episode.01.mkv".to_string(),
+                is_dir: false,
+                size: 1,
+                parent_path: String::new(),
+                updated_at: None,
+            }],
+        });
+        // 转存成功，但随后的目录列举（等待落盘/重命名）瞬时失败。
+        mock.fail("list", "transient listing failure");
+        let registry =
+            Arc::new(crate::providers::CloudDriveProviderRegistry::new().with_provider(mock));
+        let service =
+            SubscriptionTransferService::new(subscriptions.clone(), settings, notifications)
+                .with_provider_registry(registry);
+
+        let result = service
+            .auto_transfer_new_files_with_options("sub", &["Episode.01.mkv".to_string()], false)
+            .await
+            .expect("列目录失败不应回滚已成功的转存");
+
+        assert!(!result.skipped);
+        assert_eq!(result.transferred_count, 1);
+        // 转存状态已经持久化，下轮检查不会重复转存同一文件。
+        let updated = subscriptions.get("sub").await.unwrap();
+        assert_eq!(updated.transferred_files, vec!["Episode.01.mkv".to_string()]);
+        assert_eq!(updated.transferred_file_keys, vec!["ep:1".to_string()]);
+    }
+
 }

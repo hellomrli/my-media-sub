@@ -22,7 +22,7 @@ async fn test_context() -> (Arc<AppContext>, PathBuf) {
             host: "127.0.0.1".to_string(),
             port: 0,
             username: "admin".to_string(),
-            password: "change-me".to_string(),
+            password: "test-secret-pw".to_string(),
         },
         data_dir: dir.clone(),
     };
@@ -30,6 +30,13 @@ async fn test_context() -> (Arc<AppContext>, PathBuf) {
     let context = AppContext::new(&config)
         .await
         .expect("test context init failed");
+    // 配置里的密码只用于旧路径；设置存储默认仍是 "change-me"，而登录已拒绝默认密码，
+    // 因此这里把测试密码写入设置存储，模拟运维已设置过密码的正常部署。
+    context
+        .settings_store
+        .update(|settings| settings.app_password = "test-secret-pw".to_string())
+        .await
+        .expect("seed test password");
     (context, dir)
 }
 
@@ -170,7 +177,7 @@ async fn protected_route_returns_200_with_correct_credentials() {
         .uri("/api/subscriptions")
         .header(
             header::AUTHORIZATION,
-            basic_auth_header("admin", "change-me"),
+            basic_auth_header("admin", "test-secret-pw"),
         )
         .body(Body::empty())
         .unwrap();
@@ -252,7 +259,7 @@ async fn cross_site_post_returns_403() {
         .header(header::HOST, "media.internal.com")
         .header(
             header::AUTHORIZATION,
-            basic_auth_header("admin", "change-me"),
+            basic_auth_header("admin", "test-secret-pw"),
         )
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from("{}"))
@@ -277,7 +284,7 @@ async fn sec_fetch_site_cross_site_post_returns_403() {
         .header("sec-fetch-site", "cross-site")
         .header(
             header::AUTHORIZATION,
-            basic_auth_header("admin", "change-me"),
+            basic_auth_header("admin", "test-secret-pw"),
         )
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from("{}"))
@@ -316,7 +323,7 @@ async fn malformed_json_rejection_uses_the_error_envelope() {
         .uri("/api/subscriptions")
         .header(
             header::AUTHORIZATION,
-            basic_auth_header("admin", "change-me"),
+            basic_auth_header("admin", "test-secret-pw"),
         )
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from("{"))
@@ -347,7 +354,7 @@ async fn method_not_allowed_rejection_uses_the_error_envelope() {
         .uri("/api/jobs")
         .header(
             header::AUTHORIZATION,
-            basic_auth_header("admin", "change-me"),
+            basic_auth_header("admin", "test-secret-pw"),
         )
         .body(Body::empty())
         .unwrap();
@@ -369,7 +376,7 @@ fn auth_get(uri: &str) -> Request<Body> {
         .uri(uri)
         .header(
             header::AUTHORIZATION,
-            basic_auth_header("admin", "change-me"),
+            basic_auth_header("admin", "test-secret-pw"),
         )
         .body(Body::empty())
         .unwrap()
@@ -381,7 +388,7 @@ fn auth_post(uri: &str, body: serde_json::Value) -> Request<Body> {
         .uri(uri)
         .header(
             header::AUTHORIZATION,
-            basic_auth_header("admin", "change-me"),
+            basic_auth_header("admin", "test-secret-pw"),
         )
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(body.to_string()))
@@ -394,7 +401,7 @@ fn auth_put(uri: &str, body: serde_json::Value) -> Request<Body> {
         .uri(uri)
         .header(
             header::AUTHORIZATION,
-            basic_auth_header("admin", "change-me"),
+            basic_auth_header("admin", "test-secret-pw"),
         )
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(body.to_string()))
@@ -407,7 +414,7 @@ fn auth_delete(uri: &str) -> Request<Body> {
         .uri(uri)
         .header(
             header::AUTHORIZATION,
-            basic_auth_header("admin", "change-me"),
+            basic_auth_header("admin", "test-secret-pw"),
         )
         .body(Body::empty())
         .unwrap()
@@ -1025,7 +1032,7 @@ async fn security_headers_and_request_ids_are_present() {
                 .uri("/api/diagnostics")
                 .header(
                     header::AUTHORIZATION,
-                    basic_auth_header("admin", "change-me"),
+                    basic_auth_header("admin", "test-secret-pw"),
                 )
                 .header("x-request-id", "request-test-1")
                 .body(Body::empty())
@@ -1180,7 +1187,7 @@ async fn backup_export_preview_and_diagnostics_are_available() {
         diagnostics["data"]["backups"]["latest_verification"]["status"],
         "passed"
     );
-    assert!(diagnostics.to_string().find("change-me").is_none());
+    assert!(diagnostics.to_string().find("test-secret-pw").is_none());
 
     let lifecycle = json_body(&app, auth_get("/api/storage/cleanup")).await;
     assert_eq!(lifecycle["ok"], true);
@@ -1316,7 +1323,7 @@ async fn submitted_job_keeps_request_and_correlation_context() {
         .uri("/api/subscriptions/metadata/scrape")
         .header(
             header::AUTHORIZATION,
-            basic_auth_header("admin", "change-me"),
+            basic_auth_header("admin", "test-secret-pw"),
         )
         .header(header::CONTENT_TYPE, "application/json")
         .header("x-request-id", "request-job-1")
@@ -1452,7 +1459,7 @@ async fn subscription_export_import_preview_and_idempotency_are_stable() {
             .uri("/api/subscriptions/import")
             .header(
                 header::AUTHORIZATION,
-                basic_auth_header("admin", "change-me"),
+                basic_auth_header("admin", "test-secret-pw"),
             )
             .header(header::CONTENT_TYPE, "application/json")
             .header("idempotency-key", "exchange-import-1")
