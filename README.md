@@ -78,11 +78,11 @@ docker run -d \
   ghcr.io/hellomrli/my-media-sub:latest
 ```
 
-生产环境建议固定版本标签；v2.0.0 同时发布 `2.0.0` 和 `2.0`：
+生产环境建议固定版本标签；v2.1.0 同时发布 `2.1.0` 和 `2.1`：
 
 ```bash
-docker pull ghcr.io/hellomrli/my-media-sub:2.0.0
-docker image inspect ghcr.io/hellomrli/my-media-sub:2.0.0 --format '{{.RepoDigests}}'
+docker pull ghcr.io/hellomrli/my-media-sub:2.1.0
+docker image inspect ghcr.io/hellomrli/my-media-sub:2.1.0 --format '{{.RepoDigests}}'
 ```
 
 ### Linux 二进制
@@ -90,7 +90,7 @@ docker image inspect ghcr.io/hellomrli/my-media-sub:2.0.0 --format '{{.RepoDiges
 从 [GitHub Releases](https://github.com/hellomrli/my-media-sub/releases) 下载 Linux x86_64 压缩包并校验 SHA256：
 
 ```bash
-VERSION=v2.0.0
+VERSION=v2.1.0
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz"
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
 sha256sum -c "my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
@@ -295,7 +295,7 @@ sha256sum target/release/my-media-sub
 
 ```bash
 docker build \
-  -t my-media-sub:2.0.0 \
+  -t my-media-sub:2.1.0 \
   -t my-media-sub:latest \
   .
 ```
@@ -363,6 +363,8 @@ static/
 - [PWA、离线壳层与缓存安全](docs/pwa.md)
 - [JSON Store 性能基线与 SQLite 决策](docs/storage-scaling.md)
 - [OpenAPI 3.1 文档](/api-docs.html)
+- [v2.1.0 升级指南](docs/upgrade-v2.1.0.md)
+- [v2.1.0 完整变更记录](CHANGELOG-v2.1.0.md)
 - [v2.0.0 升级指南](docs/upgrade-v2.0.0.md)
 - [v2.0.0 完整变更记录](CHANGELOG-v2.0.0.md)
 - [v1.13.0 升级指南](docs/upgrade-v1.13.0.md)
@@ -392,6 +394,15 @@ docker compose up -d
 不要只替换二进制而继续使用旧版 `static/`。详细步骤见对应版本的升级指南。
 
 ## 版本说明
+
+### 2.1.0
+
+- WebUI 视觉重设计「Cinema Slate」：深色主题改为中性炭黑底 + 琥珀金强调，浅色主题改为暖纸白 + 深琥珀；
+- 卡片扁平化，移除多层渐变光晕、网格纹理和厚投影，改用发丝线边框，信息密度更高；
+- 侧边栏激活项改为琥珀左条 + 淡金底，工作台 hero 精简，主按钮改为实色琥珀；
+- 圆角统一为卡片 12px / 控件 8px 两档，基准字号调整为 16px，标题字重提升；
+- 纯 CSS token 与组件样式重写，未改动任何 Alpine 绑定或 DOM 结构，功能与交互不变；
+- 后端、存储 `schema_version: 1` 与 OpenAPI 契约均无变化，可从 v2.0.0 无缝升级；PWA 缓存版本已更新。
 
 ### 2.0.0
 
