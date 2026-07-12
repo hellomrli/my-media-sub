@@ -35,6 +35,7 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3 \
     curl \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # 从构建阶段复制二进制文件
@@ -43,16 +44,18 @@ COPY --from=builder /app/target/release/my-media-sub /usr/local/bin/my-media-sub
 # 复制静态文件
 COPY static /app/static
 
-# 创建非 root 运行用户和数据目录。
-# 注意：/app/data 通常由 docker-compose 以宿主目录 bind mount 挂载，
-# 挂载后目录属主以宿主机为准。请确保宿主目录对 UID/GID 1000 可写，
-# 例如：chown -R 1000:1000 ./data；或在 compose 中用 `user:` 覆盖为宿主用户。
+# 入口脚本：以 root 启动、修正数据目录属主后 gosu 降权到非 root 用户。
+COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# 创建非 root 运行用户和数据目录。进程最终以 UID/GID 1000 的 app 用户运行。
+# /app/data 常由 bind mount / 命名卷挂载；入口脚本会在启动时把其属主修正为
+# 运行用户，兼容从旧 root 镜像升级的数据。如需完全固定身份，可用 compose 的
+# `user:` 覆盖，此时入口脚本检测到非 root 会跳过 chown 直接运行。
 RUN groupadd --gid 1000 app \
     && useradd --uid 1000 --gid 1000 --home-dir /app --no-create-home app \
     && mkdir -p /app/data \
     && chown -R app:app /app
-
-USER app
 
 # 设置环境变量
 ENV SERVER_HOST=0.0.0.0
@@ -66,5 +69,6 @@ EXPOSE 56001
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:56001/health || exit 1
 
-# 运行
+# 以入口脚本启动（root → 修正属主 → gosu 降权），再运行主程序
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["my-media-sub"]
