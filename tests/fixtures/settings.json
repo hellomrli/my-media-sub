@@ -1,6 +1,6 @@
 {
   "app_username": "admin",
-  "app_password": "change-me",
+  "app_password": "test-secret-pw",
   "cloud_types": ["quark"],
   "check_links": true,
   "probe_quark_files": true,

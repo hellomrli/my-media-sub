@@ -326,11 +326,21 @@ fn build_job_index(jobs: &[Job]) -> HashMap<String, usize> {
         .collect()
 }
 
+/// 超出容量时仅淘汰终态任务（成功/失败/取消），从最旧开始；绝不淘汰排队或
+/// 运行中的任务。若终态任务不足以降到容量以内，则允许暂时超出容量。
 fn truncate_jobs(jobs: &mut Vec<Job>) {
-    if jobs.len() > MAX_JOBS {
-        let remove_count = jobs.len() - MAX_JOBS;
-        jobs.drain(0..remove_count);
+    if jobs.len() <= MAX_JOBS {
+        return;
     }
+    let mut excess = jobs.len() - MAX_JOBS;
+    jobs.retain(|job| {
+        if excess > 0 && is_terminal(job) {
+            excess -= 1;
+            false
+        } else {
+            true
+        }
+    });
 }
 
 fn configured_archive_retention() -> usize {
@@ -528,6 +538,55 @@ mod tests {
         assert!(events.try_recv().is_err());
 
         let _ = std::fs::remove_file(tmp);
+    }
+
+    #[test]
+    fn truncate_evicts_only_terminal_jobs_oldest_first() {
+        let mut jobs = Vec::new();
+        for index in 0..(MAX_JOBS + 10) {
+            let mut job = make_job(&format!("job-{index}"));
+            job.status = if index % 2 == 0 {
+                JobStatus::Succeeded
+            } else {
+                JobStatus::Queued
+            };
+            jobs.push(job);
+        }
+
+        truncate_jobs(&mut jobs);
+
+        assert_eq!(jobs.len(), MAX_JOBS);
+        // 被淘汰的是最旧的 10 个终态任务（偶数下标 0..=18）。
+        assert!(jobs
+            .iter()
+            .all(|job| job.id != "job-0" && job.id != "job-18"));
+        assert!(jobs.iter().any(|job| job.id == "job-20"));
+        // 所有排队任务原样保留。
+        assert_eq!(
+            jobs.iter()
+                .filter(|job| job.status == JobStatus::Queued)
+                .count(),
+            (MAX_JOBS + 10) / 2
+        );
+    }
+
+    #[test]
+    fn truncate_never_evicts_live_jobs_even_over_cap() {
+        let mut jobs = Vec::new();
+        for index in 0..(MAX_JOBS + 5) {
+            let mut job = make_job(&format!("live-{index}"));
+            job.status = if index % 2 == 0 {
+                JobStatus::Queued
+            } else {
+                JobStatus::Running
+            };
+            jobs.push(job);
+        }
+
+        truncate_jobs(&mut jobs);
+
+        // 没有终态任务可淘汰时允许超出容量。
+        assert_eq!(jobs.len(), MAX_JOBS + 5);
     }
 
     #[tokio::test]

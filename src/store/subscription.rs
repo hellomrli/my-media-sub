@@ -129,6 +129,35 @@ impl SubscriptionStore {
         .await
     }
 
+    /// 按字段合并多个订阅更新：对每个更新项，用 `merge` 闭包把需要的字段
+    /// 合并进当前记录（而不是整条替换），整批只落盘一次。
+    /// 期间被删除的订阅仅记录 debug 日志并跳过，不会导致整批失败。
+    /// 返回实际合并的记录数。
+    pub async fn merge_many<F>(&self, updates: Vec<Subscription>, merge: F) -> Result<usize>
+    where
+        F: Fn(&mut Subscription, &Subscription),
+    {
+        if updates.is_empty() {
+            return Ok(0);
+        }
+        self.mutate_snapshot(|snapshot| {
+            let mut merged = 0;
+            for update in &updates {
+                match snapshot.iter_mut().find(|item| item.id == update.id) {
+                    Some(current) => {
+                        merge(current, update);
+                        merged += 1;
+                    }
+                    None => {
+                        tracing::debug!("订阅 {} 在批量写回前已被删除，跳过", update.id);
+                    }
+                }
+            }
+            Ok(merged)
+        })
+        .await
+    }
+
     /// 列出所有订阅
     pub async fn list(&self) -> Vec<Subscription> {
         self.items.read().await.clone()
@@ -723,6 +752,37 @@ mod tests {
         assert_eq!(store.get("a1").await.unwrap().title, "测试");
         assert_eq!(std::fs::read(&tmp).unwrap(), before_bytes);
         assert_eq!(store.save_count(), before_saves);
+        let _ = std::fs::remove_file(tmp);
+    }
+
+    #[tokio::test]
+    async fn merge_many_skips_missing_ids_and_merges_fields_into_current() {
+        let tmp = temp_path("subs-merge-many");
+        let store = SubscriptionStore::new(&tmp);
+        store.load().await.unwrap();
+        let mut existing = make_sub("m1");
+        existing.transferred_files = vec!["kept.mkv".to_string()];
+        existing.title = "用户标题".to_string();
+        store.create(existing).await.unwrap();
+
+        let mut update_existing = make_sub("m1");
+        update_existing.last_checked_at = 42;
+        update_existing.transferred_files = vec![]; // 快照中的旧值，不应覆盖当前值
+        let update_missing = make_sub("gone");
+
+        let merged = store
+            .merge_many(vec![update_existing, update_missing], |current, update| {
+                current.last_checked_at = update.last_checked_at;
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(merged, 1);
+        let persisted = store.get("m1").await.unwrap();
+        assert_eq!(persisted.last_checked_at, 42);
+        assert_eq!(persisted.transferred_files, vec!["kept.mkv".to_string()]);
+        assert_eq!(persisted.title, "用户标题");
+        assert!(store.get("gone").await.is_none());
         let _ = std::fs::remove_file(tmp);
     }
 

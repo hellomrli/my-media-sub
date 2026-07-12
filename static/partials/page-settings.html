@@ -1,0 +1,748 @@
+        <!-- 设置页面 -->
+        <div x-show="currentTab === 'settings'" class="page-stack">
+
+          <section class="settings-overview">
+            <div class="settings-overview-score" :style="'--completion:' + settingsCompletionPercent">
+              <div><strong x-text="settingsCompletionPercent + '%'"></strong><span>配置完成度</span></div>
+              <p>按连接、自动化、命名规则、通知和维护任务组织配置。</p>
+            </div>
+            <div class="settings-overview-items">
+              <template x-for="item in settingsCompletionItems" :key="item.id">
+                <button @click="selectSettingsTab(item.tab)" class="settings-overview-item" :class="settingsCompletionItemClass(item)">
+                  <span class="settings-overview-state" x-text="item.configured ? '✓' : (item.optional ? '○' : '!')"></span>
+                  <span><strong x-text="item.label"></strong><small x-text="item.description"></small></span>
+                </button>
+              </template>
+            </div>
+            <div class="settings-overview-actions">
+              <button @click="testQuark()" :disabled="quarkHealthLoading" class="btn-secondary">测试夸克</button>
+              <button @click="testAria2()" :disabled="!settings.aria2_rpc_url" class="btn-secondary disabled:opacity-40">测试 Aria2</button>
+              <button @click="saveSettings()" class="btn-primary">保存全部设置</button>
+            </div>
+          </section>
+
+          <!-- 任务型标签页导航 -->
+          <div class="app-panel settings-layout overflow-hidden">
+            <div class="settings-nav border-b border-border flex gap-2 p-3 overflow-x-auto">
+              <template x-for="tab in settingsTabs" :key="tab.id">
+                <button @click="selectSettingsTab(tab.id)" :class="currentSettingsTab === tab.id ? 'is-active' : 'text-muted'" class="settings-tab nav-button px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors">
+                  <span class="settings-tab-icon" x-text="tab.icon"></span>
+                  <span x-text="tab.name"></span>
+                </button>
+              </template>
+            </div>
+            <div class="settings-content min-w-0">
+
+            <!-- 基础设置 -->
+            <div x-show="currentSettingsTab === 'connections'" class="p-4 sm:p-6 space-y-6">
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">账号设置</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div><label class="field-label">用户名</label><input type="text" x-model="settings.app_username" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                  <div>
+                    <label class="field-label">密码</label>
+                    <div class="setting-input-action">
+                      <input type="text" x-model="settings.app_password" @focus="prepareSecretInput('app_password')" placeholder="留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                      <button type="button" @click="toggleSettingSecret('app_password')" :disabled="secretToggleDisabled('app_password')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('app_password')"></button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">Aria2 配置</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div><label class="field-label">RPC URL</label><input type="text" x-model="settings.aria2_rpc_url" placeholder="http://localhost:6800/jsonrpc" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                  <div>
+                    <label class="field-label">Secret</label>
+                    <div class="setting-input-action">
+                      <input type="text" x-model="settings.aria2_secret" @focus="prepareSecretInput('aria2_secret')" placeholder="留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                      <button type="button" @click="toggleSettingSecret('aria2_secret')" :disabled="secretToggleDisabled('aria2_secret')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('aria2_secret')"></button>
+                    </div>
+                  </div>
+                </div>
+                <div class="space-y-4">
+                  <h4 class="text-sm font-medium text-text/80">目录配置</h4>
+                  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div><label class="field-label">电影下载目录</label><input type="text" x-model="settings.aria2_movie_dir" placeholder="/downloads/电影" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                    <div><label class="field-label">连续剧下载目录</label><input type="text" x-model="settings.aria2_series_dir" placeholder="/downloads/连续剧" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                    <div><label class="field-label">动画下载目录</label><input type="text" x-model="settings.aria2_anime_dir" placeholder="/downloads/动画" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                  </div>
+                  <div class="space-y-3" x-show="settings.custom_categories && settings.custom_categories.length > 0">
+                    <template x-for="category in settings.custom_categories" :key="category.id">
+                      <div>
+                        <label class="field-label" x-text="(category.name || '自定义类别') + '下载目录'"></label>
+                        <input type="text" x-model="category.aria2_dir" placeholder="/downloads/自定义类别" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </div>
+
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">媒体元数据</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label class="field-label">提供方</label>
+                    <select x-model="settings.metadata_provider" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text">
+                      <option value="tmdb">TMDB</option>
+                      <option value="douban">豆瓣</option>
+                      <option value="none">关闭</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="field-label">TMDB API Key</label>
+                    <div class="setting-input-action">
+                      <input type="text" x-model="settings.tmdb_api_key" @focus="prepareSecretInput('tmdb_api_key')" placeholder="留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                      <button type="button" @click="toggleSettingSecret('tmdb_api_key')" :disabled="secretToggleDisabled('tmdb_api_key')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('tmdb_api_key')"></button>
+                    </div>
+                  </div>
+                  <div><label class="field-label">TMDB 语言</label><input type="text" x-model="settings.tmdb_language" placeholder="zh-CN" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                </div>
+              </div>
+
+              <div class="flex justify-end gap-3 pt-4 border-t border-border">
+                <button @click="testAria2()" class="btn-secondary px-4 py-2 rounded-lg">测试 Aria2</button>
+                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
+              </div>
+            </div>
+
+            <!-- 夸克网盘 -->
+            <div x-show="currentSettingsTab === 'connections'" class="p-4 sm:p-6 space-y-6">
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">夸克配置</h3>
+                <div>
+                  <label class="field-label">夸克 Cookie</label>
+                  <div class="setting-input-action">
+                    <input type="text" x-model="settings.quark_cookie" @focus="prepareSecretInput('quark_cookie')" placeholder="粘贴夸克 Cookie，留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                    <button type="button" @click="toggleSettingSecret('quark_cookie')" :disabled="secretToggleDisabled('quark_cookie')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('quark_cookie')"></button>
+                  </div>
+                </div>
+                <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.quark_save_enabled" class="rounded" />启用自动转存</label>
+              </div>
+
+              <div class="app-panel-soft p-4 space-y-4">
+                <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <h3 class="section-title">夸克账号健康</h3>
+                  </div>
+                  <button type="button" @click="refreshQuarkHealth()" :disabled="quarkHealthLoading" class="btn-secondary px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+                    <span x-show="!quarkHealthLoading">检测账号</span>
+                    <span x-show="quarkHealthLoading">检测中</span>
+                  </button>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div class="stat-tile p-4">
+                    <div class="text-xs text-muted/75">连接状态</div>
+                    <div class="mt-2 text-xl font-semibold" :class="quarkHealthStatusClass()" x-text="quarkHealthStatusLabel()"></div>
+                  </div>
+                  <div class="stat-tile p-4">
+                    <div class="text-xs text-muted/75">自动转存</div>
+                    <div class="mt-2 text-xl font-semibold" :class="settings.quark_save_enabled ? 'text-success' : 'text-text/80'" x-text="settings.quark_save_enabled ? '已启用' : '未启用'"></div>
+                  </div>
+                  <div class="stat-tile p-4">
+                    <div class="text-xs text-muted/75">连签进度</div>
+                    <div class="mt-2 text-xl font-semibold text-primary" x-text="quarkSigninProgressLabel()"></div>
+                  </div>
+                  <div class="stat-tile p-4">
+                    <div class="text-xs text-muted/75">容量</div>
+                    <div class="mt-2 text-xl font-semibold text-text" x-text="quarkCapacityLabel()"></div>
+                  </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+	                  <div class="app-panel-soft p-3">
+	                    <div class="text-xs text-muted/75 mb-1">检测结果</div>
+	                    <div class="text-text/80 break-all" x-text="quarkHealth.message"></div>
+	                    <div class="text-xs mt-1" :class="(quarkHealth.issues || []).length ? 'text-warning' : 'text-success'" x-text="quarkHealthIssueText()"></div>
+	                    <div class="text-xs text-muted/75 mt-1" x-text="quarkHealth.checkedAt ? '检测时间 ' + formatTime(quarkHealth.checkedAt) : '尚未检测'"></div>
+	                  </div>
+                  <div class="app-panel-soft p-3">
+                    <div class="text-xs text-muted/75 mb-1">签到结果</div>
+                    <div class="text-text/80 break-all" x-text="quarkHealth.signinMessage || '尚未签到'"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="app-panel-soft p-4 space-y-4">
+                <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <h3 class="section-title">自动签到</h3>
+                  <button type="button" @click="runQuarkSignin()" :disabled="quarkSigninLoading" class="btn-secondary px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+                    <span x-show="!quarkSigninLoading">立即签到</span>
+                    <span x-show="quarkSigninLoading">签到中...</span>
+                  </button>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div class="md:col-span-2">
+                    <label class="field-label">签到 Cookie</label>
+                    <div class="setting-input-action">
+                      <input type="text" x-model="settings.quark_signin_cookie" @focus="prepareSecretInput('quark_signin_cookie')" placeholder="粘贴移动端 Cookie 或 reward 请求 URL，留空使用上方夸克 Cookie" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                      <button type="button" @click="toggleSettingSecret('quark_signin_cookie')" :disabled="secretToggleDisabled('quark_signin_cookie')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('quark_signin_cookie')"></button>
+                    </div>
+                    <p class="text-xs text-muted/75 mt-2">可粘贴 <code class="text-text/80">kps=...; sign=...; vcode=...</code>，也可直接粘贴手机端抓包到的 <code class="text-text/80">drive-m.quark.cn/.../act/growth/reward</code> 整段 URL。</p>
+                  </div>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.quark_signin_enabled" class="rounded" />启用每日自动签到</label>
+                  <div>
+                    <label class="field-label">执行时间</label>
+                    <div class="flex items-center gap-2">
+                      <input type="number" x-model.number="settings.quark_signin_hour" min="0" max="23" step="1" @change="sanitizeQuarkSigninHour()" class="w-28 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                      <span class="text-sm text-muted">:00</span>
+                    </div>
+                  </div>
+                </div>
+                <p class="text-xs text-muted/75">签到依赖移动端参数 kps、sign、vcode；签到 Cookie 留空时使用上方夸克 Cookie。</p>
+              </div>
+
+              <div class="app-panel-soft p-4 space-y-4">
+                <div class="flex items-center justify-between gap-3">
+                  <h3 class="section-title">目录配置</h3>
+                  <button type="button" @click="addCustomCategory()" class="btn-secondary w-9 h-9 rounded-lg grid place-items-center transition-colors" aria-label="添加自定义类别" title="添加自定义类别">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                  </button>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div><label class="field-label">电影目录</label><input type="text" x-model="settings.quark_save_movie_dir" placeholder="/电影" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                  <div><label class="field-label">连续剧目录</label><input type="text" x-model="settings.quark_save_series_dir" placeholder="/连续剧" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                  <div><label class="field-label">动画目录</label><input type="text" x-model="settings.quark_save_anime_dir" placeholder="/动画" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                </div>
+                <div class="space-y-3" x-show="settings.custom_categories && settings.custom_categories.length > 0">
+                  <template x-for="(category, index) in settings.custom_categories" :key="category.id">
+                    <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] gap-3 md:items-end">
+                      <div>
+                        <label class="field-label">类别名称</label>
+                        <input type="text" x-model="category.name" placeholder="纪录片" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                      </div>
+                      <div>
+                        <label class="field-label">目录</label>
+                        <input type="text" x-model="category.dir" placeholder="/纪录片" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                      </div>
+                      <button type="button" @click="removeCustomCategory(index)" class="btn-secondary h-10 px-3 rounded-lg grid place-items-center transition-colors" aria-label="删除自定义类别" title="删除自定义类别">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 13h8l1-13" /></svg>
+                      </button>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">STRM 配置</h3>
+                <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.strm_enabled" class="rounded" />启用 STRM 文件生成</label>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div><label class="field-label">输出目录</label><input type="text" x-model="settings.strm_output_dir" placeholder="/media/strm" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                  <div><label class="field-label">HTTPStrm 访问地址</label><input type="text" x-model="settings.strm_public_base_url" placeholder="http://192.168.1.10:56001" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                </div>
+                <div>
+                  <label class="field-label">访问 Token</label>
+                  <div class="setting-input-action">
+                    <input type="text" x-model="settings.strm_access_token" @focus="prepareSecretInput('strm_access_token')" placeholder="留空自动生成" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                    <button type="button" @click="toggleSettingSecret('strm_access_token')" :disabled="secretToggleDisabled('strm_access_token')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('strm_access_token')"></button>
+                  </div>
+                  <label class="mt-3 flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.strm_token_in_url" class="rounded" />兼容模式：把 Token 写入生成的 STRM URL</label>
+                  <p class="text-xs text-muted/75 mt-2">生成的 .strm 内容会指向本服务的 HTTPStrm 链接；媒体服务器需要能访问上面的地址。</p>
+                </div>
+              </div>
+
+              <div class="flex justify-end gap-3 pt-4 border-t border-border">
+                <button @click="testQuark()" class="btn-secondary px-4 py-2 rounded-lg">测试连接</button>
+                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
+              </div>
+            </div>
+
+            <!-- 消息推送 -->
+            <div x-show="currentSettingsTab === 'notifications'" class="p-4 sm:p-6 space-y-6">
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">推送事件</h3>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.push_on_update" class="rounded" />订阅更新</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.push_on_failed" class="rounded" />订阅失效</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.push_on_completed" class="rounded" />订阅完结</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.push_on_save" class="rounded" />转存完成</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.push_on_download_completed" class="rounded" />下载完成</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.push_on_quark_signin" class="rounded" />夸克签到</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.push_silent" class="rounded" />静默推送</label>
+                </div>
+              </div>
+
+              <div class="app-panel-soft p-4 space-y-4">
+                <div><h3 class="section-title">通知策略</h3><p class="mt-1 text-xs text-muted">模板变量：{{title}}、{{message}}、{{event}}、{{level}}；事件渠道路由也可通过设置 API 配置。</p></div>
+                <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <div><label class="field-label">最低级别</label><select x-model="settings.push_min_level" class="app-select w-full"><option value="info">信息</option><option value="success">成功</option><option value="warning">警告</option><option value="error">错误</option></select></div>
+                  <div><label class="field-label">安静开始（时）</label><input type="number" min="0" max="23" x-model.number="settings.push_quiet_start_hour" class="app-input w-full" /></div>
+                  <div><label class="field-label">安静结束（时）</label><input type="number" min="0" max="23" x-model.number="settings.push_quiet_end_hour" class="app-input w-full" /></div>
+                  <div><label class="field-label">重复限频（秒）</label><input type="number" min="0" max="86400" x-model.number="settings.push_dedup_window_seconds" class="app-input w-full" /></div>
+                </div>
+                <div class="grid gap-3 sm:grid-cols-2">
+                  <div><label class="field-label">标题模板</label><input x-model="settings.push_title_template" class="app-input w-full" /></div>
+                  <div><label class="field-label">正文模板</label><input x-model="settings.push_message_template" class="app-input w-full" /></div>
+                </div>
+                <div class="flex flex-wrap gap-4 text-sm">
+                  <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.push_quiet_hours_enabled" />启用安静时段</label>
+                  <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.push_quiet_allow_error" />错误消息绕过安静时段</label>
+                  <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.push_digest_enabled" />启用摘要聚合</label>
+                  <label class="flex items-center gap-2">摘要分钟 <input type="number" min="1" max="1440" x-model.number="settings.push_digest_window_minutes" class="app-input w-24" /></label>
+                </div>
+              </div>
+
+              <!-- 推送渠道 -->
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">推送渠道</h3>
+
+                <!-- 企业微信 -->
+                <details class="bg-surface-2 rounded-lg p-4">
+                  <summary class="cursor-pointer font-medium text-text">企业微信</summary>
+                  <div class="mt-3">
+                    <label class="field-label">Webhook URL</label>
+                    <div class="setting-input-action">
+                      <input type="text" x-model="settings.wecom_bot_url" @focus="prepareSecretInput('wecom_bot_url')" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                      <button type="button" @click="toggleSettingSecret('wecom_bot_url')" :disabled="secretToggleDisabled('wecom_bot_url')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('wecom_bot_url')"></button>
+                    </div>
+                  </div>
+                </details>
+
+                <!-- Telegram -->
+                <details class="bg-surface-2 rounded-lg p-4">
+                  <summary class="cursor-pointer font-medium text-text">Telegram</summary>
+                  <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label class="field-label">Bot Token</label>
+                      <div class="setting-input-action">
+                        <input type="text" x-model="settings.telegram_bot_token" @focus="prepareSecretInput('telegram_bot_token')" placeholder="123456:ABC-DEF..." class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                        <button type="button" @click="toggleSettingSecret('telegram_bot_token')" :disabled="secretToggleDisabled('telegram_bot_token')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('telegram_bot_token')"></button>
+                      </div>
+                    </div>
+                    <div><label class="field-label">Chat ID（推送目标）</label><input type="text" x-model="settings.telegram_chat_id" placeholder="你的 Chat ID" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                    <div>
+                      <label class="field-label">主动控制接入模式</label>
+                      <select x-model="settings.telegram_bot_mode" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text">
+                        <option value="disabled">关闭（默认）</option>
+                        <option value="long_polling">Long polling</option>
+                        <option value="webhook">Webhook</option>
+                      </select>
+                    </div>
+                    <div><label class="field-label">允许的 User ID（逗号分隔）</label><input type="text" :value="(settings.telegram_bot_allowed_user_ids || []).join(',')" @input="settings.telegram_bot_allowed_user_ids = $event.target.value.split(',').map(v => v.trim()).filter(Boolean).map(Number).filter(Number.isSafeInteger)" placeholder="123456789" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                    <div><label class="field-label">允许的 Chat ID（逗号分隔）</label><input type="text" :value="(settings.telegram_bot_allowed_chat_ids || []).join(',')" @input="settings.telegram_bot_allowed_chat_ids = $event.target.value.split(',').map(v => v.trim()).filter(Boolean).map(Number).filter(Number.isSafeInteger)" placeholder="123456789" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                    <label class="flex items-center gap-2 text-sm text-text"><input type="checkbox" x-model="settings.telegram_bot_private_only" class="rounded border-border text-primary focus:ring-primary" /><span>仅允许私聊（推荐）</span></label>
+                    <div x-show="settings.telegram_bot_mode === 'webhook'" class="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div class="md:col-span-2"><label class="field-label">Webhook 公网 HTTPS 根地址</label><input type="url" x-model="settings.telegram_bot_webhook_public_url" placeholder="https://media.example.com" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                      <div>
+                        <label class="field-label">随机路径 Secret</label>
+                        <div class="setting-input-action"><input type="text" x-model="settings.telegram_bot_webhook_path_secret" @focus="prepareSecretInput('telegram_bot_webhook_path_secret')" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg text-text" /><button type="button" @click="toggleSettingSecret('telegram_bot_webhook_path_secret')" :disabled="secretToggleDisabled('telegram_bot_webhook_path_secret')" class="btn-secondary px-3 py-2 rounded-lg text-sm" x-text="secretButtonLabel('telegram_bot_webhook_path_secret')"></button></div>
+                      </div>
+                      <div>
+                        <label class="field-label">Header Secret</label>
+                        <div class="setting-input-action"><input type="text" x-model="settings.telegram_bot_webhook_secret" @focus="prepareSecretInput('telegram_bot_webhook_secret')" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg text-text" /><button type="button" @click="toggleSettingSecret('telegram_bot_webhook_secret')" :disabled="secretToggleDisabled('telegram_bot_webhook_secret')" class="btn-secondary px-3 py-2 rounded-lg text-sm" x-text="secretButtonLabel('telegram_bot_webhook_secret')"></button></div>
+                      </div>
+                    </div>
+                    <p class="md:col-span-2 text-xs text-text-muted">授权只使用 Telegram 数字 user/chat ID，不使用用户名。Long polling 与 Webhook 只能选择一种。</p>
+                  </div>
+                </details>
+
+                <!-- WxPusher -->
+                <details class="bg-surface-2 rounded-lg p-4">
+                  <summary class="cursor-pointer font-medium text-text">WxPusher</summary>
+                  <div class="mt-3 space-y-3">
+                    <div>
+                      <label class="field-label">App Token</label>
+                      <div class="setting-input-action">
+                        <input type="text" x-model="settings.wxpusher_app_token" @focus="prepareSecretInput('wxpusher_app_token')" placeholder="AT_xxx" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                        <button type="button" @click="toggleSettingSecret('wxpusher_app_token')" :disabled="secretToggleDisabled('wxpusher_app_token')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('wxpusher_app_token')"></button>
+                      </div>
+                    </div>
+                    <div><label class="field-label">用户 UIDs（多个用逗号分隔）</label><input type="text" x-model="settings.wxpusher_uids" placeholder="UID_xxx,UID_yyy" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                  </div>
+                </details>
+
+                <!-- 其他渠道 -->
+                <details class="bg-surface-2 rounded-lg p-4">
+                  <summary class="cursor-pointer font-medium text-text">其他渠道</summary>
+                  <div class="mt-3 space-y-3">
+                    <div>
+                      <label class="field-label">Bark URL</label>
+                      <div class="setting-input-action">
+                        <input type="text" x-model="settings.bark_url" @focus="prepareSecretInput('bark_url')" placeholder="https://api.day.app/your_key" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                        <button type="button" @click="toggleSettingSecret('bark_url')" :disabled="secretToggleDisabled('bark_url')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('bark_url')"></button>
+                      </div>
+                    </div>
+                    <div>
+                      <label class="field-label">Server酱 SendKey</label>
+                      <div class="setting-input-action">
+                        <input type="text" x-model="settings.serverchan_key" @focus="prepareSecretInput('serverchan_key')" placeholder="SCTxxxxxx" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                        <button type="button" @click="toggleSettingSecret('serverchan_key')" :disabled="secretToggleDisabled('serverchan_key')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('serverchan_key')"></button>
+                      </div>
+                    </div>
+                    <div><label class="field-label">Gotify URL</label><input type="text" x-model="settings.gotify_url" placeholder="https://gotify.example.com" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                    <div>
+                      <label class="field-label">Gotify Token</label>
+                      <div class="setting-input-action">
+                        <input type="text" x-model="settings.gotify_token" @focus="prepareSecretInput('gotify_token')" placeholder="A..." class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                        <button type="button" @click="toggleSettingSecret('gotify_token')" :disabled="secretToggleDisabled('gotify_token')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('gotify_token')"></button>
+                      </div>
+                    </div>
+                    <div>
+                      <label class="field-label">PushPlus Token</label>
+                      <div class="setting-input-action">
+                        <input type="text" x-model="settings.pushplus_token" @focus="prepareSecretInput('pushplus_token')" placeholder="pushplus token" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                        <button type="button" @click="toggleSettingSecret('pushplus_token')" :disabled="secretToggleDisabled('pushplus_token')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('pushplus_token')"></button>
+                      </div>
+                    </div>
+                  </div>
+                </details>
+              </div>
+
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">渠道测试</h3>
+                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                  <template x-for="channel in pushChannels" :key="channel.id">
+                    <button @click="testPush(channel.id)" :disabled="!pushChannelConfigured(channel.id)" class="btn-secondary px-3 py-2 rounded text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                      <span x-text="channel.name"></span>
+                    </button>
+                  </template>
+                </div>
+              </div>
+
+              <div class="flex justify-end gap-3 pt-4 border-t border-border">
+                <button @click="testPush()" class="btn-secondary px-4 py-2 rounded-lg">测试推送</button>
+                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
+              </div>
+            </div>
+
+            <!-- 自动化 -->
+            <div x-show="currentSettingsTab === 'automation'" class="p-4 sm:p-6 space-y-6">
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">订阅自动化</h3>
+                <div class="space-y-3">
+                  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <label class="field-label mb-0">检查周期</label>
+                    <span class="text-xs text-muted/75" x-text="'当前每 ' + checkIntervalLabel(settings.subscription_check_interval_minutes) + ' 检查一次'"></span>
+                  </div>
+                  <div class="flex flex-wrap gap-2">
+                    <template x-for="minutes in checkIntervalPresets" :key="minutes">
+                      <button @click="setCheckInterval(minutes)" :class="Number(settings.subscription_check_interval_minutes) === minutes ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded text-sm transition-colors" x-text="checkIntervalLabel(minutes)"></button>
+                    </template>
+                  </div>
+                  <div>
+                    <label class="field-label">自定义分钟数</label>
+                    <input type="number" x-model.number="settings.subscription_check_interval_minutes" min="5" step="5" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                    <p class="text-xs text-muted/75 mt-2">最小 5 分钟，保存后调度器会按新的周期重新加载。</p>
+                  </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div><label class="field-label">订阅检查最大并发</label><input type="number" min="1" max="32" x-model.number="settings.subscription_check_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg" /></div>
+                  <div><label class="field-label">外部 API 最大并发</label><input type="number" min="1" max="64" x-model.number="settings.external_api_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg" /></div>
+                  <div><label class="field-label">Aria2 单批提交上限</label><input type="number" min="1" max="100" x-model.number="settings.aria2_batch_submit_limit" class="w-full px-4 py-2 bg-app border border-border rounded-lg" /></div>
+                </div>
+                <div>
+                  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-3">
+                    <label class="field-label mb-0">后台任务分层并发</label>
+                    <span class="text-xs text-muted/75">类别上限同时受全局上限约束；同一订阅始终串行</span>
+                  </div>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div><label class="field-label">全局</label><input type="number" min="1" max="32" x-model.number="settings.job_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg" /></div>
+                    <div><label class="field-label">转存</label><input type="number" min="1" max="32" x-model.number="settings.job_transfer_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg" /></div>
+                    <div><label class="field-label">元数据</label><input type="number" min="1" max="32" x-model.number="settings.job_metadata_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg" /></div>
+                    <div><label class="field-label">推送</label><input type="number" min="1" max="32" x-model.number="settings.job_push_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg" /></div>
+                  </div>
+                  <label class="mt-3 flex items-center gap-2 text-sm text-warning cursor-pointer"><input type="checkbox" x-model="settings.job_maintenance_mode" class="rounded" />维护模式：暂停认领新后台任务，运行中任务继续完成</label>
+                </div>
+                <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.subscription_scheduler_enabled" class="rounded" />启用自动检查</label>
+                <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.auto_download_new_subscription_items" class="rounded" />自动下载新订阅项</label>
+              </div>
+
+              <div class="app-panel-soft p-4 space-y-4">
+                <div>
+                  <h3 class="section-title">安全自动换源</h3>
+                  <p class="text-sm text-muted/75 mt-1">默认仅搜索候选；只有候选探测、季度、进度覆盖、分数和冷却全部满足时才允许自动应用。</p>
+                </div>
+                <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.auto_source_switch_enabled" class="rounded" />允许系统自动应用候选来源</label>
+                <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <div><label class="field-label">运行模式</label><select x-model="settings.auto_source_switch_mode" class="app-select w-full"><option value="search_only">仅搜索</option><option value="apply">满足策略时自动应用</option></select></div>
+                  <div><label class="field-label">候选最低分</label><input type="number" min="0" max="100" x-model.number="settings.source_switch_min_score" class="app-input w-full" /></div>
+                  <div><label class="field-label">最低分差</label><input type="number" min="0" max="100" x-model.number="settings.source_switch_min_score_delta" class="app-input w-full" /></div>
+                  <div><label class="field-label">连续失效次数</label><input type="number" min="1" max="20" x-model.number="settings.source_switch_failure_threshold" class="app-input w-full" /></div>
+                  <div><label class="field-label">冷却时间（小时）</label><input type="number" min="1" max="720" x-model.number="settings.source_switch_cooldown_hours" class="app-input w-full" /></div>
+                </div>
+                <div class="rounded border border-warning/30 bg-warning/5 p-3 text-xs text-muted/80">即使选择“自动应用”，总开关关闭时仍只搜索；失败候选和历史失效链接不会在冷却期内重复应用。</div>
+              </div>
+
+              <div class="app-panel-soft p-4 space-y-4">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h3 class="section-title">命名规则</h3>
+                    <p class="text-sm text-muted/75 mt-1">默认重命名模板和规则预览统一在规则中心维护。</p>
+                  </div>
+                  <button type="button" @click="openRuleCenter()" class="btn-secondary px-4 py-2 rounded-lg text-sm">打开规则中心</button>
+                </div>
+                <div class="border-t border-border pt-3 text-sm">
+                  <div class="text-xs text-muted/75 mb-1">当前默认模板</div>
+                  <div class="text-text/80 break-all" x-text="defaultRenameTemplateLabel()"></div>
+                </div>
+              </div>
+
+              <div class="flex justify-end gap-3 pt-4 border-t border-border">
+                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
+              </div>
+            </div>
+
+            <!-- 规则中心 -->
+            <div x-show="currentSettingsTab === 'naming'" class="p-4 sm:p-6 space-y-6">
+              <div class="app-panel-soft p-4 space-y-4">
+                <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <h3 class="section-title">命名规则中心</h3>
+                    <p class="text-sm text-muted/75 mt-1">集中调试追剧命名模板、过滤规则和样例文件，确认后可写入默认模板或在订阅弹窗中套用。</p>
+                  </div>
+                  <div class="flex flex-col sm:flex-row gap-2">
+                    <button @click="saveRuleCenterPreset()" class="btn-secondary px-4 py-2 rounded-lg text-sm">保存预设</button>
+                    <button @click="useRuleCenterAsDefaultTemplate()" class="btn-secondary px-4 py-2 rounded-lg text-sm">写入默认模板</button>
+                    <button @click="previewRuleCenter()" :disabled="ruleCenterPreviewLoading" class="btn-primary px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+                      <span x-show="!ruleCenterPreviewLoading">预览规则</span>
+                      <span x-show="ruleCenterPreviewLoading">预览中</span>
+                    </button>
+                  </div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                  <template x-for="preset in rulePresets" :key="preset.id">
+                    <div class="btn-secondary p-3 rounded-lg text-left min-h-20">
+                      <button @click="applyRulePresetToRuleCenter(preset.id)" class="w-full text-left">
+                        <span class="block text-sm text-text font-medium" x-text="preset.name"></span>
+                        <span class="block text-xs text-muted/75 mt-1" x-text="preset.description || ruleSummary(preset.rules)"></span>
+                      </button>
+                      <div class="mt-3 flex items-center justify-between gap-2 text-xs">
+                        <span class="text-muted/75" x-text="mediaTypeLabel(preset.media_type || 'series')"></span>
+                        <button @click.stop="deleteRulePreset(preset.id)" class="text-danger hover:text-danger/80">删除</button>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">规则配置</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label class="field-label">预设名称</label>
+                    <input type="text" x-model="ruleCenter.preset_name" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：番剧命名" />
+                  </div>
+                  <div class="md:col-span-2">
+                    <label class="field-label">预设说明</label>
+                    <input type="text" x-model="ruleCenter.preset_description" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="用于区分适用场景" />
+                  </div>
+                  <div>
+                    <label class="field-label">媒体类型</label>
+                    <select x-model="ruleCenter.media_type" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
+                      <option value="movie">电影</option>
+                      <option value="series">连续剧</option>
+                      <option value="anime">动画</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="field-label">标题样例</label>
+                    <input type="text" x-model="ruleCenter.title" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" />
+                  </div>
+                  <div>
+                    <label class="field-label">季号</label>
+                    <input type="number" min="1" x-model="ruleCenter.season" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" />
+                  </div>
+                  <div class="md:col-span-3">
+                    <label class="field-label">重命名模板</label>
+                    <input type="text" x-model="ruleCenter.rename_template" placeholder="{title}.S{season}E{episode}.{ext}" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" />
+                  </div>
+                  <div><label class="field-label">包含关键词</label><input type="text" x-model="ruleCenter.include_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="多个用逗号或换行分隔" /></div>
+                  <div><label class="field-label">排除关键词</label><input type="text" x-model="ruleCenter.exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="预告, 花絮, trailer" /></div>
+                  <div><label class="field-label">匹配正则</label><input type="text" x-model="ruleCenter.match_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：S01E\\d+|第\\d+集" /></div>
+                  <div><label class="field-label">集数识别覆盖正则</label><input type="text" x-model="ruleCenter.episode_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：\\[(?P&lt;episode&gt;\\d+)\\]" /><small class="field-help">必须包含命名捕获 episode，可选 season；留空使用内置规则。</small></div>
+                  <div><label class="field-label">换源搜索关键词</label><input type="text" x-model="ruleCenter.source_search_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="多个关键词用逗号分隔" /></div>
+                  <div><label class="field-label">候选排除词</label><input type="text" x-model="ruleCenter.source_exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="枪版, 预告, 无字幕" /></div>
+                  <div><label class="field-label">候选质量偏好</label><input type="text" x-model="ruleCenter.source_prefer_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="2160p, 简中, HEVC, 发布组" /></div>
+                  <div><label class="field-label">重命名正则</label><input type="text" x-model="ruleCenter.rename_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" /></div>
+                  <div><label class="field-label">替换文本</label><input type="text" x-model="ruleCenter.rename_replacement" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" /></div>
+                  <div>
+                    <label class="field-label">同集保留策略</label>
+                    <select x-model="ruleCenter.duplicate_episode_strategy" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
+                      <option value="highest_quality">清晰度最高</option>
+                      <option value="latest_upload">上传时间最新</option>
+                      <option value="largest_size">文件最大</option>
+                      <option value="first">最先出现</option>
+                    </select>
+                  <div><label class="field-label">目标同名冲突</label><select x-model="ruleCenter.conflict_strategy" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text"><option value="skip">跳过已有文件</option><option value="overwrite">覆盖已有文件</option><option value="keep_both">保留两份</option></select></div>
+                  </div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="ruleCenter.ignore_extensions" class="rounded" />忽略扩展名匹配</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="ruleCenter.only_latest" class="rounded" />仅处理最新一集</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="ruleCenter.skip_existing_transferred" class="rounded" />跳过已转存</label>
+                </div>
+              </div>
+
+              <div class="app-panel-soft p-4 space-y-4">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 class="section-title">样例预览</h3>
+                    <p class="text-sm text-muted/75 mt-1">每行一个文件名，用于验证集数识别、过滤和目标文件名。</p>
+                  </div>
+                  <button @click="copyText(ruleCenter.rename_template)" class="btn-secondary px-3 py-2 rounded text-sm">复制模板</button>
+                </div>
+                <textarea x-model="ruleCenter.samples" rows="5" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text"></textarea>
+                <div x-show="ruleCenterPreviewError" class="text-sm text-danger" x-text="ruleCenterPreviewError"></div>
+                <div x-show="ruleCenterPreview && ruleCenterPreview.items && ruleCenterPreview.items.length > 0" class="border border-border rounded-lg overflow-hidden">
+                  <div class="hidden md:grid grid-cols-12 gap-2 px-3 py-2 bg-app text-xs text-muted/75">
+                    <div class="col-span-4">原文件名</div>
+                    <div class="col-span-4">目标文件名</div>
+                    <div class="col-span-2">集数</div>
+                    <div class="col-span-2">结果</div>
+                  </div>
+                  <template x-for="(item, itemIndex) in (ruleCenterPreview && ruleCenterPreview.items) || []" :key="'rule-preview-' + item.source_name + '-' + item.target_name + '-' + itemIndex">
+                    <div class="grid gap-2 px-3 py-3 border-t border-border text-xs md:grid-cols-12">
+                      <div class="text-text/80 break-all md:col-span-4" x-text="item.source_name"></div>
+                      <div class="text-success break-all md:col-span-4" x-text="item.target_name"></div>
+                      <div class="text-muted md:col-span-2"><span class="text-muted/75 md:hidden">集数 </span><span x-text="item.episode ? '第 ' + item.episode + ' 集' : '-'"></span></div>
+                      <div class="md:col-span-2">
+                        <span :class="item.action === 'transfer' ? 'text-success' : 'text-warning'" x-text="item.action === 'transfer' ? '会转存' : (item.skip_reason || '跳过')"></span>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <div class="flex justify-end gap-3 pt-4 border-t border-border">
+                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
+              </div>
+            </div>
+
+            <!-- 高级设置 -->
+            <div x-show="currentSettingsTab === 'maintenance'" class="p-4 sm:p-6 space-y-6">
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">高级选项</h3>
+                <div>
+                  <div class="flex items-center justify-between gap-3">
+                    <label class="field-label">PanSou API URL</label>
+                    <span class="text-xs text-muted/75" x-text="settings.pansou_api_url_configured ? '已配置' : '未配置'"></span>
+                  </div>
+                  <div class="setting-input-action">
+                    <input type="text" x-model="settings.pansou_api_url" @focus="prepareSecretInput('pansou_api_url')" :placeholder="settings.pansou_api_url_configured ? '已配置，留空不修改' : '留空使用内置服务，或粘贴自建 API URL'" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                    <button type="button" @click="toggleSettingSecret('pansou_api_url')" :disabled="secretToggleDisabled('pansou_api_url')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('pansou_api_url')"></button>
+                  </div>
+                  <p class="text-xs text-muted/75 mt-2">保存后新的资源搜索会使用该地址；留空时使用内置默认服务。</p>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.check_links" class="rounded" />默认检测链接有效性</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.probe_quark_files" class="rounded" />默认嗅探文件列表</label>
+                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.filter_bad_links" class="rounded" />默认过滤失效链接</label>
+                </div>
+              </div>
+
+              <div class="flex justify-end gap-3 pt-4 border-t border-border">
+                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
+              </div>
+            </div>
+
+            <!-- 在线更新 -->
+            <div x-show="currentSettingsTab === 'maintenance'" class="p-4 sm:p-6 space-y-6">
+              <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <div class="stat-tile p-4">
+                  <div class="text-xs text-muted/75">当前版本</div>
+                  <div class="mt-2 text-lg font-semibold text-text" x-text="updateInfo ? updateInfo.current_version : '-'"></div>
+                </div>
+                <div class="stat-tile p-4">
+                  <div class="text-xs text-muted/75">最新版本</div>
+                  <div class="mt-2 text-lg font-semibold text-text" x-text="updateInfo ? updateInfo.latest_tag : '-'"></div>
+                </div>
+                <div class="stat-tile p-4">
+                  <div class="text-xs text-muted/75">状态</div>
+                  <div class="mt-2 text-lg font-semibold" :class="updateStatusClass()" x-text="updateStatusLabel()"></div>
+                </div>
+                <div class="stat-tile p-4">
+                  <div class="text-xs text-muted/75">运行方式</div>
+                  <div class="mt-2 text-lg font-semibold text-text" x-text="updateRuntimeLabel()"></div>
+                </div>
+              </div>
+
+              <div class="app-panel-soft p-4 space-y-4">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 class="section-title">版本检查</h3>
+                    <p class="text-sm text-muted/75 mt-1" x-text="updateInfo ? '检查时间 ' + formatUpdateTime(updateInfo.checked_at) : '尚未检查'"></p>
+                  </div>
+                  <div class="flex flex-col sm:flex-row gap-2">
+                    <button @click="checkUpdate()" :disabled="updateLoading || updateApplying" class="btn-secondary px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
+                      <span x-show="!updateLoading">检查更新</span>
+                      <span x-show="updateLoading">检查中</span>
+                    </button>
+                    <button @click="applyUpdate()" :disabled="!updateInfo || !updateInfo.update_available || updateApplying" class="btn-primary px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
+                      <span x-show="!updateApplying">立即升级</span>
+                      <span x-show="updateApplying">升级中</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div x-show="updateError" class="text-sm text-danger break-all" x-text="updateError"></div>
+
+                <div class="app-panel-soft p-4 space-y-3">
+                  <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <h3 class="section-title">指定版本切换</h3>
+                      <p class="text-sm text-muted/75 mt-1">可升级到新版本，也可回退到历史 Release。</p>
+                    </div>
+                    <button @click="loadUpdateReleases()" :disabled="updateReleasesLoading || updateApplying" class="btn-secondary px-3 py-2 rounded text-xs disabled:opacity-50">
+                      <span x-show="!updateReleasesLoading">刷新版本</span>
+                      <span x-show="updateReleasesLoading">读取中</span>
+                    </button>
+                  </div>
+                  <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-3 lg:items-end">
+                    <div>
+                      <label class="field-label">目标版本</label>
+                      <select x-model="selectedUpdateTag" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text">
+                        <option value="">选择 Release</option>
+                        <template x-for="item in updateReleases" :key="item.tag">
+                          <option :value="item.tag" x-text="item.tag + (item.is_current ? '（当前）' : (item.is_newer ? '（新版）' : '（历史）'))"></option>
+                        </template>
+                      </select>
+                      <div class="mt-2 text-xs text-muted/75" x-text="selectedUpdateDescription()"></div>
+                      <div x-show="selectedUpdateRelease()" class="mt-2 flex flex-wrap gap-2 text-xs text-muted/75">
+                        <span x-text="selectedUpdateRelease() ? '发布时间 ' + formatUpdateTime(selectedUpdateRelease().published_at) : ''"></span>
+                        <span x-show="selectedUpdateRelease() && selectedUpdateRelease().asset" x-text="selectedUpdateRelease() && selectedUpdateRelease().asset ? '包大小 ' + assetSizeLabel(selectedUpdateRelease().asset) : ''"></span>
+                      </div>
+                    </div>
+                    <button @click="applySelectedUpdate()" :disabled="!canApplySelectedUpdate()" class="btn-primary px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
+                      <span x-text="selectedUpdateActionLabel()"></span>
+                    </button>
+                  </div>
+                </div>
+
+                <div x-show="updateApplying || updateProgress" x-cloak class="space-y-2">
+                  <div class="flex items-center justify-between gap-3 text-sm">
+                    <span class="text-text/80 break-words" x-text="updateProgressMessage()"></span>
+                    <span class="font-semibold text-text tabular-nums whitespace-nowrap" x-text="updateProgressPercent() + '%'"></span>
+                  </div>
+                  <div class="h-2 rounded-full bg-app overflow-hidden border border-border">
+                    <div class="h-full transition-all duration-300" :class="updateProgressBarClass()" :style="'width: ' + updateProgressPercent() + '%'"></div>
+                  </div>
+                  <div x-show="updateRestartRequired()" x-cloak class="flex justify-end">
+                    <button @click="showUpdateProgressDialog = true" class="btn-primary px-4 py-2 rounded-lg text-sm transition-colors">重启服务并刷新页面</button>
+                  </div>
+                </div>
+
+                <div x-show="updateInfo" class="space-y-4">
+                  <div class="app-panel-soft p-4 space-y-3">
+                    <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div class="min-w-0">
+                        <h3 class="section-title">当前版本改动</h3>
+                        <div class="text-sm text-text mt-2 break-words" x-text="updateInfo ? updateInfo.release_name : '-'"></div>
+                        <div class="text-xs text-muted/75 mt-1" x-text="updateInfo ? '发布时间 ' + formatUpdateTime(updateInfo.published_at) : '-'"></div>
+                      </div>
+                      <a x-show="updateInfo && updateInfo.release_url" :href="updateInfo ? updateInfo.release_url : null" target="_blank" rel="noopener noreferrer" class="btn-secondary px-3 py-2 rounded text-xs text-center whitespace-nowrap">打开 Release</a>
+                    </div>
+                    <pre x-show="updateInfo && updateInfo.release_notes" class="max-h-64 overflow-y-auto whitespace-pre-wrap text-xs text-muted leading-5" x-text="updateInfo ? updateInfo.release_notes : ''"></pre>
+                    <div x-show="updateInfo && !updateInfo.release_notes" class="text-sm text-muted/75">暂无版本说明</div>
+                  </div>
+
+                  <div class="app-panel-soft p-4">
+                    <h3 class="section-title">升级方式</h3>
+                    <p class="text-sm text-muted mt-2">升级会替换当前运行环境中的 my-media-sub 二进制文件和 WebUI 静态资源。Docker 部署时不会拉取新镜像；替换完成后需要点击重启按钮，服务恢复后页面会自动刷新。</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            </div>
+          </div>
+        </div>
+

@@ -577,6 +577,12 @@ impl SubscriptionCheckService {
         }
 
         // 批量检查在内存快照中执行；所有订阅完成后再一次性写回真实 Store。
+        // 保留批量开始时的原始记录，用于写回时做三方对比，避免覆盖并发修改。
+        let originals: HashMap<String, Subscription> = subscriptions
+            .iter()
+            .filter(|sub| eligible_ids.contains(&sub.id))
+            .map(|sub| (sub.id.clone(), sub.clone()))
+            .collect();
         let batch_store = Arc::new(SubscriptionStore::from_snapshot(subscriptions));
         let batch_service = self
             .with_subscription_store(batch_store.clone())
@@ -615,13 +621,26 @@ impl SubscriptionCheckService {
             .map(|(_, result)| result)
             .collect::<Vec<_>>();
 
-        let updates = batch_store
+        // 写回时仅合并检查流程产生的字段，绝不整条替换：
+        // - transferred_files/transferred_file_keys 等由转存任务并发维护的字段保持当前值；
+        // - 标题、规则、启用状态等用户可编辑字段保持当前值；
+        // - 批量期间被删除的订阅跳过写回，不影响其余订阅的持久化。
+        let updates: Vec<Subscription> = batch_store
             .list()
             .await
             .into_iter()
-            .filter(|sub| eligible_ids.contains(&sub.id))
+            .filter(|sub| {
+                originals.get(&sub.id).is_some_and(|original| {
+                    sub.last_checked_at != original.last_checked_at
+                        || sub.updated_at != original.updated_at
+                })
+            })
             .collect();
-        self.subscription_store.update_many(updates).await?;
+        self.subscription_store
+            .merge_many(updates, |current, checked| {
+                merge_check_results(current, originals.get(&checked.id), checked);
+            })
+            .await?;
         Ok(results)
     }
 
@@ -1116,6 +1135,52 @@ impl SubscriptionCheckService {
         .await;
 
         Ok(())
+    }
+}
+
+/// 将批量检查快照中由检查流程产生的字段合并到当前记录。
+///
+/// 只覆盖检查流程负责维护的字段；transferred_files/transferred_file_keys
+/// （由并发的转存任务维护）以及标题、规则、启用状态等用户可编辑字段
+/// 一律保留当前 Store 中的值，避免快照写回覆盖并发更新。
+fn merge_check_results(
+    current: &mut Subscription,
+    original: Option<&Subscription>,
+    checked: &Subscription,
+) {
+    current.known_files = checked.known_files.clone();
+    current.known_file_keys = checked.known_file_keys.clone();
+    current.known_episodes = checked.known_episodes.clone();
+    current.current_episode_number = checked.current_episode_number;
+    current.last_checked_at = checked.last_checked_at;
+    current.last_new_files = checked.last_new_files.clone();
+    current.last_new_episodes = checked.last_new_episodes.clone();
+    current.last_check_summary = checked.last_check_summary.clone();
+    current.last_probe = checked.last_probe.clone();
+    current.check_history = checked.check_history.clone();
+    current.status = checked.status.clone();
+    current.invalid_since = checked.invalid_since;
+    current.last_error = checked.last_error.clone();
+    current.source_failure_count = checked.source_failure_count;
+    current.completed = checked.completed;
+    current.total_episode_number = checked.total_episode_number;
+    current.source_candidates = checked.source_candidates.clone();
+    current.last_source_search_time = checked.last_source_search_time;
+    current.updated_at = current.updated_at.max(checked.updated_at);
+
+    // 仅当批量检查期间确实发生了自动换源时，才同步换源相关字段；
+    // 否则保留当前值，避免覆盖用户对分享链接的并发编辑。
+    let switched_in_batch = original.is_none_or(|original| {
+        checked.url != original.url
+            || checked.password != original.password
+            || checked.last_source_switch_at != original.last_source_switch_at
+    });
+    if switched_in_batch {
+        current.url = checked.url.clone();
+        current.password = checked.password.clone();
+        current.previous_share_links = checked.previous_share_links.clone();
+        current.last_source_switch_at = checked.last_source_switch_at;
+        current.source_switch_history = checked.source_switch_history.clone();
     }
 }
 

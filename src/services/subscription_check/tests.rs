@@ -928,4 +928,151 @@ mod tests {
         assert_eq!(result.files[0].file_key, "mock-episode-1");
     }
 
+    #[tokio::test]
+    async fn check_all_write_back_preserves_concurrent_transfer_and_user_edits() {
+        let _guard = mock_env_lock().lock().await;
+        let path = test_path("mock_batch_race");
+        std::fs::write(
+            &path,
+            r#"{
+                "https://pan.quark.cn/s/race": {
+                    "ok": true,
+                    "state": "ok",
+                    "message": "",
+                    "files": [
+                        {"name": "Show.S01E01.mkv", "size": 1, "file_key": "fid1"}
+                    ]
+                }
+            }"#,
+        )
+        .unwrap();
+        std::env::set_var("MOCK_QUARK_SHARE_FIXTURE", &path);
+
+        let (service, store, _) = make_service();
+        let mut sub = make_subscription();
+        sub.id = "race-sub".to_string();
+        sub.url = "https://pan.quark.cn/s/race".to_string();
+        store.create(sub).await.unwrap();
+
+        // 占住订阅锁，让批量检查阻塞在快照检查阶段，
+        // 期间模拟并发的转存任务与用户编辑写入真实 Store。
+        let lock =
+            SubscriptionCheckService::named_lock(&service.subscription_locks, "race-sub").await;
+        let guard = lock.lock().await;
+        let runner = service.clone();
+        let handle = tokio::spawn(async move { runner.check_all_subscriptions("cookie").await });
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        store
+            .update("race-sub", |s| {
+                s.transferred_files.push("Show.S01E01.mkv".to_string());
+                s.transferred_file_keys.push("ep:1".to_string());
+                s.title = "用户改过的标题".to_string();
+            })
+            .await
+            .unwrap();
+        drop(guard);
+
+        let results = tokio::time::timeout(std::time::Duration::from_secs(5), handle)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+
+        std::env::remove_var("MOCK_QUARK_SHARE_FIXTURE");
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(results.len(), 1);
+        let persisted = store.get("race-sub").await.unwrap();
+        // 检查结果被写回……
+        assert_eq!(persisted.known_episodes, vec![1]);
+        assert!(persisted.last_checked_at > 0);
+        // ……但并发的转存状态与用户编辑没有被快照写回覆盖。
+        assert_eq!(persisted.transferred_files, vec!["Show.S01E01.mkv"]);
+        assert_eq!(persisted.transferred_file_keys, vec!["ep:1"]);
+        assert_eq!(persisted.title, "用户改过的标题");
+    }
+
+    #[tokio::test]
+    async fn check_all_write_back_skips_subscription_deleted_mid_batch() {
+        let _guard = mock_env_lock().lock().await;
+        let path = test_path("mock_batch_delete");
+        std::fs::write(
+            &path,
+            r#"{
+                "https://pan.quark.cn/s/delete": {
+                    "ok": true,
+                    "state": "ok",
+                    "message": "",
+                    "files": [
+                        {"name": "Show.S01E01.mkv", "size": 1, "file_key": "fid1"}
+                    ]
+                }
+            }"#,
+        )
+        .unwrap();
+        std::env::set_var("MOCK_QUARK_SHARE_FIXTURE", &path);
+
+        let (service, store, _) = make_service();
+        let mut kept = make_subscription();
+        kept.id = "kept-sub".to_string();
+        kept.url = "https://pan.quark.cn/s/delete".to_string();
+        let mut removed = make_subscription();
+        removed.id = "removed-sub".to_string();
+        removed.url = "https://pan.quark.cn/s/delete".to_string();
+        store.create(kept).await.unwrap();
+        store.create(removed).await.unwrap();
+
+        // 占住 kept-sub 的锁，让批量停在检查阶段，期间删除 removed-sub。
+        let lock =
+            SubscriptionCheckService::named_lock(&service.subscription_locks, "kept-sub").await;
+        let guard = lock.lock().await;
+        let runner = service.clone();
+        let handle = tokio::spawn(async move { runner.check_all_subscriptions("cookie").await });
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        assert!(store.delete("removed-sub").await.unwrap());
+        drop(guard);
+
+        let results = tokio::time::timeout(std::time::Duration::from_secs(5), handle)
+            .await
+            .unwrap()
+            .unwrap()
+            .expect("批量写回不应因个别订阅被删除而整体失败");
+
+        std::env::remove_var("MOCK_QUARK_SHARE_FIXTURE");
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(results.len(), 2);
+        // 剩余订阅的检查结果仍然被持久化。
+        let persisted = store.get("kept-sub").await.unwrap();
+        assert_eq!(persisted.known_episodes, vec![1]);
+        assert!(persisted.last_checked_at > 0);
+        // 被删除的订阅不会被写回复活。
+        assert!(store.get("removed-sub").await.is_none());
+    }
+
+    #[test]
+    fn merge_check_results_keeps_url_unless_batch_switched_source() {
+        let original = make_subscription();
+
+        // 批量期间用户修改了链接，而批量检查没有换源：保留用户的链接。
+        let mut current = make_subscription();
+        current.url = "https://pan.quark.cn/s/user-edited".to_string();
+        let mut checked = make_subscription();
+        checked.last_checked_at = 100;
+        merge_check_results(&mut current, Some(&original), &checked);
+        assert_eq!(current.url, "https://pan.quark.cn/s/user-edited");
+        assert_eq!(current.last_checked_at, 100);
+
+        // 批量检查自动换源：写回新的链接。
+        let mut current = make_subscription();
+        let mut checked = make_subscription();
+        checked.url = "https://pan.quark.cn/s/switched".to_string();
+        checked.last_source_switch_at = Some(200);
+        merge_check_results(&mut current, Some(&original), &checked);
+        assert_eq!(current.url, "https://pan.quark.cn/s/switched");
+        assert_eq!(current.last_source_switch_at, Some(200));
+    }
+
 }

@@ -96,6 +96,19 @@ mod tests {
     }
 
     #[test]
+    fn endpoint_gone_detects_only_404_and_410_variants() {
+        // web-push 不导出 ErrorInfo，无法直接构造 404/410 变体；
+        // 通过 short_description 映射覆盖判定逻辑。
+        assert!(is_endpoint_gone_description("endpoint_not_valid"));
+        assert!(is_endpoint_gone_description("endpoint_not_found"));
+        assert!(!is_endpoint_gone_description("unauthorized"));
+        assert!(!is_endpoint_gone_description("server_error"));
+        assert!(!is_endpoint_gone_description("unspecified"));
+        assert!(!is_endpoint_gone(&WebPushError::Unspecified));
+        assert!(!is_endpoint_gone(&WebPushError::PayloadTooLarge));
+    }
+
+    #[test]
     fn test_sanitize_push_error_masks_tokens() {
         let error = "request failed: https://example.com/message?token=abc123&key=secret bot123456:ABC_def SCTabcdef";
         let sanitized = sanitize_push_error(error);

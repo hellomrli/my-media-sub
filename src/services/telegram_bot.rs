@@ -8,7 +8,7 @@ use regex::Regex;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 
 use crate::jobs::{JobQueue, JobStatus, JobStore};
 use crate::models::Settings;
@@ -29,6 +29,9 @@ const SECURITY_AUDIT_INTERVAL_SECONDS: i64 = 60;
 const CONFIRMATION_TTL_SECONDS: i64 = 120;
 const RATE_WINDOW_SECONDS: i64 = 60;
 const FAILURE_COOLDOWN_SECONDS: i64 = 60;
+/// 单个进程内并发处理的 Telegram Update 上限。慢命令（如 /check all）
+/// 在独立任务中执行，不阻塞 getUpdates 长轮询循环。
+const MAX_CONCURRENT_UPDATES: usize = 8;
 
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct TelegramBotDiagnostics {
@@ -461,10 +464,11 @@ impl TelegramBotService {
         self.note_success().await;
     }
 
-    async fn run(&self) {
+    async fn run(self: Arc<Self>) {
         let mut offset: Option<i64> = None;
         let mut configured_fingerprint = String::new();
         let mut failures = 0_u32;
+        let update_semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_UPDATES));
         loop {
             let settings = self.settings_store.get().await;
             self.set_mode(&settings.telegram_bot_mode).await;
@@ -486,7 +490,17 @@ impl TelegramBotService {
                             failures = 0;
                             for update in updates {
                                 offset = Some(update.update_id.saturating_add(1));
-                                self.handle_update(update).await;
+                                // 每个 Update 独立处理，避免慢命令阻塞长轮询；
+                                // 信号量限制并发上限（背压时在此等待，而非无界 spawn）。
+                                let Ok(permit) = update_semaphore.clone().acquire_owned().await
+                                else {
+                                    break;
+                                };
+                                let service = self.clone();
+                                tokio::spawn(async move {
+                                    service.handle_update(update).await;
+                                    drop(permit);
+                                });
                             }
                         }
                         Err(error) => {

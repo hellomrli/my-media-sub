@@ -2,7 +2,7 @@ use crate::clients::http_pool;
 use crate::clients::http_pool::ObservedRequestBuilder;
 use crate::error::{AppError, Result};
 use crate::models::{Notification, Settings};
-use crate::store::NotificationStore;
+use crate::store::{NotificationStore, SettingsStore};
 use crate::utils::metrics::global_metrics;
 use regex::Regex;
 use reqwest::Client;
@@ -10,17 +10,35 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock, OnceLock};
 use std::time::Duration;
 use tokio::time::sleep;
 use web_push::{
     ContentEncoding, IsahcWebPushClient, SubscriptionInfo, VapidSignatureBuilder, WebPushClient,
-    WebPushMessageBuilder,
+    WebPushError, WebPushMessageBuilder,
 };
 
 fn hardcoded_regex(pattern: &str) -> Regex {
     Regex::new(pattern)
         .unwrap_or_else(|error| panic!("invalid hard-coded push regex `{pattern}`: {error}"))
+}
+
+/// 用于清理失效浏览器推送订阅的全局 SettingsStore 句柄。
+/// PushService 通常只持有一份 Settings 快照，无法回写；推送派发入口
+/// （notification 服务）在派发时注册该句柄，供 404/410 剪除使用。
+static PRUNE_SETTINGS_STORE: OnceLock<Arc<SettingsStore>> = OnceLock::new();
+
+pub fn register_settings_store_for_pruning(store: &Arc<SettingsStore>) {
+    let _ = PRUNE_SETTINGS_STORE.set(store.clone());
+}
+
+/// 订阅端点已失效（404 EndpointNotFound / 410 EndpointNotValid），应从存储中删除。
+fn is_endpoint_gone(error: &WebPushError) -> bool {
+    is_endpoint_gone_description(error.short_description())
+}
+
+fn is_endpoint_gone_description(description: &str) -> bool {
+    matches!(description, "endpoint_not_valid" | "endpoint_not_found")
 }
 
 /// 推送级别
@@ -543,7 +561,8 @@ impl PushService {
         if !self.settings.push_quiet_hours_enabled {
             return false;
         }
-        let hour = ((chrono::Utc::now().timestamp() + 8 * 3600).rem_euclid(86_400) / 3600) as u8;
+        // 使用宿主时区（容器内可通过 TZ 环境变量设置），而非硬编码 UTC+8。
+        let hour = chrono::Timelike::hour(&chrono::Local::now()) as u8;
         quiet_hour(
             hour,
             self.settings.push_quiet_start_hour,
@@ -711,30 +730,66 @@ impl PushService {
             &json!({"title": title, "body": message, "level": level.as_str(), "url": "/?tab=notifications"}),
         )?;
         let mut succeeded = 0usize;
+        let mut gone_endpoints: Vec<String> = Vec::new();
         for subscription in &self.settings.browser_push_subscriptions {
+            // 单个订阅出错只记录并跳过，不能中断其余订阅者的推送。
             let info = SubscriptionInfo::new(
                 &subscription.endpoint,
                 &subscription.p256dh,
                 &subscription.auth,
             );
-            let mut signature = VapidSignatureBuilder::from_base64(
+            let mut signature = match VapidSignatureBuilder::from_base64(
                 &self.settings.browser_push_vapid_private_key,
                 &info,
-            )
-            .map_err(|error| AppError::Config(format!("Browser Push VAPID 签名失败: {error}")))?;
+            ) {
+                Ok(builder) => builder,
+                Err(error) => {
+                    tracing::warn!("Browser Push VAPID 签名构建失败，跳过该订阅: {error}");
+                    continue;
+                }
+            };
             signature.add_claim("sub", self.settings.browser_push_subject.clone());
-            let signature = signature
-                .build()
-                .map_err(|error| AppError::Http(error.to_string()))?;
+            let signature = match signature.build() {
+                Ok(signature) => signature,
+                Err(error) => {
+                    tracing::warn!("Browser Push VAPID 签名失败，跳过该订阅: {error}");
+                    continue;
+                }
+            };
             let mut builder = WebPushMessageBuilder::new(&info);
             builder.set_payload(ContentEncoding::Aes128Gcm, &payload);
             builder.set_ttl(3600);
             builder.set_vapid_signature(signature);
-            let push = builder
-                .build()
-                .map_err(|error| AppError::Http(error.to_string()))?;
-            if client.send(push).await.is_ok() {
-                succeeded += 1;
+            let push = match builder.build() {
+                Ok(push) => push,
+                Err(error) => {
+                    tracing::warn!("Browser Push 消息构建失败，跳过该订阅: {error}");
+                    continue;
+                }
+            };
+            match client.send(push).await {
+                Ok(()) => succeeded += 1,
+                Err(error) if is_endpoint_gone(&error) => {
+                    tracing::info!("Browser Push 订阅已失效（404/410），将从设置中移除: {error}");
+                    gone_endpoints.push(subscription.endpoint.clone());
+                }
+                Err(error) => {
+                    tracing::warn!("Browser Push 发送失败: {error}");
+                }
+            }
+        }
+        if !gone_endpoints.is_empty() {
+            if let Some(store) = PRUNE_SETTINGS_STORE.get() {
+                if let Err(error) = store
+                    .update(|settings| {
+                        settings
+                            .browser_push_subscriptions
+                            .retain(|item| !gone_endpoints.contains(&item.endpoint));
+                    })
+                    .await
+                {
+                    tracing::warn!("清理失效 Browser Push 订阅失败: {error}");
+                }
             }
         }
         Ok(succeeded > 0)

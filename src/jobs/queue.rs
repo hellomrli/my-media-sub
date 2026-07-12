@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch, Mutex};
 use tracing::{info, warn};
 
 use crate::error::{AppError, Result};
@@ -14,7 +14,7 @@ use super::model::{
     MetadataScrapePayload, PushDispatchPayload, SubscriptionTransferPayload,
 };
 use super::store::JobStore;
-use super::worker::JobWorker;
+use super::worker::{JobWorker, RunningJobHandles, SHUTDOWN_GRACE_SECONDS};
 
 // JobStore 最多保留 500 条记录。恢复阶段在 Worker 启动前装入全部有效 queued
 // 信号，略大的容量可保证恢复不会因通道背压阻塞。
@@ -23,6 +23,9 @@ const JOB_SIGNAL_CAPACITY: usize = 512;
 pub struct JobQueue {
     store: Arc<JobStore>,
     sender: mpsc::Sender<String>,
+    shutdown: watch::Sender<bool>,
+    running_handles: RunningJobHandles,
+    worker_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl JobQueue {
@@ -35,6 +38,8 @@ impl JobQueue {
         transfer_service: Arc<SubscriptionTransferService>,
     ) -> Self {
         let (sender, receiver) = mpsc::channel(JOB_SIGNAL_CAPACITY);
+        let (shutdown, shutdown_rx) = watch::channel(false);
+        let running_handles = RunningJobHandles::default();
         let worker = JobWorker {
             store: store.clone(),
             sender: sender.clone(),
@@ -44,15 +49,50 @@ impl JobQueue {
             metadata_service,
             transfer_service,
             receiver,
+            shutdown_rx,
+            running_handles: running_handles.clone(),
         };
         // 构造完成前同步等待恢复扫描结束，避免 AppContext 已对外提供新提交后，
         // 恢复协程把本次进程刚认领的 Running 任务误判为上次重启遗留任务。
         recover_jobs(store.clone(), sender.clone()).await;
         // 恢复信号完整进入通道后再启动调度器，使其能在第一次认领前看到全部
         // 优先级，而不是按持久化遍历顺序抢跑。
-        tokio::spawn(worker.run());
+        let worker_handle = tokio::spawn(worker.run());
 
-        Self { store, sender }
+        Self {
+            store,
+            sender,
+            shutdown,
+            running_handles,
+            worker_handle: Mutex::new(Some(worker_handle)),
+        }
+    }
+
+    #[cfg(test)]
+    fn for_tests(store: Arc<JobStore>, sender: mpsc::Sender<String>) -> Self {
+        Self {
+            store,
+            sender,
+            shutdown: watch::channel(false).0,
+            running_handles: RunningJobHandles::default(),
+            worker_handle: Mutex::new(None),
+        }
+    }
+
+    /// 优雅关闭：拒绝新任务提交，通知 Worker 在宽限期内完成运行中任务并把
+    /// 剩余任务收敛为可重试的终态，等待 Worker 退出（状态更新均已落盘）。
+    pub async fn shutdown(&self) {
+        // send_replace 在没有存活接收端时也会更新值，保证提交闸门一定关闭。
+        self.shutdown.send_replace(true);
+        let handle = self.worker_handle.lock().await.take();
+        if let Some(handle) = handle {
+            let wait = std::time::Duration::from_secs(SHUTDOWN_GRACE_SECONDS + 10);
+            match tokio::time::timeout(wait, handle).await {
+                Ok(Ok(())) => info!("后台任务 worker 已优雅退出"),
+                Ok(Err(join_error)) => warn!("后台任务 worker 异常退出: {}", join_error),
+                Err(_elapsed) => warn!("等待后台任务 worker 退出超时，强制继续关闭"),
+            }
+        }
     }
 
     pub async fn submit_manual_transfer(&self, payload: ManualTransferPayload) -> Result<Job> {
@@ -100,7 +140,8 @@ impl JobQueue {
     }
 
     pub async fn cancel(&self, id: &str) -> Result<Job> {
-        self.store
+        let canceled = self
+            .store
             .try_update(id, |job| {
                 match job.status {
                     JobStatus::Queued => {}
@@ -128,7 +169,19 @@ impl JobQueue {
                 Ok(())
             })
             .await?
-            .ok_or_else(|| AppError::NotFound("任务不存在".to_string()))
+            .ok_or_else(|| AppError::NotFound("任务不存在".to_string()))?;
+
+        // 状态已成功置为 Canceled 后再真正中止已在运行的任务，让它立即释放
+        // 并发额度，而不是继续占用到卡死阈值。
+        let handle = self
+            .running_handles
+            .lock()
+            .expect("running job handle registry poisoned")
+            .remove(id);
+        if let Some(handle) = handle {
+            handle.abort();
+        }
+        Ok(canceled)
     }
 
     pub async fn retry(&self, id: &str) -> Result<Job> {
@@ -214,6 +267,11 @@ impl JobQueue {
         payload: serde_json::Value,
         priority: JobPriority,
     ) -> Result<Job> {
+        if *self.shutdown.borrow() {
+            return Err(AppError::Validation(
+                "服务正在关闭，暂不接受新任务".to_string(),
+            ));
+        }
         let id = uuid::Uuid::new_v4().to_string();
         let created_at = now();
         let idempotency_key = job_idempotency_key(&kind, &payload);
@@ -350,6 +408,16 @@ fn mark_interrupted_after_restart(job: &mut Job) {
     job.finished_at = Some(now());
 }
 
+/// 关闭宽限期结束后仍在运行的任务被收敛为失败终态，与重启中断路径一致：
+/// 不会被自动重试，需要人工确认后手动重试。
+pub(crate) fn mark_interrupted_on_shutdown(job: &mut Job) {
+    job.status = JobStatus::Failed;
+    job.progress = 100;
+    job.message = "服务关闭，任务已中断，可重试".to_string();
+    job.error = Some("服务关闭，任务已中断".to_string());
+    job.finished_at = Some(now());
+}
+
 async fn mark_push_dispatch_skipped_after_restart(store: &JobStore, id: &str) -> Result<()> {
     store
         .update(id, |job| {
@@ -441,7 +509,7 @@ mod tests {
             .await
             .unwrap();
         let (sender, _receiver) = mpsc::channel(1);
-        let queue = JobQueue { store, sender };
+        let queue = JobQueue::for_tests(store, sender);
 
         let canceled = queue.cancel("running").await.unwrap();
 
@@ -468,10 +536,7 @@ mod tests {
             .await
             .unwrap();
         let (sender, _receiver) = mpsc::channel(1);
-        let queue = JobQueue {
-            store: store.clone(),
-            sender,
-        };
+        let queue = JobQueue::for_tests(store.clone(), sender);
 
         let error = queue.cancel("running-transfer").await.unwrap_err();
 
@@ -603,7 +668,7 @@ mod tests {
         });
         store.add(job).await.unwrap();
         let (sender, _receiver) = mpsc::channel(1);
-        let queue = JobQueue { store, sender };
+        let queue = JobQueue::for_tests(store, sender);
 
         let messages = queue
             .successful_push_dispatch_messages("download_completed")
@@ -630,10 +695,7 @@ mod tests {
             .await
             .unwrap();
         let (sender, mut receiver) = mpsc::channel(2);
-        let queue = JobQueue {
-            store: store.clone(),
-            sender,
-        };
+        let queue = JobQueue::for_tests(store.clone(), sender);
 
         let updated = queue
             .set_priority("queued-priority", JobPriority::High)
@@ -651,6 +713,68 @@ mod tests {
             store.get("running-priority").await.unwrap().priority,
             JobPriority::Normal
         );
+
+        let _ = std::fs::remove_file(tmp);
+    }
+
+    #[tokio::test]
+    async fn cancel_aborts_running_task_and_frees_handle() {
+        let tmp = std::env::temp_dir().join(format!(
+            "my-media-sub-job-cancel-abort-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let store = Arc::new(JobStore::new(&tmp));
+        store.load().await.unwrap();
+        store
+            .add(test_job("running", JobStatus::Running))
+            .await
+            .unwrap();
+        let (sender, _receiver) = mpsc::channel(1);
+        let queue = JobQueue::for_tests(store, sender);
+
+        // 模拟一个正在执行、永不结束的任务。
+        let task = tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+        });
+        queue
+            .running_handles
+            .lock()
+            .unwrap()
+            .insert("running".to_string(), task.abort_handle());
+
+        let canceled = queue.cancel("running").await.unwrap();
+        assert_eq!(canceled.status, JobStatus::Canceled);
+
+        // 取消后任务被真正中止，且句柄已从注册表移除。
+        let join_error = task.await.unwrap_err();
+        assert!(join_error.is_cancelled());
+        assert!(queue.running_handles.lock().unwrap().is_empty());
+
+        let _ = std::fs::remove_file(tmp);
+    }
+
+    #[tokio::test]
+    async fn shutdown_rejects_new_job_submissions() {
+        let tmp = std::env::temp_dir().join(format!(
+            "my-media-sub-job-shutdown-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let store = Arc::new(JobStore::new(&tmp));
+        store.load().await.unwrap();
+        let (sender, _receiver) = mpsc::channel(1);
+        let queue = JobQueue::for_tests(store.clone(), sender);
+
+        queue.shutdown().await;
+
+        let error = queue
+            .submit_metadata_scrape(MetadataScrapePayload {
+                subscription_id: Some("sub".to_string()),
+                overwrite: false,
+            })
+            .await
+            .unwrap_err();
+        assert!(matches!(error, AppError::Validation(_)));
+        assert!(store.list().await.is_empty());
 
         let _ = std::fs::remove_file(tmp);
     }

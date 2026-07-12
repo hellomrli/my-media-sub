@@ -94,7 +94,14 @@ impl AuthState {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         prune_auth_failures(&mut failures, now);
         if failures.len() >= 10_000 && !failures.contains_key(&key) {
-            return;
+            // 容量已满时淘汰最旧的记录，而不是丢弃新的失败记录。
+            if let Some(oldest_key) = failures
+                .iter()
+                .min_by_key(|(_, attempts)| attempts.front().copied().unwrap_or(now))
+                .map(|(key, _)| key.clone())
+            {
+                failures.remove(&oldest_key);
+            }
         }
         failures.entry(key).or_default().push_back(now);
     }
@@ -117,7 +124,22 @@ fn prune_auth_failures(failures: &mut HashMap<String, VecDeque<Instant>>, now: I
     });
 }
 
-fn auth_rate_key(headers: &HeaderMap) -> String {
+/// 计算登录限速使用的 Key。
+///
+/// X-Forwarded-For 由客户端提供，可被伪造用于绕过按 IP 的锁定；只有在
+/// `trust_proxy_headers` 显式开启（即部署在可信反向代理之后）时才使用它。
+/// 否则使用对端 Socket IP（main.rs 通过 `into_make_service_with_connect_info`
+/// 注入）；测试等无 ConnectInfo 的环境退化为全局常量 Key。
+fn auth_rate_key(
+    headers: &HeaderMap,
+    peer: Option<std::net::SocketAddr>,
+    trust_proxy_headers: bool,
+) -> String {
+    if !trust_proxy_headers {
+        return peer
+            .map(|addr| addr.ip().to_string())
+            .unwrap_or_else(|| "direct-client".to_string());
+    }
     headers
         .get("x-forwarded-for")
         .and_then(|value| value.to_str().ok())
@@ -143,7 +165,12 @@ async fn basic_auth(State(state): State<AuthState>, req: Request<Body>, next: Ne
         return next.run(req).await;
     }
 
-    let rate_key = auth_rate_key(req.headers());
+    let settings = state.settings_store.get().await;
+    let peer = req
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|info| info.0);
+    let rate_key = auth_rate_key(req.headers(), peer, settings.trust_proxy_headers);
     let now = Instant::now();
     if state.is_blocked(&rate_key, now) {
         return auth_rate_limited_response();
@@ -165,13 +192,19 @@ async fn basic_auth(State(state): State<AuthState>, req: Request<Body>, next: Ne
         return if state.token_store.authenticate(token, scope).await {
             next.run(req).await
         } else {
+            state.record_failure(rate_key, now);
             unauthorized_response()
         };
     }
 
-    let settings = state.settings_store.get().await;
     if settings.app_password.is_empty() {
         tracing::warn!("拒绝请求：应用密码为空，请先配置 SERVER_PASSWORD 或系统设置密码");
+        return unauthorized_response();
+    }
+    if is_default_app_password(&settings.app_password) {
+        tracing::warn!(
+            "拒绝请求：应用密码仍为默认值 change-me，请通过 APP_PASSWORD 环境变量或系统设置修改密码"
+        );
         return unauthorized_response();
     }
 
@@ -198,6 +231,10 @@ async fn basic_auth(State(state): State<AuthState>, req: Request<Body>, next: Ne
         state.record_failure(rate_key, now);
         unauthorized_response()
     }
+}
+
+pub(crate) fn is_default_app_password(password: &str) -> bool {
+    password == "change-me"
 }
 
 pub(crate) fn required_token_scope(method: &Method, path: &str) -> Option<&'static str> {
@@ -234,12 +271,26 @@ pub(crate) fn required_token_scope(method: &Method, path: &str) -> Option<&'stat
         || path == "/metrics"
     {
         Some("diagnostics:read")
-    } else if read {
+    } else if read
+        && TOKEN_READ_PATH_PREFIXES
+            .iter()
+            .any(|prefix| path == prefix.trim_end_matches('/') || path.starts_with(prefix))
+    {
         Some("read")
     } else {
+        // 默认拒绝：未在允许清单中的路径不对自动化 Token 开放。
         None
     }
 }
+
+/// 允许 `read` Scope 的自动化 Token 访问的 GET 路径前缀（显式允许清单）。
+const TOKEN_READ_PATH_PREFIXES: &[&str] = &[
+    "/api/automation/",
+    "/api/calendar/",
+    "/api/metadata/",
+    "/api/push/",
+    "/api/drive/",
+];
 
 fn auth_rate_limited_response() -> Response {
     let mut response = json_error_response(
@@ -597,5 +648,100 @@ mod tests {
             Some("cross-site"),
         );
         assert!(!is_cross_site_state_change(&req));
+    }
+
+    #[test]
+    fn default_password_is_rejected_for_login() {
+        assert!(is_default_app_password("change-me"));
+        assert!(!is_default_app_password("s3cure-password"));
+        assert!(!is_default_app_password(""));
+    }
+
+    #[test]
+    fn auth_rate_key_ignores_forwarded_for_without_trust() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "1.2.3.4".parse().unwrap());
+        assert_eq!(auth_rate_key(&headers, None, false), "direct-client");
+        let peer: std::net::SocketAddr = "9.9.9.9:4242".parse().unwrap();
+        assert_eq!(auth_rate_key(&headers, Some(peer), false), "9.9.9.9");
+    }
+
+    #[test]
+    fn auth_rate_key_uses_forwarded_for_when_trusted() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "1.2.3.4, 5.6.7.8".parse().unwrap());
+        assert_eq!(auth_rate_key(&headers, None, true), "1.2.3.4");
+        assert_eq!(
+            auth_rate_key(&HeaderMap::new(), None, true),
+            "direct-client"
+        );
+    }
+
+    #[test]
+    fn record_failure_evicts_oldest_when_full() {
+        let mut failures: HashMap<String, VecDeque<Instant>> = HashMap::new();
+        let now = Instant::now();
+        for i in 0..10_000 {
+            failures.insert(format!("key-{i}"), VecDeque::from([now]));
+        }
+        // 让 key-0 成为最旧记录
+        failures.insert(
+            "key-0".to_string(),
+            VecDeque::from([now - Duration::from_secs(30)]),
+        );
+        let state = AuthState::new(
+            Arc::new(SettingsStore::new(
+                std::env::temp_dir().join("auth-test-settings.json"),
+            )),
+            Arc::new(crate::store::AutomationTokenStore::new(
+                std::env::temp_dir().join("auth-test-tokens.json"),
+            )),
+        );
+        *state
+            .failures
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = failures;
+        state.record_failure("new-key".to_string(), now);
+        let failures = state.failures.lock().unwrap();
+        assert!(failures.contains_key("new-key"), "新记录必须被记录");
+        assert!(!failures.contains_key("key-0"), "最旧记录应被淘汰");
+        assert!(failures.len() <= 10_000);
+    }
+
+    #[test]
+    fn token_scope_default_denies_unlisted_paths() {
+        assert_eq!(required_token_scope(&Method::GET, "/api/search"), None);
+        assert_eq!(required_token_scope(&Method::GET, "/api/transfer"), None);
+        assert_eq!(
+            required_token_scope(&Method::GET, "/api/some/unknown/path"),
+            None
+        );
+        assert_eq!(required_token_scope(&Method::GET, "/api/settings"), None);
+    }
+
+    #[test]
+    fn token_scope_allows_listed_read_paths() {
+        assert_eq!(
+            required_token_scope(&Method::GET, "/api/automation/events"),
+            Some("read")
+        );
+        assert_eq!(
+            required_token_scope(&Method::GET, "/api/calendar"),
+            Some("read")
+        );
+        assert_eq!(
+            required_token_scope(&Method::GET, "/api/metadata/search"),
+            Some("read")
+        );
+        assert_eq!(
+            required_token_scope(&Method::GET, "/api/push/status"),
+            Some("read")
+        );
+        assert_eq!(
+            required_token_scope(&Method::GET, "/api/drive"),
+            Some("read")
+        );
+        // 写操作不落入 read 允许清单
+        assert_eq!(required_token_scope(&Method::POST, "/api/calendar"), None);
     }
 }

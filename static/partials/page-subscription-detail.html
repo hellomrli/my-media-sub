@@ -1,0 +1,155 @@
+          <section x-show="selectedSubscriptionId" class="subscription-detail-page">
+            <div class="subscription-detail-nav">
+              <button @click="closeSubscriptionDetail()" class="subscription-back-button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 18l-6-6 6-6"/></svg>
+                返回订阅列表
+              </button>
+              <div class="subscription-detail-nav-actions">
+                <button @click="loadSubscriptionDetail()" :disabled="subscriptionDetailLoading" class="btn-secondary">刷新状态</button>
+                <button x-show="selectedSubscription" @click="openEditSubscriptionDialog(selectedSubscription)" class="btn-secondary">编辑订阅</button>
+              </div>
+            </div>
+
+            <div x-show="subscriptionDetailLoading && !subscriptionDetail" class="app-panel subscription-detail-loading">
+              <span class="status-pulse"></span><p>正在聚合剧集、任务、下载与 STRM 状态...</p>
+            </div>
+            <div x-show="subscriptionDetailError" class="app-panel subscription-detail-error">
+              <strong>订阅详情加载失败</strong><p x-text="subscriptionDetailError"></p><button @click="loadSubscriptionDetail()">重试</button>
+            </div>
+
+            <template x-if="subscriptionDetail && selectedSubscription">
+              <div class="page-stack">
+                <section class="subscription-detail-hero">
+                  <div class="subscription-detail-poster">
+                    <div class="subscription-detail-poster-fallback"><span>MEDIA</span><strong x-text="mediaTypeLabel(selectedSubscription.media_type)"></strong></div>
+                    <img x-show="subscriptionPoster(selectedSubscription)" :src="subscriptionPoster(selectedSubscription)" :alt="subscriptionDisplayTitle(selectedSubscription)" @error="$el.hidden = true" @load="$el.hidden = false" />
+                  </div>
+                  <div class="subscription-detail-copy">
+                    <div class="subscription-detail-badges">
+                      <span :class="subscriptionStatusBadgeClass(selectedSubscription)" x-text="subscriptionStatusLabel(selectedSubscription)"></span>
+                      <span class="badge badge-primary" x-text="mediaTypeLabel(selectedSubscription.media_type)"></span>
+                      <span x-show="selectedSubscription.media_type !== 'movie'" class="badge badge-muted" x-text="subscriptionSeasonLabel(selectedSubscription)"></span>
+                      <span class="badge badge-muted" x-text="subscriptionRatingLabel(selectedSubscription)"></span>
+                    </div>
+                    <h2 x-text="subscriptionDisplayTitle(selectedSubscription)"></h2>
+                    <p class="subscription-detail-source" x-text="subscriptionSourceLabel(selectedSubscription) || selectedSubscription.url"></p>
+                    <p class="subscription-detail-summary" x-text="selectedSubscription.last_check_summary || selectedSubscription.last_plan_summary || '等待首次检查以建立剧集状态。'"></p>
+
+                    <div class="subscription-detail-progress">
+                      <div><span>自动化完成度</span><strong x-text="Math.round(subscriptionDetailSummary.completion_percent || 0) + '%'"></strong></div>
+                      <div class="progress-inline"><span :style="subscriptionDetailProgressStyle()"></span></div>
+                      <small x-text="subscriptionDetailSummary.target_episode ? ('目标第 ' + subscriptionDetailSummary.target_episode + ' 集') : '总集数未知，按已发现内容展示'"></small>
+                    </div>
+
+                    <div class="subscription-detail-actions">
+                      <button @click="checkSubscription(selectedSubscriptionId)" class="btn-secondary"><span>立即检查</span><small>刷新来源和剧集状态</small></button>
+                      <button @click="repairSubscriptionMissingEpisodes()" :disabled="subscriptionDetailSummary.missing_count === 0 && subscriptionDetailSummary.pending_transfer_count === 0" class="btn-primary disabled:opacity-40"><span>检查并补集</span><small x-text="subscriptionDetailSummary.missing_count ? ('缺 ' + subscriptionDetailSummary.missing_count + ' 集') : ('待转存 ' + subscriptionDetailSummary.pending_transfer_count + ' 集')"></small></button>
+                      <a :href="selectedSubscription.url" target="_blank" rel="noopener noreferrer" class="btn-secondary">打开分享</a>
+                    </div>
+                  </div>
+                  <div class="subscription-detail-health" :class="subscriptionStatusKey(selectedSubscription)">
+                    <span>最近检查</span><strong x-text="formatTime(selectedSubscription.last_checked_at)"></strong>
+                    <small x-text="selectedSubscription.last_error || (selectedSubscription.enabled ? '自动检查已启用' : '订阅已暂停')"></small>
+                  </div>
+                </section>
+
+                <div class="subscription-detail-metrics">
+                  <div><span>已发现</span><strong x-text="subscriptionDetailSummary.discovered_count"></strong><small x-text="subscriptionDetailSummary.expected_count ? ('共 ' + subscriptionDetailSummary.expected_count + ' 集') : '按当前来源统计'"></small></div>
+                  <div><span>已转存</span><strong x-text="subscriptionDetailSummary.transferred_count"></strong><small x-text="subscriptionDetailSummary.pending_transfer_count + ' 集待转存'"></small></div>
+                  <div><span>已下载</span><strong x-text="subscriptionDetailSummary.downloaded_count"></strong><small x-text="selectedSubscription.sync_download_enabled ? (subscriptionDetailSummary.pending_download_count + ' 集待完成') : '未启用 Aria2 同步'"></small></div>
+                  <div><span>STRM</span><strong x-text="subscriptionDetailSummary.strm_count"></strong><small x-text="selectedSubscription.strm_enabled ? '已确认生成记录' : '当前订阅未启用'"></small></div>
+                  <div :class="subscriptionDetailSummary.missing_count ? 'has-warning' : ''"><span>缺集</span><strong x-text="subscriptionDetailSummary.missing_count"></strong><small x-text="subscriptionDetailSummary.missing_count ? subscriptionDetail.missing_episodes.slice(0, 8).map(item => 'E' + item).join(' · ') : '当前目标范围完整'"></small></div>
+                </div>
+
+                <div class="subscription-detail-main-grid">
+                  <section class="app-panel subscription-episodes-panel">
+                    <div class="subscription-section-heading">
+                      <div><span class="panel-eyebrow">EPISODE MAP</span><h3>剧集状态</h3><p>从发现、转存、STRM 到下载完成的逐集视图。</p></div>
+                      <div class="subscription-episode-legend"><span class="is-missing">缺集</span><span class="is-discovered">发现</span><span class="is-transferred">转存</span><span class="is-complete">完成</span></div>
+                    </div>
+
+                    <div class="subscription-episode-filters">
+                      <button @click="setSubscriptionEpisodeFilter('all')" :class="subscriptionEpisodeFilter === 'all' ? 'is-active' : ''">全部 <span x-text="subscriptionEpisodeFilterCount('all')"></span></button>
+                      <button @click="setSubscriptionEpisodeFilter('missing')" :class="subscriptionEpisodeFilter === 'missing' ? 'is-active' : ''">缺集 <span x-text="subscriptionEpisodeFilterCount('missing')"></span></button>
+                      <button @click="setSubscriptionEpisodeFilter('pending')" :class="subscriptionEpisodeFilter === 'pending' ? 'is-active' : ''">待处理 <span x-text="subscriptionEpisodeFilterCount('pending')"></span></button>
+                      <button @click="setSubscriptionEpisodeFilter('ready')" :class="subscriptionEpisodeFilter === 'ready' ? 'is-active' : ''">已就绪 <span x-text="subscriptionEpisodeFilterCount('ready')"></span></button>
+                      <button @click="setSubscriptionEpisodeFilter('recent')" :class="subscriptionEpisodeFilter === 'recent' ? 'is-active' : ''">最近新增 <span x-text="subscriptionEpisodeFilterCount('recent')"></span></button>
+                    </div>
+
+                    <div x-show="visibleSubscriptionEpisodes.length > 0" class="subscription-episode-grid">
+                      <template x-for="episode in visibleSubscriptionEpisodes" :key="episode.episode">
+                        <button :class="subscriptionEpisodeClass(episode)" :title="subscriptionEpisodeTitle(episode)">
+                          <span class="subscription-episode-number" x-text="'E' + String(episode.episode).padStart(2, '0')"></span>
+                          <strong x-text="subscriptionEpisodeLabel(episode)"></strong>
+                          <div class="subscription-episode-signals">
+                            <i :class="episode.discovered ? 'is-on' : ''" title="已发现"></i>
+                            <i :class="episode.transferred ? 'is-on' : ''" title="已转存"></i>
+                            <i :class="episode.strm_status === 'generated' ? 'is-on' : (episode.strm_status === 'failed' ? 'is-error' : '')" title="STRM"></i>
+                            <i :class="episode.download_status === 'completed' ? 'is-on' : (['queued','pending'].includes(episode.download_status) ? 'is-active' : '')" title="下载"></i>
+                          </div>
+                          <em x-show="episode.recent">NEW</em>
+                        </button>
+                      </template>
+                    </div>
+                    <div x-show="visibleSubscriptionEpisodes.length === 0" class="subscription-episode-empty">
+                      <strong x-text="subscriptionDetailSummary.target_episode ? '当前筛选没有剧集' : '尚未建立剧集范围'"></strong>
+                      <p x-text="subscriptionDetailSummary.target_episode ? '切换到全部剧集查看状态。' : '设置总集数或执行一次订阅检查后，这里会生成剧集网格。'"></p>
+                    </div>
+                    <div x-show="subscriptionDetailSummary.data_inferred || subscriptionDetailSummary.grid_truncated" class="subscription-detail-note">
+                      <span x-show="subscriptionDetailSummary.data_inferred">旧数据缺少逐集记录，已按当前进度推断已发现范围。</span>
+                      <span x-show="subscriptionDetailSummary.grid_truncated">剧集过多，网格仅展示前 500 项。</span>
+                    </div>
+                  </section>
+
+                  <aside class="app-panel subscription-pipeline-panel">
+                    <div class="subscription-section-heading compact"><div><span class="panel-eyebrow">AUTOMATION</span><h3>自动化流水线</h3><p>每一步都来自后端聚合状态。</p></div></div>
+                    <div class="subscription-pipeline-list">
+                      <template x-for="(step, index) in subscriptionDetail.pipeline" :key="step.id">
+                        <div :class="subscriptionPipelineClass(step)">
+                          <div class="subscription-pipeline-index" x-text="String(index + 1).padStart(2, '0')"></div>
+                          <div class="min-w-0"><div><strong x-text="step.label"></strong><span x-text="subscriptionPipelineStatusLabel(step)"></span></div><p x-text="step.message || '等待状态更新'"></p></div>
+                          <em x-text="step.count || ''"></em>
+                        </div>
+                      </template>
+                    </div>
+                  </aside>
+                </div>
+
+                <section class="app-panel subscription-activity-panel automation-event-panel">
+                  <div class="subscription-section-heading"><div><span class="panel-eyebrow">STRUCTURED EVENTS</span><h3>结构化自动化时间线</h3><p>按 correlation、阶段、集数和任务记录真实执行轨迹。</p></div><div class="flex items-center gap-2"><span x-text="subscriptionAutomationTimeline.length + ' 条事件'"></span><button @click="copySubscriptionAutomationTimeline()" class="btn-secondary px-2 py-1 text-xs">复制</button></div></div>
+                  <div x-show="subscriptionAutomationLoading" class="subscription-activity-empty">正在读取结构化事件...</div>
+                  <div x-show="subscriptionAutomationError" class="subscription-detail-error" x-text="subscriptionAutomationError"></div>
+                  <div x-show="subscriptionAutomationPipeline && subscriptionAutomationPipeline.events && subscriptionAutomationPipeline.events.length" class="subscription-activity-list">
+                    <template x-for="(event, eventIndex) in subscriptionAutomationTimeline.slice().reverse().slice(0, 30)" :key="'subscription-event-' + (event.id || 'missing') + '-' + eventIndex">
+                      <div class="subscription-activity-item" :class="'is-' + automationStatusTone(event.status)">
+                        <span class="subscription-activity-dot"></span>
+                        <div class="min-w-0"><div><span x-text="automationStageLabel(event.stage) + (event.episode ? ' · E' + event.episode : '')"></span><strong x-text="automationStatusLabel(event.status)"></strong></div><p x-text="event.error || event.message || '无附加消息'"></p><small class="text-muted/75" x-text="'尝试 ' + event.attempt + ' · ' + automationEventDuration(event) + (event.job_id ? ' · Job ' + event.job_id.slice(0, 8) : '')"></small></div>
+                        <div class="flex flex-col items-end gap-2"><time x-text="formatTime(event.updated_at)"></time><button x-show="automationCanRetry(event)" @click="retryAutomationEvent(event)" :disabled="automationRetryingId === event.id" class="btn-secondary px-2 py-1 rounded text-xs disabled:opacity-50">重试</button></div>
+                      </div>
+                    </template>
+                  </div>
+                  <div x-show="!subscriptionAutomationLoading && !(subscriptionAutomationPipeline && subscriptionAutomationPipeline.events && subscriptionAutomationPipeline.events.length)" class="subscription-activity-empty">暂无结构化自动化事件</div>
+                </section>
+
+                <section class="app-panel subscription-activity-panel">
+                  <div class="subscription-section-heading">
+                    <div><span class="panel-eyebrow">ACTIVITY</span><h3>订阅活动</h3><p>合并检查历史、后台任务和业务通知。</p></div>
+                    <span x-text="subscriptionDetailActivity.length + ' 条记录'"></span>
+                  </div>
+                  <div x-show="subscriptionDetailActivity.length > 0" class="subscription-activity-list">
+                    <template x-for="(item, itemIndex) in subscriptionDetailActivity" :key="'subscription-activity-' + (item.id || 'missing') + '-' + itemIndex">
+                      <div class="subscription-activity-item" :class="'is-' + subscriptionActivityTone(item)">
+                        <span class="subscription-activity-dot"></span>
+                        <div class="min-w-0"><div><span x-text="subscriptionActivityKindLabel(item)"></span><strong x-text="item.title"></strong></div><p x-text="item.message || '无附加消息'"></p></div>
+                        <time x-text="formatTime(item.timestamp)"></time>
+                      </div>
+                    </template>
+                  </div>
+                  <div x-show="subscriptionDetailActivity.length === 0" class="subscription-activity-empty">暂无相关活动记录</div>
+                  <button x-show="subscriptionDetailActivity.length >= subscriptionActivityLimit" @click="subscriptionActivityLimit += 20" class="subscription-activity-more">加载更多</button>
+                </section>
+              </div>
+            </template>
+          </section>
+        </div>
+
