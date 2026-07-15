@@ -23,6 +23,14 @@
     };
   }
 
+  function hasPollableDownloadTasks(value) {
+    const groups = normalizeDownloadGroups(value);
+    return [...groups.active, ...groups.waiting].some(task => {
+      const status = String((task && task.status) || '').trim().toLowerCase();
+      return !status || status === 'active' || status === 'waiting';
+    });
+  }
+
   function flattenDownloadTasks(value) {
     const groups = normalizeDownloadGroups(value);
     const tasks = [...groups.active, ...groups.waiting, ...groups.stopped];
@@ -108,6 +116,7 @@
         this.downloads = normalizeDownloadGroups(data);
         this.downloadsError = '';
         this.downloadsUpdatedAt = Date.now();
+        this.syncDownloadsPolling();
       } catch (error) {
         console.error('加载 Aria2 任务失败:', error);
         this.downloadsError = this.apiErrorMessage(error, '加载 Aria2 任务失败');
@@ -203,6 +212,12 @@
         .some(task => ['active', 'waiting', 'paused'].includes(task.status));
     },
 
+    syncDownloadsPolling() {
+      if (this.currentTab !== 'downloads' && this.currentTab !== 'dashboard') return;
+      if (hasPollableDownloadTasks(this.downloads)) this.startDownloadsPolling();
+      else this.stopDownloadsPolling();
+    },
+
     downloadTaskActionLoading(task) {
       return task && task.gid ? this.downloadTaskActions[task.gid] || '' : '';
     },
@@ -220,10 +235,11 @@
     },
 
     startDownloadsPolling() {
-      this.stopDownloadsPolling();
+      if (this.downloadsPoller) return;
       if (!this.aria2Configured()
         || !this.downloadsAutoRefresh
-        || (this.currentTab !== 'downloads' && this.currentTab !== 'dashboard')) return;
+        || (this.currentTab !== 'downloads' && this.currentTab !== 'dashboard')
+        || !hasPollableDownloadTasks(this.downloads)) return;
       this.downloadsPoller = this.startPolling('downloads', () => this.loadDownloads(true), 2000);
     },
 
@@ -284,5 +300,5 @@
     };
   }
 
-  return {normalizeDownloadGroups, flattenDownloadTasks, summarizeActiveDownloads, downloadTaskCapabilities, createStore};
+  return {normalizeDownloadGroups, hasPollableDownloadTasks, flattenDownloadTasks, summarizeActiveDownloads, downloadTaskCapabilities, createStore};
 });

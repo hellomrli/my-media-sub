@@ -1,7 +1,7 @@
 /* global MediaSubPwaPolicy */
 importScripts('/js/pwa-policy.js');
 
-const CACHE_VERSION = 'v1.13.1-p23-cinema-slate-1';
+const CACHE_VERSION = 'v2.1.2-aria2-active-poll-1';
 const SHELL_CACHE = `media-sub-shell-${CACHE_VERSION}`;
 const STATIC_CACHE = `media-sub-static-${CACHE_VERSION}`;
 const CACHE_PREFIX = 'media-sub-';
