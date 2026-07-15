@@ -71,6 +71,7 @@ mod tests {
             notify_only: false,
             sync_download_enabled: false,
             sync_download_dir: String::new(),
+            sync_downloads: vec![],
             strm_enabled: false,
             enabled: true,
             completed: false,
@@ -372,6 +373,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sync_download_mapping_is_persisted_on_subscription() {
+        let subscriptions = Arc::new(SubscriptionStore::new(test_path("sync_subscriptions")));
+        let settings = Arc::new(SettingsStore::new(test_path("sync_settings")));
+        let notifications = Arc::new(NotificationStore::new(test_path("sync_notifications")));
+        subscriptions
+            .create(subscription("series", 1))
+            .await
+            .unwrap();
+        let service =
+            SubscriptionTransferService::new(subscriptions.clone(), settings, notifications);
+        let report = SyncDownloadReport {
+            submitted_count: 1,
+            dir: "/downloads/series".to_string(),
+            error: None,
+            items: vec![SyncDownloadItem {
+                gid: "gid-1".to_string(),
+                file_name: "Show.S01E01.mkv".to_string(),
+            }],
+        };
+
+        service
+            .record_sync_downloads("sub", "/series/Show/Season 1", &report)
+            .await
+            .unwrap();
+        service
+            .record_sync_downloads("sub", "/series/Show/Season 1", &report)
+            .await
+            .unwrap();
+
+        let updated = subscriptions.get("sub").await.unwrap();
+        assert_eq!(updated.sync_downloads.len(), 1);
+        let record = &updated.sync_downloads[0];
+        assert_eq!(record.gid, "gid-1");
+        assert_eq!(record.file_name, "Show.S01E01.mkv");
+        assert_eq!(record.download_dir, "/downloads/series");
+        assert_eq!(record.target_dir, "/series/Show/Season 1");
+        assert!(record.submitted_at > 0);
+        assert_eq!(record.completed_at, None);
+    }
+
+    #[tokio::test]
     async fn wait_for_rename_candidates_waits_for_expected_transfer_file() {
         let expected = expected_video_names(&[
             "Joy.of.Life.2019.S01.EP05.WEB-DL.4K.HEVC.AAC-LeagueWEB.mp4".to_string(),
@@ -482,6 +524,63 @@ mod tests {
             .unwrap_err();
 
         assert!(error.to_string().contains("mock transfer failed"));
+    }
+
+    #[tokio::test]
+    async fn target_directory_failure_does_not_fall_back_to_root() {
+        let subscriptions = Arc::new(SubscriptionStore::new(test_path("ensure_subscriptions")));
+        let settings = Arc::new(SettingsStore::new(test_path("ensure_settings")));
+        let notifications = Arc::new(NotificationStore::new(test_path("ensure_notifications")));
+        let mut sub = subscription("series", 1);
+        sub.cloud_type = "mock".to_string();
+        sub.url = "mock://show".to_string();
+        sub.rules.target_dir = "/series/show/Season 1".to_string();
+        subscriptions.create(sub).await.unwrap();
+        settings
+            .update(|settings| {
+                settings.auto_download_new_subscription_items = true;
+                settings.quark_save_enabled = true;
+            })
+            .await
+            .unwrap();
+
+        let mock = Arc::new(crate::providers::MockCloudDriveProvider::new());
+        mock.set_probe_result(crate::providers::ProviderProbeResult {
+            ok: true,
+            state: "ok".to_string(),
+            message: String::new(),
+            files: vec![crate::providers::ProviderFile {
+                id: "episode-1".to_string(),
+                name: "Episode.01.mkv".to_string(),
+                is_dir: false,
+                size: 1,
+                parent_path: String::new(),
+                updated_at: None,
+            }],
+        });
+        mock.fail("ensure", "cannot create target directory");
+        let registry = Arc::new(
+            crate::providers::CloudDriveProviderRegistry::new().with_provider(mock.clone()),
+        );
+        let service = SubscriptionTransferService::new(
+            subscriptions.clone(),
+            settings,
+            notifications,
+        )
+        .with_provider_registry(registry);
+
+        let error = service
+            .auto_transfer_new_files_with_options("sub", &["Episode.01.mkv".to_string()], false)
+            .await
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("cannot create target directory"));
+        assert!(mock.transfer_requests().is_empty());
+        let updated = subscriptions.get("sub").await.unwrap();
+        assert!(updated.transferred_files.is_empty());
+        assert!(updated.transferred_file_keys.is_empty());
     }
 
     #[tokio::test]

@@ -41,6 +41,7 @@ pub(super) fn apply_source_change_options(
         sub.known_episodes.clear();
         sub.transferred_files.clear();
         sub.transferred_file_keys.clear();
+        sub.sync_downloads.clear();
         sub.start_episode_number = None;
         return;
     }
@@ -48,6 +49,29 @@ pub(super) fn apply_source_change_options(
     if continue_from_current && sub.media_type != "movie" && sub.current_episode_number > 0 {
         sub.start_episode_number = Some(sub.current_episode_number + 1);
     }
+}
+
+pub(super) fn reset_progress_for_content_change(sub: &mut Subscription) {
+    sub.start_episode_number = None;
+    sub.current_episode_number = 0;
+    sub.total_episode_number = None;
+    sub.known_files.clear();
+    sub.known_file_keys.clear();
+    sub.known_episodes.clear();
+    sub.transferred_files.clear();
+    sub.transferred_file_keys.clear();
+    sub.sync_downloads.clear();
+    sub.last_probe = None;
+    sub.last_plan_summary.clear();
+    sub.last_checked_at = 0;
+    sub.last_new_files.clear();
+    sub.last_new_episodes.clear();
+    sub.last_check_summary = "订阅季数或媒体类型已变更，等待重新检查".to_string();
+    sub.check_history.clear();
+    sub.completed = false;
+    sub.status = "active".to_string();
+    sub.invalid_since = None;
+    sub.last_error.clear();
 }
 
 pub(super) fn continue_from_current_episode_default(value: Option<bool>) -> bool {

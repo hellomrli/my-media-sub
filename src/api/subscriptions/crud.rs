@@ -84,6 +84,7 @@ pub(super) async fn create_subscription(
         notify_only: req.notify_only,
         sync_download_enabled: req.sync_download_enabled,
         sync_download_dir: req.sync_download_dir,
+        sync_downloads: vec![],
         strm_enabled: req.strm_enabled,
         enabled: true,
         completed: false,
@@ -144,6 +145,7 @@ pub(super) async fn update_subscription(
         .store
         .update(&id, |sub| {
             let mut source_changed = false;
+            let mut content_changed = false;
             if let Some(title) = req.title {
                 sub.title = title;
             }
@@ -156,10 +158,16 @@ pub(super) async fn update_subscription(
                 sub.password = password;
             }
             if let Some(media_type) = req.media_type {
+                content_changed |= media_type != sub.media_type;
                 sub.media_type = media_type;
             }
             if let Some(season) = req.season {
-                sub.season = season.max(1);
+                let season = season.max(1);
+                content_changed |= season != sub.season;
+                sub.season = season;
+            }
+            if content_changed {
+                reset_progress_for_content_change(sub);
             }
             if let Some(start_episode_number) = req.start_episode_number {
                 sub.start_episode_number =

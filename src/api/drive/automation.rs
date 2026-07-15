@@ -92,6 +92,28 @@ pub(super) fn aria2_automation_contexts(
         }
     }
 
+    // 通知可能被用户清理；持久化在订阅中的下载记录作为权威兜底。
+    // 若通知仍存在，则保留其中更丰富的 STRM/重命名展示信息。
+    for subscription in subscriptions {
+        for download in &subscription.sync_downloads {
+            if download.gid.trim().is_empty() {
+                continue;
+            }
+            contexts
+                .entry(download.gid.clone())
+                .or_insert_with(|| Aria2AutomationContext {
+                    subscription_id: subscription.id.clone(),
+                    subscription_title: subscription.title.clone(),
+                    target_dir: download.target_dir.clone(),
+                    submitted_at: download.submitted_at,
+                    episode: crate::services::detect_episode(&download.file_name).episode,
+                    transfer_status: "completed".to_string(),
+                    rename_status: "completed".to_string(),
+                    strm_status: "not_recorded".to_string(),
+                });
+        }
+    }
+
     contexts
 }
 

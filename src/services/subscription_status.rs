@@ -164,6 +164,21 @@ pub fn build_subscription_detail(
     let mut download_status = HashMap::<i32, &'static str>::new();
     let mut strm_status = HashMap::<i32, &'static str>::new();
 
+    // 新版本把 Aria2 关联作为订阅业务状态持久化；通知仅作为旧数据兼容
+    // 和展示审计来源，清空通知不会再让下载进度消失。
+    for record in &subscription.sync_downloads {
+        add_episode_file(&mut files_by_episode, &record.file_name, None);
+        let Some(episode) = episode_number(&record.file_name) else {
+            continue;
+        };
+        let status = if record.completed_at.is_some() {
+            "completed"
+        } else {
+            "queued"
+        };
+        set_episode_status(&mut download_status, episode, status);
+    }
+
     for event in &recent_events {
         let Some(episode) = event.episode.filter(|episode| *episode > 0) else {
             continue;
@@ -809,6 +824,35 @@ mod tests {
         assert_eq!(detail.episodes[0].download_status, "completed");
         assert_eq!(detail.episodes[1].download_status, "queued");
         assert!(detail.episodes[3].recent);
+    }
+
+    #[test]
+    fn persisted_download_records_survive_notification_cleanup() {
+        let mut sub = subscription();
+        sub.sync_downloads = vec![
+            crate::models::SyncDownloadRecord {
+                gid: "gid-1".to_string(),
+                file_name: "Example.S01E01.mkv".to_string(),
+                download_dir: "/downloads".to_string(),
+                target_dir: "/series/Example/Season 1".to_string(),
+                submitted_at: 1,
+                completed_at: Some(2),
+            },
+            crate::models::SyncDownloadRecord {
+                gid: "gid-2".to_string(),
+                file_name: "Example.S01E02.mkv".to_string(),
+                download_dir: "/downloads".to_string(),
+                target_dir: "/series/Example/Season 1".to_string(),
+                submitted_at: 1,
+                completed_at: None,
+            },
+        ];
+
+        let detail = build_subscription_detail(sub, &Settings::default(), &[], &[], &[]);
+
+        assert_eq!(detail.summary.downloaded_count, 1);
+        assert_eq!(detail.episodes[0].download_status, "completed");
+        assert_eq!(detail.episodes[1].download_status, "queued");
     }
 
     #[test]

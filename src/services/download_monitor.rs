@@ -51,6 +51,12 @@ impl DedupeKeyCache {
         }
     }
 
+    fn remove(&mut self, key: &str) {
+        if self.keys.remove(key) {
+            self.order.retain(|existing| existing != key);
+        }
+    }
+
     fn snapshot(&self) -> HashSet<String> {
         self.keys.clone()
     }
@@ -131,14 +137,13 @@ impl DownloadMonitorService {
                     .iter()
                     .all(|key| !known_keys.contains(key))
             })
-            .filter(|task| !completed_download_already_recorded(&history, &pushed_downloads, task))
             .collect::<Vec<_>>();
 
         if pending_tasks.is_empty() {
             return;
         }
 
-        let mut inserted_gids = Vec::new();
+        let mut claimed = Vec::new();
         {
             let mut known = self.notified_completed_downloads.write().await;
             for task in pending_tasks {
@@ -146,23 +151,40 @@ impl DownloadMonitorService {
                 if keys.iter().any(|key| known.contains(key)) {
                     continue;
                 }
-                for key in keys {
-                    known.insert(key);
+                for key in &keys {
+                    known.insert(key.clone());
                 }
-                inserted_gids.push(task.gid.clone());
+                claimed.push((task.gid.clone(), keys));
             }
         }
 
-        for gid in inserted_gids {
+        for (gid, keys) in claimed {
             if let Some(task) = tasks.iter().find(|task| task.gid == gid) {
-                if let Err(e) = self.notify_completed_download(task).await {
-                    warn!("记录 Aria2 下载完成通知失败 {}: {}", task.gid, e);
+                let already_recorded =
+                    completed_download_already_recorded(&history, &pushed_downloads, task);
+                if let Err(e) = self.notify_completed_download(task, already_recorded).await {
+                    warn!("处理 Aria2 下载完成事件失败 {}: {}", task.gid, e);
+                    let mut known = self.notified_completed_downloads.write().await;
+                    for key in &keys {
+                        known.remove(key);
+                    }
                 }
             }
         }
     }
 
-    async fn notify_completed_download(&self, task: &Aria2Task) -> Result<()> {
+    async fn notify_completed_download(
+        &self,
+        task: &Aria2Task,
+        already_recorded: bool,
+    ) -> Result<()> {
+        // 业务状态必须先于展示通知落盘。即使通知已存在，也仍需重放该步骤，
+        // 以便修复此前在通知写入后、订阅更新前发生的瞬时失败。
+        self.complete_subscription_for_download(task).await?;
+        if already_recorded {
+            return Ok(());
+        }
+
         let (title, message) = download_completed_title_message(task);
         let meta = download_completed_meta(task);
         let notification = add_notification(
@@ -189,10 +211,6 @@ impl DownloadMonitorService {
         )
         .await;
 
-        if let Err(e) = self.complete_subscription_for_download(task).await {
-            warn!("根据下载完成更新订阅状态失败 {}: {}", task.gid, e);
-        }
-
         Ok(())
     }
 
@@ -204,24 +222,91 @@ impl DownloadMonitorService {
         }
 
         let completed_gids = download_completed_gids(&history, gid);
-        let Some(subscription_id) = subscription_id_for_download_gid(&history, gid) else {
-            return Ok(());
+        let subscriptions = self.subscription_store.list().await;
+        let exact_ids = subscriptions
+            .iter()
+            .filter(|sub| {
+                sub.sync_downloads
+                    .iter()
+                    .any(|record| record.gid.trim() == gid)
+            })
+            .map(|sub| sub.id.clone())
+            .collect::<HashSet<_>>();
+        let durable_ids = if exact_ids.is_empty() {
+            subscriptions
+                .iter()
+                .filter(|sub| {
+                    sub.sync_downloads
+                        .iter()
+                        .any(|record| sync_download_matches_by_file(record, task))
+                })
+                .map(|sub| sub.id.clone())
+                .collect::<HashSet<_>>()
+        } else {
+            exact_ids
         };
-        let Some(sub) = self.subscription_store.get(&subscription_id).await else {
-            return Ok(());
-        };
-        if sub.completed || !sub.sync_download_enabled {
+        let mut subscription_ids = durable_ids.clone();
+        if let Some(legacy_id) = subscription_id_for_download_gid(&history, gid) {
+            subscription_ids.insert(legacy_id);
+        }
+        if subscription_ids.is_empty() {
             return Ok(());
         }
 
-        let completed_files =
-            completed_subscription_download_files(&history, &subscription_id, &completed_gids);
-        if !should_mark_completed_from_file_names(&sub, &completed_files) {
-            return Ok(());
-        }
+        for subscription_id in subscription_ids {
+            let sub = if durable_ids.contains(&subscription_id) {
+                let completed_at = now_ts();
+                self.subscription_store
+                    .update(&subscription_id, |sub| {
+                        let has_exact = sub
+                            .sync_downloads
+                            .iter()
+                            .any(|record| record.gid.trim() == gid);
+                        for record in &mut sub.sync_downloads {
+                            let matches = if has_exact {
+                                record.gid.trim() == gid
+                            } else {
+                                sync_download_matches_by_file(record, task)
+                            };
+                            if matches && record.completed_at.is_none() {
+                                record.completed_at = Some(completed_at);
+                            }
+                        }
+                        sub.updated_at = completed_at;
+                    })
+                    .await?
+                    .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?
+            } else {
+                let Some(sub) = self.subscription_store.get(&subscription_id).await else {
+                    continue;
+                };
+                sub
+            };
+            if sub.completed || !sub.sync_download_enabled {
+                continue;
+            }
 
-        self.mark_subscription_completed_after_download(&sub, &completed_files)
-            .await?;
+            let mut completed_files = sub
+                .sync_downloads
+                .iter()
+                .filter(|record| record.completed_at.is_some())
+                .map(|record| record.file_name.clone())
+                .filter(|file_name| !file_name.trim().is_empty())
+                .collect::<Vec<_>>();
+            completed_files.extend(completed_subscription_download_files(
+                &history,
+                &subscription_id,
+                &completed_gids,
+            ));
+            completed_files.sort();
+            completed_files.dedup();
+            if !should_mark_completed_from_file_names(&sub, &completed_files) {
+                continue;
+            }
+
+            self.mark_subscription_completed_after_download(&sub, &completed_files)
+                .await?;
+        }
         Ok(())
     }
 
@@ -353,6 +438,24 @@ fn download_completed_dedupe_keys(task: &Aria2Task) -> Vec<String> {
         task.total_length
     ));
     keys
+}
+
+fn sync_download_matches_by_file(
+    record: &crate::models::SyncDownloadRecord,
+    task: &Aria2Task,
+) -> bool {
+    let record_name = record.file_name.trim();
+    let task_name = task.file_name.trim();
+    if record_name.is_empty()
+        || task_name.is_empty()
+        || !record_name.eq_ignore_ascii_case(task_name)
+    {
+        return false;
+    }
+
+    let record_dir = record.download_dir.trim().trim_end_matches('/');
+    let task_dir = task.dir.trim().trim_end_matches('/');
+    record_dir.is_empty() || task_dir.is_empty() || record_dir == task_dir
 }
 
 fn completed_download_already_recorded(
@@ -518,6 +621,112 @@ mod tests {
         cache.insert(newest.clone());
         assert_eq!(cache.order.len(), MAX_TRACKED_DEDUPE_KEYS);
         assert!(cache.contains(&newest));
+    }
+
+    #[test]
+    fn failed_claim_can_be_removed_for_retry() {
+        let mut cache = DedupeKeyCache::default();
+        cache.insert("gid:retry".to_string());
+        cache.insert("file:retry".to_string());
+
+        cache.remove("gid:retry");
+        cache.remove("file:retry");
+
+        assert!(!cache.contains("gid:retry"));
+        assert!(!cache.contains("file:retry"));
+        assert!(cache.order.is_empty());
+    }
+
+    #[tokio::test]
+    async fn persisted_download_mapping_completes_without_transfer_notification() {
+        use crate::app::AppContext;
+        use crate::config::{Config, ServerConfig};
+        use crate::models::SyncDownloadRecord;
+
+        let dir = std::env::temp_dir().join(format!(
+            "my-media-sub-download-monitor-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let context = AppContext::new(&Config {
+            server: ServerConfig {
+                host: "127.0.0.1".to_string(),
+                port: 0,
+                username: "admin".to_string(),
+                password: "test-password".to_string(),
+            },
+            data_dir: dir.clone(),
+        })
+        .await
+        .unwrap();
+        let mut subscription: Subscription = serde_json::from_value(json!({
+            "id": "sub-download",
+            "title": "Show",
+            "url": "https://pan.quark.cn/s/test",
+            "created_at": 1,
+            "updated_at": 1,
+            "last_checked_at": 1
+        }))
+        .unwrap();
+        subscription.media_type = "series".to_string();
+        subscription.total_episode_number = Some(1);
+        subscription.sync_download_enabled = true;
+        subscription.transferred_files = vec!["Show.S01E01.mkv".to_string()];
+        subscription.sync_downloads = vec![SyncDownloadRecord {
+            gid: "gid-1".to_string(),
+            file_name: "Show.S01E01.mkv".to_string(),
+            download_dir: "/downloads/anime".to_string(),
+            target_dir: "/series/Show/Season 1".to_string(),
+            submitted_at: 1,
+            completed_at: None,
+        }];
+        context
+            .subscription_store
+            .create(subscription)
+            .await
+            .unwrap();
+
+        // 模拟旧流程已经写入下载完成通知，但订阅状态更新失败；这里没有任何
+        // subscription_transferred 通知，业务关联只能来自持久下载记录。
+        context
+            .notification_store
+            .add(Notification {
+                id: "existing-download-notification".to_string(),
+                level: "success".to_string(),
+                event: "download_completed".to_string(),
+                title: "下载完成: Show.S01E01.mkv".to_string(),
+                message: "already recorded".to_string(),
+                meta: HashMap::from([("gid".to_string(), json!("gid-1"))]),
+                read: false,
+                created_at: 1,
+            })
+            .await
+            .unwrap();
+
+        context
+            .download_monitor
+            .notify_completed_downloads(&[completed_task()])
+            .await;
+
+        let updated = context
+            .subscription_store
+            .get("sub-download")
+            .await
+            .unwrap();
+        assert!(updated.completed);
+        assert_eq!(updated.status, "completed");
+        assert!(updated.sync_downloads[0].completed_at.is_some());
+        let notifications = context.notification_store.list(true).await;
+        assert_eq!(
+            notifications
+                .iter()
+                .filter(|notification| notification.event == "download_completed")
+                .count(),
+            1
+        );
+
+        context.job_queue.shutdown().await;
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

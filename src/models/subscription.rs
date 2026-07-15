@@ -184,6 +184,24 @@ pub struct SourceSwitchHistoryItem {
     pub rolled_back_at: Option<i64>,
 }
 
+/// 订阅提交到 Aria2 的持久化下载记录。
+///
+/// 该记录属于业务状态，不能只依赖可清理的通知历史。旧数据缺少此字段时由
+/// serde 默认成空列表，保持向后兼容。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SyncDownloadRecord {
+    pub gid: String,
+    pub file_name: String,
+    #[serde(default)]
+    pub download_dir: String,
+    #[serde(default)]
+    pub target_dir: String,
+    #[serde(default)]
+    pub submitted_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<i64>,
+}
+
 /// 订阅（与 Python JSON 完全兼容）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Subscription {
@@ -282,6 +300,10 @@ pub struct Subscription {
     /// Aria2 同步下载目录；为空时按媒体类型使用系统 Aria2 目录
     #[serde(default)]
     pub sync_download_dir: String,
+
+    /// 已提交到 Aria2 的下载任务及其完成状态。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sync_downloads: Vec<SyncDownloadRecord>,
 
     /// 自动转存后生成 STRM 文件
     #[serde(default)]
@@ -418,6 +440,7 @@ mod tests {
             notify_only: false,
             sync_download_enabled: false,
             sync_download_dir: String::new(),
+            sync_downloads: vec![],
             strm_enabled: false,
             enabled: true,
             completed: false,

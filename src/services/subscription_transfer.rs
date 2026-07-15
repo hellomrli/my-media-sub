@@ -7,7 +7,7 @@ use tracing::{info, warn};
 use crate::clients::Aria2Client;
 use crate::error::{AppError, Result};
 use crate::models::rules::TransferRules;
-use crate::models::subscription::Subscription;
+use crate::models::subscription::{Subscription, SyncDownloadRecord};
 use crate::models::Settings;
 use crate::providers::{
     CloudDriveProvider, CloudDriveProviderRegistry, DriveItem, ProviderFile, TransferRequest,
@@ -29,6 +29,8 @@ use crate::services::{
 };
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 use crate::utils::unix_now;
+
+const MAX_SYNC_DOWNLOAD_RECORDS: usize = 1_000;
 
 include!("subscription_transfer/helpers.rs");
 include!("subscription_transfer/notification_methods.rs");
@@ -213,18 +215,15 @@ impl SubscriptionTransferService {
             });
         }
 
-        // 3. 确定目标目录。目录创建失败时保持原有回退根目录行为。
+        // 3. 确定目标目录。非根目录创建失败必须终止转存，避免文件被静默
+        //    保存到网盘根目录后仍按原目标路径记录成功状态。
         let target_dir = self.determine_target_directory(&sub, &settings);
         let target_fid = if target_dir.is_empty() || target_dir == "/" {
             "0".to_string()
         } else {
-            match provider.ensure(&target_dir).await {
-                Ok(id) => id,
-                Err(error) => {
-                    warn!("创建/查找目标目录失败: {}, 使用根目录", error);
-                    "0".to_string()
-                }
-            }
+            provider.ensure(&target_dir).await.map_err(|error| {
+                AppError::Http(format!("创建/查找目标目录 {target_dir} 失败: {error}"))
+            })?
         };
 
         // 4. Provider owns vendor-specific token refresh and transfer details.
@@ -300,6 +299,10 @@ impl SubscriptionTransferService {
         let sync_report = self
             .submit_sync_downloads(provider.as_ref(), &settings, &sub, &transferred_files)
             .await;
+        if let Some(report) = sync_report.as_ref() {
+            self.record_sync_downloads(&sub.id, &target_dir, report)
+                .await?;
+        }
 
         if self.complete_if_transferred_target_reached(&sub.id).await? {
             info!("订阅 {} 已达到完结集数并标记为完结", sub.title);
@@ -703,6 +706,60 @@ impl SubscriptionTransferService {
             error: last_error,
             items,
         })
+    }
+
+    async fn record_sync_downloads(
+        &self,
+        subscription_id: &str,
+        target_dir: &str,
+        report: &SyncDownloadReport,
+    ) -> Result<()> {
+        if report.items.is_empty() {
+            return Ok(());
+        }
+
+        let submitted_at = unix_now();
+        self.subscription_store
+            .update(subscription_id, |sub| {
+                for item in &report.items {
+                    if let Some(existing) = sub
+                        .sync_downloads
+                        .iter_mut()
+                        .find(|record| record.gid == item.gid)
+                    {
+                        existing.file_name = item.file_name.clone();
+                        existing.download_dir = report.dir.clone();
+                        existing.target_dir = target_dir.to_string();
+                        if existing.submitted_at == 0 {
+                            existing.submitted_at = submitted_at;
+                        }
+                    } else {
+                        sub.sync_downloads.push(SyncDownloadRecord {
+                            gid: item.gid.clone(),
+                            file_name: item.file_name.clone(),
+                            download_dir: report.dir.clone(),
+                            target_dir: target_dir.to_string(),
+                            submitted_at,
+                            completed_at: None,
+                        });
+                    }
+                }
+
+                while sub.sync_downloads.len() > MAX_SYNC_DOWNLOAD_RECORDS {
+                    let Some(index) = sub
+                        .sync_downloads
+                        .iter()
+                        .position(|record| record.completed_at.is_some())
+                    else {
+                        break;
+                    };
+                    sub.sync_downloads.remove(index);
+                }
+                sub.updated_at = submitted_at;
+            })
+            .await?
+            .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?;
+        Ok(())
     }
 
     async fn generate_strm_files(

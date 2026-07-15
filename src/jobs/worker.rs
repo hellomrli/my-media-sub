@@ -44,6 +44,22 @@ const WATCHDOG_POLL_SECONDS: u64 = 60;
 /// 运行中任务的中止句柄注册表：取消 API 通过它真正终止已在执行的任务。
 pub(crate) type RunningJobHandles = Arc<StdMutex<HashMap<String, AbortHandle>>>;
 
+/// Tokio 的 JoinHandle 在 Drop 时会 detach。外层调度包装器被 abort 时，用该
+/// guard 确保内层业务任务也同步终止，而不是脱离 JoinSet 继续修改状态。
+struct AbortTaskOnDrop(AbortHandle);
+
+impl AbortTaskOnDrop {
+    fn new(handle: AbortHandle) -> Self {
+        Self(handle)
+    }
+}
+
+impl Drop for AbortTaskOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 pub(crate) struct JobWorker {
     pub(crate) store: Arc<JobStore>,
     pub(crate) sender: mpsc::Sender<String>,
@@ -133,6 +149,7 @@ impl JobWorker {
                                 )
                                 .await
                             });
+                            let _abort_on_drop = AbortTaskOnDrop::new(handle.abort_handle());
                             handles
                                 .lock()
                                 .expect("running job handle registry poisoned")
@@ -289,16 +306,15 @@ impl JobWorker {
                 Ok(None) => break,
                 Err(_elapsed) => {
                     warn!("关闭宽限期已到，强制终止剩余任务");
+                    self.abort_running_jobs();
                     tasks.abort_all();
                     while tasks.join_next().await.is_some() {}
                     break;
                 }
             }
         }
-        self.running_handles
-            .lock()
-            .expect("running job handle registry poisoned")
-            .clear();
+        // 包装器正常退出时注册表应为空；异常退出时仍主动中止残余内层任务。
+        self.abort_running_jobs();
         // 每次 store 更新都会原子写盘，这里把残留 Running 任务收敛为终态即完成
         // 最终一次落盘。
         for job in self.store.list().await {
@@ -312,6 +328,21 @@ impl JobWorker {
                 }
             }
         }
+    }
+
+    fn abort_running_jobs(&self) -> usize {
+        let handles = self
+            .running_handles
+            .lock()
+            .expect("running job handle registry poisoned")
+            .drain()
+            .map(|(_, handle)| handle)
+            .collect::<Vec<_>>();
+        let count = handles.len();
+        for handle in handles {
+            handle.abort();
+        }
+        count
     }
 
     async fn queue_pending_job(&self, scheduler: &mut FairScheduler, job_id: &str) {
@@ -603,10 +634,15 @@ impl JobWorker {
     async fn update_running(&self, job_id: &str, progress: u8, message: &str) -> Result<()> {
         self.store
             .try_update(job_id, |job| {
-                if job.status == JobStatus::Canceled {
-                    return Err(AppError::Validation("任务已取消".to_string()));
+                match job.status {
+                    JobStatus::Running => {}
+                    JobStatus::Canceled => {
+                        return Err(AppError::Validation("任务已取消".to_string()))
+                    }
+                    JobStatus::Queued | JobStatus::Succeeded | JobStatus::Failed => {
+                        return Err(AppError::Validation("任务已不再运行".to_string()))
+                    }
                 }
-                job.status = JobStatus::Running;
                 job.progress = progress;
                 job.message = message.to_string();
                 if job.started_at.is_none() {
@@ -633,7 +669,7 @@ impl JobWorker {
         let mut completed = false;
         self.store
             .try_update(job_id, |job| {
-                if job.status == JobStatus::Canceled {
+                if job.status != JobStatus::Running {
                     return Ok(());
                 }
                 updater(job);
@@ -720,6 +756,7 @@ mod tests {
             notify_only: false,
             sync_download_enabled: false,
             sync_download_dir: String::new(),
+            sync_downloads: vec![],
             strm_enabled: false,
             enabled: true,
             completed: true,
@@ -811,6 +848,95 @@ mod tests {
             notifications_path,
             jobs_path,
         )
+    }
+
+    #[tokio::test]
+    async fn abort_on_drop_stops_inner_task_when_wrapper_is_aborted() {
+        struct NotifyOnDrop(Option<tokio::sync::oneshot::Sender<()>>);
+
+        impl Drop for NotifyOnDrop {
+            fn drop(&mut self) {
+                if let Some(sender) = self.0.take() {
+                    let _ = sender.send(());
+                }
+            }
+        }
+
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
+        let mut wrappers = JoinSet::new();
+        wrappers.spawn(async move {
+            let inner = tokio::spawn(async move {
+                let _notify = NotifyOnDrop(Some(dropped_tx));
+                let _ = started_tx.send(());
+                std::future::pending::<()>().await;
+            });
+            let _abort_on_drop = AbortTaskOnDrop::new(inner.abort_handle());
+            std::future::pending::<()>().await;
+        });
+
+        started_rx.await.unwrap();
+        wrappers.abort_all();
+        while wrappers.join_next().await.is_some() {}
+        tokio::time::timeout(std::time::Duration::from_secs(1), dropped_rx)
+            .await
+            .expect("inner task was detached instead of aborted")
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn terminal_job_cannot_be_reactivated_or_completed() {
+        let subscriptions_path = test_path("terminal-subscriptions");
+        let subscription_store = Arc::new(SubscriptionStore::new(&subscriptions_path));
+        let (worker, settings_path, notifications_path, jobs_path) =
+            make_worker(subscription_store);
+        worker
+            .store
+            .add(Job {
+                id: "terminal".to_string(),
+                kind: JobKind::MetadataScrape,
+                request_id: None,
+                correlation_id: None,
+                subscription_id: None,
+                priority: JobPriority::Normal,
+                attempt: 1,
+                next_attempt_at: None,
+                error_class: None,
+                status: JobStatus::Failed,
+                progress: 100,
+                title: "terminal".to_string(),
+                message: "interrupted".to_string(),
+                payload: serde_json::json!({}),
+                idempotency_key: None,
+                result: None,
+                error: Some("shutdown".to_string()),
+                created_at: 1,
+                updated_at: 1,
+                started_at: Some(1),
+                finished_at: Some(1),
+            })
+            .await
+            .unwrap();
+
+        assert!(worker
+            .update_running("terminal", 50, "late progress")
+            .await
+            .is_err());
+        let completed = worker
+            .complete_if_active("terminal", |job| job.status = JobStatus::Succeeded)
+            .await
+            .unwrap();
+
+        assert!(!completed);
+        assert_eq!(
+            worker.store.get("terminal").await.unwrap().status,
+            JobStatus::Failed
+        );
+
+        let _ = std::fs::remove_file(subscriptions_path);
+        let _ = std::fs::remove_file(settings_path);
+        let _ = std::fs::remove_file(notifications_path);
+        let _ = std::fs::remove_file(jobs_path);
     }
 
     #[tokio::test]

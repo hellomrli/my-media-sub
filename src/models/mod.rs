@@ -11,7 +11,7 @@ pub mod subscription;
 pub mod transfer;
 
 // 重新导出常用类型
-pub use subscription::Subscription;
+pub use subscription::{Subscription, SyncDownloadRecord};
 
 pub use automation_event::{AutomationEvent, AutomationStage, AutomationStatus};
 

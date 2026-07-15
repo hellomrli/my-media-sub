@@ -72,11 +72,11 @@ docker run -d \
   ghcr.io/hellomrli/my-media-sub:latest
 ```
 
-生产环境建议固定版本标签;每个版本同时发布补丁与次版本标签(如 `2.1.0` 和 `2.1`):
+生产环境建议固定版本标签;每个版本同时发布补丁与次版本标签(如 `2.1.1` 和 `2.1`):
 
 ```bash
-docker pull ghcr.io/hellomrli/my-media-sub:2.1.0
-docker image inspect ghcr.io/hellomrli/my-media-sub:2.1.0 --format '{{.RepoDigests}}'
+docker pull ghcr.io/hellomrli/my-media-sub:2.1.1
+docker image inspect ghcr.io/hellomrli/my-media-sub:2.1.1 --format '{{.RepoDigests}}'
 ```
 
 ### Linux 二进制
@@ -84,7 +84,7 @@ docker image inspect ghcr.io/hellomrli/my-media-sub:2.1.0 --format '{{.RepoDiges
 从 [GitHub Releases](https://github.com/hellomrli/my-media-sub/releases) 下载并校验:
 
 ```bash
-VERSION=v2.1.0
+VERSION=v2.1.1
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz"
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
 sha256sum -c "my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
@@ -236,7 +236,7 @@ python3 scripts/check-openapi.py
 cargo build --release --locked
 
 # Docker 镜像
-docker build -t my-media-sub:2.1.0 -t my-media-sub:latest .
+docker build -t my-media-sub:2.1.1 -t my-media-sub:latest .
 ```
 
 前端产物由脚本生成,请勿直接编辑:
@@ -277,6 +277,7 @@ static/
 - [媒体日历规则](docs/media-calendar.md) · [资源质量与安全换源](docs/source-quality.md)
 - [HTTPS 反向代理与安全部署](docs/https-reverse-proxy.md) · [PWA 与缓存安全](docs/pwa.md)
 - [JSON Store 性能基线与 SQLite 决策](docs/storage-scaling.md)
+- [v2.1.1 升级指南](docs/upgrade-v2.1.1.md) · [v2.1.1 变更记录](CHANGELOG-v2.1.1.md)
 - [v2.1.0 升级指南](docs/upgrade-v2.1.0.md) · [v2.1.0 变更记录](CHANGELOG-v2.1.0.md)
 - [v2.0.0 升级指南](docs/upgrade-v2.0.0.md) · [v2.0.0 变更记录](CHANGELOG-v2.0.0.md)
 
@@ -292,6 +293,15 @@ docker compose pull && docker compose up -d
 不要只替换二进制而继续使用旧版 `static/`。详细步骤与回滚见对应版本的升级指南。
 
 ## 版本说明
+
+### 2.1.1
+
+- 目标目录创建失败时终止转存,不再静默把文件保存到网盘根目录并误报成功;
+- Aria2 GID、文件名和完成状态持久化到订阅,通知被清理后仍可完成订阅状态流转,瞬时失败可重试;
+- 修改季数或媒体类型时清理上一季的集数、转存、同步下载和完结状态,并重新计算总集数;
+- 修复订阅导入 `Idempotency-Key` 并发竞态,相同 Key 的并发请求只执行一次;
+- 关闭任务队列时同步中止内层业务任务,终态任务不会被迟到的进度更新改回运行或成功;
+- 存储 `schema_version` 与 OpenAPI 契约保持不变,可从 v2.1.0 直接升级。
 
 ### 2.1.0
 

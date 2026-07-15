@@ -151,6 +151,7 @@ mod tests {
             notify_only: false,
             sync_download_enabled: false,
             sync_download_dir: String::new(),
+            sync_downloads: vec![],
             strm_enabled: false,
             enabled: true,
             completed: false,

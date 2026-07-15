@@ -470,6 +470,79 @@ async fn create_subscription_returns_201_and_can_be_fetched() {
 }
 
 #[tokio::test]
+async fn changing_subscription_season_resets_previous_progress() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx.clone());
+    let created = json_body(
+        &app,
+        auth_post(
+            "/api/subscriptions",
+            serde_json::json!({
+                "title": "Season Reset",
+                "url": "https://pan.quark.cn/s/season-reset",
+                "media_type": "series",
+                "season": 1
+            }),
+        ),
+    )
+    .await;
+    let id = created["data"]["id"].as_str().unwrap().to_string();
+    ctx.subscription_store
+        .update(&id, |subscription| {
+            subscription.current_episode_number = 12;
+            subscription.total_episode_number = Some(12);
+            subscription.known_files = vec!["Show.S01E12.mkv".to_string()];
+            subscription.known_episodes = vec![12];
+            subscription.transferred_files = vec!["Show.S01E12.mkv".to_string()];
+            subscription.transferred_file_keys = vec!["ep:12".to_string()];
+            subscription.sync_downloads = vec![my_media_sub::models::SyncDownloadRecord {
+                gid: "gid-12".to_string(),
+                file_name: "Show.S01E12.mkv".to_string(),
+                download_dir: "/downloads".to_string(),
+                target_dir: "/series/Show/Season 1".to_string(),
+                submitted_at: 1,
+                completed_at: Some(2),
+            }];
+            subscription.completed = true;
+            subscription.status = "completed".to_string();
+        })
+        .await
+        .unwrap();
+
+    let updated = json_body(
+        &app,
+        auth_put(
+            &format!("/api/subscriptions/{id}"),
+            serde_json::json!({"season": 2}),
+        ),
+    )
+    .await;
+
+    assert_eq!(updated["data"]["season"], 2);
+    assert_eq!(updated["data"]["current_episode_number"], 0);
+    assert!(updated["data"]["total_episode_number"].is_null());
+    assert!(updated["data"]["known_files"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert!(updated["data"]["known_episodes"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert!(updated["data"]["transferred_files"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert!(updated["data"]
+        .get("sync_downloads")
+        .is_none_or(|value| value.as_array().is_some_and(Vec::is_empty)));
+    assert_eq!(updated["data"]["completed"], false);
+    assert_eq!(updated["data"]["status"], "active");
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
 async fn create_subscription_with_duplicate_url_returns_validation_error() {
     let (ctx, dir) = test_context().await;
     let app = create_app(ctx);
@@ -1472,6 +1545,64 @@ async fn subscription_export_import_preview_and_idempotency_are_stable() {
     let repeated = json_response(&app, import_request()).await;
     assert_eq!(repeated.0, StatusCode::OK);
     assert_eq!(repeated.2["data"], first.2["data"]);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn concurrent_subscription_import_with_same_key_runs_once() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+    let created = json_body(
+        &app,
+        auth_post(
+            "/api/subscriptions",
+            serde_json::json!({"title":"Concurrent Exchange","url":"https://pan.quark.cn/s/concurrent-exchange","media_type":"series","season":1}),
+        ),
+    )
+    .await;
+    assert_eq!(created["ok"], true);
+    let exported = json_body(&app, auth_get("/api/subscriptions/export")).await;
+    let body = serde_json::json!({
+        "archive": exported["data"].clone(),
+        "strategy": "new_id",
+        "confirmation": "IMPORT SUBSCRIPTIONS"
+    });
+    let key = format!("concurrent-import-{}", uuid::Uuid::new_v4());
+    let request = || {
+        Request::builder()
+            .method(Method::POST)
+            .uri("/api/subscriptions/import")
+            .header(
+                header::AUTHORIZATION,
+                basic_auth_header("admin", "test-secret-pw"),
+            )
+            .header(header::CONTENT_TYPE, "application/json")
+            .header("idempotency-key", &key)
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    };
+
+    let (first, second, third, fourth) = tokio::join!(
+        json_response(&app, request()),
+        json_response(&app, request()),
+        json_response(&app, request()),
+        json_response(&app, request()),
+    );
+    let responses = [first, second, third, fourth];
+    assert_eq!(
+        responses
+            .iter()
+            .filter(|response| response.0 == StatusCode::CREATED)
+            .count(),
+        1
+    );
+    assert!(responses.iter().all(|response| {
+        matches!(response.0, StatusCode::CREATED | StatusCode::OK)
+            && response.2["data"] == responses[0].2["data"]
+    }));
+
+    let subscriptions = json_body(&app, auth_get("/api/subscriptions")).await;
+    assert_eq!(subscriptions["data"].as_array().unwrap().len(), 2);
     let _ = std::fs::remove_dir_all(dir);
 }
 
