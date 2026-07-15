@@ -116,18 +116,19 @@ async fn import(
         "{:x}",
         md5::compute([body, req.strategy.as_bytes().to_vec()].concat())
     );
-    {
-        let mut records = IDEMPOTENCY.lock().await;
-        records.retain(|_, r| unix_now() - r.created_at < 86400);
-        if let Some(old) = records.get(&key) {
-            if old.fingerprint != fingerprint {
-                return Err(AppError::Validation(
-                    "Idempotency-Key 已用于不同请求".into(),
-                ));
-            }
-            return Ok((StatusCode::OK, Json(ApiResponse::ok(old.result.clone()))));
+    let mut records = IDEMPOTENCY.lock().await;
+    records.retain(|_, r| unix_now() - r.created_at < 86400);
+    if let Some(old) = records.get(&key) {
+        if old.fingerprint != fingerprint {
+            return Err(AppError::Validation(
+                "Idempotency-Key 已用于不同请求".into(),
+            ));
         }
+        return Ok((StatusCode::OK, Json(ApiResponse::ok(old.result.clone()))));
     }
+
+    // 保持幂等锁直到导入结果已写入记录，消除两个同 Key 请求都通过检查的
+    // TOCTOU 窗口。导入只涉及本地原子 Store 写入，临界区是有界的。
     let (created, updated, skipped) = store
         .import_batch(req.archive.subscriptions, &req.strategy)
         .await?;
@@ -136,7 +137,7 @@ async fn import(
         updated,
         skipped,
     };
-    IDEMPOTENCY.lock().await.insert(
+    records.insert(
         key,
         Idempotent {
             fingerprint,

@@ -46,7 +46,7 @@ use metadata::{
 };
 use source::{
     apply_source_change_options, continue_from_current_episode_default,
-    normalize_start_episode_number, reconcile_completion_status,
+    normalize_start_episode_number, reconcile_completion_status, reset_progress_for_content_change,
 };
 use status::get_subscription_status;
 
@@ -363,6 +363,9 @@ fn preview_subscription(req: &RenamePreviewRequest, base: Option<&Subscription>)
         sync_download_dir: base
             .map(|sub| sub.sync_download_dir.clone())
             .unwrap_or_default(),
+        sync_downloads: base
+            .map(|sub| sub.sync_downloads.clone())
+            .unwrap_or_default(),
         strm_enabled: base.map(|sub| sub.strm_enabled).unwrap_or(false),
         enabled: true,
         completed: false,
@@ -566,6 +569,35 @@ mod tests {
         assert!(sub.known_episodes.is_empty());
         assert!(sub.transferred_files.is_empty());
         assert!(sub.transferred_file_keys.is_empty());
+        assert!(sub.sync_downloads.is_empty());
+    }
+
+    #[test]
+    fn content_change_resets_previous_season_progress() {
+        let mut sub = subscription_for_source_change();
+        sub.total_episode_number = Some(12);
+        sub.sync_downloads = vec![crate::models::SyncDownloadRecord {
+            gid: "gid-12".to_string(),
+            file_name: "Show.S01E12.mkv".to_string(),
+            download_dir: "/downloads".to_string(),
+            target_dir: "/series/Show/Season 1".to_string(),
+            submitted_at: 1,
+            completed_at: Some(2),
+        }];
+
+        reset_progress_for_content_change(&mut sub);
+
+        assert_eq!(sub.current_episode_number, 0);
+        assert_eq!(sub.total_episode_number, None);
+        assert_eq!(sub.start_episode_number, None);
+        assert!(sub.known_files.is_empty());
+        assert!(sub.known_episodes.is_empty());
+        assert!(sub.transferred_files.is_empty());
+        assert!(sub.sync_downloads.is_empty());
+        assert!(sub.check_history.is_empty());
+        assert!(!sub.completed);
+        assert_eq!(sub.status, "active");
+        assert_eq!(sub.last_checked_at, 0);
     }
 
     #[test]

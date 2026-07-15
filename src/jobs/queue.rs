@@ -85,12 +85,20 @@ impl JobQueue {
         // send_replace 在没有存活接收端时也会更新值，保证提交闸门一定关闭。
         self.shutdown.send_replace(true);
         let handle = self.worker_handle.lock().await.take();
-        if let Some(handle) = handle {
+        if let Some(mut handle) = handle {
             let wait = std::time::Duration::from_secs(SHUTDOWN_GRACE_SECONDS + 10);
-            match tokio::time::timeout(wait, handle).await {
+            match tokio::time::timeout(wait, &mut handle).await {
                 Ok(Ok(())) => info!("后台任务 worker 已优雅退出"),
                 Ok(Err(join_error)) => warn!("后台任务 worker 异常退出: {}", join_error),
-                Err(_elapsed) => warn!("等待后台任务 worker 退出超时，强制继续关闭"),
+                Err(_elapsed) => {
+                    warn!("等待后台任务 worker 退出超时，强制终止 worker");
+                    handle.abort();
+                    if let Err(join_error) = handle.await {
+                        if !join_error.is_cancelled() {
+                            warn!("强制终止后台任务 worker 失败: {}", join_error);
+                        }
+                    }
+                }
             }
         }
     }
