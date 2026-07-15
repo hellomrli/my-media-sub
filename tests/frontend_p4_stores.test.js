@@ -30,6 +30,29 @@ test('downloads store normalizes groups, summaries, and task capabilities', () =
   );
 });
 
+test('downloads high-frequency polling only needs active or waiting tasks', () => {
+  assert.equal(downloads.hasPollableDownloadTasks({
+    active: [],
+    waiting: [],
+    stopped: [{gid: 'done', status: 'complete'}]
+  }), false);
+  assert.equal(downloads.hasPollableDownloadTasks({
+    active: [{gid: 'active', status: 'active'}],
+    waiting: [],
+    stopped: []
+  }), true);
+  assert.equal(downloads.hasPollableDownloadTasks({
+    active: [],
+    waiting: [{gid: 'waiting', status: 'waiting'}],
+    stopped: []
+  }), true);
+  assert.equal(downloads.hasPollableDownloadTasks({
+    active: [],
+    waiting: [{gid: 'paused', status: 'paused'}],
+    stopped: []
+  }), false);
+});
+
 test('drive store filters videos and keeps folders first while sorting', () => {
   const items = [
     {fid: '2', file: true, file_name: 'Episode 10.mkv', size: 20},
