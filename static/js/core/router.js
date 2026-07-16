@@ -152,7 +152,7 @@
       }
     },
 
-    runCurrentTabEffects() {
+    runCurrentTabEffects(options = {}) {
       if (this.currentTab !== 'search') this.stopSearchProgressTimer();
       if (this.currentTab !== 'settings' || this.currentSettingsTab !== 'maintenance') {
         this.stopUpdateProgressPolling();
@@ -173,8 +173,10 @@
       }
 
       if (this.currentTab === 'dashboard') {
-        this.loadNotifications();
-        this.loadAutomationSummary();
+        if (!options.initialDataLoaded) {
+          this.loadNotifications();
+          this.loadAutomationSummary();
+        }
         this.startNotificationsPolling();
       } else {
         this.stopNotificationsPolling();

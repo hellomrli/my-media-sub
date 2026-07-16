@@ -15,6 +15,9 @@ use crate::providers::{
 use crate::services::notification::{
     add_notification, dispatch_push_event_for_notification, PushDispatchRequest,
 };
+use crate::services::post_transfer::{
+    PostTransferContext, PostTransferRegistry, PostTransferStatus,
+};
 use crate::services::push::{PushEvent, PushLevel};
 use crate::services::strm::{
     generate_subscription_strm_files_async, strm_generation_enabled, StrmGenerationResult,
@@ -41,6 +44,7 @@ pub struct SubscriptionTransferService {
     settings_store: Arc<SettingsStore>,
     notification_store: Arc<NotificationStore>,
     provider_registry: Arc<CloudDriveProviderRegistry>,
+    post_transfer_registry: PostTransferRegistry,
 }
 
 impl SubscriptionTransferService {
@@ -54,6 +58,7 @@ impl SubscriptionTransferService {
             settings_store,
             notification_store,
             provider_registry: Arc::new(CloudDriveProviderRegistry::new()),
+            post_transfer_registry: PostTransferRegistry::with_defaults(),
         }
     }
 
@@ -313,21 +318,32 @@ impl SubscriptionTransferService {
             .generate_strm_files(&settings, &sub, &target_dir, &transferred_files)
             .await;
 
-        // 13. Refresh Jellyfin/Emby/Plex or a generic webhook. Failure is reported but never rolls back transfer.
-        let media_library_report = crate::services::media_library::refresh_media_library(
-            &settings,
-            &sub,
-            "subscription_transfer_completed",
-        )
-        .await;
-        if let Some(report) = &media_library_report {
-            if report.success {
-                info!("媒体库刷新成功: {}", report.provider);
-            } else {
-                warn!(
-                    "媒体库刷新失败: {}",
-                    report.error.as_deref().unwrap_or("unknown")
-                );
+        // 13. 运行独立后处理模块。模块只能读取快照，失败不会回滚已完成的转存。
+        let module_outcomes = self
+            .post_transfer_registry
+            .run_all(PostTransferContext {
+                settings: Arc::new(settings.clone()),
+                subscription: Arc::new(sub.clone()),
+                target_dir: target_dir.clone(),
+                files: Arc::new(transferred_files.clone()),
+                reason: "subscription_transfer_completed",
+            })
+            .await;
+        for outcome in &module_outcomes {
+            match outcome.status {
+                PostTransferStatus::Succeeded => info!(
+                    module = outcome.module,
+                    "转存后处理模块完成: {}", outcome.message
+                ),
+                PostTransferStatus::Failed => warn!(
+                    module = outcome.module,
+                    "转存后处理模块失败: {}", outcome.message
+                ),
+                PostTransferStatus::Skipped => tracing::debug!(
+                    module = outcome.module,
+                    "转存后处理模块跳过: {}",
+                    outcome.message
+                ),
             }
         }
 
@@ -769,6 +785,9 @@ impl SubscriptionTransferService {
         target_dir: &str,
         files: &[DriveItem],
     ) -> Option<StrmGenerationReport> {
+        if !crate::services::STRM_MODULE_ENABLED {
+            return None;
+        }
         if !strm_generation_enabled(settings, sub) {
             return None;
         }

@@ -6,6 +6,7 @@ pub mod media_calendar;
 pub mod media_library;
 pub mod metadata;
 pub mod notification;
+pub mod post_transfer;
 pub mod push;
 pub mod quark_signin;
 pub mod source_quality;
@@ -29,3 +30,8 @@ pub use subscription_source_switch::SubscriptionSourceSwitchService;
 pub use subscription_transfer::SubscriptionTransferService;
 
 pub mod telegram_bot;
+
+/// STRM is temporarily kept as migration-compatible code, but is not part of
+/// the active application. Keeping the switch in Rust makes every execution
+/// path fail closed until STRM returns as an independently mounted module.
+pub const STRM_MODULE_ENABLED: bool = false;

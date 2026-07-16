@@ -19,6 +19,13 @@ SPEC_PATH = ROOT / "static" / "openapi.json"
 BASELINE_PATH = ROOT / "docs" / "openapi-baseline-v1.12.0.json"
 HTTP_METHODS = ("get", "post", "put", "patch", "delete", "head", "options")
 EXCLUDED_ROUTES = {("/api/{*path}", "any")}
+# STRM is intentionally retired in v2.2.0 and will return as an independent
+# module. Keep the historical baseline for all other operations.
+INTENTIONALLY_REMOVED_ROUTES = {
+    ("/api/subscriptions/{id}/strm", "post"),
+    ("/api/subscriptions/{id}/strm/audit", "get"),
+    ("/strm/quark/{fid}/{file_name}", "get"),
+}
 
 
 def route_calls(text: str):
@@ -263,6 +270,11 @@ def check(spec: dict, routes: dict[str, set[str]], baseline: dict | None) -> lis
         current = surface(spec)
         for path, methods in baseline.get("operations", {}).items():
             removed = set(methods) - set(current["operations"].get(path, []))
+            removed -= {
+                method
+                for method in removed
+                if (path, method) in INTENTIONALLY_REMOVED_ROUTES
+            }
             if removed:
                 errors.append(f"breaking change removed {path}: {', '.join(sorted(removed))}")
         if baseline.get("error_schema") != current.get("error_schema"):

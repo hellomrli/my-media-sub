@@ -27,8 +27,8 @@
       missing: '缺集',
       discovered: '已发现',
       transferred: '已转存',
-      strm: 'STRM 就绪',
       downloaded: '已下载',
+      strm: 'STRM 就绪',
       complete: '已完成',
       unknown: '未知'
     }[episodeStage(episode)] || '未知';

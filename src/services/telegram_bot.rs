@@ -302,7 +302,7 @@ impl TelegramBotService {
                 .and_then(|value| value.parse::<usize>().ok())
                 .unwrap_or(1)
                 .max(1);
-            let response = self.command_response(command, page).await;
+            let response = self.command_response(command, argument, page).await;
             match self
                 .send_text_parts(&settings, message.chat.id, &response)
                 .await
@@ -547,18 +547,87 @@ impl TelegramBotService {
         }
     }
 
-    async fn command_response(&self, command: &str, page: usize) -> String {
+    async fn command_response(&self, command: &str, argument: Option<&str>, page: usize) -> String {
         match command {
             "start" => format!("my-media-sub Telegram 控制已连接。\n\n{}", help_text()),
             "help" => help_text().to_string(),
             "status" => self.status_text().await,
             "subscriptions" => self.subscriptions_text(page).await,
+            "subscription" => self.subscription_text(argument).await,
             "calendar" => self.calendar_text(page).await,
             "jobs" => self.jobs_text(page).await,
+            "job" => self.job_text(argument).await,
             "notifications" => self.notifications_text(page).await,
             "diagnostics" => self.diagnostics_text().await,
             _ => help_text().to_string(),
         }
+    }
+
+    async fn subscription_text(&self, argument: Option<&str>) -> String {
+        let Some(value) = argument else {
+            return "用法：/subscription <订阅ID>".to_string();
+        };
+        let id = match self.resolve_subscription(value).await {
+            Ok(id) => id,
+            Err(error) => return error,
+        };
+        let Some(item) = self.subscription_store.get(&id).await else {
+            return format!("订阅不存在：{value}");
+        };
+        let state = if !item.enabled {
+            "停用"
+        } else if item.completed {
+            "完成"
+        } else {
+            "启用"
+        };
+        let progress = item
+            .total_episode_number
+            .map(|total| format!("{}/{}", item.current_episode_number, total))
+            .unwrap_or_else(|| item.current_episode_number.to_string());
+        format!(
+            "订阅详情\nID：{}\n标题：{}\n状态：{}\n进度：{}\n目标目录：{}\n上次检查：{}\n最近结果：{}\n\n操作：/check {}",
+            item.id,
+            item.title,
+            state,
+            progress,
+            if item.rules.target_dir.trim().is_empty() { "自动" } else { item.rules.target_dir.as_str() },
+            item.last_checked_at,
+            one_line(&item.last_check_summary, 180),
+            short_id(&item.id)
+        )
+    }
+
+    async fn job_text(&self, argument: Option<&str>) -> String {
+        let Some(value) = argument else {
+            return "用法：/job <Job ID>".to_string();
+        };
+        let id = match self.resolve_job(value).await {
+            Ok(id) => id,
+            Err(error) => return error,
+        };
+        let Some(job) = self.job_store.get(&id).await else {
+            return format!("任务不存在：{value}");
+        };
+        let error = job
+            .error
+            .as_deref()
+            .map(|value| one_line(value, 240))
+            .unwrap_or_else(|| "无".to_string());
+        format!(
+            "任务详情\nID：{}\n标题：{}\n类型：{}\n状态：{}\n进度：{}%\n尝试：{}\n消息：{}\n错误：{}\ncorrelation：{}\n\n可用操作：/retry {} 或 /cancel {}",
+            job.id,
+            one_line(&job.title, 100),
+            job.kind.as_str(),
+            status_name(&job.status),
+            job.progress,
+            job.attempt,
+            one_line(&job.message, 180),
+            error,
+            job.correlation_id.as_deref().unwrap_or("无"),
+            short_id(&job.id),
+            short_id(&job.id)
+        )
     }
 
     async fn status_text(&self) -> String {
@@ -1070,8 +1139,10 @@ fn parse_command(text: &str) -> Option<(&'static str, Option<&str>)> {
         "help",
         "status",
         "subscriptions",
+        "subscription",
         "calendar",
         "jobs",
+        "job",
         "notifications",
         "diagnostics",
         "check",
@@ -1187,7 +1258,7 @@ fn chunk_chars(value: &str, limit: usize) -> Vec<String> {
 }
 
 fn help_text() -> &'static str {
-    "只读命令：\n/start — 连接说明\n/help — 命令列表\n/status — 系统概况\n/subscriptions [页码] — 订阅列表\n/calendar [页码] — 本周排期\n/jobs [页码] — 最近任务\n/notifications [页码] — 未读通知\n/diagnostics — Bot 诊断
+    "只读命令：\n/start — 连接说明\n/help — 命令列表\n/status — 系统概况\n/subscriptions [页码] — 订阅列表\n/subscription <订阅ID> — 订阅详情\n/calendar [页码] — 本周排期\n/jobs [页码] — 最近任务\n/job <Job ID> — 任务详情\n/notifications [页码] — 未读通知\n/diagnostics — Bot 诊断
 
 受控写命令（均需按钮确认）：
 /check <订阅ID|all>

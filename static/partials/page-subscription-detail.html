@@ -11,7 +11,7 @@
             </div>
 
             <div x-show="subscriptionDetailLoading && !subscriptionDetail" class="app-panel subscription-detail-loading">
-              <span class="status-pulse"></span><p>正在聚合剧集、任务、下载与 STRM 状态...</p>
+              <span class="status-pulse"></span><p>正在聚合剧集、任务与下载状态...</p>
             </div>
             <div x-show="subscriptionDetailError" class="app-panel subscription-detail-error">
               <strong>订阅详情加载失败</strong><p x-text="subscriptionDetailError"></p><button @click="loadSubscriptionDetail()">重试</button>
@@ -57,14 +57,13 @@
                   <div><span>已发现</span><strong x-text="subscriptionDetailSummary.discovered_count"></strong><small x-text="subscriptionDetailSummary.expected_count ? ('共 ' + subscriptionDetailSummary.expected_count + ' 集') : '按当前来源统计'"></small></div>
                   <div><span>已转存</span><strong x-text="subscriptionDetailSummary.transferred_count"></strong><small x-text="subscriptionDetailSummary.pending_transfer_count + ' 集待转存'"></small></div>
                   <div><span>已下载</span><strong x-text="subscriptionDetailSummary.downloaded_count"></strong><small x-text="selectedSubscription.sync_download_enabled ? (subscriptionDetailSummary.pending_download_count + ' 集待完成') : '未启用 Aria2 同步'"></small></div>
-                  <div><span>STRM</span><strong x-text="subscriptionDetailSummary.strm_count"></strong><small x-text="selectedSubscription.strm_enabled ? '已确认生成记录' : '当前订阅未启用'"></small></div>
                   <div :class="subscriptionDetailSummary.missing_count ? 'has-warning' : ''"><span>缺集</span><strong x-text="subscriptionDetailSummary.missing_count"></strong><small x-text="subscriptionDetailSummary.missing_count ? subscriptionDetail.missing_episodes.slice(0, 8).map(item => 'E' + item).join(' · ') : '当前目标范围完整'"></small></div>
                 </div>
 
                 <div class="subscription-detail-main-grid">
                   <section class="app-panel subscription-episodes-panel">
                     <div class="subscription-section-heading">
-                      <div><span class="panel-eyebrow">EPISODE MAP</span><h3>剧集状态</h3><p>从发现、转存、STRM 到下载完成的逐集视图。</p></div>
+                      <div><span class="panel-eyebrow">EPISODE MAP</span><h3>剧集状态</h3><p>从发现、转存到下载完成的逐集视图。</p></div>
                       <div class="subscription-episode-legend"><span class="is-missing">缺集</span><span class="is-discovered">发现</span><span class="is-transferred">转存</span><span class="is-complete">完成</span></div>
                     </div>
 
@@ -84,7 +83,6 @@
                           <div class="subscription-episode-signals">
                             <i :class="episode.discovered ? 'is-on' : ''" title="已发现"></i>
                             <i :class="episode.transferred ? 'is-on' : ''" title="已转存"></i>
-                            <i :class="episode.strm_status === 'generated' ? 'is-on' : (episode.strm_status === 'failed' ? 'is-error' : '')" title="STRM"></i>
                             <i :class="episode.download_status === 'completed' ? 'is-on' : (['queued','pending'].includes(episode.download_status) ? 'is-active' : '')" title="下载"></i>
                           </div>
                           <em x-show="episode.recent">NEW</em>
@@ -152,4 +150,3 @@
             </template>
           </section>
         </div>
-

@@ -91,8 +91,10 @@ TELEGRAM_BOT_WEBHOOK_SECRET=<至少24字符随机值>
 | `/start`、`/help` | 连接说明和允许的命令 |
 | `/status` | 版本、订阅、任务和未读通知概况 |
 | `/subscriptions [页码]` | 每页 8 条订阅及状态/进度 |
+| `/subscription <订阅ID>` | 单个订阅的状态、进度、目标目录和最近检查结果 |
 | `/calendar [页码]` | 当前上海时区自然周排期，每页 8 条 |
 | `/jobs [页码]` | 最近更新任务，每页 8 条 |
+| `/job <Job ID>` | 单个任务的进度、错误、尝试次数和 correlation ID |
 | `/notifications [页码]` | 未读通知，每页 8 条 |
 | `/diagnostics` | 接入模式、运行状态、最近 Update/成功时间和脱敏错误 |
 

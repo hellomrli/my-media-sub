@@ -13,7 +13,6 @@ pub mod response;
 pub mod search;
 pub mod settings;
 pub mod storage;
-pub mod strm;
 pub mod subscription_exchange;
 pub mod subscription_source;
 pub mod subscriptions;
@@ -35,7 +34,7 @@ use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tower_http::services::ServeDir;
+use tower_http::{compression::CompressionLayer, services::ServeDir};
 
 use crate::app::AppContext;
 use crate::error::json_error_response;
@@ -161,7 +160,7 @@ async fn basic_auth(State(state): State<AuthState>, req: Request<Body>, next: Ne
         return forbidden_response();
     }
 
-    if req.uri().path() == "/health" || req.uri().path().starts_with("/strm/") {
+    if req.uri().path() == "/health" {
         return next.run(req).await;
     }
 
@@ -506,6 +505,21 @@ async fn security_headers(req: Request<Body>, next: Next) -> Response {
             "service-worker-allowed",
             header::HeaderValue::from_static("/"),
         );
+    } else if !path.starts_with("/api/")
+        && (path.starts_with("/js/")
+            || path.starts_with("/icons/")
+            || path.ends_with(".css")
+            || path.ends_with(".webmanifest"))
+    {
+        headers.insert(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("public, max-age=3600, must-revalidate"),
+        );
+    } else if path == "/" || path.ends_with(".html") {
+        headers.insert(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("no-cache"),
+        );
     }
     headers.insert(
         "permissions-policy",
@@ -575,7 +589,6 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
             context.subscription_store.clone(),
             context.notification_store.clone(),
         ))
-        .merge(strm::routes(settings_store.clone()))
         .merge(telegram::routes(context.telegram_bot.clone()))
         .merge(transfer::routes(context.job_queue.clone()))
         .merge(update::routes())
@@ -593,6 +606,7 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
         .layer(middleware::from_fn(normalize_api_error_response))
         .layer(middleware::from_fn_with_state(auth_state, basic_auth))
         .layer(middleware::from_fn(request_context))
+        .layer(CompressionLayer::new())
 }
 
 #[cfg(test)]

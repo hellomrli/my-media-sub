@@ -230,7 +230,7 @@
           <button @click="subscriptionDialogTab = 'content'" :class="subscriptionDialogTab === 'content' ? 'text-text border-primary' : 'text-muted border-transparent hover:text-text/90'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">订阅内容</button>
           <button x-show="subscriptionMode === 'continuous' || subscriptionEditingId" @click="subscriptionDialogTab = 'schedule'" :class="subscriptionDialogTab === 'schedule' ? 'text-text border-primary' : 'text-muted border-transparent hover:text-text/90'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">播出排期</button>
           <button x-show="subscriptionMode === 'continuous' || subscriptionEditingId" @click="subscriptionDialogTab = 'rename'" :class="subscriptionDialogTab === 'rename' ? 'text-text border-primary' : 'text-muted border-transparent hover:text-text/90'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">高级规则</button>
-          <button x-show="subscriptionMode === 'continuous' || subscriptionEditingId" @click="subscriptionDialogTab = 'download'" :class="subscriptionDialogTab === 'download' ? 'text-text border-primary' : 'text-muted border-transparent hover:text-text/90'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">下载/STRM</button>
+          <button x-show="subscriptionMode === 'continuous' || subscriptionEditingId" @click="subscriptionDialogTab = 'download'" :class="subscriptionDialogTab === 'download' ? 'text-text border-primary' : 'text-muted border-transparent hover:text-text/90'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">下载</button>
         </div>
       </div>
 
@@ -529,13 +529,6 @@
             </div>
           </div>
 
-          <div class="app-panel-soft p-4 space-y-3">
-            <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer">
-              <input type="checkbox" x-model="newSubscription.strm_enabled" class="rounded" />
-              <span>转存后生成 STRM 文件</span>
-            </label>
-            <p class="text-xs text-muted/75">需要先在系统设置中启用 STRM 并配置输出目录与 HTTPStrm 访问地址。</p>
-          </div>
         </div>
       </div>
 
@@ -613,4 +606,3 @@
       </template>
     </div>
   </div>
-

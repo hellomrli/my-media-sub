@@ -31,7 +31,6 @@
       'aria2_secret',
       'quark_cookie',
       'quark_signin_cookie',
-      'strm_access_token',
       'pansou_api_url',
       'tmdb_api_key',
       'wecom_bot_url',
@@ -104,8 +103,7 @@
         {id: 'aria2', label: 'Aria2', description: s.aria2_rpc_url ? 'RPC 地址已配置' : '可选：同步下载', configured: !!s.aria2_rpc_url, optional: true, tab: 'connections'},
         {id: 'metadata', label: 'TMDB 元数据', description: s.tmdb_api_key_configured || s.tmdb_api_key ? 'API Key 已配置' : '可选：海报与剧集信息', configured: !!(s.tmdb_api_key_configured || s.tmdb_api_key), optional: true, tab: 'connections'},
         {id: 'automation', label: '订阅调度', description: s.subscription_scheduler_enabled ? '自动检查已启用' : '自动检查未启用', configured: !!s.subscription_scheduler_enabled, tab: 'automation'},
-        {id: 'notification', label: '消息通知', description: this.configuredPushChannelCount ? `${this.configuredPushChannelCount} 个渠道可用` : '可选：尚未配置渠道', configured: this.configuredPushChannelCount > 0, optional: true, tab: 'notifications'},
-        {id: 'strm', label: 'STRM', description: s.strm_enabled ? '已启用媒体串流' : '可选：未启用', configured: !!s.strm_enabled, optional: true, tab: 'connections'}
+        {id: 'notification', label: '消息通知', description: this.configuredPushChannelCount ? `${this.configuredPushChannelCount} 个渠道可用` : '可选：尚未配置渠道', configured: this.configuredPushChannelCount > 0, optional: true, tab: 'notifications'}
       ];
     },
 
