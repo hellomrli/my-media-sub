@@ -433,6 +433,12 @@ impl SubscriptionCheckService {
             should_mark_completed_from_known_episodes(&sub, &new_episodes)
         } else if sub.sync_download_enabled {
             false
+        } else if transfer_file_names.is_empty() {
+            // When the provider reports no new files and the known snapshot
+            // already contains the configured final episode, completion can
+            // be reconciled even if legacy transferred filenames lack a
+            // parseable SxxExx marker.
+            should_mark_completed_from_known_episodes(&sub, &new_episodes)
         } else {
             should_mark_completed_from_transferred_files(&sub, &[])
         };

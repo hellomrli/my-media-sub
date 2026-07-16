@@ -277,6 +277,7 @@ static/
 - [媒体日历规则](docs/media-calendar.md) · [资源质量与安全换源](docs/source-quality.md)
 - [HTTPS 反向代理与安全部署](docs/https-reverse-proxy.md) · [PWA 与缓存安全](docs/pwa.md)
 - [JSON Store 性能基线与 SQLite 决策](docs/storage-scaling.md)
+- [v2.2.1 升级指南](docs/upgrade-v2.2.1.md) · [v2.2.1 变更记录](CHANGELOG-v2.2.1.md)
 - [v2.2.0 升级指南](docs/upgrade-v2.2.0.md) · [v2.2.0 变更记录](CHANGELOG-v2.2.0.md)
 - [v2.1.2 升级指南](docs/upgrade-v2.1.2.md) · [v2.1.2 变更记录](CHANGELOG-v2.1.2.md)
 - [v2.1.1 升级指南](docs/upgrade-v2.1.1.md) · [v2.1.1 变更记录](CHANGELOG-v2.1.1.md)
@@ -295,6 +296,12 @@ docker compose pull && docker compose up -d
 不要只替换二进制而继续使用旧版 `static/`。详细步骤与回滚见对应版本的升级指南。
 
 ## 版本说明
+
+### 2.2.1
+
+- 修复更新日历根据未播出占位集推断“仍在更新”的问题。
+- 修复自动转存订阅已达到目标集数、但历史文件名无法解析时未标记完结的问题。
+- 存储 schema 保持兼容，可从 v2.2.0 直接升级。
 
 ### 2.2.0
 

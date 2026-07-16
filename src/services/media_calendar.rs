@@ -341,6 +341,19 @@ fn append_inferred_candidates(
     let Some((last_episode, last_date)) = points.last().copied() else {
         return;
     };
+    // TMDB and similar providers often publish placeholder episode objects
+    // (title only, no air date) for the remaining season. Do not turn the
+    // cadence of the last two aired episodes into a fake "still updating"
+    // schedule while such placeholders exist; wait for a real air date.
+    if subscription.metadata.as_ref().is_some_and(|metadata| {
+        metadata.episodes.iter().any(|episode| {
+            episode.episode_number > last_episode
+                && (episode.season_number <= 0 || episode.season_number == subscription.season)
+                && parse_date(episode.air_date.as_deref()).is_none()
+        })
+    }) {
+        return;
+    }
     let episode_delta = last_episode - previous_episode;
     let day_delta = (last_date - previous_date).num_days();
     if episode_delta <= 0
