@@ -1699,7 +1699,19 @@ async fn telegram_webhook_requires_both_path_and_header_secrets_without_basic_au
         .body(Body::from(r#"{"update_id":124}"#))
         .unwrap();
     assert_eq!(status(&app, cross_site_webhook).await, StatusCode::OK);
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    // Webhook handling records the audit in a spawned update task. 50ms is
+    // enough on a local machine but flaky on shared GitHub runners; poll the
+    // observable store with a bounded deadline instead of racing the task.
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(1);
+    loop {
+        let diagnostics = json_body(&app, auth_get("/api/diagnostics")).await;
+        if diagnostics["data"]["telegram_bot"]["audit_count"] == 1
+            || tokio::time::Instant::now() >= deadline
+        {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
 
     let public_settings = json_body(&app, auth_get("/api/settings")).await;
     assert_ne!(
