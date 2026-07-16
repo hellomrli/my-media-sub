@@ -102,7 +102,7 @@ async fn health_returns_ok_without_auth() {
 }
 
 #[tokio::test]
-async fn strm_errors_remain_non_enveloped_media_responses() {
+async fn retired_strm_route_is_not_exposed() {
     let (ctx, dir) = test_context().await;
     let app = create_app(ctx);
 
@@ -112,12 +112,9 @@ async fn strm_errors_remain_non_enveloped_media_responses() {
         .unwrap();
     let response = app.clone().oneshot(req).await.unwrap();
 
+    // The retired path no longer bypasses management authentication. It is
+    // intentionally treated like any other protected, unknown route.
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    assert!(response
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.starts_with("text/plain")));
 
     let _ = std::fs::remove_dir_all(dir);
 }

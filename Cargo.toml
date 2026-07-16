@@ -1,6 +1,6 @@
 [package]
 name = "my-media-sub"
-version = "2.1.2"
+version = "2.2.0"
 edition = "2021"
 authors = ["my-media-sub contributors"]
 description = "Media subscription and management system written in Rust"
@@ -10,7 +10,7 @@ license = "MIT"
 # Web framework
 axum = "0.8"
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }
+tower-http = { version = "0.6", features = ["compression-br", "compression-gzip", "cors", "fs", "trace"] }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }

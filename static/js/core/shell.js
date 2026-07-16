@@ -37,16 +37,18 @@
       this.restoreUiPreferences();
       this.setupErrorBoundary();
       this.initNavigation();
-      await this.loadSubscriptions();
-      await this.loadNotifications();
-      await this.loadJobs();
-      await this.loadAutomationSummary();
-      await this.loadSettings();
-      await this.loadSettingsSchema();
+      await Promise.all([
+        this.loadSubscriptions(),
+        this.loadNotifications(),
+        this.loadJobs(),
+        this.loadAutomationSummary(),
+        this.loadSettings(),
+        this.loadSettingsSchema()
+      ]);
       this.setupJobEvents();
       this.setupGlobalShortcuts();
       this.loadSearchHistory();
-      this.runCurrentTabEffects();
+      this.runCurrentTabEffects({initialDataLoaded: true});
       await this.handlePwaShortcut();
     },
 

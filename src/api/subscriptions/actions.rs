@@ -19,24 +19,6 @@ struct RenameExistingResponse {
     renamed_count: usize,
 }
 
-/// STRM 生成响应
-#[derive(Serialize)]
-struct GenerateStrmResponse {
-    subscription_id: String,
-    generated_count: usize,
-    skipped_count: usize,
-    output_dir: String,
-    files: Vec<GenerateStrmFile>,
-}
-
-#[derive(Serialize)]
-struct GenerateStrmFile {
-    fid: String,
-    file_name: String,
-    strm_path: String,
-    url: String,
-}
-
 /// 检查单个订阅
 pub(super) async fn check_subscription(
     State(state): State<Arc<SubscriptionState>>,
@@ -77,46 +59,6 @@ pub(super) async fn rename_existing_files(
     Ok(Json(Response::ok(RenameExistingResponse {
         subscription_id: id,
         renamed_count,
-    })))
-}
-
-/// 按订阅目标目录中的已有视频补齐 STRM 文件
-pub(super) async fn audit_existing_strm_files(
-    State(state): State<Arc<SubscriptionState>>,
-    Path(id): Path<String>,
-) -> Result<impl IntoResponse> {
-    Ok(Json(Response::ok(
-        state
-            .transfer_service
-            .audit_existing_strm_files(&id)
-            .await?,
-    )))
-}
-
-pub(super) async fn generate_existing_strm_files(
-    State(state): State<Arc<SubscriptionState>>,
-    Path(id): Path<String>,
-) -> Result<impl IntoResponse> {
-    let result = state
-        .transfer_service
-        .generate_existing_strm_files(&id)
-        .await?;
-
-    Ok(Json(Response::ok(GenerateStrmResponse {
-        subscription_id: id,
-        generated_count: result.generated_count,
-        skipped_count: result.skipped_count,
-        output_dir: result.output_dir.display().to_string(),
-        files: result
-            .files
-            .into_iter()
-            .map(|file| GenerateStrmFile {
-                fid: file.fid,
-                file_name: file.file_name,
-                strm_path: file.strm_path.display().to_string(),
-                url: file.url,
-            })
-            .collect(),
     })))
 }
 

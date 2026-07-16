@@ -84,6 +84,11 @@ mod tests {
             Some(("subscriptions", Some("3")))
         );
         assert_eq!(parse_command("/jobs 0"), Some(("jobs", Some("0"))));
+        assert_eq!(
+            parse_command("/subscription abc123"),
+            Some(("subscription", Some("abc123")))
+        );
+        assert_eq!(parse_command("/job deadbeef"), Some(("job", Some("deadbeef"))));
         assert_eq!(parse_command("hello"), None);
         assert_eq!(page_bounds(17, 99), (16, 17, 3, 3));
     }
