@@ -232,7 +232,7 @@
                 <template x-for="sub in dashboardRecentSubscriptions.slice(0, 6)" :key="sub.id">
                   <button @click="selectTab('subscriptions')" class="media-card">
                     <div class="media-poster">
-                      <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" />
+                      <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
                       <div x-show="!subscriptionPoster(sub)" class="media-poster-fallback">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16v12H4zM8 4v16m8-16v16M4 10h4m8 0h4"/></svg>
                         <span x-text="mediaTypeLabel(sub.media_type)"></span>
@@ -309,7 +309,6 @@
             </aside>
           </div>
         </div>
-
         <!-- 更新日历 -->
         <div x-show="currentTab === 'calendar'" class="page-stack calendar-page">
           <section class="calendar-toolbar app-panel">
@@ -363,7 +362,7 @@
                     <template x-for="(item, itemIndex) in day.items" :key="'calendar-week-' + (item.id || 'missing') + '-' + itemIndex">
                       <article :class="calendarItemClass(item)">
                         <div class="calendar-item-head"><span class="calendar-status-dot"></span><small x-text="item.scheduled_time || '日期排期'"></small></div>
-                        <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-item-title"><img x-show="item.thumbnail_url" :src="item.thumbnail_url" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="$el.hidden = true" @load="$el.hidden = false" class="calendar-thumbnail is-week"><span><strong x-text="item.subscription_title"></strong><small x-text="item.episode ? 'S' + item.season + ' · E' + item.episode : '上映 / 开播'"></small></span></button>
+                        <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-item-title"><img x-show="item.thumbnail_url" :src="item.thumbnail_url" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" class="calendar-thumbnail is-week"><span><strong x-text="item.subscription_title"></strong><small x-text="item.episode ? 'S' + item.season + ' · E' + item.episode : '上映 / 开播'"></small></span></button>
                         <div class="calendar-item-badges"><span x-text="calendarStatusLabel(item.primary_status)"></span><span :class="'is-' + item.confidence" x-text="calendarConfidenceLabel(item.confidence)"></span></div>
                         <div class="calendar-item-actions"><button @click="openSubscriptionDetail(item.subscription_id)">详情</button><button x-show="item.actions.can_check" @click="runCalendarAction(item, false)">检查</button><button x-show="item.actions.can_repair" @click="runCalendarAction(item, true)" class="is-repair">补集</button></div>
                       </article>
@@ -383,7 +382,7 @@
                   <div class="calendar-month-date"><strong x-text="day.day"></strong><small x-show="day.items.length" x-text="day.items.length"></small></div>
                   <div class="calendar-month-items">
                     <template x-for="(item, itemIndex) in day.items.slice(0, 3)" :key="'calendar-month-' + (item.id || 'missing') + '-' + itemIndex">
-                      <button @click="openSubscriptionDetail(item.subscription_id)" :class="calendarItemClass(item)"><img x-show="item.thumbnail_url" :src="item.thumbnail_url" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="$el.hidden = true" @load="$el.hidden = false" class="calendar-thumbnail is-month"><span x-text="item.scheduled_time || '全天'"></span><strong x-text="item.subscription_title"></strong><small x-text="item.episode ? 'E' + item.episode : '上映'"></small></button>
+                      <button @click="openSubscriptionDetail(item.subscription_id)" :class="calendarItemClass(item)"><img x-show="item.thumbnail_url" :src="item.thumbnail_url" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" class="calendar-thumbnail is-month"><span x-text="item.scheduled_time || '全天'"></span><strong x-text="item.subscription_title"></strong><small x-text="item.episode ? 'E' + item.episode : '上映'"></small></button>
                     </template>
                     <button x-show="day.items.length > 3" @click="setCalendarView('list')" class="calendar-month-more" x-text="'还有 ' + (day.items.length - 3) + ' 项'"></button>
                   </div>
@@ -400,7 +399,7 @@
                   <template x-for="(item, itemIndex) in group.items" :key="'calendar-list-' + (item.id || 'missing') + '-' + itemIndex">
                     <article :class="calendarItemClass(item)">
                       <div class="calendar-list-time"><strong x-text="item.scheduled_time || (item.scheduled_date ? '全天' : '—')"></strong><span x-text="calendarStatusLabel(item.primary_status)"></span></div>
-                      <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-list-title"><img x-show="item.thumbnail_url" :src="item.thumbnail_url" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="$el.hidden = true" @load="$el.hidden = false" class="calendar-thumbnail is-list"><span><strong x-text="item.subscription_title"></strong><small x-text="item.episode ? '第 ' + item.episode + ' 集' : (item.scheduled_date ? '上映 / 开播' : '等待补充排期')"></small></span></button>
+                      <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-list-title"><img x-show="item.thumbnail_url" :src="item.thumbnail_url" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" class="calendar-thumbnail is-list"><span><strong x-text="item.subscription_title"></strong><small x-text="item.episode ? '第 ' + item.episode + ' 集' : (item.scheduled_date ? '上映 / 开播' : '等待补充排期')"></small></span></button>
                       <div class="calendar-list-source"><span x-text="calendarSourceLabel(item.schedule_source)"></span><small :class="'is-' + item.confidence" x-text="calendarConfidenceLabel(item.confidence)"></small></div>
                       <div class="calendar-list-actions"><button @click="openSubscriptionDetail(item.subscription_id)">详情</button><button x-show="item.actions.can_check" @click="runCalendarAction(item, false)">检查</button><button x-show="item.actions.can_repair" @click="runCalendarAction(item, true)" class="is-repair">检查并补集</button></div>
                     </article>
@@ -410,7 +409,6 @@
             </template>
           </section>
         </div>
-
         <!-- 搜索页面 -->
         <div x-show="currentTab === 'search'" class="page-stack search-page">
           <div class="metric-grid search-metric-grid">
@@ -538,7 +536,7 @@
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M4 5h16v14H4zM8 3v4m8-4v4M4 10h16M8 15h.01M12 15h.01M16 15h.01"/></svg>
                       <span x-text="cloudTypeLabel(result.cloud_type)"></span>
                     </div>
-                    <img x-show="searchResultInsights(result).poster" :src="searchResultInsights(result).poster" :alt="searchResultTitle(result)" class="search-result-poster-image" @error="$el.hidden = true" @load="$el.hidden = false" />
+                    <img x-show="searchResultInsights(result).poster" :src="searchResultInsights(result).poster" :alt="searchResultTitle(result)" class="search-result-poster-image" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
                     <div class="search-result-poster-shade"></div>
                     <div class="search-card-badges">
                       <span :class="searchResultValidityBadgeClass(result)" x-text="searchResultValidityLabel(result)"></span>
@@ -588,7 +586,7 @@
                   <div class="search-list-resource">
                     <div class="search-list-thumb">
                       <span x-text="cloudTypeLabel(result.cloud_type).slice(0, 1)"></span>
-                      <img x-show="searchResultInsights(result).poster" :src="searchResultInsights(result).poster" :alt="searchResultTitle(result)" @error="$el.hidden = true" @load="$el.hidden = false" />
+                      <img x-show="searchResultInsights(result).poster" :src="searchResultInsights(result).poster" :alt="searchResultTitle(result)" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
                     </div>
                     <div class="min-w-0">
                       <strong x-text="searchResultTitle(result)"></strong>
@@ -637,7 +635,7 @@
                     <div class="search-preview-visual">
                       <div class="search-preview-poster">
                         <div class="search-result-poster-fallback"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 5h16v14H4zM8 3v4m8-4v4M4 10h16"/></svg><span>MEDIA/SUB</span></div>
-                        <img x-show="selectedSearchResultInsight.poster" :src="selectedSearchResultInsight.poster" :alt="searchResultTitle(selectedSearchResult)" @error="$el.hidden = true" @load="$el.hidden = false" />
+                        <img x-show="selectedSearchResultInsight.poster" :src="selectedSearchResultInsight.poster" :alt="searchResultTitle(selectedSearchResult)" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
                       </div>
                       <div class="search-preview-score" :class="'is-' + selectedSearchResultInsight.tone" :style="'--score:' + selectedSearchResultInsight.score">
                         <div><strong x-text="selectedSearchResultInsight.score"></strong><span>质量分</span></div>
@@ -697,7 +695,6 @@
             </div>
           </div>
         </div>
-
         <!-- 网盘管理页面 -->
         <div x-show="currentTab === 'drive'" class="page-stack">
           <div class="app-panel p-4 space-y-4">
@@ -1061,7 +1058,7 @@
                     <div @click="openSubscriptionDetail(sub)" @keydown.enter.prevent="openSubscriptionDetail(sub)" tabindex="0" role="button" class="flex min-w-0 items-center gap-2 cursor-pointer">
                       <input type="checkbox" :checked="selectedSubscriptionIds.includes(sub.id)" @click.stop="toggleSubscriptionSelection(sub.id)" @keydown.space.stop.prevent="toggleSubscriptionSelection(sub.id)" :aria-label="'选择订阅 ' + subscriptionDisplayTitle(sub)" />
                       <div class="h-11 w-8 shrink-0 overflow-hidden rounded border border-border bg-surface-2 grid place-items-center">
-                        <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" class="h-full w-full object-cover" />
+                        <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" class="h-full w-full object-cover" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
                         <span x-show="!subscriptionPoster(sub)" class="text-[10px] text-muted/60">N/A</span>
                       </div>
                       <div class="min-w-0">
@@ -1105,7 +1102,7 @@
                 <input type="checkbox" :checked="selectedSubscriptionIds.includes(sub.id)" @change="toggleSubscriptionSelection(sub.id)" :aria-label="'选择订阅 ' + subscriptionDisplayTitle(sub)" class="absolute left-2 top-2 z-10 h-5 w-5" />
                 <button @click="openSubscriptionDetail(sub)" class="block w-full text-left">
                   <div class="aspect-[2/3] bg-app grid place-items-center overflow-hidden border-b border-border">
-                    <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" class="h-full w-full object-cover" />
+                    <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" class="h-full w-full object-cover" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
                     <div x-show="!subscriptionPoster(sub)" class="px-3 text-center text-xs text-muted/75">暂无海报</div>
                   </div>
                 </button>
@@ -1152,7 +1149,6 @@
           <div x-show="subscriptions.length === 0" class="app-panel empty-state">暂无订阅</div>
           <div x-show="subscriptions.length > 0 && filteredSubscriptions.length === 0" class="app-panel empty-state" x-text="'暂无' + subscriptionStatusLabel(subscriptionStatusTab) + '订阅'"></div>
           </div>
-
           <section x-show="selectedSubscriptionId" class="subscription-detail-page">
             <div class="subscription-detail-nav">
               <button @click="closeSubscriptionDetail()" class="subscription-back-button">
@@ -1177,7 +1173,7 @@
                 <section class="subscription-detail-hero">
                   <div class="subscription-detail-poster">
                     <div class="subscription-detail-poster-fallback"><span>MEDIA</span><strong x-text="mediaTypeLabel(selectedSubscription.media_type)"></strong></div>
-                    <img x-show="subscriptionPoster(selectedSubscription)" :src="subscriptionPoster(selectedSubscription)" :alt="subscriptionDisplayTitle(selectedSubscription)" @error="$el.hidden = true" @load="$el.hidden = false" />
+                    <img x-show="subscriptionPoster(selectedSubscription)" :src="subscriptionPoster(selectedSubscription)" :alt="subscriptionDisplayTitle(selectedSubscription)" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
                   </div>
                   <div class="subscription-detail-copy">
                     <div class="subscription-detail-badges">
@@ -2505,7 +2501,7 @@
             <template x-for="item in manualMetadataResults" :key="'manual-' + item.provider + '-' + item.provider_id">
               <div class="border border-border bg-app rounded-lg p-3 min-h-28">
                 <div class="flex gap-3">
-                  <img x-show="item.poster_url" :src="item.poster_url" class="w-14 h-20 object-cover rounded border border-border shrink-0" alt="" />
+                  <img x-show="item.poster_url" :src="item.poster_url" class="w-14 h-20 object-cover rounded border border-border shrink-0" alt="" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
                   <div class="min-w-0 flex-1">
                     <div class="text-sm text-text font-medium break-words" x-text="item.title"></div>
                     <div class="text-xs text-muted/75 mt-1" x-text="metadataSubtitle(item)"></div>
@@ -2654,7 +2650,7 @@
               <template x-for="item in metadataResults" :key="item.provider + '-' + item.provider_id">
                 <button @click="applyMetadata(item)" :class="isSelectedMetadata(item) ? 'border-primary bg-primary/10' : 'border-border bg-app hover:border-border'" class="border rounded-lg p-2 text-left transition-colors min-h-20">
                   <div class="flex gap-3">
-                    <img x-show="item.poster_url" :src="item.poster_url" class="w-10 h-14 object-cover rounded border border-border" alt="" />
+                    <img x-show="item.poster_url" :src="item.poster_url" class="w-10 h-14 object-cover rounded border border-border" alt="" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
                     <div class="min-w-0">
                       <div class="text-sm text-text font-medium truncate" x-text="item.title"></div>
                       <div class="text-xs text-muted/75 mt-1" x-text="metadataSubtitle(item)"></div>

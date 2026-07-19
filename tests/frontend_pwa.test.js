@@ -27,8 +27,9 @@ test('PWA policy keeps API, STRM and health network-only', () => {
 test('PWA policy uses network-first HTML and stale-while-revalidate assets', () => {
   const origin = 'https://media.example.com';
   assert.equal(policy.classifyRequest({url: `${origin}/?tab=calendar`, mode: 'navigate', destination: 'document'}, origin), 'network-first');
-  assert.equal(policy.classifyRequest({url: `${origin}/js/core/api.js`, mode: 'no-cors', destination: 'script'}, origin), 'stale-while-revalidate');
-  assert.equal(policy.classifyRequest({url: `${origin}/styles.css`, mode: 'no-cors', destination: 'style'}, origin), 'stale-while-revalidate');
+  assert.equal(policy.classifyRequest({url: `${origin}/js/core/api.js`, mode: 'no-cors', destination: 'script'}, origin), 'network-first');
+  assert.equal(policy.classifyRequest({url: `${origin}/styles.css`, mode: 'no-cors', destination: 'style'}, origin), 'network-first');
+  assert.equal(policy.classifyRequest({url: `${origin}/icons/icon-192.png`, mode: 'no-cors', destination: 'image'}, origin), 'stale-while-revalidate');
   assert.equal(policy.isCacheableResponse(response(200)), true);
   assert.equal(policy.isCacheableResponse(response(401)), false, 'Basic Auth challenges must never be cached');
   assert.equal(policy.isCacheableResponse(response(200, 'private, no-store')), false);
@@ -45,7 +46,9 @@ test('manifest contains install icons and all six required shortcuts', () => {
 
 test('service worker has version cleanup, offline shell and safe update flow', () => {
   const source = fs.readFileSync(path.join(root, 'static/service-worker.js'), 'utf8');
-  assert.match(source, /CACHE_VERSION\s*=\s*'v2\.1\.2-aria2-active-poll-1'/);
+  const cargo = fs.readFileSync(path.join(root, 'Cargo.toml'), 'utf8');
+  const version = cargo.match(/^version = "([^"]+)"/m)[1];
+  assert.match(source, new RegExp(`CACHE_VERSION\\s*=\\s*'v${version.replaceAll('.', '\\.')}-`));
   assert.match(source, /obsoleteCacheNames/);
   assert.match(source, /response\.status === 401 \|\| response\.status === 403/);
   assert.match(source, /cache\.match\(new Request\(`\$\{self\.location\.origin\}\/`\)\)/);

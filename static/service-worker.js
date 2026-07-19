@@ -1,7 +1,7 @@
 /* global MediaSubPwaPolicy */
 importScripts('/js/pwa-policy.js');
 
-const CACHE_VERSION = 'v2.1.2-aria2-active-poll-1';
+const CACHE_VERSION = 'v2.2.2-pwa-thumbnail-recovery-1';
 const SHELL_CACHE = `media-sub-shell-${CACHE_VERSION}`;
 const STATIC_CACHE = `media-sub-static-${CACHE_VERSION}`;
 const CACHE_PREFIX = 'media-sub-';
@@ -56,12 +56,18 @@ async function putIfCacheable(cacheName, request, response) {
   await cache.put(sanitizedRequest(request), response.clone());
 }
 
+function isDocumentRequest(request) {
+  return request.mode === 'navigate' || request.destination === 'document';
+}
+
 async function networkFirst(request) {
+  const documentRequest = isDocumentRequest(request);
+  const cacheName = documentRequest ? SHELL_CACHE : STATIC_CACHE;
   try {
     const response = await fetch(request);
     // A Basic Auth 401/403 is authoritative and must never fall back to a cached shell.
     if (response.status === 401 || response.status === 403) return response;
-    await putIfCacheable(SHELL_CACHE, request, response);
+    await putIfCacheable(cacheName, request, response);
     if (MediaSubPwaPolicy.isCacheableResponse(response)) {
       const contentType = String(response.headers.get('content-type') || '');
       if (contentType.includes('text/html')) {
@@ -71,9 +77,11 @@ async function networkFirst(request) {
     }
     return response;
   } catch (error) {
-    const cache = await caches.open(SHELL_CACHE);
+    const cache = await caches.open(cacheName);
     const cached = await cache.match(sanitizedRequest(request))
-      || await cache.match(new Request(`${self.location.origin}/`));
+      || (documentRequest
+        ? await cache.match(new Request(`${self.location.origin}/`))
+        : null);
     if (cached) return cached;
     throw error;
   }

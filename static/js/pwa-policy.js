@@ -5,7 +5,8 @@
 })(typeof globalThis !== 'undefined' ? globalThis : self, function () {
   'use strict';
 
-  const STATIC_EXTENSIONS = /\.(?:css|js|mjs|png|jpg|jpeg|webp|svg|ico|woff2?|ttf|webmanifest)$/i;
+  const CRITICAL_STATIC_EXTENSIONS = /\.(?:css|js|mjs)$/i;
+  const STATIC_EXTENSIONS = /\.(?:png|jpg|jpeg|webp|svg|ico|woff2?|ttf|webmanifest)$/i;
 
   function normalizedPath(input, origin = 'http://localhost') {
     try { return new URL(typeof input === 'string' ? input : input.url, origin).pathname; }
@@ -25,7 +26,10 @@
     if (mode === 'navigate' || destination === 'document' || path === '/' || path === '/index.html') {
       return 'network-first';
     }
-    if (STATIC_EXTENSIONS.test(path) || ['script', 'style', 'image', 'font', 'manifest', 'worker'].includes(destination)) {
+    if (CRITICAL_STATIC_EXTENSIONS.test(path) || ['script', 'style', 'worker'].includes(destination)) {
+      return 'network-first';
+    }
+    if (STATIC_EXTENSIONS.test(path) || ['image', 'font', 'manifest'].includes(destination)) {
       return 'stale-while-revalidate';
     }
     return 'network-only';

@@ -8,8 +8,9 @@ const html = fs.readFileSync(path.join(__dirname, '../static/index.html'), 'utf8
 test('remote images recover after transient load failures', () => {
   assert.equal(html.includes("@error=\"$el.style.display = 'none'\""), false);
   assert.equal(html.includes("@error=\"$el.style.display='none'\""), false);
-  const recoverableImages = html.match(/@error="\$el\.hidden = true" @load="\$el\.hidden = false"/g) || [];
-  assert.ok(recoverableImages.length >= 7);
+  assert.equal(html.includes('@error="$el.hidden = true"'), false);
+  const recoverableImages = html.match(/@error="handleRemoteImageError\(\$event\)" @load="handleRemoteImageLoad\(\$event\)"/g) || [];
+  assert.ok(recoverableImages.length >= 12);
 });
 
 test('rapidly refreshed Alpine lists use collision-resistant render keys', () => {

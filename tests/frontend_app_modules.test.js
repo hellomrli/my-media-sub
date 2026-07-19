@@ -72,3 +72,36 @@ test('page navigation stops page-bound pollers before applying the next page eff
   store.selectSettingsTab('connections', false);
   assert.deepEqual(stopped, ['search', 'update', 'downloads', 'notifications']);
 });
+
+test('remote image failures retry with a cache-busting URL before falling back', () => {
+  const store = app();
+  const originalWindow = global.window;
+  const originalSetTimeout = global.setTimeout;
+  global.window = {location: {href: 'https://media.example.com/'}};
+  global.setTimeout = callback => { callback(); return 1; };
+  const classes = new Set();
+  const element = {
+    currentSrc: 'https://image.tmdb.org/t/p/w500/poster.jpg',
+    src: 'https://image.tmdb.org/t/p/w500/poster.jpg',
+    dataset: {},
+    hidden: true,
+    isConnected: true,
+    classList: {
+      add(...values) { values.forEach(value => classes.add(value)); },
+      remove(...values) { values.forEach(value => classes.delete(value)); }
+    }
+  };
+
+  try {
+    store.handleRemoteImageError({currentTarget: element});
+    assert.match(element.src, /_media_sub_retry=1-/);
+    assert.equal(element.hidden, false);
+    assert.equal(classes.has('remote-image-retrying'), true);
+    store.handleRemoteImageLoad({currentTarget: element});
+    assert.equal(classes.has('remote-image-retrying'), false);
+    assert.equal(classes.has('remote-image-failed'), false);
+  } finally {
+    global.window = originalWindow;
+    global.setTimeout = originalSetTimeout;
+  }
+});
