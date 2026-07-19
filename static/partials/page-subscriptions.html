@@ -60,7 +60,7 @@
                     <div @click="openSubscriptionDetail(sub)" @keydown.enter.prevent="openSubscriptionDetail(sub)" tabindex="0" role="button" class="flex min-w-0 items-center gap-2 cursor-pointer">
                       <input type="checkbox" :checked="selectedSubscriptionIds.includes(sub.id)" @click.stop="toggleSubscriptionSelection(sub.id)" @keydown.space.stop.prevent="toggleSubscriptionSelection(sub.id)" :aria-label="'选择订阅 ' + subscriptionDisplayTitle(sub)" />
                       <div class="h-11 w-8 shrink-0 overflow-hidden rounded border border-border bg-surface-2 grid place-items-center">
-                        <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" class="h-full w-full object-cover" />
+                        <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" class="h-full w-full object-cover" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
                         <span x-show="!subscriptionPoster(sub)" class="text-[10px] text-muted/60">N/A</span>
                       </div>
                       <div class="min-w-0">
@@ -104,7 +104,7 @@
                 <input type="checkbox" :checked="selectedSubscriptionIds.includes(sub.id)" @change="toggleSubscriptionSelection(sub.id)" :aria-label="'选择订阅 ' + subscriptionDisplayTitle(sub)" class="absolute left-2 top-2 z-10 h-5 w-5" />
                 <button @click="openSubscriptionDetail(sub)" class="block w-full text-left">
                   <div class="aspect-[2/3] bg-app grid place-items-center overflow-hidden border-b border-border">
-                    <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" class="h-full w-full object-cover" />
+                    <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" class="h-full w-full object-cover" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
                     <div x-show="!subscriptionPoster(sub)" class="px-3 text-center text-xs text-muted/75">暂无海报</div>
                   </div>
                 </button>
@@ -151,4 +151,3 @@
           <div x-show="subscriptions.length === 0" class="app-panel empty-state">暂无订阅</div>
           <div x-show="subscriptions.length > 0 && filteredSubscriptions.length === 0" class="app-panel empty-state" x-text="'暂无' + subscriptionStatusLabel(subscriptionStatusTab) + '订阅'"></div>
           </div>
-

@@ -205,6 +205,58 @@
       }
     },
 
+    imageRetrySource(value) {
+      try {
+        const url = new URL(String(value || ''), window.location.href);
+        url.searchParams.delete('_media_sub_retry');
+        return url.href;
+      } catch (_) {
+        return String(value || '');
+      }
+    },
+
+    handleRemoteImageLoad(event) {
+      const element = event && event.currentTarget;
+      if (!element) return;
+      if (element._mediaSubRetryTimer) {
+        clearTimeout(element._mediaSubRetryTimer);
+        element._mediaSubRetryTimer = null;
+      }
+      element.dataset.imageRetryCount = '0';
+      element.classList.remove('remote-image-retrying', 'remote-image-failed');
+      element.hidden = false;
+    },
+
+    handleRemoteImageError(event) {
+      const element = event && event.currentTarget;
+      if (!element || element._mediaSubRetryTimer) return;
+      const currentSource = this.imageRetrySource(element.currentSrc || element.src || '');
+      const previousSource = element.dataset.imageRetrySource || '';
+      let retryCount = Number(element.dataset.imageRetryCount || 0);
+      if (previousSource !== currentSource) retryCount = 0;
+      element.dataset.imageRetrySource = currentSource;
+      element.hidden = false;
+
+      if (!/^https?:/i.test(currentSource) || retryCount >= 2) {
+        element.classList.remove('remote-image-retrying');
+        element.classList.add('remote-image-failed');
+        return;
+      }
+
+      retryCount += 1;
+      element.dataset.imageRetryCount = String(retryCount);
+      element.classList.add('remote-image-retrying');
+      element.classList.remove('remote-image-failed');
+      const delay = retryCount === 1 ? 350 : 1200;
+      element._mediaSubRetryTimer = setTimeout(() => {
+        element._mediaSubRetryTimer = null;
+        if (!element.isConnected) return;
+        const retryUrl = new URL(currentSource);
+        retryUrl.searchParams.set('_media_sub_retry', `${retryCount}-${Date.now()}`);
+        element.src = retryUrl.href;
+      }, delay);
+    },
+
     apiErrorMessage(error, fallback = '请求失败') {
       return getApiErrorMessage(error, fallback);
     },

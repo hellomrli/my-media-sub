@@ -22,7 +22,7 @@
                 <section class="subscription-detail-hero">
                   <div class="subscription-detail-poster">
                     <div class="subscription-detail-poster-fallback"><span>MEDIA</span><strong x-text="mediaTypeLabel(selectedSubscription.media_type)"></strong></div>
-                    <img x-show="subscriptionPoster(selectedSubscription)" :src="subscriptionPoster(selectedSubscription)" :alt="subscriptionDisplayTitle(selectedSubscription)" @error="$el.hidden = true" @load="$el.hidden = false" />
+                    <img x-show="subscriptionPoster(selectedSubscription)" :src="subscriptionPoster(selectedSubscription)" :alt="subscriptionDisplayTitle(selectedSubscription)" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
                   </div>
                   <div class="subscription-detail-copy">
                     <div class="subscription-detail-badges">
