@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const html = fs.readFileSync(path.join(__dirname, '../static/index.html'), 'utf8');
+const subscriptionsSource = fs.readFileSync(path.join(__dirname, '../static/js/stores/subscriptions.js'), 'utf8');
 
 test('remote images recover after transient load failures', () => {
   assert.equal(html.includes("@error=\"$el.style.display = 'none'\""), false);
@@ -11,6 +12,7 @@ test('remote images recover after transient load failures', () => {
   assert.equal(html.includes('@error="$el.hidden = true"'), false);
   const recoverableImages = html.match(/@error="handleRemoteImageError\(\$event\)" @load="handleRemoteImageLoad\(\$event\)"/g) || [];
   assert.ok(recoverableImages.length >= 12);
+  assert.match(subscriptionsSource, /this\.subscriptions = data\.data \|\| \[\];[\s\S]*recoverRemoteImagesAfterDataRefresh\(\)/);
 });
 
 test('rapidly refreshed Alpine lists use collision-resistant render keys', () => {

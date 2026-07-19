@@ -257,6 +257,47 @@
       }, delay);
     },
 
+    recoverRemoteImages(rootNode) {
+      const scope = rootNode || (typeof document !== 'undefined' ? document : null);
+      if (!scope || typeof scope.querySelectorAll !== 'function') return 0;
+      let recovered = 0;
+
+      [...scope.querySelectorAll('img[src]')].forEach((element, index) => {
+        const currentSource = this.imageRetrySource(element.currentSrc || element.src || '');
+        if (!/^https?:/i.test(currentSource)) return;
+        const retryCount = Number(element.dataset.imageRetryCount || 0);
+        const failed = element.classList.contains('remote-image-failed');
+        const retrying = element.classList.contains('remote-image-retrying');
+        const broken = element.complete && Number(element.naturalWidth || 0) === 0;
+        if (!failed && !retrying && !element.hidden && retryCount <= 0 && !broken) return;
+
+        if (element._mediaSubRetryTimer) {
+          clearTimeout(element._mediaSubRetryTimer);
+          element._mediaSubRetryTimer = null;
+        }
+        element.dataset.imageRetrySource = currentSource;
+        element.dataset.imageRetryCount = '0';
+        element.classList.remove('remote-image-retrying', 'remote-image-failed');
+        element.hidden = false;
+
+        const retryUrl = new URL(currentSource);
+        retryUrl.searchParams.set('_media_sub_retry', `refresh-${Date.now()}-${index}`);
+        element.src = retryUrl.href;
+        recovered += 1;
+      });
+
+      return recovered;
+    },
+
+    recoverRemoteImagesAfterDataRefresh() {
+      const recover = () => this.recoverRemoteImages();
+      if (typeof this.$nextTick === 'function') {
+        this.$nextTick(recover);
+      } else {
+        recover();
+      }
+    },
+
     apiErrorMessage(error, fallback = '请求失败') {
       return getApiErrorMessage(error, fallback);
     },

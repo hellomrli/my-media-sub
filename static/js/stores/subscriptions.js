@@ -1886,6 +1886,9 @@
         const response = await apiFetch('/api/subscriptions');
         const data = await response.json();
         this.subscriptions = data.data || [];
+        if (typeof this.recoverRemoteImagesAfterDataRefresh === 'function') {
+          this.recoverRemoteImagesAfterDataRefresh();
+        }
         const currentIds = new Set(this.subscriptions.map(sub => sub.id));
         this.selectedSubscriptionIds = this.selectedSubscriptionIds.filter(id => currentIds.has(id));
         if (this.selectedSubscriptionId && !this.subscriptions.some(sub => sub.id === this.selectedSubscriptionId)) {
