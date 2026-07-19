@@ -125,7 +125,7 @@
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M4 5h16v14H4zM8 3v4m8-4v4M4 10h16M8 15h.01M12 15h.01M16 15h.01"/></svg>
                       <span x-text="cloudTypeLabel(result.cloud_type)"></span>
                     </div>
-                    <img x-show="searchResultInsights(result).poster" :src="searchResultInsights(result).poster" :alt="searchResultTitle(result)" class="search-result-poster-image" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
+                    <img x-show="searchResultInsights(result).poster" :src="remoteImageUrl(searchResultInsights(result).poster)" :alt="searchResultTitle(result)" class="search-result-poster-image" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
                     <div class="search-result-poster-shade"></div>
                     <div class="search-card-badges">
                       <span :class="searchResultValidityBadgeClass(result)" x-text="searchResultValidityLabel(result)"></span>
@@ -175,7 +175,7 @@
                   <div class="search-list-resource">
                     <div class="search-list-thumb">
                       <span x-text="cloudTypeLabel(result.cloud_type).slice(0, 1)"></span>
-                      <img x-show="searchResultInsights(result).poster" :src="searchResultInsights(result).poster" :alt="searchResultTitle(result)" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
+                      <img x-show="searchResultInsights(result).poster" :src="remoteImageUrl(searchResultInsights(result).poster)" :alt="searchResultTitle(result)" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
                     </div>
                     <div class="min-w-0">
                       <strong x-text="searchResultTitle(result)"></strong>
@@ -224,7 +224,7 @@
                     <div class="search-preview-visual">
                       <div class="search-preview-poster">
                         <div class="search-result-poster-fallback"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 5h16v14H4zM8 3v4m8-4v4M4 10h16"/></svg><span>MEDIA/SUB</span></div>
-                        <img x-show="selectedSearchResultInsight.poster" :src="selectedSearchResultInsight.poster" :alt="searchResultTitle(selectedSearchResult)" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
+                        <img x-show="selectedSearchResultInsight.poster" :src="remoteImageUrl(selectedSearchResultInsight.poster)" :alt="searchResultTitle(selectedSearchResult)" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
                       </div>
                       <div class="search-preview-score" :class="'is-' + selectedSearchResultInsight.tone" :style="'--score:' + selectedSearchResultInsight.score">
                         <div><strong x-text="selectedSearchResultInsight.score"></strong><span>质量分</span></div>

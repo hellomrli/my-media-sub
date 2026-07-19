@@ -215,6 +215,24 @@
       }
     },
 
+    remoteImageUrl(value) {
+      const source = String(value || '').trim();
+      if (!source) return '';
+      try {
+        const base = typeof window !== 'undefined' ? window.location.href : 'http://localhost/';
+        const url = new URL(source, base);
+        if (url.protocol === 'https:' && url.hostname.toLowerCase() === 'image.tmdb.org') {
+          const match = url.pathname.match(/^\/t\/p\/(w(?:92|154|185|300|342|400|500|780|1280)|original)\/([A-Za-z0-9_-]+\.(?:jpe?g|png|webp|avif))$/i);
+          if (match) {
+            return `/api/images/tmdb/${encodeURIComponent(match[1].toLowerCase())}/${encodeURIComponent(match[2])}`;
+          }
+        }
+      } catch (_) {
+        return source;
+      }
+      return source;
+    },
+
     handleRemoteImageLoad(event) {
       const element = event && event.currentTarget;
       if (!element) return;

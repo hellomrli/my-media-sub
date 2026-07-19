@@ -4,6 +4,7 @@ pub mod backup;
 pub mod calendar;
 pub mod diagnostics;
 pub mod drive;
+pub mod image_proxy;
 pub mod jobs;
 pub mod metadata;
 pub mod metrics;
@@ -256,6 +257,8 @@ pub(crate) fn required_token_scope(method: &Method, path: &str) -> Option<&'stat
         })
     } else if path.starts_with("/api/jobs") {
         Some(if read { "jobs:read" } else { "jobs:write" })
+    } else if read && path.starts_with("/api/images/") {
+        Some("read")
     } else if path == "/api/quark/signin" {
         Some("quark:signin")
     } else if path.starts_with("/api/notifications") {
@@ -581,6 +584,7 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
             context.job_store.clone(),
             context.job_queue.clone(),
         ))
+        .merge(image_proxy::routes())
         .merge(notifications::routes(context.notification_store.clone()))
         .merge(drive::routes(
             settings_store.clone(),

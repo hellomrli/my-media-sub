@@ -106,6 +106,26 @@ test('remote image failures retry with a cache-busting URL before falling back',
   }
 });
 
+test('TMDB artwork uses the authenticated same-origin image proxy', () => {
+  const store = app();
+  const originalWindow = global.window;
+  global.window = {location: {href: 'https://media.example.com/'}};
+
+  try {
+    assert.equal(
+      store.remoteImageUrl('https://image.tmdb.org/t/p/w500/Poster_123-abc.jpg'),
+      '/api/images/tmdb/w500/Poster_123-abc.jpg'
+    );
+    assert.equal(
+      store.subscriptionPoster({metadata: {poster_url: 'https://image.tmdb.org/t/p/w780/show.webp'}}),
+      '/api/images/tmdb/w780/show.webp'
+    );
+    assert.equal(store.remoteImageUrl('https://cdn.example.com/poster.jpg'), 'https://cdn.example.com/poster.jpg');
+  } finally {
+    global.window = originalWindow;
+  }
+});
+
 test('subscription data refresh recovers failed image nodes reused with the same URL', () => {
   const store = app();
   const originalWindow = global.window;

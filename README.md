@@ -297,6 +297,13 @@ docker compose pull && docker compose up -d
 
 ## 版本说明
 
+### 2.2.4
+
+- TMDB 海报、搜索结果和日历缩略图改为由 VPS 同源代理并缓存，浏览器不再直接连接 `image.tmdb.org`。
+- 代理路径限定 TMDB 尺寸和图片文件名，并限制响应类型与大小，避免成为通用 SSRF 代理。
+- 前端 JS/CSS 资源 URL 与应用版本绑定，旧 Service Worker 或浏览器缓存也无法继续命中旧脚本。
+- 存储 schema 保持兼容，可从 v2.2.3 直接升级。
+
 ### 2.2.3
 
 - 修复“检查全部订阅”完成后 Alpine 复用同 ID 图片节点，导致旧的加载失败状态持续把海报设为透明的问题。
