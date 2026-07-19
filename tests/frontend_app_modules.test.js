@@ -105,3 +105,49 @@ test('remote image failures retry with a cache-busting URL before falling back',
     global.setTimeout = originalSetTimeout;
   }
 });
+
+test('subscription data refresh recovers failed image nodes reused with the same URL', () => {
+  const store = app();
+  const originalWindow = global.window;
+  global.window = {location: {href: 'https://media.example.com/'}};
+  const failedClasses = new Set(['remote-image-failed']);
+  const healthyClasses = new Set();
+  const failed = {
+    currentSrc: 'https://image.tmdb.org/t/p/w500/poster.jpg',
+    src: 'https://image.tmdb.org/t/p/w500/poster.jpg',
+    dataset: {imageRetryCount: '2', imageRetrySource: 'https://image.tmdb.org/t/p/w500/poster.jpg'},
+    hidden: true,
+    complete: true,
+    naturalWidth: 0,
+    classList: {
+      add(...values) { values.forEach(value => failedClasses.add(value)); },
+      remove(...values) { values.forEach(value => failedClasses.delete(value)); },
+      contains(value) { return failedClasses.has(value); }
+    }
+  };
+  const healthy = {
+    currentSrc: 'https://image.tmdb.org/t/p/w500/healthy.jpg',
+    src: 'https://image.tmdb.org/t/p/w500/healthy.jpg',
+    dataset: {imageRetryCount: '0'},
+    hidden: false,
+    complete: true,
+    naturalWidth: 500,
+    classList: {
+      add(...values) { values.forEach(value => healthyClasses.add(value)); },
+      remove(...values) { values.forEach(value => healthyClasses.delete(value)); },
+      contains(value) { return healthyClasses.has(value); }
+    }
+  };
+  const root = {querySelectorAll() { return [failed, healthy]; }};
+
+  try {
+    assert.equal(store.recoverRemoteImages(root), 1);
+    assert.equal(failed.hidden, false);
+    assert.equal(failed.dataset.imageRetryCount, '0');
+    assert.equal(failedClasses.has('remote-image-failed'), false);
+    assert.match(failed.src, /_media_sub_retry=refresh-/);
+    assert.equal(healthy.src, 'https://image.tmdb.org/t/p/w500/healthy.jpg');
+  } finally {
+    global.window = originalWindow;
+  }
+});
