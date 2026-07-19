@@ -930,7 +930,8 @@
     },
 
     subscriptionPoster(sub) {
-      return (sub && sub.metadata && sub.metadata.poster_url) || '';
+      const poster = (sub && sub.metadata && sub.metadata.poster_url) || '';
+      return typeof this.remoteImageUrl === 'function' ? this.remoteImageUrl(poster) : poster;
     },
 
     subscriptionDisplayTitle(sub) {

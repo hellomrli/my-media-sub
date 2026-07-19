@@ -1,7 +1,8 @@
 /* global MediaSubPwaPolicy */
-importScripts('/js/pwa-policy.js');
+importScripts('/js/pwa-policy.js?v=2.2.4');
 
-const CACHE_VERSION = 'v2.2.3-pwa-thumbnail-dom-recovery-1';
+const ASSET_VERSION = '2.2.4';
+const CACHE_VERSION = 'v2.2.4-pwa-same-origin-images-1';
 const SHELL_CACHE = `media-sub-shell-${CACHE_VERSION}`;
 const STATIC_CACHE = `media-sub-static-${CACHE_VERSION}`;
 const CACHE_PREFIX = 'media-sub-';
@@ -42,7 +43,7 @@ const PRECACHE_ASSETS = [
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/icons/icon-maskable-512.png',
-];
+].map(asset => /\.(?:css|js)$/i.test(asset) ? `${asset}?v=${ASSET_VERSION}` : asset);
 
 function sanitizedRequest(request) {
   return new Request(MediaSubPwaPolicy.cacheKey(request, self.location.origin), {

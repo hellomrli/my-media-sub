@@ -430,6 +430,20 @@ async fn list_subscriptions_returns_empty_array_initially() {
 }
 
 #[tokio::test]
+async fn tmdb_image_proxy_rejects_untrusted_paths_before_network_access() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+    let (status, headers, body) =
+        json_response(&app, auth_get("/api/images/tmdb/w999/poster.svg")).await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_json_content_type(&headers);
+    assert_eq!(body["ok"], false);
+    assert_eq!(body["error"], "validation_error");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
 async fn create_subscription_returns_201_and_can_be_fetched() {
     let (ctx, dir) = test_context().await;
     let app = create_app(ctx);

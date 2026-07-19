@@ -49,6 +49,7 @@ test('service worker has version cleanup, offline shell and safe update flow', (
   const cargo = fs.readFileSync(path.join(root, 'Cargo.toml'), 'utf8');
   const version = cargo.match(/^version = "([^"]+)"/m)[1];
   assert.match(source, new RegExp(`CACHE_VERSION\\s*=\\s*'v${version.replaceAll('.', '\\.')}-`));
+  assert.match(source, new RegExp(`ASSET_VERSION\\s*=\\s*'${version.replaceAll('.', '\\.')}'`));
   assert.match(source, /obsoleteCacheNames/);
   assert.match(source, /response\.status === 401 \|\| response\.status === 403/);
   assert.match(source, /cache\.match\(new Request\(`\$\{self\.location\.origin\}\/`\)\)/);
