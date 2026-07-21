@@ -5,7 +5,7 @@ use crate::services::title_normalize::clean_media_title;
 use crate::utils::unix_now;
 
 const SESSION_TTL_SECONDS: i64 = 15 * 60;
-const MAX_SEARCH_RESULTS: usize = 5;
+const MAX_SEARCH_RESULTS: usize = 10;
 const MAX_SWITCH_CANDIDATES: usize = 5;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
