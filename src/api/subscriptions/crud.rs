@@ -1,10 +1,10 @@
 use super::*;
 
-/// 列出所有订阅
+/// 列出所有订阅（附带展示字段，避免前端重复推断）
 pub(super) async fn list_subscriptions(
     State(state): State<Arc<SubscriptionState>>,
     Query(query): Query<ListSubscriptionsQuery>,
-) -> Result<Json<Response<Vec<Subscription>>>> {
+) -> Result<Json<Response<Vec<SubscriptionListItem>>>> {
     let subscriptions = match query.limit {
         Some(limit) => {
             state
@@ -14,7 +14,11 @@ pub(super) async fn list_subscriptions(
         }
         None => state.store.list().await,
     };
-    Ok(Json(Response::ok(subscriptions)))
+    let items = subscriptions
+        .into_iter()
+        .map(SubscriptionListItem::from)
+        .collect();
+    Ok(Json(Response::ok(items)))
 }
 
 /// 获取单个订阅
@@ -46,7 +50,11 @@ pub(super) async fn create_subscription(
 
     let now = unix_now();
 
-    let season = req.season.max(1);
+    let (season, season_end) = if !req.season_spec.trim().is_empty() {
+        crate::models::subscription::parse_season_spec(&req.season_spec)
+    } else {
+        crate::models::subscription::normalize_season_bounds(req.season, req.season_end)
+    };
     let media_type = if req.media_type.is_empty() {
         "series".to_string()
     } else {
@@ -54,16 +62,32 @@ pub(super) async fn create_subscription(
     };
     let start_episode_number =
         normalize_start_episode_number(req.start_episode_number, &media_type);
-    let total_episode_number =
-        episode_count_for_season(req.metadata.as_ref(), season).or(rules.finish_after_episode);
+    let total_episode_number = if season_end.is_some() {
+        // 多季订阅不把单季总集数当作完结目标，避免过早完结
+        rules.finish_after_episode
+    } else {
+        episode_count_for_season(req.metadata.as_ref(), season).or(rules.finish_after_episode)
+    };
     let cloud_type = validate_cloud_type(&req.cloud_type)?;
+    let raw_title = req.title.trim().to_string();
+    let cleaned_title = crate::services::metadata::clean_media_title(&raw_title);
+    let title = if cleaned_title.is_empty() {
+        raw_title.clone()
+    } else {
+        cleaned_title
+    };
 
     let subscription = Subscription {
         id: id.to_string(),
-        title: req.title,
-        source_title: String::new(),
+        title,
+        source_title: if raw_title.is_empty() {
+            String::new()
+        } else {
+            raw_title
+        },
         media_type,
         season,
+        season_end,
         start_episode_number,
         current_episode_number: 0,
         total_episode_number,
@@ -161,10 +185,27 @@ pub(super) async fn update_subscription(
                 content_changed |= media_type != sub.media_type;
                 sub.media_type = media_type;
             }
-            if let Some(season) = req.season {
-                let season = season.max(1);
-                content_changed |= season != sub.season;
+            if let Some(spec) = req.season_spec.as_deref().map(str::trim).filter(|s| !s.is_empty())
+            {
+                let (season, season_end) = crate::models::subscription::parse_season_spec(spec);
+                content_changed |= season != sub.season || season_end != sub.season_end;
                 sub.season = season;
+                sub.season_end = season_end;
+            } else {
+                if let Some(season) = req.season {
+                    let season = season.max(1);
+                    content_changed |= season != sub.season;
+                    sub.season = season;
+                }
+                if let Some(season_end) = req.season_end {
+                    content_changed |= season_end != sub.season_end;
+                    sub.season_end = season_end;
+                }
+            }
+            {
+                let before = (sub.season, sub.season_end);
+                sub.normalize_season_range();
+                content_changed |= before != (sub.season, sub.season_end);
             }
             if content_changed {
                 reset_progress_for_content_change(sub);

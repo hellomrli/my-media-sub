@@ -4,6 +4,39 @@ My Media Sub 的版本变更记录。新版本写在上方。
 
 升级步骤见对应的 [`docs/upgrade-v*.md`](docs/)；当前版本发布说明摘要也写在 [`README.md`](README.md) 的「版本说明」中。
 
+## 2.2.6
+
+### 新功能
+
+- 多季订阅：季号支持 `1-4` / `season_spec`；目标目录仅写剧名，转存与 Aria2 按文件季号自动进入 `Season N`。
+- 无季号提示的文件在多季订阅中回落到起始季，避免整批被跳过。
+- 剧名魔法匹配下沉到 Rust（`title_normalize` + `/api/utils/normalize-title`）；搜索结果返回 `display_title`。
+- 重命名预览返回服务端 `groups` / `show_root` / `multi_season`；多季 UI 按 Season 折叠。
+- 订阅列表附加 `season_label` / `status_*` / `progress_*` 展示字段。
+- Telegram：主菜单、`/search`、`/subscribe`、`/switch`、`/switch_apply`；会话跨重启持久化；内联按钮选序号；创建订阅后提交元数据刮削。
+- 换源强制应用：不可越过探测失败与季度不匹配。
+
+### 修复
+
+- 编辑订阅不再误清手动排期；批量删除确认、一键转存密码、网盘 list 错误语义、find-path 只读等功能问题。
+- 单季 Aria2 同步下载默认落到 `类型目录/剧名/Season N`，与网盘结构对齐。
+
+### 兼容性
+
+- JSON Store schema 未变化（Telegram 会话字段新增且有默认值）。
+- 可直接从 v2.2.5 升级，保留现有 `data/`。
+
+### 升级
+
+```bash
+# Docker
+docker compose pull && docker compose up -d
+
+# 二进制：备份 DATA_DIR → 校验新包 → 同时替换二进制和整个 static/ → 保留 data/ → 启动后检查 /health
+```
+
+不要只替换二进制而继续使用旧版 `static/`。
+
 ## 2.2.5
 
 ### 修复

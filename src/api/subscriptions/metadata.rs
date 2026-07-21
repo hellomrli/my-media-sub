@@ -80,7 +80,7 @@ pub(super) async fn preview_subscription_rename(
         }
     }
     let plan = build_transfer_plan(&sub, Some(&files), None, None, None);
-    let items = plan
+    let items: Vec<RenamePreviewItem> = plan
         .items
         .into_iter()
         .map(|item| RenamePreviewItem {
@@ -95,10 +95,18 @@ pub(super) async fn preview_subscription_rename(
             target_dir: item.target_dir,
         })
         .collect();
+    let groups = group_rename_preview_items(&items);
+    let show_root = resolve_show_root(&sub, &plan.target_dir);
 
     Ok(Json(Response::ok(RenamePreviewResponse {
         summary: plan.summary,
-        target_dir: plan.target_dir,
+        target_dir: if sub.is_multi_season() {
+            show_root.clone()
+        } else {
+            plan.target_dir
+        },
+        show_root,
+        multi_season: sub.is_multi_season(),
         transfer_count: plan.transfer_count,
         skip_count: plan.skip_count,
         matched_count: plan.matched_count,
@@ -108,6 +116,7 @@ pub(super) async fn preview_subscription_rename(
         duplicate_episodes: plan.duplicate_episodes,
         probe_warning,
         source_probed,
+        groups,
         items,
     })))
 }

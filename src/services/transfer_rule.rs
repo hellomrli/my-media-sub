@@ -3,8 +3,8 @@
 use crate::models::{Subscription, TransferRules};
 use crate::services::episode::{
     detect_episode_with_override, episode_video_key, is_better_episode_duplicate_candidate,
-    is_video_name, matches_subscription_season, normalize_duplicate_episode_strategy,
-    season_hint_from_context, split_words, EpisodeDuplicateCandidate,
+    is_video_name, normalize_duplicate_episode_strategy, season_hint_from_context, split_words,
+    EpisodeDuplicateCandidate,
 };
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -345,11 +345,29 @@ pub fn build_transfer_plan(
                 .collect()
         })
         .unwrap_or_default();
-    let target_dir = if rules.target_dir.is_empty() {
+    let base_target_dir = if rules.target_dir.is_empty() {
         format!("/{}", subscription.title)
     } else {
         rules.target_dir.clone()
     };
+    let multi_season = subscription.is_multi_season();
+    let show_root =
+        if multi_season && matches!(subscription.media_type.as_str(), "series" | "anime") {
+            // 去掉可能误带的 Season 后缀，按文件季号再拼
+            let trimmed = base_target_dir.trim().trim_end_matches('/');
+            let last = trimmed.rsplit('/').next().unwrap_or("").trim();
+            if last.to_ascii_lowercase().starts_with("season ") {
+                trimmed
+                    .rsplit_once('/')
+                    .map(|(parent, _)| parent.to_string())
+                    .unwrap_or_else(|| trimmed.to_string())
+            } else {
+                base_target_dir.clone()
+            }
+        } else {
+            base_target_dir.clone()
+        };
+    let target_dir = base_target_dir.clone();
 
     let include_kw = split_words(&rules.include_keywords);
     let exclude_kw = split_words(&rules.exclude_keywords);
@@ -395,9 +413,18 @@ pub fn build_transfer_plan(
         if raw.is_dir {
             item.skip_reason = "目录暂不规划转存".to_string();
         } else if subscription.media_type != "movie"
-            && !matches_subscription_season(name, &raw.parent_path, subscription.season)
+            && !crate::services::episode::matches_subscription_season_range(
+                name,
+                &raw.parent_path,
+                subscription.season_start(),
+                subscription.season_end_inclusive(),
+            )
         {
-            item.skip_reason = "非当前订阅季".to_string();
+            item.skip_reason = if multi_season {
+                "非订阅季范围".to_string()
+            } else {
+                "非当前订阅季".to_string()
+            };
         } else if name.is_empty() {
             item.skip_reason = "文件名为空".to_string();
         } else if subscription.media_type != "movie" && !is_video_name(name) {
@@ -443,8 +470,23 @@ pub fn build_transfer_plan(
             if rules.skip_existing_transferred && transferred.contains(&key) {
                 item.skip_reason = "已转存记录中存在".to_string();
             } else {
+                let mut rename_sub = subscription.clone();
+                if let Some(file_season) = season {
+                    rename_sub.season = file_season.max(1);
+                    rename_sub.season_end = None;
+                }
+                if multi_season {
+                    if let Some(file_season) = season {
+                        let root = show_root.trim().trim_end_matches('/');
+                        item.target_dir = if root.is_empty() || root == "/" {
+                            format!("Season {}", file_season.max(1))
+                        } else {
+                            format!("{}/Season {}", root, file_season.max(1))
+                        };
+                    }
+                }
                 let (target_name, rename_error) =
-                    apply_rename(name, &rules, Some(subscription), episode);
+                    apply_rename(name, &rules, Some(&rename_sub), episode);
                 let target_name = portable_filename(&target_name);
                 item.target_name = target_name.clone();
                 let target_compare =
@@ -631,6 +673,7 @@ mod tests {
             source_title: String::new(),
             media_type: "series".to_string(),
             season: 1,
+            season_end: None,
             start_episode_number: None,
             current_episode_number: 0,
             total_episode_number: None,

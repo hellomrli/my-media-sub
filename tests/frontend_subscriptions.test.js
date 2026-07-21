@@ -67,6 +67,54 @@ test('edit preserves existing manual schedule and omits null payload when disabl
   assert.equal(state.manualSchedulePayload(), null);
 });
 
+test('parseSeasonSpec supports ranges and multi-season target dirs skip Season suffix', () => {
+  const state = store();
+  state.settings = {
+    subscription_check_interval_minutes: 60,
+    quark_save_series_dir: '/连续剧',
+    default_rename_template: ''
+  };
+  assert.deepEqual(state.parseSeasonSpec('1-4'), {start: 1, end: 4, label: '1-4', season_spec: '1-4', multi_season: true});
+  assert.deepEqual(state.parseSeasonSpec('2'), {start: 2, end: null, label: '2', season_spec: '2', multi_season: false});
+  state.newSubscription.media_type = 'series';
+  state.newSubscription.season_input = '1-4';
+  state.newSubscription.title = '庆余年';
+  state.newSubscription.custom_dir = false;
+  const multiDir = state.getDefaultTargetDir();
+  assert.equal(multiDir.includes('Season'), false);
+  state.newSubscription.season_input = '2';
+  const singleDir = state.getDefaultTargetDir();
+  assert.match(singleDir, /Season 2$/);
+});
+
+test('rename preview groups multi-season items into collapsible Season sections', () => {
+  const state = store();
+  state.newSubscription.media_type = 'series';
+  state.newSubscription.season_input = '1-3';
+  state.renamePreviewScope = 'all';
+  state.renamePreview = {items: [
+    {source_name: 'S01E01.mkv', source_parent_path: 'Season 1', season: 1, action: 'transfer', target_dir: '/show/Season 1', target_name: 'A.S01E01.mkv'},
+    {source_name: 'S02E01.mkv', source_parent_path: 'Season 2', season: 2, action: 'transfer', target_dir: '/show/Season 2', target_name: 'A.S02E01.mkv'},
+    {source_name: 'S02E02.mkv', source_parent_path: 'Season 2', season: 2, action: 'skip', skip_reason: '已转存', target_dir: '/show/Season 2', target_name: 'A.S02E02.mkv'},
+    {source_name: 'extra.mkv', source_parent_path: '', season: null, action: 'skip', skip_reason: '多季订阅无法判定季号', target_name: 'extra.mkv'}
+  ]};
+  assert.equal(state.shouldGroupRenamePreviewBySeason(), true);
+  const groups = state.groupedRenamePreviewSeasons();
+  assert.deepEqual(groups.map(group => group.label), ['Season 1', 'Season 2', '未识别季']);
+  assert.equal(groups[0].transferCount, 1);
+  assert.equal(groups[1].items.length, 2);
+  state.collapseAllRenamePreviewSeasons();
+  assert.equal(state.isRenamePreviewSeasonCollapsed('1'), true);
+  state.toggleRenamePreviewSeason('1');
+  assert.equal(state.isRenamePreviewSeasonCollapsed('1'), false);
+});
+
+test('inferSubscriptionTitle strips fan-sub noise for metadata matching', () => {
+  const state = store();
+  assert.equal(state.inferSubscriptionTitle('【字幕组】庆余年 1080p S01-S04 全集'), '庆余年');
+  assert.equal(state.inferSubscriptionTitle('庆余年（2024）[简中]'), '庆余年');
+});
+
 test('buildSubscriptionRules keeps per-subscription check interval', () => {
   const state = store();
   state.settings = {subscription_check_interval_minutes: 60};

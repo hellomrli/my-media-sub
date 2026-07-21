@@ -97,7 +97,12 @@ fn dedup_provider_episode_files<'a>(
 
 fn provider_file_matches_subscription_season(sub: &Subscription, file: &ProviderFile) -> bool {
     sub.media_type == "movie"
-        || matches_subscription_season(&file.name, &file.parent_path, sub.season)
+        || crate::services::episode::matches_subscription_season_range(
+            &file.name,
+            &file.parent_path,
+            sub.season_start(),
+            sub.season_end_inclusive(),
+        )
 }
 
 fn has_rename_rules(rules: &TransferRules) -> bool {
@@ -174,6 +179,34 @@ struct SyncDownloadReport {
 struct SyncDownloadItem {
     gid: String,
     file_name: String,
+}
+
+fn merge_sync_download_reports(reports: Vec<SyncDownloadReport>) -> Option<SyncDownloadReport> {
+    if reports.is_empty() {
+        return None;
+    }
+    let mut submitted_count = 0usize;
+    let mut items = Vec::new();
+    let mut errors = Vec::new();
+    let mut dirs = Vec::new();
+    for report in reports {
+        submitted_count += report.submitted_count;
+        items.extend(report.items);
+        if let Some(error) = report.error {
+            if !error.trim().is_empty() {
+                errors.push(error);
+            }
+        }
+        if !report.dir.trim().is_empty() && !dirs.iter().any(|dir| dir == &report.dir) {
+            dirs.push(report.dir);
+        }
+    }
+    Some(SyncDownloadReport {
+        submitted_count,
+        dir: dirs.join("；"),
+        error: (!errors.is_empty()).then(|| errors.join("；")),
+        items,
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -286,6 +319,31 @@ fn media_type_aria2_directory(sub: &Subscription, settings: &Settings) -> String
     dir.to_string()
 }
 
+fn strip_season_suffix(path: &str) -> String {
+    let trimmed = path.trim().trim_end_matches('/');
+    if !has_season_suffix(trimmed) {
+        return trimmed.to_string();
+    }
+    match trimmed.rsplit_once('/') {
+        Some((parent, _)) if !parent.is_empty() => parent.to_string(),
+        _ => trimmed.to_string(),
+    }
+}
+
+/// 剧集根目录（不含 Season N）。多季订阅转存时作为父路径。
+fn determine_subscription_show_root(sub: &Subscription, settings: &Settings) -> String {
+    let target_dir = if sub.rules.target_dir.trim().is_empty() {
+        append_path(&category_directory(sub, settings), &media_folder_name(sub))
+    } else {
+        sub.rules.target_dir.trim().to_string()
+    };
+    if matches!(sub.media_type.as_str(), "series" | "anime") {
+        strip_season_suffix(&target_dir)
+    } else {
+        target_dir
+    }
+}
+
 fn determine_subscription_target_directory(sub: &Subscription, settings: &Settings) -> String {
     let mut target_dir = if sub.rules.target_dir.trim().is_empty() {
         append_path(&category_directory(sub, settings), &media_folder_name(sub))
@@ -293,11 +351,63 @@ fn determine_subscription_target_directory(sub: &Subscription, settings: &Settin
         sub.rules.target_dir.trim().to_string()
     };
 
-    if matches!(sub.media_type.as_str(), "series" | "anime") && !has_season_suffix(&target_dir) {
-        target_dir = append_path(&target_dir, &season_folder_name(sub.season));
+    if matches!(sub.media_type.as_str(), "series" | "anime") {
+        if sub.is_multi_season() {
+            // 多季：只保留剧名目录，具体 Season N 在转存时按文件季号创建
+            target_dir = strip_season_suffix(&target_dir);
+        } else if !has_season_suffix(&target_dir) {
+            target_dir = append_path(&target_dir, &season_folder_name(sub.season_start()));
+        }
     }
 
     target_dir
+}
+
+fn season_target_directory(show_root: &str, season: i32) -> String {
+    let root = strip_season_suffix(show_root);
+    if root.is_empty() || root == "/" {
+        return season_folder_name(season);
+    }
+    append_path(&root, &season_folder_name(season))
+}
+
+/// Aria2 本地下载根目录：优先订阅自定义路径，否则媒体类型默认目录。
+/// 剧集/动画且未自定义时，在类型目录下再拼剧名，便于自动建 Season 子目录。
+fn resolve_sync_download_base(sub: &Subscription, settings: &Settings) -> String {
+    let custom = sub.sync_download_dir.trim();
+    if !custom.is_empty() {
+        return strip_season_suffix(custom);
+    }
+    let category = media_type_aria2_directory(sub, settings);
+    if category.is_empty() {
+        return String::new();
+    }
+    if matches!(sub.media_type.as_str(), "series" | "anime") {
+        append_path(&category, &media_folder_name(sub))
+    } else {
+        category
+    }
+}
+
+/// 剧集/动画自动落到 `…/Season N`；电影保持原路径。
+fn resolve_sync_download_dir_for_season(
+    sub: &Subscription,
+    settings: &Settings,
+    season: i32,
+) -> String {
+    let base = resolve_sync_download_base(sub, settings);
+    if base.is_empty() {
+        return base;
+    }
+    if matches!(sub.media_type.as_str(), "series" | "anime") {
+        if has_season_suffix(&base) {
+            base
+        } else {
+            append_path(&base, &season_folder_name(season.max(1)))
+        }
+    } else {
+        base
+    }
 }
 
 fn transfer_reason(

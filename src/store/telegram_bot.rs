@@ -34,6 +34,17 @@ pub struct TelegramCommandAudit {
     pub created_at: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TelegramUserSessionRecord {
+    pub user_id: i64,
+    pub chat_id: i64,
+    pub expires_at: i64,
+    /// search | switch
+    pub kind: String,
+    #[serde(default)]
+    pub payload: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TelegramBotPersistentState {
     #[serde(default)]
@@ -44,6 +55,9 @@ pub struct TelegramBotPersistentState {
     pub action_idempotency_keys: Vec<String>,
     #[serde(default)]
     pub audits: Vec<TelegramCommandAudit>,
+    /// 搜索/换源会话（跨重启恢复）
+    #[serde(default)]
+    pub user_sessions: Vec<TelegramUserSessionRecord>,
 }
 
 pub struct TelegramBotStore {
@@ -154,6 +168,38 @@ impl TelegramBotStore {
             .collect()
     }
 
+    pub async fn put_user_session(&self, session: TelegramUserSessionRecord) -> Result<()> {
+        self.mutate(|state| {
+            let now = crate::utils::unix_now();
+            state.user_sessions.retain(|item| item.expires_at >= now);
+            state
+                .user_sessions
+                .retain(|item| !(item.user_id == session.user_id && item.chat_id == session.chat_id));
+            state.user_sessions.push(session);
+            if state.user_sessions.len() > 200 {
+                let remove = state.user_sessions.len() - 200;
+                state.user_sessions.drain(0..remove);
+            }
+        })
+        .await
+    }
+
+    pub async fn get_user_session(
+        &self,
+        user_id: i64,
+        chat_id: i64,
+    ) -> Option<TelegramUserSessionRecord> {
+        let now = crate::utils::unix_now();
+        let state = self.state.read().await;
+        state
+            .user_sessions
+            .iter()
+            .find(|item| {
+                item.user_id == user_id && item.chat_id == chat_id && item.expires_at >= now
+            })
+            .cloned()
+    }
+
     async fn mutate<F, T>(&self, update: F) -> Result<T>
     where
         F: FnOnce(&mut TelegramBotPersistentState) -> T,
@@ -177,6 +223,12 @@ fn trim_state(state: &mut TelegramBotPersistentState) {
     trim_front(&mut state.processed_callback_ids, MAX_PROCESSED_CALLBACKS);
     trim_front(&mut state.action_idempotency_keys, MAX_ACTION_KEYS);
     trim_front(&mut state.audits, MAX_AUDITS);
+    let now = crate::utils::unix_now();
+    state.user_sessions.retain(|item| item.expires_at >= now);
+    if state.user_sessions.len() > 200 {
+        let remove = state.user_sessions.len() - 200;
+        state.user_sessions.drain(0..remove);
+    }
 }
 
 fn trim_front<T>(items: &mut Vec<T>, limit: usize) {

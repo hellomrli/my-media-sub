@@ -210,7 +210,12 @@ macro_rules! subscription_check_file_filter_methods {
 
     fn is_current_subscription_season_file(sub: &Subscription, file: &ProbeFile) -> bool {
         sub.media_type == "movie"
-            || matches_subscription_season(&file.name, &file.parent_path, sub.season)
+            || matches_subscription_season_range(
+                &file.name,
+                &file.parent_path,
+                sub.season_start(),
+                sub.season_end_inclusive(),
+            )
     }
 
     fn should_record_known_probe_file(&self, sub: &Subscription, file: &ProbeFile) -> bool {

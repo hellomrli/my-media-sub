@@ -11,7 +11,7 @@ use crate::models::subscription::{
     ProbeResult, SourceCandidate, SourceSwitchHistoryItem, Subscription,
 };
 use crate::models::{Settings, SourceQuality};
-use crate::services::episode::{is_video_name, matches_subscription_season};
+use crate::services::episode::{is_video_name, matches_subscription_season_range};
 use crate::services::source_quality::{score_source, SourceQualityFile, SourceQualityInput};
 use crate::utils::unix_now;
 
@@ -601,7 +601,12 @@ fn candidate_matches_season(subscription: &Subscription, candidate: &SourceCandi
     };
     probe.files.iter().any(|file| {
         is_video_name(&file.name)
-            && matches_subscription_season(&file.name, &file.parent_path, subscription.season)
+            && matches_subscription_season_range(
+                &file.name,
+                &file.parent_path,
+                subscription.season_start(),
+                subscription.season_end_inclusive(),
+            )
     })
 }
 
@@ -716,6 +721,7 @@ mod tests {
             source_title: String::new(),
             media_type: String::new(),
             season: 2,
+            season_end: None,
             start_episode_number: None,
             current_episode_number: 0,
             total_episode_number: None,

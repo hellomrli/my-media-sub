@@ -219,9 +219,13 @@ pub struct Subscription {
     #[serde(default)]
     pub media_type: String,
 
-    /// 季度
+    /// 起始季度（含）；多季订阅时与 `season_end` 组成闭区间
     #[serde(default = "default_season")]
     pub season: i32,
+
+    /// 结束季度（含）；`None` 或 ≤ `season` 时表示单季
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub season_end: Option<i32>,
 
     /// 起始转存集数；低于该集数的剧集文件会记为已知但不触发转存
     #[serde(default)]
@@ -391,6 +395,142 @@ pub struct Subscription {
     pub source_switch_history: Vec<SourceSwitchHistoryItem>,
 }
 
+impl Subscription {
+    /// 订阅起始季（至少为 1）
+    pub fn season_start(&self) -> i32 {
+        self.season.max(1)
+    }
+
+    /// 订阅结束季（含）；未设置或小于起始季时等于起始季
+    pub fn season_end_inclusive(&self) -> i32 {
+        self.season_end
+            .unwrap_or_else(|| self.season_start())
+            .max(self.season_start())
+    }
+
+    /// 是否覆盖多个季度
+    pub fn is_multi_season(&self) -> bool {
+        self.season_end_inclusive() > self.season_start()
+    }
+
+    /// 规范化 season / season_end 字段
+    pub fn normalize_season_range(&mut self) {
+        self.season = self.season.max(1);
+        if let Some(end) = self.season_end {
+            let end = end.max(1);
+            if end <= self.season {
+                self.season_end = None;
+            } else {
+                self.season_end = Some(end.min(99));
+            }
+        }
+    }
+
+    pub fn season_label(&self) -> String {
+        let start = self.season_start();
+        let end = self.season_end_inclusive();
+        if end > start {
+            format!("第 {start}-{end} 季")
+        } else {
+            format!("第 {start} 季")
+        }
+    }
+
+    pub fn status_key(&self) -> &'static str {
+        if self.status == "invalid" || self.invalid_since.is_some() {
+            "invalid"
+        } else if self.status == "completed" || self.completed {
+            "completed"
+        } else {
+            "active"
+        }
+    }
+
+    pub fn status_label(&self) -> &'static str {
+        match self.status_key() {
+            "invalid" => "已失效",
+            "completed" => "已完结",
+            _ => "追更中",
+        }
+    }
+
+    pub fn progress_total_episodes(&self) -> i32 {
+        self.total_episode_number
+            .or(self.rules.finish_after_episode)
+            .unwrap_or(0)
+            .max(0)
+    }
+
+    pub fn progress_percent(&self) -> f64 {
+        let total = self.progress_total_episodes();
+        if total <= 0 {
+            return 0.0;
+        }
+        let current = f64::from(self.current_episode_number.max(0));
+        ((current / f64::from(total)) * 100.0).clamp(0.0, 100.0)
+    }
+
+    pub fn progress_label(&self) -> String {
+        let current = self.current_episode_number.max(0);
+        let total = self.progress_total_episodes();
+        if total > 0 {
+            format!("{current}/{total} 集")
+        } else {
+            format!("{current}/- 集")
+        }
+    }
+}
+
+/// 规范化创建/更新请求中的季范围
+pub fn normalize_season_bounds(start: i32, end: Option<i32>) -> (i32, Option<i32>) {
+    let start = start.clamp(1, 99);
+    let end = end
+        .map(|value| value.clamp(1, 99))
+        .filter(|value| *value > start);
+    (start, end)
+}
+
+/// 解析 `"1"` / `"1-4"` / `"1~4"` / `"1到4"` / `"1,2,4"` 等季号输入。
+pub fn parse_season_spec(value: &str) -> (i32, Option<i32>) {
+    let raw = value.trim();
+    if raw.is_empty() {
+        return (1, None);
+    }
+
+    for sep in ["-", "~", "～", "到", "至"] {
+        if let Some((left, right)) = raw.split_once(sep) {
+            if !left.trim().is_empty() && !right.trim().is_empty() {
+                let a = parse_positive_season(left).unwrap_or(1);
+                let b = parse_positive_season(right).unwrap_or(a);
+                let start = a.min(b);
+                let end = a.max(b);
+                return normalize_season_bounds(start, Some(end));
+            }
+        }
+    }
+
+    let list: Vec<i32> = raw
+        .split([',', '，', ' ', '\t'])
+        .filter_map(parse_positive_season)
+        .collect();
+    if list.len() > 1 {
+        let start = *list.iter().min().unwrap_or(&1);
+        let end = *list.iter().max().unwrap_or(&start);
+        return normalize_season_bounds(start, Some(end));
+    }
+
+    let start = parse_positive_season(raw).unwrap_or(1);
+    normalize_season_bounds(start, None)
+}
+
+fn parse_positive_season(value: &str) -> Option<i32> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    trimmed.parse::<i32>().ok().filter(|value| *value > 0)
+}
+
 // 默认值辅助函数
 fn default_season() -> i32 {
     1
@@ -413,6 +553,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn parse_season_spec_supports_ranges_and_lists() {
+        assert_eq!(parse_season_spec("1-4"), (1, Some(4)));
+        assert_eq!(parse_season_spec("2"), (2, None));
+        assert_eq!(parse_season_spec("4到1"), (1, Some(4)));
+        assert_eq!(parse_season_spec("1,3,4"), (1, Some(4)));
+        assert_eq!(parse_season_spec(""), (1, None));
+    }
+
+    #[test]
     fn test_subscription_serialize() {
         let sub = Subscription {
             id: "abc123".to_string(),
@@ -420,6 +569,7 @@ mod tests {
             source_title: "【某字幕组】测试动画".to_string(),
             media_type: "anime".to_string(),
             season: 1,
+            season_end: None,
             start_episode_number: Some(5),
             current_episode_number: 12,
             total_episode_number: Some(24),

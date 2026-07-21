@@ -11,9 +11,9 @@
   <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%234f46e5%27/%3E%3Cpath d=%27M8 9h16v14H8zm4-4v22m8-22v22%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27/%3E%3C/svg%3E">
-  <script src="js/theme-init.js?v=2.2.5"></script>
-  <link rel="stylesheet" href="styles.css?v=2.2.5">
-  <script defer src="vendor/alpine.min.js?v=2.2.5"></script>
+  <script src="js/theme-init.js?v=2.2.6"></script>
+  <link rel="stylesheet" href="styles.css?v=2.2.6">
+  <script defer src="vendor/alpine.min.js?v=2.2.6"></script>
 </head>
 <body class="bg-app text-text/90 min-h-screen" x-data="app()" x-cloak>
 
@@ -1340,13 +1340,14 @@
                     </div>
                     <div class="flex gap-2 sm:flex-col">
                       <button @click="previewSourceCandidate(candidate)" :disabled="sourceSwitchPreviewingId === candidate.id || sourceSwitchApplyingId === candidate.id" class="btn-secondary px-3 py-2 rounded text-sm whitespace-nowrap disabled:opacity-50"><span x-show="sourceSwitchPreviewingId !== candidate.id">预览</span><span x-show="sourceSwitchPreviewingId === candidate.id">探测中</span></button>
-                      <button @click="applySourceCandidate(candidate)" :disabled="sourceSwitchApplyingId === candidate.id || !(sourceSwitchPreview && sourceSwitchPreview.candidate && sourceSwitchPreview.candidate.id === candidate.id && sourceSwitchPreview.can_apply)" class="btn-primary px-3 py-2 rounded text-sm whitespace-nowrap disabled:opacity-50"><span x-show="sourceSwitchApplyingId !== candidate.id">确认应用</span><span x-show="sourceSwitchApplyingId === candidate.id">应用中</span></button>
+                      <button @click="applySourceCandidate(candidate)" :disabled="sourceSwitchApplyingId === candidate.id || !(sourceSwitchPreview && sourceSwitchPreview.candidate && sourceSwitchPreview.candidate.id === candidate.id && sourceSwitchPreview.probe_ok && sourceSwitchPreview.season_matches !== false)" class="btn-primary px-3 py-2 rounded text-sm whitespace-nowrap disabled:opacity-50"><span x-show="sourceSwitchApplyingId !== candidate.id" x-text="sourceSwitchPreview && sourceSwitchPreview.candidate && sourceSwitchPreview.candidate.id === candidate.id && !sourceSwitchPreview.can_apply ? '强制应用' : '确认应用'"></span><span x-show="sourceSwitchApplyingId === candidate.id">应用中</span></button>
                     </div>
                   </div>
                   <div x-show="sourceSwitchPreview && sourceSwitchPreview.candidate && sourceSwitchPreview.candidate.id === candidate.id" class="rounded border border-border bg-panel p-3 space-y-2 text-xs">
-                    <div class="grid grid-cols-2 gap-2 sm:grid-cols-4"><span>当前 <strong x-text="sourceSwitchPreview && sourceSwitchPreview.current_quality ? sourceSwitchPreview.current_quality.score : 0"></strong> 分</span><span>候选 <strong x-text="sourceSwitchPreview && sourceSwitchPreview.candidate && sourceSwitchPreview.candidate.quality ? sourceSwitchPreview.candidate.quality.score : 0"></strong> 分</span><span>分差 <strong x-text="sourceSwitchPreview ? sourceSwitchPreview.score_delta : 0"></strong></span><span :class="sourceSwitchPreview && sourceSwitchPreview.can_apply ? 'text-success' : 'text-danger'" x-text="sourceSwitchPreview && sourceSwitchPreview.can_apply ? '可安全应用' : '禁止应用'"></span></div>
-                    <div class="flex flex-wrap gap-1"><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.probe_ok ? 'badge-success' : 'badge-danger'">链接探测</span><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.season_matches ? 'badge-success' : 'badge-danger'">季度匹配</span><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.covers_progress ? 'badge-success' : 'badge-danger'">进度覆盖</span><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.auto_eligible ? 'badge-success' : 'badge-muted'">自动策略</span></div>
-                    <div x-show="sourceSwitchPreview && sourceSwitchPreview.warnings && sourceSwitchPreview.warnings.length" class="text-warning" x-text="sourceSwitchPreview && sourceSwitchPreview.warnings ? sourceSwitchPreview.warnings.join('；') : ''"></div>
+                    <div class="grid grid-cols-2 gap-2 sm:grid-cols-4"><span>当前 <strong x-text="sourceSwitchPreview && sourceSwitchPreview.current_quality ? sourceSwitchPreview.current_quality.score : 0"></strong> 分</span><span>候选 <strong x-text="sourceSwitchPreview && sourceSwitchPreview.candidate && sourceSwitchPreview.candidate.quality ? sourceSwitchPreview.candidate.quality.score : 0"></strong> 分</span><span>分差 <strong x-text="sourceSwitchPreview ? sourceSwitchPreview.score_delta : 0"></strong></span><span :class="sourceSwitchPreview && sourceSwitchPreview.can_apply ? 'text-success' : (sourceSwitchPreview && sourceSwitchPreview.probe_ok && sourceSwitchPreview.season_matches ? 'text-warning' : 'text-danger')" x-text="sourceSwitchPreview && sourceSwitchPreview.can_apply ? '可安全应用' : (sourceSwitchPreview && sourceSwitchPreview.probe_ok && sourceSwitchPreview.season_matches ? '可强制应用' : (sourceSwitchPreview && !sourceSwitchPreview.season_matches ? '季度不匹配' : '探测失败'))"></span></div>
+                    <div class="flex flex-wrap gap-1"><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.probe_ok ? 'badge-success' : 'badge-danger'">链接探测</span><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.season_matches ? 'badge-success' : 'badge-danger'">季度匹配（强制也不可越过）</span><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.covers_progress ? 'badge-success' : 'badge-danger'">进度覆盖</span><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.auto_eligible ? 'badge-success' : 'badge-muted'">自动策略</span></div>
+                    <div x-show="sourceSwitchPreview && sourceSwitchPreview.warnings && sourceSwitchPreview.warnings.length" class="rounded border border-warning/40 bg-warning/10 p-2 text-warning break-all" x-text="sourceSwitchPreview && sourceSwitchPreview.warnings ? sourceSwitchPreview.warnings.join('；') : ''"></div>
+                    <div x-show="sourceSwitchPreview && sourceSwitchPreview.probe_ok && sourceSwitchPreview.season_matches === false" class="rounded border border-danger/40 bg-danger/10 p-2 text-danger">季度不匹配，无法应用（含强制）。</div>
                   </div>
                 </div>
               </template>
@@ -2592,8 +2593,12 @@
       <div class="space-y-4 mb-6">
         <div x-show="subscriptionDialogTab === 'content'" class="space-y-4">
           <div>
-            <label class="block text-sm font-medium text-text/80 mb-2">订阅名称</label>
-            <input type="text" x-model="newSubscription.title" @input="updateSubscriptionDefaults()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="例如：风起洛阳 第二季" />
+            <label class="flex items-center justify-between gap-2 text-sm font-medium text-text/80 mb-2">
+              <span>订阅名称</span>
+              <button type="button" @click="applyMagicTitleMatch()" class="text-xs text-primary hover:text-primary">智能识别剧名</button>
+            </label>
+            <input type="text" x-model="newSubscription.title" @input="updateSubscriptionDefaults()" @blur="applyMagicTitleMatch({silent: true})" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="分享标题会自动清理为干净剧名，便于刮削" />
+            <p class="text-xs text-muted/75 mt-1">会自动去掉字幕组、画质、季标等噪声，并尝试匹配 TMDB 元数据。</p>
           </div>
 
           <div>
@@ -2673,8 +2678,8 @@
 
           <div x-show="newSubscription.media_type !== 'movie'">
             <label class="block text-sm font-medium text-text/80 mb-2">季号</label>
-            <input type="number" min="1" x-model="newSubscription.season" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
-            <p class="text-xs text-muted/75 mt-1">默认第 1 季；填 2 会保存到 Season 2。</p>
+            <input type="text" x-model="newSubscription.season_input" @change="syncSeasonInputFromRemote()" @blur="syncSeasonInputFromRemote()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="1 或 1-4" />
+            <p class="text-xs text-muted/75 mt-1">单季填 <code class="text-text/80">1</code>；多季填 <code class="text-text/80">1-4</code>。多季时目标目录只写剧名，转存会按文件自动进入 Season 1…N。</p>
           </div>
 
           <div x-show="subscriptionMode === 'continuous' || subscriptionEditingId" class="space-y-4">
@@ -2747,7 +2752,7 @@
                     <input type="text" x-model="newSubscription.target_dir_name" class="flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="目录名称或完整路径，例如：庆余年（2024）" />
                     <button type="button" @click="browseTargetDir()" class="btn-secondary px-3 py-2 rounded-lg text-sm whitespace-nowrap">浏览网盘</button>
                   </div>
-                  <p class="text-xs text-muted/75">可手填目录名，或浏览夸克网盘选择已有路径。电影保存到该目录；连续剧和动画会在该目录下保存到 Season X。</p>
+                  <p class="text-xs text-muted/75">可手填剧名目录，或浏览网盘选择。单季会落到 Season N；多季（如 1-4）只写剧名，转存时自动创建对应 Season 文件夹。</p>
                 </div>
               </div>
               <div>
@@ -2815,7 +2820,43 @@
             <textarea x-model="newSubscription.preview_samples" @input="clearStructuredPreviewFiles()" rows="4" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="每行一个样例文件名，例如：&#10;第01集.mkv&#10;Show.S01E02.1080p.mkv"></textarea>
             <p class="text-xs text-muted/70">搜索嗅探结果会保留子文件夹路径；手动修改上方样例后将改用文本预览。</p>
             <div x-show="renamePreviewError" class="text-sm text-danger" x-text="renamePreviewError"></div>
-            <div x-show="renamePreview && visibleRenamePreviewItems().length > 0" class="border border-border rounded-lg overflow-hidden">
+            <div x-show="renamePreview && visibleRenamePreviewItems().length > 0 && shouldGroupRenamePreviewBySeason()" class="space-y-2">
+              <div class="flex flex-wrap gap-2 justify-end">
+                <button type="button" @click="expandAllRenamePreviewSeasons()" class="text-xs text-primary hover:text-primary">全部展开</button>
+                <button type="button" @click="collapseAllRenamePreviewSeasons()" class="text-xs text-muted hover:text-text">全部折叠</button>
+              </div>
+              <template x-for="(group, groupIndex) in groupedRenamePreviewSeasons()" :key="'rename-season-' + group.key + '-' + groupIndex">
+                <div class="border border-border rounded-lg overflow-hidden bg-app">
+                  <button type="button" @click="toggleRenamePreviewSeason(group.key)" class="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-surface-2 transition-colors">
+                    <div class="min-w-0 flex items-center gap-2">
+                      <svg class="w-4 h-4 text-muted shrink-0 transition-transform" :class="isRenamePreviewSeasonCollapsed(group.key) ? '' : 'rotate-90'" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                      <span class="text-sm font-medium text-text" x-text="group.label"></span>
+                      <span class="text-xs text-muted/75" x-text="group.transferCount + ' 转存 · ' + group.items.length + ' 项'"></span>
+                    </div>
+                    <span class="text-xs text-muted/70 shrink-0" x-text="isRenamePreviewSeasonCollapsed(group.key) ? '展开' : '收起'"></span>
+                  </button>
+                  <div x-show="!isRenamePreviewSeasonCollapsed(group.key)" class="border-t border-border">
+                    <div class="hidden md:grid grid-cols-12 gap-2 px-3 py-2 bg-panel text-xs text-muted/75">
+                      <div class="col-span-4">原文件名</div>
+                      <div class="col-span-4">目标文件名</div>
+                      <div class="col-span-2">集数</div>
+                      <div class="col-span-2">结果</div>
+                    </div>
+                    <template x-for="(item, itemIndex) in group.items" :key="'rename-preview-' + group.key + '-' + item.source_name + '-' + item.target_name + '-' + itemIndex">
+                      <div class="grid gap-2 px-3 py-3 border-t border-border text-xs md:grid-cols-12">
+                        <div class="text-text/80 break-all md:col-span-4" x-text="renamePreviewSourceLabel(item)"></div>
+                        <div class="text-success break-all md:col-span-4" x-text="item.target_name"></div>
+                        <div class="text-muted md:col-span-2"><span class="text-muted/75 md:hidden">集数 </span><span x-text="item.episode ? '第 ' + item.episode + ' 集' : '-'"></span></div>
+                        <div class="md:col-span-2">
+                          <span :class="item.action === 'transfer' ? 'text-success' : 'text-warning'" x-text="item.action === 'transfer' ? '会转存' : (item.skip_reason || '跳过')"></span>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+            <div x-show="renamePreview && visibleRenamePreviewItems().length > 0 && !shouldGroupRenamePreviewBySeason()" class="border border-border rounded-lg overflow-hidden">
               <div class="hidden md:grid grid-cols-12 gap-2 px-3 py-2 bg-app text-xs text-muted/75">
                 <div class="col-span-4">原文件名</div>
                 <div class="col-span-4">目标文件名</div>
@@ -2933,29 +2974,29 @@
     </div>
   </div>
   <!-- Alpine.js 应用逻辑 -->
-  <script src="js/core/api.js?v=2.2.5"></script>
-  <script src="js/core/formatters.js?v=2.2.5"></script>
-  <script src="js/core/ux.js?v=2.2.5"></script>
-  <script src="js/features/search-results.js?v=2.2.5"></script>
-  <script src="js/features/subscription-detail.js?v=2.2.5"></script>
-  <script src="js/features/calendar.js?v=2.2.5"></script>
-  <script src="js/features/source-switch.js?v=2.2.5"></script>
-  <script src="js/features/automation-events.js?v=2.2.5"></script>
-  <script src="js/core/polling.js?v=2.2.5"></script>
-  <script src="js/core/router.js?v=2.2.5"></script>
-  <script src="js/core/notifications.js?v=2.2.5"></script>
-  <script src="js/stores/downloads.js?v=2.2.5"></script>
-  <script src="js/stores/drive.js?v=2.2.5"></script>
-  <script src="js/stores/jobs.js?v=2.2.5"></script>
-  <script src="js/stores/subscriptions.js?v=2.2.5"></script>
-  <script src="js/features/updates.js?v=2.2.5"></script>
-  <script src="js/features/settings.js?v=2.2.5"></script>
-  <script src="js/features/diagnostics.js?v=2.2.5"></script>
-  <script src="js/features/pwa.js?v=2.2.5"></script>
-  <script src="js/features/dashboard.js?v=2.2.5"></script>
-  <script src="js/features/search-page.js?v=2.2.5"></script>
-  <script src="js/features/calendar-page.js?v=2.2.5"></script>
-  <script src="js/core/shell.js?v=2.2.5"></script>
-  <script src="app.js?v=2.2.5"></script>
+  <script src="js/core/api.js?v=2.2.6"></script>
+  <script src="js/core/formatters.js?v=2.2.6"></script>
+  <script src="js/core/ux.js?v=2.2.6"></script>
+  <script src="js/features/search-results.js?v=2.2.6"></script>
+  <script src="js/features/subscription-detail.js?v=2.2.6"></script>
+  <script src="js/features/calendar.js?v=2.2.6"></script>
+  <script src="js/features/source-switch.js?v=2.2.6"></script>
+  <script src="js/features/automation-events.js?v=2.2.6"></script>
+  <script src="js/core/polling.js?v=2.2.6"></script>
+  <script src="js/core/router.js?v=2.2.6"></script>
+  <script src="js/core/notifications.js?v=2.2.6"></script>
+  <script src="js/stores/downloads.js?v=2.2.6"></script>
+  <script src="js/stores/drive.js?v=2.2.6"></script>
+  <script src="js/stores/jobs.js?v=2.2.6"></script>
+  <script src="js/stores/subscriptions.js?v=2.2.6"></script>
+  <script src="js/features/updates.js?v=2.2.6"></script>
+  <script src="js/features/settings.js?v=2.2.6"></script>
+  <script src="js/features/diagnostics.js?v=2.2.6"></script>
+  <script src="js/features/pwa.js?v=2.2.6"></script>
+  <script src="js/features/dashboard.js?v=2.2.6"></script>
+  <script src="js/features/search-page.js?v=2.2.6"></script>
+  <script src="js/features/calendar-page.js?v=2.2.6"></script>
+  <script src="js/core/shell.js?v=2.2.6"></script>
+  <script src="app.js?v=2.2.6"></script>
 </body>
 </html>

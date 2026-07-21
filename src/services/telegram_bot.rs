@@ -147,6 +147,7 @@ pub struct TelegramBotService {
     security_audits: Mutex<HashMap<String, i64>>,
     confirmations: Mutex<HashMap<String, PendingConfirmation>>,
     command_rates: Mutex<CommandRateState>,
+    sessions: Mutex<SessionStore>,
 }
 
 impl TelegramBotService {
@@ -178,6 +179,7 @@ impl TelegramBotService {
             security_audits: Mutex::new(HashMap::new()),
             confirmations: Mutex::new(HashMap::new()),
             command_rates: Mutex::new(CommandRateState::default()),
+            sessions: Mutex::new(SessionStore::default()),
         }
     }
 
@@ -248,9 +250,23 @@ impl TelegramBotService {
                 .await;
             return;
         }
-        let Some(text) = message.text.as_deref() else {
+        let Some(raw_text) = message.text.as_deref() else {
             return;
         };
+        // 主菜单按钮文案映射为命令
+        let mapped = map_menu_text(raw_text);
+        let text = mapped.unwrap_or(raw_text);
+        if text == "__search_help__" {
+            let _ = self
+                .send_message_with_markup(
+                    &settings,
+                    message.chat.id,
+                    search_help_text(),
+                    Some(main_menu_markup()),
+                )
+                .await;
+            return;
+        }
         let Some((command, argument)) = parse_command(text) else {
             return;
         };
@@ -280,10 +296,17 @@ impl TelegramBotService {
         }
 
         let outcome = if is_write_command(command) {
-            match self
-                .prepare_confirmation(user.id, message.chat.id, command, argument)
-                .await
-            {
+            let prepared = if command == "switch_apply" {
+                self.switch_apply_prepare(argument, user.id, message.chat.id)
+                    .await
+            } else if command == "subscribe" {
+                self.subscribe_prepare(argument, user.id, message.chat.id)
+                    .await
+            } else {
+                self.prepare_confirmation(user.id, message.chat.id, command, argument)
+                    .await
+            };
+            match prepared {
                 Ok(confirmation) => {
                     let text = confirmation_prompt(&confirmation);
                     let markup = confirmation_markup(&confirmation.nonce);
@@ -296,6 +319,47 @@ impl TelegramBotService {
                     }
                 }
                 Err(error) => ("rejected", error),
+            }
+        } else if command == "menu" || command == "start" {
+            let _ = self.ensure_bot_commands(&settings).await;
+            let intro = if command == "start" {
+                format!("my-media-sub Telegram 控制已连接。\n\n{}", help_text())
+            } else {
+                "主菜单".to_string()
+            };
+            match self
+                .send_message_with_markup(
+                    &settings,
+                    message.chat.id,
+                    &intro,
+                    Some(main_menu_markup()),
+                )
+                .await
+            {
+                Ok(()) => ("succeeded", intro),
+                Err(error) => ("failed", error),
+            }
+        } else if command == "search" {
+            let response = self
+                .search_resources_text(argument.unwrap_or_default(), user.id, message.chat.id)
+                .await;
+            match self
+                .send_text_parts(&settings, message.chat.id, &response)
+                .await
+            {
+                Ok(()) => ("succeeded", response),
+                Err(error) => ("failed", error),
+            }
+        } else if command == "switch" {
+            let response = self
+                .switch_search_text(argument, user.id, message.chat.id)
+                .await;
+            match self
+                .send_text_parts(&settings, message.chat.id, &response)
+                .await
+            {
+                Ok(()) => ("succeeded", response),
+                Err(error) => ("failed", error),
             }
         } else {
             let page = argument
@@ -379,6 +443,65 @@ impl TelegramBotService {
         if let Some(token) = data.strip_prefix("prompt:") {
             self.handle_prompt_callback(update_id, &callback, message, token, started)
                 .await;
+            return;
+        }
+
+        // 菜单内联：订阅 / 换源序号
+        if let Some(index_text) = data.strip_prefix("msub:") {
+            let argument = Some(index_text);
+            match self
+                .subscribe_prepare(argument, callback.from.id, message.chat.id)
+                .await
+            {
+                Ok(confirmation) => {
+                    let text = confirmation_prompt(&confirmation);
+                    let markup = confirmation_markup(&confirmation.nonce);
+                    let _ = self
+                        .answer_callback(&settings, &callback.id, "请确认订阅", false)
+                        .await;
+                    let _ = self
+                        .send_message_with_markup(
+                            &settings,
+                            message.chat.id,
+                            &text,
+                            Some(markup),
+                        )
+                        .await;
+                }
+                Err(error) => {
+                    let _ = self
+                        .answer_callback(&settings, &callback.id, &error, true)
+                        .await;
+                }
+            }
+            return;
+        }
+        if let Some(index_text) = data.strip_prefix("msw:") {
+            match self
+                .switch_apply_prepare(Some(index_text), callback.from.id, message.chat.id)
+                .await
+            {
+                Ok(confirmation) => {
+                    let text = confirmation_prompt(&confirmation);
+                    let markup = confirmation_markup(&confirmation.nonce);
+                    let _ = self
+                        .answer_callback(&settings, &callback.id, "请确认换源", false)
+                        .await;
+                    let _ = self
+                        .send_message_with_markup(
+                            &settings,
+                            message.chat.id,
+                            &text,
+                            Some(markup),
+                        )
+                        .await;
+                }
+                Err(error) => {
+                    let _ = self
+                        .answer_callback(&settings, &callback.id, &error, true)
+                        .await;
+                }
+            }
             return;
         }
 
@@ -980,6 +1103,7 @@ impl TelegramBotService {
 }
 
 include!("telegram_bot/commands.rs");
+include!("telegram_bot/menus.rs");
 
 fn telegram_response_result<T>(
     status: reqwest::StatusCode,
@@ -1131,12 +1255,21 @@ fn is_authorized(settings: &Settings, user_id: i64, chat: &TelegramChat) -> bool
 }
 
 fn parse_command(text: &str) -> Option<(&'static str, Option<&str>)> {
-    let mut parts = text.split_whitespace();
-    let token = parts.next()?.strip_prefix('/')?;
+    let text = text.trim();
+    let (token_raw, rest) = match text.split_once(char::is_whitespace) {
+        Some((head, tail)) => (head, tail.trim()),
+        None => (text, ""),
+    };
+    let token = token_raw.strip_prefix('/')?;
     let command = token.split('@').next()?.to_ascii_lowercase();
     let supported = [
         "start",
+        "menu",
         "help",
+        "search",
+        "subscribe",
+        "switch",
+        "switch_apply",
         "status",
         "subscriptions",
         "subscription",
@@ -1155,11 +1288,15 @@ fn parse_command(text: &str) -> Option<(&'static str, Option<&str>)> {
         .into_iter()
         .find(|item| *item == command)
         .unwrap_or("help");
-    Some((command, parts.next()))
+    let argument = (!rest.is_empty()).then_some(rest);
+    Some((command, argument))
 }
 
 fn is_write_command(command: &str) -> bool {
-    matches!(command, "check" | "retry" | "cancel" | "signin" | "read")
+    matches!(
+        command,
+        "check" | "retry" | "cancel" | "signin" | "read" | "subscribe" | "switch_apply"
+    )
 }
 
 fn bot_action_scope(command: &str, resource: &str) -> Result<&'static str, String> {
@@ -1178,9 +1315,19 @@ fn bot_action_scope(command: &str, resource: &str) -> Result<&'static str, Strin
 }
 
 fn confirmation_prompt(confirmation: &PendingConfirmation) -> String {
+    let action_label = match confirmation.action.as_str() {
+        "subscribe" => "创建订阅",
+        "switch_apply" => "应用换源",
+        "check" => "检查订阅",
+        "retry" => "重试任务",
+        "cancel" => "取消任务",
+        "signin" => "夸克签到",
+        "read" => "标记已读",
+        other => other,
+    };
     format!(
-        "请确认操作\n动作：{}\n最小作用域：{}\n目标：{}\n有效期：{} 秒\n\n确认仅对当前 user/chat 有效，且只能使用一次。",
-        confirmation.action, confirmation.scope, confirmation.resource, CONFIRMATION_TTL_SECONDS
+        "请确认操作\n动作：{action_label}\n最小作用域：{}\n目标：{}\n有效期：{} 秒\n\n确认仅对当前 user/chat 有效，且只能使用一次。",
+        confirmation.scope, confirmation.resource, CONFIRMATION_TTL_SECONDS
     )
 }
 
@@ -1258,9 +1405,20 @@ fn chunk_chars(value: &str, limit: usize) -> Vec<String> {
 }
 
 fn help_text() -> &'static str {
-    "只读命令：\n/start — 连接说明\n/help — 命令列表\n/status — 系统概况\n/subscriptions [页码] — 订阅列表\n/subscription <订阅ID> — 订阅详情\n/calendar [页码] — 本周排期\n/jobs [页码] — 最近任务\n/job <Job ID> — 任务详情\n/notifications [页码] — 未读通知\n/diagnostics — Bot 诊断
+    "菜单：/menu 或点下方按钮
 
-受控写命令（均需按钮确认）：
+资源：
+/search <关键词> — 搜索夸克资源
+/subscribe <序号> [季号] — 订阅搜索结果（需确认）
+/switch <订阅ID> — 搜索换源候选
+/switch_apply <序号> — 应用换源（需确认）
+
+只读：
+/status /subscriptions /subscription <ID>
+/calendar /jobs /job <ID>
+/notifications /diagnostics
+
+受控写（需确认）：
 /check <订阅ID|all>
 /retry <Job ID>
 /cancel <Job ID>

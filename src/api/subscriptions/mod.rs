@@ -70,6 +70,12 @@ pub struct CreateSubscriptionRequest {
     pub media_type: String,
     #[serde(default)]
     pub season: i32,
+    /// 多季订阅结束季（含）；例如 season=1, season_end=4 表示 1–4 季
+    #[serde(default)]
+    pub season_end: Option<i32>,
+    /// 季号文本（优先）：`1` / `1-4`
+    #[serde(default)]
+    pub season_spec: String,
     #[serde(default)]
     pub start_episode_number: Option<i32>,
     #[serde(default)]
@@ -111,6 +117,14 @@ pub struct UpdateSubscriptionRequest {
     pub media_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub season: Option<i32>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub season_end: Option<Option<i32>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub season_spec: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_episode_number: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -186,6 +200,10 @@ pub struct RenamePreviewRequest {
     #[serde(default)]
     pub season: Option<i32>,
     #[serde(default)]
+    pub season_end: Option<i32>,
+    #[serde(default)]
+    pub season_spec: String,
+    #[serde(default)]
     pub start_episode_number: Option<i32>,
     #[serde(default)]
     pub rules: Option<TransferRules>,
@@ -230,6 +248,9 @@ struct ListSubscriptionsQuery {
 struct RenamePreviewResponse {
     summary: String,
     target_dir: String,
+    /// 剧名根目录（多季不含 Season）
+    show_root: String,
+    multi_season: bool,
     transfer_count: usize,
     skip_count: usize,
     matched_count: usize,
@@ -243,10 +264,22 @@ struct RenamePreviewResponse {
     /// 是否实际使用了分享探测结果
     #[serde(default)]
     source_probed: bool,
+    /// 按季分组（服务端权威，供前端折叠展示）
+    groups: Vec<RenamePreviewSeasonGroup>,
     items: Vec<RenamePreviewItem>,
 }
 
 #[derive(Serialize)]
+struct RenamePreviewSeasonGroup {
+    season: Option<i32>,
+    key: String,
+    label: String,
+    transfer_count: usize,
+    skip_count: usize,
+    items: Vec<RenamePreviewItem>,
+}
+
+#[derive(Clone, Serialize)]
 struct RenamePreviewItem {
     source_name: String,
     source_parent_path: String,
@@ -321,11 +354,14 @@ fn preview_subscription(req: &RenamePreviewRequest, base: Option<&Subscription>)
             .clone()
             .or_else(|| base.map(|sub| sub.media_type.clone()))
             .unwrap_or_else(|| "series".to_string()),
-        season: req
-            .season
-            .or_else(|| base.map(|sub| sub.season))
-            .filter(|season| *season > 0)
-            .unwrap_or(1),
+        season: {
+            let (start, _) = resolve_preview_season_bounds(req, base);
+            start
+        },
+        season_end: {
+            let (_, end) = resolve_preview_season_bounds(req, base);
+            end
+        },
         start_episode_number: normalize_start_episode_number(
             req.start_episode_number
                 .or_else(|| base.and_then(|sub| sub.start_episode_number)),
@@ -440,6 +476,109 @@ fn preview_files(req: &RenamePreviewRequest, sub: &Subscription) -> Vec<RuleProb
                 .collect()
         })
         .unwrap_or_default()
+}
+
+#[derive(Serialize)]
+pub(super) struct SubscriptionListItem {
+    #[serde(flatten)]
+    subscription: Subscription,
+    season_label: String,
+    status_key: String,
+    status_label: String,
+    progress_percent: f64,
+    progress_label: String,
+    multi_season: bool,
+}
+
+impl From<Subscription> for SubscriptionListItem {
+    fn from(subscription: Subscription) -> Self {
+        Self {
+            season_label: subscription.season_label(),
+            status_key: subscription.status_key().to_string(),
+            status_label: subscription.status_label().to_string(),
+            progress_percent: subscription.progress_percent(),
+            progress_label: subscription.progress_label(),
+            multi_season: subscription.is_multi_season(),
+            subscription,
+        }
+    }
+}
+
+fn resolve_preview_season_bounds(
+    req: &RenamePreviewRequest,
+    base: Option<&Subscription>,
+) -> (i32, Option<i32>) {
+    if !req.season_spec.trim().is_empty() {
+        return crate::models::subscription::parse_season_spec(&req.season_spec);
+    }
+    crate::models::subscription::normalize_season_bounds(
+        req.season
+            .or_else(|| base.map(|sub| sub.season))
+            .filter(|season| *season > 0)
+            .unwrap_or(1),
+        req.season_end
+            .or_else(|| base.and_then(|sub| sub.season_end)),
+    )
+}
+
+fn group_rename_preview_items(items: &[RenamePreviewItem]) -> Vec<RenamePreviewSeasonGroup> {
+    use std::collections::BTreeMap;
+    let mut groups: BTreeMap<i32, Vec<RenamePreviewItem>> = BTreeMap::new();
+    let mut unknown = Vec::new();
+    for item in items {
+        match item.season.filter(|season| *season > 0) {
+            Some(season) => groups.entry(season).or_default().push(item.clone()),
+            None => unknown.push(item.clone()),
+        }
+    }
+    let mut result = Vec::new();
+    for (season, group_items) in groups {
+        let transfer_count = group_items
+            .iter()
+            .filter(|item| item.action == "transfer")
+            .count();
+        let skip_count = group_items.len().saturating_sub(transfer_count);
+        result.push(RenamePreviewSeasonGroup {
+            season: Some(season),
+            key: season.to_string(),
+            label: format!("Season {season}"),
+            transfer_count,
+            skip_count,
+            items: group_items,
+        });
+    }
+    if !unknown.is_empty() {
+        let transfer_count = unknown
+            .iter()
+            .filter(|item| item.action == "transfer")
+            .count();
+        let skip_count = unknown.len().saturating_sub(transfer_count);
+        result.push(RenamePreviewSeasonGroup {
+            season: None,
+            key: "unknown".to_string(),
+            label: "未识别季".to_string(),
+            transfer_count,
+            skip_count,
+            items: unknown,
+        });
+    }
+    result
+}
+
+fn resolve_show_root(sub: &Subscription, plan_target: &str) -> String {
+    if !sub.is_multi_season() {
+        return plan_target.to_string();
+    }
+    let trimmed = plan_target.trim().trim_end_matches('/');
+    let last = trimmed.rsplit('/').next().unwrap_or("").trim();
+    if last.to_ascii_lowercase().starts_with("season ") {
+        trimmed
+            .rsplit_once('/')
+            .map(|(parent, _)| parent.to_string())
+            .unwrap_or_else(|| trimmed.to_string())
+    } else {
+        trimmed.to_string()
+    }
 }
 
 /// 创建订阅路由

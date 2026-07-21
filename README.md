@@ -74,11 +74,11 @@ docker run -d \
   ghcr.io/hellomrli/my-media-sub:latest
 ```
 
-生产环境请钉死版本标签。每个发布会同时打补丁与次版本标签（例如 `2.2.5` 与 `2.2`）：
+生产环境请钉死版本标签。每个发布会同时打补丁与次版本标签（例如 `2.2.6` 与 `2.2`）：
 
 ```bash
-docker pull ghcr.io/hellomrli/my-media-sub:2.2.5
-docker image inspect ghcr.io/hellomrli/my-media-sub:2.2.5 --format '{{.RepoDigests}}'
+docker pull ghcr.io/hellomrli/my-media-sub:2.2.6
+docker image inspect ghcr.io/hellomrli/my-media-sub:2.2.6 --format '{{.RepoDigests}}'
 ```
 
 ### 方式三：Linux 二进制
@@ -86,7 +86,7 @@ docker image inspect ghcr.io/hellomrli/my-media-sub:2.2.5 --format '{{.RepoDiges
 从 [GitHub Releases](https://github.com/hellomrli/my-media-sub/releases) 下载并校验：
 
 ```bash
-VERSION=v2.2.5
+VERSION=v2.2.6
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz"
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
 sha256sum -c "my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
@@ -290,7 +290,7 @@ static/
 - [媒体日历](docs/media-calendar.md) · [资源质量与换源](docs/source-quality.md)  
 - [HTTPS 与安全部署](docs/https-reverse-proxy.md) · [PWA](docs/pwa.md)  
 - [存储扩展与 SQLite 决策](docs/storage-scaling.md)  
-- 当前版本：[v2.2.5 升级指南](docs/upgrade-v2.2.5.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
+- 当前版本：[v2.2.6 升级指南](docs/upgrade-v2.2.6.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
 
 各版本升级步骤仍在 `docs/upgrade-v*.md`；变更历史统一写在 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -311,6 +311,14 @@ docker compose pull && docker compose up -d
 ---
 
 ## 版本说明
+
+### 2.2.6
+
+- 多季订阅（`1-4` / `season_spec`）：剧名目录 + 按文件季号自动 `Season N` 转存与 Aria2 下载。
+- 剧名清洗、季号解析、预览分组与列表展示字段下沉到 Rust；搜索结果带 `display_title`。
+- Telegram 主菜单与 `/search`、`/subscribe`、`/switch`、`/switch_apply`；会话持久化与内联按钮。
+- 换源强制不可越过季度不匹配；若干订阅/网盘/预览功能修复。
+- 存储 schema 保持兼容，可从 v2.2.5 直接升级。
 
 ### 2.2.5
 

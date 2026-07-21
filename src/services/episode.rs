@@ -263,11 +263,38 @@ pub fn matches_subscription_season(
     parent_path: &str,
     subscription_season: i32,
 ) -> bool {
-    let expected = subscription_season.max(1);
+    matches_subscription_season_range(name, parent_path, subscription_season, subscription_season)
+}
+
+/// 判断文件是否属于订阅的季范围 `[start, end]`（闭区间）。
+///
+/// - 能从文件名/父路径识别季号时：必须落在范围内；
+/// - 无季号提示时：排除明显非本季合集路径后接受（多季会回落到起始季转存）。
+pub fn matches_subscription_season_range(
+    name: &str,
+    parent_path: &str,
+    season_start: i32,
+    season_end: i32,
+) -> bool {
+    let start = season_start.max(1);
+    let end = season_end.max(start);
     if let Some(season) = season_hint_from_context(name, parent_path) {
-        return season == expected;
+        return season >= start && season <= end;
     }
     !has_non_current_collection_hint(parent_path)
+}
+
+/// 解析文件所属季号：优先文件名/路径提示，否则回落到 `default_season`（多季通常为起始季）。
+pub fn resolve_file_season(
+    name: &str,
+    parent_path: &str,
+    default_season: i32,
+    _multi_season: bool,
+) -> Option<i32> {
+    if let Some(season) = season_hint_from_context(name, parent_path) {
+        return Some(season.max(1));
+    }
+    Some(default_season.max(1))
 }
 
 /// 是否是视频文件
@@ -667,6 +694,34 @@ mod tests {
     }
 
     #[test]
+    fn test_matches_subscription_season_range_accepts_multi_season() {
+        assert!(matches_subscription_season_range(
+            "Show.S02E01.mkv",
+            "Season 2",
+            1,
+            4
+        ));
+        assert!(!matches_subscription_season_range(
+            "Show.S05E01.mkv",
+            "Season 5",
+            1,
+            4
+        ));
+        // 无季号提示时多季也接受，转存会回落到起始季
+        assert!(matches_subscription_season_range(
+            "178重置版.mp4",
+            "",
+            1,
+            4
+        ));
+        assert_eq!(
+            resolve_file_season("Show.S03E02.mkv", "", 1, true),
+            Some(3)
+        );
+        assert_eq!(resolve_file_season("178.mp4", "", 2, false), Some(2));
+        assert_eq!(resolve_file_season("178.mp4", "", 1, true), Some(1));
+    }
+
     fn test_matches_subscription_season_uses_parent_path_context() {
         assert!(matches_subscription_season("178重置版.mp4", "", 6));
         assert!(matches_subscription_season(
