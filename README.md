@@ -290,9 +290,9 @@ static/
 - [媒体日历](docs/media-calendar.md) · [资源质量与换源](docs/source-quality.md)  
 - [HTTPS 与安全部署](docs/https-reverse-proxy.md) · [PWA](docs/pwa.md)  
 - [存储扩展与 SQLite 决策](docs/storage-scaling.md)  
-- 当前版本：[v2.2.5 升级指南](docs/upgrade-v2.2.5.md) · [变更记录](CHANGELOG-v2.2.5.md)
+- 当前版本：[v2.2.5 升级指南](docs/upgrade-v2.2.5.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
 
-历史版本的 `docs/upgrade-v*.md` 与 `CHANGELOG-v*.md` 仍保留在仓库中。
+各版本升级步骤仍在 `docs/upgrade-v*.md`；变更历史统一写在 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -385,7 +385,7 @@ docker compose pull && docker compose up -d
 - 部署：容器非 root；compose 从 `.env` 读口令；WebUI 模板化组装。
 - 保持 `schema_version: 1`，可从 v1.13.x 直接升级。公网实例请先设强密码。
 
-更早的 v1.x 说明见 [GitHub Releases](https://github.com/hellomrli/my-media-sub/releases) 与仓库内历史 `CHANGELOG-v1.*.md`、`docs/upgrade-v1.*.md`。
+更早的 v1.x 说明见 [GitHub Releases](https://github.com/hellomrli/my-media-sub/releases)、[CHANGELOG.md](CHANGELOG.md) 与 `docs/upgrade-v1.*.md`。
 
 ---
 
