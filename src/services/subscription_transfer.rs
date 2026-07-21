@@ -356,8 +356,7 @@ impl SubscriptionTransferService {
 
             // 按季提交 Aria2：多季自动写入 …/剧名/Season N
             if sub.sync_download_enabled {
-                let download_dir =
-                    resolve_sync_download_dir_for_season(&sub, &settings, season);
+                let download_dir = resolve_sync_download_dir_for_season(&sub, &settings, season);
                 if let Some(report) = self
                     .submit_sync_downloads(
                         provider.as_ref(),

@@ -75,14 +75,29 @@ fn trim_bilingual_prefix(value: &str) -> String {
         return String::new();
     }
 
-    if let Some(kana_index) = title.find(|ch: char| {
-        ('\u{3040}'..='\u{30ff}').contains(&ch)
-    }) {
-        if kana_index > 0 && title[..kana_index].chars().any(|ch| ('\u{4e00}'..='\u{9fff}').contains(&ch))
+    if let Some(kana_index) = title.find(|ch: char| ('\u{3040}'..='\u{30ff}').contains(&ch)) {
+        if kana_index > 0
+            && title[..kana_index]
+                .chars()
+                .any(|ch| ('\u{4e00}'..='\u{9fff}').contains(&ch))
         {
             return title[..kana_index]
                 .trim_end_matches(|ch: char| {
-                    matches!(ch, ' ' | '·' | '・' | ',' | '，' | '/' | '|' | ':' | '：' | '-' | '–' | '—' | '_')
+                    matches!(
+                        ch,
+                        ' ' | '·'
+                            | '・'
+                            | ','
+                            | '，'
+                            | '/'
+                            | '|'
+                            | ':'
+                            | '：'
+                            | '-'
+                            | '–'
+                            | '—'
+                            | '_'
+                    )
                 })
                 .to_string();
         }
@@ -93,7 +108,11 @@ fn trim_bilingual_prefix(value: &str) -> String {
         .map(str::trim)
         .filter(|part| !part.is_empty())
         .collect();
-    if parts.len() > 1 && parts[0].chars().any(|ch| ('\u{4e00}'..='\u{9fff}').contains(&ch)) {
+    if parts.len() > 1
+        && parts[0]
+            .chars()
+            .any(|ch| ('\u{4e00}'..='\u{9fff}').contains(&ch))
+    {
         return parts[0].to_string();
     }
 

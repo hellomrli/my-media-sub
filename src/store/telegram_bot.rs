@@ -172,9 +172,9 @@ impl TelegramBotStore {
         self.mutate(|state| {
             let now = crate::utils::unix_now();
             state.user_sessions.retain(|item| item.expires_at >= now);
-            state
-                .user_sessions
-                .retain(|item| !(item.user_id == session.user_id && item.chat_id == session.chat_id));
+            state.user_sessions.retain(|item| {
+                !(item.user_id == session.user_id && item.chat_id == session.chat_id)
+            });
             state.user_sessions.push(session);
             if state.user_sessions.len() > 200 {
                 let remove = state.user_sessions.len() - 200;

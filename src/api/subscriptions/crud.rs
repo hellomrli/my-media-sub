@@ -185,7 +185,11 @@ pub(super) async fn update_subscription(
                 content_changed |= media_type != sub.media_type;
                 sub.media_type = media_type;
             }
-            if let Some(spec) = req.season_spec.as_deref().map(str::trim).filter(|s| !s.is_empty())
+            if let Some(spec) = req
+                .season_spec
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
             {
                 let (season, season_end) = crate::models::subscription::parse_season_spec(spec);
                 content_changed |= season != sub.season || season_end != sub.season_end;

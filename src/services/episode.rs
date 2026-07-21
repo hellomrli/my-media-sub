@@ -708,16 +708,8 @@ mod tests {
             4
         ));
         // 无季号提示时多季也接受，转存会回落到起始季
-        assert!(matches_subscription_season_range(
-            "178重置版.mp4",
-            "",
-            1,
-            4
-        ));
-        assert_eq!(
-            resolve_file_season("Show.S03E02.mkv", "", 1, true),
-            Some(3)
-        );
+        assert!(matches_subscription_season_range("178重置版.mp4", "", 1, 4));
+        assert_eq!(resolve_file_season("Show.S03E02.mkv", "", 1, true), Some(3));
         assert_eq!(resolve_file_season("178.mp4", "", 2, false), Some(2));
         assert_eq!(resolve_file_season("178.mp4", "", 1, true), Some(1));
     }
