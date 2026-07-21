@@ -77,6 +77,7 @@
     renamePreview: null,
     renamePreviewError: '',
     renamePreviewScope: 'matched',
+    renamePreviewCollapsedSeasons: {},
     newSubscription: {
       title: '',
       url: '',
@@ -89,6 +90,9 @@
       original_start_episode_number: '',
       media_type: 'series',
       season: 1,
+      season_input: '1',
+      season_end: null,
+      source_title: '',
       target_path: '',
       target_fid: '0',
       target_dir_name: '',
@@ -154,6 +158,8 @@
       preset_description: '',
       media_type: 'series',
       season: 1,
+      season_input: '1',
+      season_end: null,
       title: '示例剧集',
       rename_template: '{title}.S{season}E{episode}.{ext}',
       include_keywords_text: '',
@@ -229,6 +235,8 @@
         original_start_episode_number: '',
         media_type: 'series',
         season: 1,
+        season_input: '1',
+        season_end: null,
         target_path: '',
         target_fid: '0',
         target_dir_name: '',
@@ -309,7 +317,7 @@
 
     searchResultTitle(result) {
       return String(
-        (result && (result.note || result.title || result.name || result.file_name || result.url)) || ''
+        (result && (result.display_title || result.note || result.title || result.name || result.file_name || result.url)) || ''
       ).trim();
     },
 
@@ -324,68 +332,63 @@
       return this.searchResultInsights(result).validityLabel;
     },
 
-    stripResourceTags(value) {
-      let title = String(value || '').replace(/\s+/g, ' ').trim();
-      const tagPattern = /\s*(?:\[[^\]]*\]|【[^】]*】|（[^）]*）|\([^)]*\))\s*$/;
-      const metadataPattern = /^(?:\d{4}|20\d{2}|19\d{2}|.*(?:\d{3,4}p|4k|8k|hdr|dv|web-?dl|bluray|bdrip|hdtv|x26[45]|hevc|aac|flac|内封|内嵌|简繁|简中|繁中|中字|字幕|双语|多语|全\s*\d+\s*集|全集|完结|更新|第\s*\d+\s*集).*)$/i;
-
-      let changed = true;
-      while (changed) {
-        changed = false;
-        title = title.replace(tagPattern, (match) => {
-          const content = match.replace(/^[\s\[【（(]+|[\]】）)\s]+$/g, '').trim();
-          if (!content || metadataPattern.test(content)) {
-            changed = true;
-            return '';
-          }
-          return match;
-        }).trim();
-      }
-
-      return title;
-    },
-
-    trimBilingualResourceTitle(value) {
-      let title = String(value || '').trim();
-      if (!title) return title;
-
-      const kanaIndex = title.search(/[\u3040-\u30ff]/);
-      if (kanaIndex > 0 && /[\u4e00-\u9fff]/.test(title.slice(0, kanaIndex))) {
-        title = title.slice(0, kanaIndex).replace(/[\s·・,，/|:：\-–—_]+$/g, '').trim();
-      }
-
-      const separatedParts = title
-        .split(/\s+[|/／]\s+|\s+[|/／]\s*|\s*[|/／]\s+/)
-        .map(part => part.trim())
-        .filter(Boolean);
-      if (separatedParts.length > 1 && /[\u4e00-\u9fff]/.test(separatedParts[0])) {
-        title = separatedParts[0];
-      }
-
-      return title;
-    },
-
-    trimResourceSuffixes(value) {
-      return String(value || '')
-        .replace(/\s+(?:S\d{1,2}|Season\s*\d+|第[一二三四五六七八九十\d]+季)$/i, '')
-        .replace(/\s+(?:\d{3,4}p|4k|8k|web-?dl|bluray|bdrip|hdtv|x26[45]|hevc|aac)$/i, '')
-        .replace(/[\s._-]+$/g, '')
-        .trim();
-    },
-
+    // 本地极薄回退；权威实现在 Rust /api/utils/normalize-title
     inferSubscriptionTitle(rawTitle) {
       const original = String(rawTitle || '').trim();
       if (!original || /^https?:\/\//i.test(original)) return original;
-
-      let title = original
-        .replace(/\s+/g, ' ')
+      let title = original.replace(/\s+/g, ' ').trim();
+      let depth = 0;
+      let plain = '';
+      for (const ch of title) {
+        if ('[【(（'.includes(ch)) { depth += 1; continue; }
+        if (']】)）'.includes(ch)) { depth = Math.max(0, depth - 1); continue; }
+        if (depth === 0) plain += (ch === '.' || ch === '_' || ch === '-') ? ' ' : ch;
+      }
+      plain = plain.replace(/\s+/g, ' ').trim()
+        .replace(/(?:\s*(?:S\d{1,2}(?:\s*[-~～到至]\s*S?\d{1,2})?|Season\s*\d+|第\s*[0-9一二三四五六七八九十两]+\s*季|\d{3,4}p|4k|全集|完结))+$/ig, '')
         .trim();
+      return plain || original;
+    },
 
-      title = this.stripResourceTags(title);
-      title = this.trimBilingualResourceTitle(title);
-      title = this.trimResourceSuffixes(title);
+    async normalizeTitleRemote(rawTitle) {
+      const original = String(rawTitle || '').trim();
+      if (!original || /^https?:\/\//i.test(original)) {
+        return {original, normalized: original, changed: false};
+      }
+      try {
+        const data = await apiData('/api/utils/normalize-title', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({title: original})
+        });
+        return {
+          original: data.original || original,
+          normalized: data.normalized || original,
+          changed: !!data.changed
+        };
+      } catch (_) {
+        const normalized = this.inferSubscriptionTitle(original);
+        return {original, normalized, changed: normalized !== original};
+      }
+    },
 
-      return title || original;
+    async applyMagicTitleMatch(options = {}) {
+      const silent = !!options.silent;
+      const raw = String(this.newSubscription.title || '').trim();
+      if (!raw || /^https?:\/\//i.test(raw)) return raw;
+      if (!this.newSubscription.source_title) this.newSubscription.source_title = raw;
+      const result = await this.normalizeTitleRemote(raw);
+      const cleaned = result.normalized || raw;
+      if (cleaned && cleaned !== raw) {
+        this.newSubscription.title = cleaned;
+        if (!silent) this.showNotification('info', `已识别剧名：${cleaned}`);
+        if (this.metadataSearchAvailable && this.metadataSearchAvailable()) {
+          this.searchMetadataForSubscription(true);
+        }
+      } else if (!silent) {
+        this.showNotification('info', '标题已是干净剧名，无需再处理');
+      }
+      return cleaned || raw;
     },
 
     // 打开订阅对话框（支持立即转存或连续订阅）
@@ -403,8 +406,10 @@
       this.renamePreviewError = '';
       this.renamePreviewScope = 'matched';
       const sourceTitle = this.searchResultTitle(result);
+      const rawTitle = result && (result.note || result.title || sourceTitle) || sourceTitle;
       this.newSubscription = {
-        title: this.inferSubscriptionTitle(sourceTitle),
+        title: (result && result.display_title) || this.inferSubscriptionTitle(sourceTitle),
+        source_title: rawTitle,
         url: result.url,
         password: result.password || '',
         original_url: result.url,
@@ -415,6 +420,8 @@
         original_start_episode_number: '',
         media_type: 'series',
         season: 1,
+        season_input: '1',
+        season_end: null,
         target_path: '',
         target_fid: '0',
         target_dir_name: '',
@@ -460,6 +467,17 @@
       };
       this.showSubscriptionDialog = true;
       this.metadataResults = [];
+      // 服务端权威清洗（搜索结果已有 display_title 时跳过）
+      if (!(result && result.display_title)) {
+        this.normalizeTitleRemote(rawTitle).then(normalized => {
+          if (!normalized || !normalized.normalized) return;
+          if (this.newSubscription.url === result.url) {
+            this.newSubscription.title = normalized.normalized;
+            this.newSubscription.source_title = normalized.original || rawTitle;
+            this.searchMetadataForSubscription(true);
+          }
+        }).catch(() => {});
+      }
       this.searchMetadataForSubscription(true);
       if (this.newSubscription.preview_samples) this.previewSubscriptionRename(true);
     },
@@ -485,6 +503,13 @@
         original_start_episode_number: sub.start_episode_number || '',
         media_type: sub.media_type || 'series',
         season: this.normalizeSeason(sub.season),
+        season_input: (() => {
+          const start = this.normalizeSeason(sub.season);
+          const end = sub.season_end != null ? this.normalizeSeason(sub.season_end) : start;
+          return end > start ? `${start}-${end}` : String(start);
+        })(),
+        season_end: sub.season_end != null ? this.normalizeSeason(sub.season_end) : null,
+        source_title: sub.source_title || '',
         target_path: '',
         target_fid: '0',
         target_dir_name: rules.target_dir || '',
@@ -549,8 +574,76 @@
     },
 
     normalizeSeason(value) {
-      const season = Number(value);
-      return Number.isFinite(season) && season > 0 ? Math.floor(season) : 1;
+      const parsed = this.parseSeasonSpec(value);
+      return parsed.start;
+    },
+
+    // 本地极薄回退；权威实现在 Rust /api/utils/parse-season
+    parseSeasonSpec(value) {
+      const raw = String(value == null ? '' : value).trim();
+      if (!raw) return {start: 1, end: null, label: '1', season_spec: '1', multi_season: false};
+      const range = raw.match(/^(\d{1,2})\s*[-~～到至]\s*(\d{1,2})$/);
+      if (range) {
+        let start = Math.max(1, Math.min(99, Number(range[1]) || 1));
+        let end = Math.max(1, Math.min(99, Number(range[2]) || start));
+        if (end < start) [start, end] = [end, start];
+        return end > start
+          ? {start, end, label: `${start}-${end}`, season_spec: `${start}-${end}`, multi_season: true}
+          : {start, end: null, label: String(start), season_spec: String(start), multi_season: false};
+      }
+      const single = Math.max(1, Math.min(99, Math.floor(Number(raw) || 1)));
+      return {start: single, end: null, label: String(single), season_spec: String(single), multi_season: false};
+    },
+
+    async parseSeasonRemote(value) {
+      const raw = String(value == null ? '' : value).trim();
+      try {
+        const data = await apiData('/api/utils/parse-season', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({season_spec: raw})
+        });
+        return {
+          start: Number(data.season || 1),
+          end: data.season_end == null ? null : Number(data.season_end),
+          label: data.label || String(data.season || 1),
+          season_spec: data.season_spec || raw || '1',
+          multi_season: !!data.multi_season
+        };
+      } catch (_) {
+        return this.parseSeasonSpec(raw);
+      }
+    },
+
+    seasonPayload() {
+      const parsed = this.parseSeasonSpec(this.newSubscription.season_input != null
+        ? this.newSubscription.season_input
+        : this.newSubscription.season);
+      // 保持表单双向同步，避免只改一边
+      this.newSubscription.season = parsed.start;
+      this.newSubscription.season_end = parsed.end;
+      this.newSubscription.season_input = parsed.season_spec || String(parsed.start);
+      return {
+        season: parsed.start,
+        season_end: parsed.end,
+        season_spec: parsed.season_spec || (parsed.end ? `${parsed.start}-${parsed.end}` : String(parsed.start))
+      };
+    },
+
+    async syncSeasonInputFromRemote() {
+      const raw = this.newSubscription.season_input != null
+        ? this.newSubscription.season_input
+        : this.newSubscription.season;
+      const parsed = await this.parseSeasonRemote(raw);
+      this.newSubscription.season = parsed.start;
+      this.newSubscription.season_end = parsed.end;
+      this.newSubscription.season_input = parsed.season_spec || String(parsed.start);
+      return parsed;
+    },
+
+    isMultiSeasonSpec(value = this.newSubscription.season_input != null ? this.newSubscription.season_input : this.newSubscription.season) {
+      const parsed = this.parseSeasonSpec(value);
+      return !!(parsed.end && parsed.end > parsed.start);
     },
 
     normalizeStartEpisode(value) {
@@ -1006,17 +1099,24 @@
     },
 
     subscriptionSeasonLabel(sub) {
-      const season = this.normalizeSeason(sub && sub.season);
-      return `第 ${season} 季`;
+      if (!sub) return '第 1 季';
+      if (sub.season_label) return sub.season_label;
+      const start = this.normalizeSeason(sub.season);
+      const end = sub.season_end != null ? this.normalizeSeason(sub.season_end) : start;
+      return end > start ? `第 ${start}-${end} 季` : `第 ${start} 季`;
     },
 
     subscriptionProgressLabel(sub) {
+      if (sub && sub.progress_label) return sub.progress_label;
       const current = Math.max(0, Number((sub && sub.current_episode_number) || 0));
       const total = Number((sub && sub.total_episode_number) || (sub && sub.rules && sub.rules.finish_after_episode) || 0);
       return total > 0 ? `${current}/${total} 集` : `${current}/- 集`;
     },
 
     subscriptionProgressPercent(sub) {
+      if (sub && Number.isFinite(Number(sub.progress_percent))) {
+        return Math.max(0, Math.min(100, Number(sub.progress_percent)));
+      }
       const current = Math.max(0, Number((sub && sub.current_episode_number) || 0));
       const total = Number((sub && sub.total_episode_number) || (sub && sub.rules && sub.rules.finish_after_episode) || 0);
       if (total <= 0) return 0;
@@ -1051,6 +1151,7 @@
 
     subscriptionStatusKey(subOrStatus) {
       if (subOrStatus && typeof subOrStatus === 'object') {
+        if (subOrStatus.status_key) return subOrStatus.status_key;
         if (subOrStatus.status === 'invalid' || subOrStatus.invalid_since) return 'invalid';
         // Completion is persisted by the backend from discovered/transfer/download evidence.
         // Do not reclassify it from the display progress: transfer completion can be
@@ -1063,6 +1164,9 @@
     },
 
     subscriptionStatusLabel(subOrStatus) {
+      if (subOrStatus && typeof subOrStatus === 'object' && subOrStatus.status_label) {
+        return subOrStatus.status_label;
+      }
       const labels = {active: '追更中', completed: '已完结', invalid: '已失效'};
       return labels[this.subscriptionStatusKey(subOrStatus)] || '-';
     },
@@ -1264,7 +1368,10 @@
     },
 
     seasonFolderName() {
-      return `Season ${this.normalizeSeason(this.newSubscription.season)}`;
+      const parsed = this.parseSeasonSpec(this.newSubscription.season_input != null
+        ? this.newSubscription.season_input
+        : this.newSubscription.season);
+      return `Season ${parsed.start}`;
     },
 
     appendPath(base, segment) {
@@ -1282,6 +1389,15 @@
 
     withSeasonFolder(path) {
       if (this.newSubscription.media_type === 'movie') return path;
+      // 多季订阅只保存到剧名目录，转存时按文件季号自动建 Season N
+      if (this.isMultiSeasonSpec()) {
+        if (this.hasSeasonSuffix(path)) {
+          const parts = String(path || '').replace(/\/+$/, '').split('/');
+          parts.pop();
+          return parts.join('/') || path;
+        }
+        return path;
+      }
       if (this.hasSeasonSuffix(path)) return path;
       return this.appendPath(path, this.seasonFolderName());
     },
@@ -1396,6 +1512,110 @@
       return this.previewFileDisplayPath({name: item.source_name, parent_path: item.source_parent_path});
     },
 
+    renamePreviewItemSeason(item) {
+      const direct = Number(item && item.season);
+      if (Number.isFinite(direct) && direct > 0) return Math.floor(direct);
+      const target = String((item && item.target_dir) || '');
+      const targetMatch = target.match(/Season\s+(\d{1,2})\b/i);
+      if (targetMatch) return Number(targetMatch[1]);
+      const source = this.renamePreviewSourceLabel(item);
+      const sourceMatch = source.match(/(?:^|[^\d])S(\d{1,2})E\d/i)
+        || source.match(/Season\s+(\d{1,2})\b/i)
+        || source.match(/第\s*(\d{1,2})\s*季/);
+      if (sourceMatch) return Number(sourceMatch[1]);
+      return 0;
+    },
+
+    shouldGroupRenamePreviewBySeason() {
+      if (this.newSubscription.media_type === 'movie') return false;
+      if (this.renamePreview && this.renamePreview.multi_season) return true;
+      if (Array.isArray(this.renamePreview && this.renamePreview.groups) && this.renamePreview.groups.length > 1) {
+        return true;
+      }
+      if (this.isMultiSeasonSpec()) return true;
+      const seasons = new Set(
+        this.visibleRenamePreviewItems()
+          .map(item => this.renamePreviewItemSeason(item))
+          .filter(season => season > 0)
+      );
+      return seasons.size > 1;
+    },
+
+    groupedRenamePreviewSeasons() {
+      // 优先使用服务端权威分组
+      if (Array.isArray(this.renamePreview && this.renamePreview.groups) && this.renamePreview.groups.length) {
+        const scopeAll = this.renamePreviewScope === 'all';
+        return this.renamePreview.groups.map(group => {
+          const items = (group.items || []).filter(item => (
+            scopeAll
+              ? item.skip_reason !== '目录暂不规划转存'
+              : item.action === 'transfer'
+          ));
+          return {
+            key: group.key || String(group.season || 'unknown'),
+            season: group.season == null ? 0 : Number(group.season),
+            label: group.label || (group.season ? `Season ${group.season}` : '未识别季'),
+            items,
+            transferCount: Number(group.transfer_count || items.filter(item => item.action === 'transfer').length),
+            skipCount: Number(group.skip_count || items.filter(item => item.action !== 'transfer').length)
+          };
+        }).filter(group => group.items.length > 0);
+      }
+
+      const groups = new Map();
+      for (const item of this.visibleRenamePreviewItems()) {
+        const season = this.renamePreviewItemSeason(item);
+        const key = season > 0 ? String(season) : 'unknown';
+        if (!groups.has(key)) {
+          groups.set(key, {
+            key,
+            season,
+            label: season > 0 ? `Season ${season}` : '未识别季',
+            items: [],
+            transferCount: 0,
+            skipCount: 0
+          });
+        }
+        const group = groups.get(key);
+        group.items.push(item);
+        if (item.action === 'transfer') group.transferCount += 1;
+        else group.skipCount += 1;
+      }
+      return Array.from(groups.values()).sort((left, right) => {
+        const leftSeason = left.season > 0 ? left.season : 999;
+        const rightSeason = right.season > 0 ? right.season : 999;
+        return leftSeason - rightSeason;
+      });
+    },
+
+    isRenamePreviewSeasonCollapsed(key) {
+      const map = this.renamePreviewCollapsedSeasons || {};
+      // 默认折叠；仅显式 false 时展开
+      return map[key] !== false;
+    },
+
+    toggleRenamePreviewSeason(key) {
+      const map = {...(this.renamePreviewCollapsedSeasons || {})};
+      map[key] = !this.isRenamePreviewSeasonCollapsed(key);
+      this.renamePreviewCollapsedSeasons = map;
+    },
+
+    collapseAllRenamePreviewSeasons() {
+      const map = {};
+      for (const group of this.groupedRenamePreviewSeasons()) {
+        map[group.key] = true;
+      }
+      this.renamePreviewCollapsedSeasons = map;
+    },
+
+    expandAllRenamePreviewSeasons() {
+      const map = {};
+      for (const group of this.groupedRenamePreviewSeasons()) {
+        map[group.key] = false;
+      }
+      this.renamePreviewCollapsedSeasons = map;
+    },
+
     async previewSubscriptionRename(silent = false) {
       this.renamePreviewLoading = true;
       this.renamePreviewError = '';
@@ -1409,7 +1629,7 @@
             url: this.newSubscription.url,
             password: this.newSubscription.password,
             media_type: this.newSubscription.media_type,
-            season: this.normalizeSeason(this.newSubscription.season),
+            ...this.seasonPayload(),
             start_episode_number: this.subscriptionStartEpisodePayload(),
             rules: this.buildSubscriptionRules(),
             sample_files: this.previewSampleFiles(),
@@ -1419,6 +1639,10 @@
         const result = await response.json().catch(() => ({}));
         if (response.ok && result.data) {
           this.renamePreview = result.data;
+          this.renamePreviewCollapsedSeasons = {};
+          if (this.shouldGroupRenamePreviewBySeason()) {
+            this.collapseAllRenamePreviewSeasons();
+          }
           const warning = String(result.data.probe_warning || '').trim();
           if (warning) {
             this.renamePreviewError = warning;
@@ -1585,6 +1809,7 @@
     // 创建持续订阅
     async createContinuousSubscription() {
       try {
+        this.applyMagicTitleMatch({silent: true});
         const rules = this.buildSubscriptionRules();
 
         const response = await apiFetch('/api/subscriptions', {
@@ -1595,7 +1820,7 @@
             url: this.newSubscription.url,
             password: this.newSubscription.password,
             media_type: this.newSubscription.media_type,
-            season: this.normalizeSeason(this.newSubscription.season),
+            ...this.seasonPayload(),
             start_episode_number: this.subscriptionStartEpisodePayload(),
             target_dir: rules.target_dir,
             target_fid: this.newSubscription.target_fid || '0',
@@ -1638,7 +1863,7 @@
           url: this.newSubscription.url,
           password: this.newSubscription.password,
           media_type: this.newSubscription.media_type,
-          season: this.normalizeSeason(this.newSubscription.season),
+          ...this.seasonPayload(),
           start_episode_number: this.subscriptionStartEpisodePayload(),
           notify_only: this.newSubscription.notify_only,
           sync_download_enabled: !!this.newSubscription.sync_download_enabled,
@@ -2342,11 +2567,29 @@
       let preview = this.sourceSwitchPreview && this.sourceSwitchPreview.candidate && this.sourceSwitchPreview.candidate.id === candidate.id
         ? this.sourceSwitchPreview
         : await this.previewSourceCandidate(candidate);
-      if (!preview || !preview.can_apply) {
+      if (!preview || !preview.probe_ok) {
         this.sourceSwitchError = preview && preview.warnings && preview.warnings.length
-          ? `候选未通过安全检查：${preview.warnings.join('；')}`
-          : '请先完成候选预览和安全检查';
+          ? `候选探测失败：${preview.warnings.join('；')}`
+          : '请先完成候选预览，确认分享可访问';
+        this.showNotification('error', this.sourceSwitchError);
         return;
+      }
+      if (preview.season_matches === false) {
+        this.sourceSwitchError = '候选季度与订阅不匹配，禁止换源（含强制）';
+        this.showNotification('error', this.sourceSwitchError);
+        return;
+      }
+      const force = !preview.can_apply;
+      if (force) {
+        const warnings = (preview.warnings || []).join('；') || '未通过全部安全检查';
+        const ok = this.requestDangerConfirmation
+          ? await this.requestDangerConfirmation({
+            title: '强制换源',
+            message: `该候选存在风险：${warnings}\n\n注意：强制仅可越过进度/分数/冷却，不可越过季度匹配。仍要切换吗？`,
+            phrase: 'FORCE'
+          })
+          : window.confirm(`该候选存在风险：${warnings}。仍要切换吗？`);
+        if (!ok) return;
       }
       this.sourceSwitchApplyingId = candidate.id;
       this.sourceSwitchError = '';
@@ -2354,7 +2597,7 @@
         const result = await apiData(`/api/subscriptions/${this.sourceSwitchSubscriptionId}/source-candidates/apply`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({candidate_id: candidate.id})
+          body: JSON.stringify({candidate_id: candidate.id, force})
         });
         if (result.success === false) {
           this.sourceSwitchError = result.message || result.error || '应用换源失败';

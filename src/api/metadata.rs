@@ -28,11 +28,17 @@ async fn search_metadata(
     State(state): State<Arc<MetadataState>>,
     Query(query): Query<MetadataSearchQuery>,
 ) -> Result<Json<Response<Vec<MediaMetadata>>>> {
+    let cleaned = crate::services::metadata::clean_media_title(&query.query);
+    let search_query = if cleaned.is_empty() {
+        query.query.as_str()
+    } else {
+        cleaned.as_str()
+    };
     let results = state
         .metadata_service
         .search(
             &state.settings_store,
-            &query.query,
+            search_query,
             query.media_type.as_deref(),
         )
         .await?;

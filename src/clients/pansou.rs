@@ -40,6 +40,9 @@ struct PanSouItem {
 pub struct SearchResult {
     pub unique_id: String,
     pub note: String,
+    /// 清洗后的展示标题（服务端权威）
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub display_title: String,
     pub url: String,
     pub password: String,
     pub source: String,
@@ -134,9 +137,12 @@ impl PanSouClient {
         for item in quark_results {
             let url = item.url;
             let unique_id = format!("pansou:{}", md5_short(&url));
+            let note = item.note.unwrap_or_default();
+            let display_title = crate::services::title_normalize::clean_media_title(&note);
             results.push(SearchResult {
                 unique_id,
-                note: item.note.unwrap_or_default(),
+                note,
+                display_title,
                 url: url.clone(),
                 password: item.password.unwrap_or_default(),
                 source: item.source.unwrap_or_else(|| "pansou".to_string()),

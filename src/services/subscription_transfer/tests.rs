@@ -35,6 +35,7 @@ mod tests {
             source_title: String::new(),
             media_type: media_type.to_string(),
             season,
+            season_end: None,
             start_episode_number: None,
             current_episode_number: 0,
             total_episode_number: None,
@@ -121,6 +122,23 @@ mod tests {
         let target = determine_subscription_target_directory(&sub, &settings);
 
         assert_eq!(target, "/电影/庆余年（2024）");
+    }
+
+    #[test]
+    fn determine_target_directory_multi_season_keeps_show_root() {
+        let settings = Settings {
+            quark_save_series_dir: "/连续剧".to_string(),
+            ..Default::default()
+        };
+        let mut sub = subscription("series", 1);
+        sub.season_end = Some(4);
+
+        let target = determine_subscription_target_directory(&sub, &settings);
+        assert_eq!(target, "/连续剧/庆余年（2024）");
+        assert_eq!(
+            season_target_directory(&target, 3),
+            "/连续剧/庆余年（2024）/Season 3"
+        );
     }
 
     #[test]

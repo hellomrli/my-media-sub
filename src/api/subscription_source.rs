@@ -112,6 +112,9 @@ pub async fn preview_source_switch(
 #[derive(Debug, Deserialize)]
 pub struct ApplySourceSwitchRequest {
     candidate_id: String,
+    /// 手动强制应用：仅要求探测成功，可越过季度/进度等自动策略门槛
+    #[serde(default)]
+    force: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -159,19 +162,41 @@ pub async fn apply_source_switch(
         *candidate = scored.clone();
     }
     let preview = service.preview_candidate(&sub, scored, &settings, crate::utils::unix_now());
-    if !preview.can_apply {
+    if !preview.probe_ok {
         return Err(AppError::Validation(format!(
-            "候选未通过安全检查：{}",
+            "候选探测失败，无法换源：{}",
+            preview.warnings.join("；")
+        )));
+    }
+    if !preview.season_matches {
+        return Err(AppError::Validation(
+            "候选季度与订阅不匹配，禁止换源（含强制）".to_string(),
+        ));
+    }
+    if preview.candidate.url.trim() == sub.url.trim()
+        && preview.candidate.password.trim() == sub.password.trim()
+    {
+        return Err(AppError::Validation(
+            "候选与当前分享链接相同，无需换源".to_string(),
+        ));
+    }
+    // 强制仅可越过进度/分数/冷却等策略，不可越过探测与季度匹配。
+    if !req.force && !preview.can_apply {
+        return Err(AppError::Validation(format!(
+            "候选未通过安全检查：{}。若仍要换源，请确认风险后强制应用。",
             preview.warnings.join("；")
         )));
     }
 
-    service.apply_source_switch_with_audit(
-        &mut sub,
-        &req.candidate_id,
-        false,
-        "用户确认预览后手动应用",
-    )?;
+    let reason = if req.force && !preview.can_apply {
+        format!(
+            "用户强制应用（存在风险：{}）",
+            preview.warnings.join("；")
+        )
+    } else {
+        "用户确认预览后手动应用".to_string()
+    };
+    service.apply_source_switch_with_audit(&mut sub, &req.candidate_id, false, &reason)?;
     sub.updated_at = crate::utils::unix_now();
     persist_subscription(&ctx, &sub).await?;
 

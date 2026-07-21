@@ -10,7 +10,8 @@ use crate::models::subscription::{CheckHistoryItem, ProbeFile, ProbeResult, Subs
 use crate::providers::CloudDriveProviderRegistry;
 use crate::services::episode::{
     episode_video_key, is_better_episode_duplicate_candidate, is_video_name,
-    matches_subscription_season, normalize_duplicate_episode_strategy, EpisodeDuplicateCandidate,
+    matches_subscription_season_range, normalize_duplicate_episode_strategy,
+    EpisodeDuplicateCandidate,
 };
 use crate::services::notification::{
     add_notification, dispatch_push_event_for_notification, PushDispatchRequest,
@@ -1209,6 +1210,7 @@ mod due_check_tests {
             source_title: String::new(),
             media_type: "series".into(),
             season: 1,
+            season_end: None,
             start_episode_number: None,
             current_episode_number: 0,
             total_episode_number: None,

@@ -20,6 +20,7 @@ pub mod subscriptions;
 pub mod telegram;
 pub mod transfer;
 pub mod update;
+pub mod utils;
 
 use axum::{
     body::Body,
@@ -292,6 +293,7 @@ const TOKEN_READ_PATH_PREFIXES: &[&str] = &[
     "/api/metadata/",
     "/api/push/",
     "/api/drive/",
+    "/api/utils/",
 ];
 
 fn auth_rate_limited_response() -> Response {
@@ -604,6 +606,7 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
         .merge(subscription_exchange::routes(
             context.subscription_store.clone(),
         ))
+        .merge(utils::routes())
         .route("/api/{*path}", any(api_not_found))
         .fallback_service(serve_static)
         .layer(middleware::from_fn(security_headers))

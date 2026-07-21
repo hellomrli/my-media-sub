@@ -236,8 +236,12 @@
       <div class="space-y-4 mb-6">
         <div x-show="subscriptionDialogTab === 'content'" class="space-y-4">
           <div>
-            <label class="block text-sm font-medium text-text/80 mb-2">订阅名称</label>
-            <input type="text" x-model="newSubscription.title" @input="updateSubscriptionDefaults()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="例如：风起洛阳 第二季" />
+            <label class="flex items-center justify-between gap-2 text-sm font-medium text-text/80 mb-2">
+              <span>订阅名称</span>
+              <button type="button" @click="applyMagicTitleMatch()" class="text-xs text-primary hover:text-primary">智能识别剧名</button>
+            </label>
+            <input type="text" x-model="newSubscription.title" @input="updateSubscriptionDefaults()" @blur="applyMagicTitleMatch({silent: true})" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="分享标题会自动清理为干净剧名，便于刮削" />
+            <p class="text-xs text-muted/75 mt-1">会自动去掉字幕组、画质、季标等噪声，并尝试匹配 TMDB 元数据。</p>
           </div>
 
           <div>
@@ -317,8 +321,8 @@
 
           <div x-show="newSubscription.media_type !== 'movie'">
             <label class="block text-sm font-medium text-text/80 mb-2">季号</label>
-            <input type="number" min="1" x-model="newSubscription.season" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
-            <p class="text-xs text-muted/75 mt-1">默认第 1 季；填 2 会保存到 Season 2。</p>
+            <input type="text" x-model="newSubscription.season_input" @change="syncSeasonInputFromRemote()" @blur="syncSeasonInputFromRemote()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="1 或 1-4" />
+            <p class="text-xs text-muted/75 mt-1">单季填 <code class="text-text/80">1</code>；多季填 <code class="text-text/80">1-4</code>。多季时目标目录只写剧名，转存会按文件自动进入 Season 1…N。</p>
           </div>
 
           <div x-show="subscriptionMode === 'continuous' || subscriptionEditingId" class="space-y-4">
@@ -391,7 +395,7 @@
                     <input type="text" x-model="newSubscription.target_dir_name" class="flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="目录名称或完整路径，例如：庆余年（2024）" />
                     <button type="button" @click="browseTargetDir()" class="btn-secondary px-3 py-2 rounded-lg text-sm whitespace-nowrap">浏览网盘</button>
                   </div>
-                  <p class="text-xs text-muted/75">可手填目录名，或浏览夸克网盘选择已有路径。电影保存到该目录；连续剧和动画会在该目录下保存到 Season X。</p>
+                  <p class="text-xs text-muted/75">可手填剧名目录，或浏览网盘选择。单季会落到 Season N；多季（如 1-4）只写剧名，转存时自动创建对应 Season 文件夹。</p>
                 </div>
               </div>
               <div>
@@ -459,7 +463,43 @@
             <textarea x-model="newSubscription.preview_samples" @input="clearStructuredPreviewFiles()" rows="4" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="每行一个样例文件名，例如：&#10;第01集.mkv&#10;Show.S01E02.1080p.mkv"></textarea>
             <p class="text-xs text-muted/70">搜索嗅探结果会保留子文件夹路径；手动修改上方样例后将改用文本预览。</p>
             <div x-show="renamePreviewError" class="text-sm text-danger" x-text="renamePreviewError"></div>
-            <div x-show="renamePreview && visibleRenamePreviewItems().length > 0" class="border border-border rounded-lg overflow-hidden">
+            <div x-show="renamePreview && visibleRenamePreviewItems().length > 0 && shouldGroupRenamePreviewBySeason()" class="space-y-2">
+              <div class="flex flex-wrap gap-2 justify-end">
+                <button type="button" @click="expandAllRenamePreviewSeasons()" class="text-xs text-primary hover:text-primary">全部展开</button>
+                <button type="button" @click="collapseAllRenamePreviewSeasons()" class="text-xs text-muted hover:text-text">全部折叠</button>
+              </div>
+              <template x-for="(group, groupIndex) in groupedRenamePreviewSeasons()" :key="'rename-season-' + group.key + '-' + groupIndex">
+                <div class="border border-border rounded-lg overflow-hidden bg-app">
+                  <button type="button" @click="toggleRenamePreviewSeason(group.key)" class="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-surface-2 transition-colors">
+                    <div class="min-w-0 flex items-center gap-2">
+                      <svg class="w-4 h-4 text-muted shrink-0 transition-transform" :class="isRenamePreviewSeasonCollapsed(group.key) ? '' : 'rotate-90'" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                      <span class="text-sm font-medium text-text" x-text="group.label"></span>
+                      <span class="text-xs text-muted/75" x-text="group.transferCount + ' 转存 · ' + group.items.length + ' 项'"></span>
+                    </div>
+                    <span class="text-xs text-muted/70 shrink-0" x-text="isRenamePreviewSeasonCollapsed(group.key) ? '展开' : '收起'"></span>
+                  </button>
+                  <div x-show="!isRenamePreviewSeasonCollapsed(group.key)" class="border-t border-border">
+                    <div class="hidden md:grid grid-cols-12 gap-2 px-3 py-2 bg-panel text-xs text-muted/75">
+                      <div class="col-span-4">原文件名</div>
+                      <div class="col-span-4">目标文件名</div>
+                      <div class="col-span-2">集数</div>
+                      <div class="col-span-2">结果</div>
+                    </div>
+                    <template x-for="(item, itemIndex) in group.items" :key="'rename-preview-' + group.key + '-' + item.source_name + '-' + item.target_name + '-' + itemIndex">
+                      <div class="grid gap-2 px-3 py-3 border-t border-border text-xs md:grid-cols-12">
+                        <div class="text-text/80 break-all md:col-span-4" x-text="renamePreviewSourceLabel(item)"></div>
+                        <div class="text-success break-all md:col-span-4" x-text="item.target_name"></div>
+                        <div class="text-muted md:col-span-2"><span class="text-muted/75 md:hidden">集数 </span><span x-text="item.episode ? '第 ' + item.episode + ' 集' : '-'"></span></div>
+                        <div class="md:col-span-2">
+                          <span :class="item.action === 'transfer' ? 'text-success' : 'text-warning'" x-text="item.action === 'transfer' ? '会转存' : (item.skip_reason || '跳过')"></span>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+            <div x-show="renamePreview && visibleRenamePreviewItems().length > 0 && !shouldGroupRenamePreviewBySeason()" class="border border-border rounded-lg overflow-hidden">
               <div class="hidden md:grid grid-cols-12 gap-2 px-3 py-2 bg-app text-xs text-muted/75">
                 <div class="col-span-4">原文件名</div>
                 <div class="col-span-4">目标文件名</div>

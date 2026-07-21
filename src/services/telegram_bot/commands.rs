@@ -192,6 +192,28 @@ impl TelegramBotService {
                         confirmation.resource, confirmation.nonce, correlation_id
                     ))
                 }
+                "subscribe" => self
+                    .execute_subscribe(
+                        confirmation.user_id,
+                        confirmation.chat_id,
+                        &confirmation.resource,
+                    )
+                    .await
+                    .map(|text| {
+                        format!(
+                            "{text}\nrequest: telegram-{}\ncorrelation: {}",
+                            confirmation.nonce, correlation_id
+                        )
+                    }),
+                "switch_apply" => self
+                    .execute_switch_apply(&confirmation.resource)
+                    .await
+                    .map(|text| {
+                        format!(
+                            "{text}\nrequest: telegram-{}\ncorrelation: {}",
+                            confirmation.nonce, correlation_id
+                        )
+                    }),
                 _ => Err("不允许的操作".to_string()),
             }
         })

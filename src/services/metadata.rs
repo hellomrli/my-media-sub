@@ -383,6 +383,8 @@ fn tmdb_image_url(path: Option<String>) -> Option<String> {
         .map(|value| format!("https://image.tmdb.org/t/p/w500{}", value))
 }
 
+pub use crate::services::title_normalize::clean_media_title;
+
 fn normalize_title(value: &str) -> String {
     value
         .chars()

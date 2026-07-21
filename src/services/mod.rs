@@ -18,6 +18,7 @@ pub mod subscription_scheduler;
 pub mod subscription_source_switch;
 pub mod subscription_status;
 pub mod subscription_transfer;
+pub mod title_normalize;
 pub mod transfer_rule;
 
 pub use download_monitor::DownloadMonitorService;
