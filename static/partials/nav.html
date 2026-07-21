@@ -113,7 +113,6 @@
       </header>
 
       <div x-show="pwaOffline" class="pwa-status-banner is-offline" role="status"><span>离线模式：API 与媒体流不会使用缓存</span></div>
-      <div x-show="pwaUpdateReady" class="pwa-status-banner is-update" role="status"><span>新版本静态资源已就绪</span><div><button @click="dismissPwaUpdate()">稍后</button><button @click="applyPwaUpdate()">立即更新</button></div></div>
+      <div x-show="pwaUpdateReady" class="pwa-status-banner is-update" role="status"><span x-text="pwaApplyingUpdate ? '正在切换到新版本…' : '新版本静态资源已就绪'"></span><div><button @click="dismissPwaUpdate()" :disabled="pwaApplyingUpdate">稍后</button><button @click="applyPwaUpdate()" :disabled="pwaApplyingUpdate" x-text="pwaApplyingUpdate ? '更新中…' : '立即更新'"></button></div></div>
 
       <div class="app-content flex-1 overflow-y-auto px-4 sm:px-5 py-4 sm:py-5">
-

@@ -45,13 +45,47 @@ pub(super) async fn preview_subscription_rename(
         &sub.media_type,
         &settings.default_rename_template,
     );
-    let files = preview_files(&req, &sub);
+    let mut files = preview_files(&req, &sub);
+    let mut source_probed = false;
+    let mut probe_warning = String::new();
+    if req.probe_source && !sub.url.trim().is_empty() {
+        if settings.quark_cookie.trim().is_empty() {
+            probe_warning = "未配置夸克 Cookie，已使用样例文件预览".to_string();
+        } else {
+            let probe = crate::clients::QuarkShareProbe::new(settings.quark_cookie.clone())
+                .probe(&sub.url, &sub.password, 300)
+                .await;
+            if probe.ok && !probe.files.is_empty() {
+                files = probe
+                    .files
+                    .into_iter()
+                    .map(|file| RuleProbeFile {
+                        name: file.name,
+                        fid: file.fid,
+                        is_dir: file.is_dir,
+                        size: file.size,
+                        parent_path: file.parent_path,
+                        updated_at: file.updated_at,
+                    })
+                    .collect();
+                source_probed = true;
+            } else {
+                let detail = probe.message.trim();
+                probe_warning = if detail.is_empty() {
+                    "分享探测失败或无文件，已使用样例文件预览".to_string()
+                } else {
+                    format!("分享探测失败：{detail}；已使用样例文件预览")
+                };
+            }
+        }
+    }
     let plan = build_transfer_plan(&sub, Some(&files), None, None, None);
     let items = plan
         .items
         .into_iter()
         .map(|item| RenamePreviewItem {
             source_name: item.source_name,
+            source_parent_path: item.source_parent_path,
             target_name: item.target_name,
             action: item.action,
             skip_reason: item.skip_reason,
@@ -72,6 +106,8 @@ pub(super) async fn preview_subscription_rename(
         episodes: plan.episodes,
         missing_episodes: plan.missing_episodes,
         duplicate_episodes: plan.duplicate_episodes,
+        probe_warning,
+        source_probed,
         items,
     })))
 }

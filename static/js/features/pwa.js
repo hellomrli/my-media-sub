@@ -28,6 +28,7 @@
       pwaOffline: typeof navigator !== 'undefined' ? !navigator.onLine : false,
       pwaRegistration: null,
       pwaApplyingUpdate: false,
+      pwaUpdateReloadTimer: null,
       browserPushEnabled: false,
       browserPushSupported: typeof PushManager !== 'undefined' && typeof Notification !== 'undefined',
       pwaShortcuts: SHORTCUTS,
@@ -91,15 +92,25 @@
       },
 
       async refreshBrowserPushStatus() {
-        if (!this.browserPushSupported || !this.pwaRegistration) return;
-        const subscription = await this.pwaRegistration.pushManager.getSubscription();
+        const registration = this.rawPwaRegistration();
+        if (!this.browserPushSupported || !registration) return;
+        const subscription = await registration.pushManager.getSubscription();
         this.browserPushEnabled = !!subscription;
       },
 
+      rawPwaRegistration() {
+        const registration = this.pwaRegistration;
+        if (!registration) return null;
+        return root.Alpine && typeof root.Alpine.raw === 'function'
+          ? root.Alpine.raw(registration)
+          : registration;
+      },
+
       async toggleBrowserPush() {
-        if (!this.browserPushSupported || !this.pwaRegistration) { this.showNotification('warning', '当前浏览器不支持 Push'); return; }
+        const registration = this.rawPwaRegistration();
+        if (!this.browserPushSupported || !registration) { this.showNotification('warning', '当前浏览器不支持 Push'); return; }
         try {
-          const existing = await this.pwaRegistration.pushManager.getSubscription();
+          const existing = await registration.pushManager.getSubscription();
           if (existing) {
             await apiData('/api/push/browser', {method: 'DELETE', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({endpoint: existing.endpoint})});
             await existing.unsubscribe();
@@ -110,7 +121,7 @@
           const permission = await Notification.requestPermission();
           if (permission !== 'granted') { this.showNotification('warning', '未授予通知权限'); return; }
           const status = await apiData('/api/push/browser');
-          const subscription = await this.pwaRegistration.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: this.browserPushKeyBytes(status.public_key)});
+          const subscription = await registration.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: this.browserPushKeyBytes(status.public_key)});
           const json = subscription.toJSON();
           await apiData('/api/push/browser', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({endpoint: subscription.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth, user_agent: navigator.userAgent})});
           this.browserPushEnabled = true;
@@ -127,14 +138,29 @@
         await prompt.userChoice.catch(() => null);
       },
 
-      applyPwaUpdate() {
-        const worker = this.pwaRegistration && this.pwaRegistration.waiting;
+      async applyPwaUpdate() {
+        if (this.pwaApplyingUpdate) return;
+        let registration = this.rawPwaRegistration();
+        if (!registration && typeof navigator !== 'undefined' && navigator.serviceWorker) {
+          registration = await navigator.serviceWorker.getRegistration('/').catch(() => null);
+        }
+        const worker = registration && registration.waiting;
         if (!worker) {
           window.location.reload();
           return;
         }
         this.pwaApplyingUpdate = true;
-        worker.postMessage({type: 'SKIP_WAITING'});
+        try {
+          worker.postMessage({type: 'SKIP_WAITING'});
+          // controllerchange is the normal path. The fallback prevents the UI from
+          // getting stuck on browsers which activate the worker without emitting it.
+          clearTimeout(this.pwaUpdateReloadTimer);
+          this.pwaUpdateReloadTimer = setTimeout(() => window.location.reload(), 3000);
+        } catch (error) {
+          this.pwaApplyingUpdate = false;
+          this.showNotification('error', '静态资源更新失败，正在重新加载');
+          window.location.reload();
+        }
       },
 
       dismissPwaUpdate() {

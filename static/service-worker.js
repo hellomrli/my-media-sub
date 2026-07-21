@@ -1,8 +1,8 @@
 /* global MediaSubPwaPolicy */
-importScripts('/js/pwa-policy.js?v=2.2.4');
+importScripts('/js/pwa-policy.js?v=2.2.5');
 
-const ASSET_VERSION = '2.2.4';
-const CACHE_VERSION = 'v2.2.4-pwa-same-origin-images-1';
+const ASSET_VERSION = '2.2.5';
+const CACHE_VERSION = 'v2.2.5-pwa-same-origin-images-1';
 const SHELL_CACHE = `media-sub-shell-${CACHE_VERSION}`;
 const STATIC_CACHE = `media-sub-static-${CACHE_VERSION}`;
 const CACHE_PREFIX = 'media-sub-';

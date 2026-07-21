@@ -94,7 +94,7 @@
         String(s.quark_save_movie_dir || '').trim()
         || String(s.quark_save_series_dir || '').trim()
         || String(s.quark_save_anime_dir || '').trim()
-        || (s.custom_categories || []).some(category => String(category.quark_dir || '').trim())
+        || (s.custom_categories || []).some(category => String(category.dir || category.quark_dir || '').trim())
       );
       return [
         {id: 'auth', label: '管理账号', description: '已设置登录密码', configured: !!(s.app_password_configured || (s.app_password && !this.isMaskedSecret(s.app_password))), tab: 'connections'},

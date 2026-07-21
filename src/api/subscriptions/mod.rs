@@ -195,6 +195,8 @@ pub struct RenamePreviewRequest {
     pub rename_template: Option<String>,
     #[serde(default)]
     pub sample_files: Vec<RenamePreviewFile>,
+    #[serde(default)]
+    pub probe_source: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -235,12 +237,19 @@ struct RenamePreviewResponse {
     episodes: Vec<i32>,
     missing_episodes: Vec<i32>,
     duplicate_episodes: Vec<i32>,
+    /// 请求探测源分享但未成功时的提示；空字符串表示已使用探测结果或未请求探测
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    probe_warning: String,
+    /// 是否实际使用了分享探测结果
+    #[serde(default)]
+    source_probed: bool,
     items: Vec<RenamePreviewItem>,
 }
 
 #[derive(Serialize)]
 struct RenamePreviewItem {
     source_name: String,
+    source_parent_path: String,
     target_name: String,
     action: String,
     skip_reason: String,

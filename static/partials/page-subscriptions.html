@@ -86,7 +86,7 @@
                     <div class="flex flex-wrap justify-end gap-2">
                       <button @click="openEditSubscriptionDialog(sub); subscriptionActionMenuId = ''" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">编辑订阅</button>
                       <button @click="renameExistingFiles(sub.id); subscriptionActionMenuId = ''" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">修复命名</button>
-                      <button @click="generateSubscriptionStrm(sub.id); subscriptionActionMenuId = ''" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">生成 STRM</button>
+
                       <button @click="scrapeSubscriptionMetadata(sub.id); subscriptionActionMenuId = ''" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">自动刮削</button>
                       <button @click="openManualMetadataScrape(sub); subscriptionActionMenuId = ''" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">手动刮削</button>
                       <button @click="openSourceSwitchDialog(sub); subscriptionActionMenuId = ''" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">换源</button>
@@ -137,7 +137,7 @@
                   <div x-show="subscriptionActionMenuId === sub.id" class="grid grid-cols-2 gap-1 border-t border-border pt-2">
                     <button @click="openEditSubscriptionDialog(sub); subscriptionActionMenuId = ''" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">编辑</button>
                     <button @click="renameExistingFiles(sub.id); subscriptionActionMenuId = ''" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">修复</button>
-                    <button @click="generateSubscriptionStrm(sub.id); subscriptionActionMenuId = ''" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">STRM</button>
+
                     <button @click="scrapeSubscriptionMetadata(sub.id); subscriptionActionMenuId = ''" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">刮削</button>
                     <button @click="openManualMetadataScrape(sub); subscriptionActionMenuId = ''" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">手动</button>
                     <button @click="openSourceSwitchDialog(sub); subscriptionActionMenuId = ''" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">换源</button>

@@ -643,20 +643,38 @@ impl QuarkSaveClient {
             .ok_or_else(|| AppError::Http("无法从响应中提取 fid".to_string()))
     }
 
+    /// 仅解析已有目录路径（不创建）。路径为空或 `/` 时返回根目录 `0`。
+    pub async fn resolve_dir_path(&self, path: &str) -> Result<Option<String>> {
+        let mut parent_fid = "0".to_string();
+        let parts = path
+            .trim_matches('/')
+            .split('/')
+            .filter(|part| !part.is_empty());
+
+        for part in parts {
+            let items = self.list_dir(&parent_fid).await?;
+            let Some(found) = items
+                .into_iter()
+                .find(|item| item.is_dir && item.file_name == part)
+            else {
+                return Ok(None);
+            };
+            parent_fid = found.fid;
+        }
+
+        Ok(Some(parent_fid))
+    }
+
     /// 确保目录路径存在（递归创建）
     pub async fn ensure_dir_path(&self, path: &str) -> Result<String> {
         let mut parent_fid = "0".to_string();
 
         for part in path.trim_matches('/').split('/').filter(|p| !p.is_empty()) {
             let items = self.list_dir(&parent_fid).await?;
-            let mut found = None;
-
-            for item in items {
-                if item.is_dir && item.file_name == part {
-                    found = Some(item.fid.clone());
-                    break;
-                }
-            }
+            let found = items
+                .into_iter()
+                .find(|item| item.is_dir && item.file_name == part)
+                .map(|item| item.fid);
 
             parent_fid = if let Some(fid) = found {
                 fid

@@ -76,6 +76,7 @@
     renamePreviewLoading: false,
     renamePreview: null,
     renamePreviewError: '',
+    renamePreviewScope: 'matched',
     newSubscription: {
       title: '',
       url: '',
@@ -125,12 +126,16 @@
       keep_progress_on_source_change: true,
       continue_from_current_episode: true,
       finish_after_episode: '',
+      check_interval_minutes: 60,
       rule_preset_id: '',
-      preview_samples: ''
+      preview_samples: '',
+      preview_files: [],
+      preview_use_source_probe: true
     },
 
     // 通知
     showTransferModal: false,
+    transferingForSubscription: false,
     transferTargetResult: null,
     transferTargetFid: '0',
     transferTargetPath: '根目录',
@@ -176,7 +181,7 @@
     get subscriptionWizardSteps() {
       const steps = [{id: 'content', name: '内容'}];
       if (this.subscriptionMode === 'continuous' || this.subscriptionEditingId) {
-        steps.push({id: 'schedule', name: '排期'});
+        steps.push({id: 'rename', name: '高级规则'});
         steps.push({id: 'download', name: '下载'});
       }
       return steps;
@@ -211,6 +216,7 @@
       this.currentSearchResult = null;
       this.renamePreview = null;
       this.renamePreviewError = '';
+      this.renamePreviewScope = 'matched';
       this.newSubscription = {
         title: '',
         url: '',
@@ -260,8 +266,11 @@
         keep_progress_on_source_change: true,
         continue_from_current_episode: true,
         finish_after_episode: '',
+        check_interval_minutes: Number(this.settings.subscription_check_interval_minutes || 60),
         rule_preset_id: '',
-        preview_samples: ''
+        preview_samples: '',
+        preview_files: [],
+        preview_use_source_probe: false
       };
     },
 
@@ -272,7 +281,30 @@
 
     sampleFilesFromSearchResult(result) {
       const files = (result && result.probe_info && result.probe_info.files) || [];
-      return files.filter(file => !file.is_dir).map(file => file.name).join('\n');
+      return files.filter(file => !file.is_dir).map(file => this.previewFileDisplayPath(file)).join('\n');
+    },
+
+    previewFilesFromSearchResult(result) {
+      const files = (result && result.probe_info && result.probe_info.files) || [];
+      return files.filter(file => !file.is_dir).map(file => ({
+        name: file.name || '',
+        fid: file.fid || file.file_key || '',
+        is_dir: false,
+        size: Number(file.size || 0),
+        parent_path: file.parent_path || '',
+        updated_at: file.updated_at || null
+      }));
+    },
+
+    previewFileDisplayPath(file) {
+      const parent = String(file && file.parent_path || '').replace(/^\/+|\/+$/g, '');
+      const name = String(file && file.name || '').replace(/^\/+/, '');
+      return parent ? `${parent}/${name}` : name;
+    },
+
+    clearStructuredPreviewFiles() {
+      this.newSubscription.preview_files = [];
+      this.newSubscription.preview_use_source_probe = false;
     },
 
     searchResultTitle(result) {
@@ -369,6 +401,7 @@
       this.subscriptionDialogTab = 'content';
       this.renamePreview = null;
       this.renamePreviewError = '';
+      this.renamePreviewScope = 'matched';
       const sourceTitle = this.searchResultTitle(result);
       this.newSubscription = {
         title: this.inferSubscriptionTitle(sourceTitle),
@@ -419,8 +452,11 @@
         keep_progress_on_source_change: true,
         continue_from_current_episode: true,
         finish_after_episode: '',
+        check_interval_minutes: Number(this.settings.subscription_check_interval_minutes || 60),
         rule_preset_id: '',
-        preview_samples: this.sampleFilesFromSearchResult(result)
+        preview_samples: this.sampleFilesFromSearchResult(result),
+        preview_files: this.previewFilesFromSearchResult(result),
+        preview_use_source_probe: true
       };
       this.showSubscriptionDialog = true;
       this.metadataResults = [];
@@ -436,6 +472,7 @@
       this.currentSearchResult = null;
       this.renamePreview = null;
       this.renamePreviewError = '';
+      this.renamePreviewScope = 'matched';
       this.newSubscription = {
         title: sub.title || '',
         url: sub.url || '',
@@ -459,13 +496,17 @@
         sync_download_dir: sub.sync_download_dir || '',
         strm_enabled: !!sub.strm_enabled,
         metadata: sub.metadata || null,
-        manual_schedule_enabled: !!sub.manual_schedule,
+        // 保留已有手动排期，避免编辑其它字段保存时被清空
+        manual_schedule_enabled: !!(sub.manual_schedule && sub.manual_schedule.start_date),
         manual_schedule_start_date: (sub.manual_schedule && sub.manual_schedule.start_date) || '',
-        manual_schedule_weekdays: (sub.manual_schedule && sub.manual_schedule.weekdays) || [],
+        manual_schedule_weekdays: (sub.manual_schedule && Array.isArray(sub.manual_schedule.weekdays))
+          ? sub.manual_schedule.weekdays.map(Number)
+          : [],
         manual_schedule_air_time: (sub.manual_schedule && sub.manual_schedule.air_time) || '',
-        manual_schedule_interval_weeks: Number((sub.manual_schedule && sub.manual_schedule.interval_weeks) || 1),
-        manual_schedule_first_episode: Number((sub.manual_schedule && sub.manual_schedule.first_episode_number) || 1),
+        manual_schedule_interval_weeks: (sub.manual_schedule && sub.manual_schedule.interval_weeks) || 1,
+        manual_schedule_first_episode: (sub.manual_schedule && sub.manual_schedule.first_episode_number) || 1,
         manual_schedule_total_episodes: (sub.manual_schedule && sub.manual_schedule.total_episodes) || '',
+        check_interval_minutes: Number(rules.check_interval_minutes || (this.settings && this.settings.subscription_check_interval_minutes) || 60),
         include_keywords_text: (rules.include_keywords || []).join(', '),
         exclude_keywords_text: (rules.exclude_keywords || []).join(', ') || this.defaultExcludeKeywords(),
         match_regex: rules.match_regex || '',
@@ -486,7 +527,12 @@
         continue_from_current_episode: sub.media_type !== 'movie' && Number(sub.current_episode_number || 0) > 0,
         finish_after_episode: rules.finish_after_episode || '',
         rule_preset_id: sub.rule_preset_id || '',
-        preview_samples: ((sub.last_probe && sub.last_probe.files) || []).map(file => file.name).join('\n')
+        preview_samples: ((sub.last_probe && sub.last_probe.files) || []).map(file => this.previewFileDisplayPath(file)).join('\n'),
+        preview_files: ((sub.last_probe && sub.last_probe.files) || []).map(file => ({
+          name: file.name || '', fid: file.file_key || '', is_dir: false,
+          size: Number(file.size || 0), parent_path: file.parent_path || '', updated_at: file.updated_at || null
+        })),
+        preview_use_source_probe: true
       };
       this.showSubscriptionDialog = true;
       this.metadataResults = [];
@@ -571,6 +617,13 @@
         first_episode_number: Math.max(1, this.normalizeStartEpisode(this.newSubscription.manual_schedule_first_episode) || 1),
         total_episodes: total > 0 ? total : null
       };
+    },
+
+    // 编辑时：仅在确有排期数据时才发送 manual_schedule，避免 PUT null 清空已有排期
+    shouldSendManualSchedule() {
+      if (!this.subscriptionEditingId) return true;
+      return !!this.newSubscription.manual_schedule_enabled
+        && !!String(this.newSubscription.manual_schedule_start_date || '').trim();
     },
 
     subscriptionSourceChanged() {
@@ -1295,7 +1348,10 @@
         conflict_strategy: this.newSubscription.conflict_strategy || 'skip',
         notify_on_update: true,
         notify_on_invalid: true,
-        check_interval_minutes: Number(this.settings.subscription_check_interval_minutes || 60),
+        check_interval_minutes: Math.max(
+          5,
+          Number(this.newSubscription.check_interval_minutes || this.settings.subscription_check_interval_minutes || 60)
+        ),
         finish_after_episode: finish > 0 ? finish : null
       };
     },
@@ -1319,11 +1375,25 @@
     },
 
     previewSampleFiles() {
+      if (Array.isArray(this.newSubscription.preview_files) && this.newSubscription.preview_files.length) {
+        return this.newSubscription.preview_files;
+      }
       return String(this.newSubscription.preview_samples || '')
         .split('\n')
         .map(name => name.trim())
         .filter(Boolean)
         .map(name => ({name, is_dir: false}));
+    },
+
+    visibleRenamePreviewItems() {
+      const items = (this.renamePreview && this.renamePreview.items) || [];
+      return this.renamePreviewScope === 'all'
+        ? items.filter(item => item.skip_reason !== '目录暂不规划转存')
+        : items.filter(item => item.action === 'transfer');
+    },
+
+    renamePreviewSourceLabel(item) {
+      return this.previewFileDisplayPath({name: item.source_name, parent_path: item.source_parent_path});
     },
 
     async previewSubscriptionRename(silent = false) {
@@ -1342,12 +1412,18 @@
             season: this.normalizeSeason(this.newSubscription.season),
             start_episode_number: this.subscriptionStartEpisodePayload(),
             rules: this.buildSubscriptionRules(),
-            sample_files: this.previewSampleFiles()
+            sample_files: this.previewSampleFiles(),
+            probe_source: !!this.newSubscription.preview_use_source_probe
           })
         });
         const result = await response.json().catch(() => ({}));
         if (response.ok && result.data) {
           this.renamePreview = result.data;
+          const warning = String(result.data.probe_warning || '').trim();
+          if (warning) {
+            this.renamePreviewError = warning;
+            if (!silent) this.showNotification('warning', warning);
+          }
         } else {
           this.renamePreview = null;
           this.renamePreviewError = result.message || '预览失败';
@@ -1460,7 +1536,7 @@
 
       if (this.newSubscription.manual_schedule_enabled && !this.newSubscription.manual_schedule_start_date) {
         this.showNotification('error', '启用手动排期后必须填写开播日期');
-        this.subscriptionDialogTab = 'schedule';
+        this.subscriptionDialogTab = 'content';
         return;
       }
 
@@ -1522,12 +1598,11 @@
             season: this.normalizeSeason(this.newSubscription.season),
             start_episode_number: this.subscriptionStartEpisodePayload(),
             target_dir: rules.target_dir,
-            target_fid: '0',
+            target_fid: this.newSubscription.target_fid || '0',
             rename_template: rules.rename_template,
             notify_only: this.newSubscription.notify_only,
             sync_download_enabled: !!this.newSubscription.sync_download_enabled,
             sync_download_dir: this.newSubscription.sync_download_dir,
-            strm_enabled: !!this.newSubscription.strm_enabled,
             metadata: this.newSubscription.metadata,
             manual_schedule: this.manualSchedulePayload(),
             rule_preset_id: this.newSubscription.rule_preset_id || '',
@@ -1558,29 +1633,31 @@
     async updateSubscription() {
       try {
         const rules = this.buildSubscriptionRules();
+        const payload = {
+          title: this.newSubscription.title,
+          url: this.newSubscription.url,
+          password: this.newSubscription.password,
+          media_type: this.newSubscription.media_type,
+          season: this.normalizeSeason(this.newSubscription.season),
+          start_episode_number: this.subscriptionStartEpisodePayload(),
+          notify_only: this.newSubscription.notify_only,
+          sync_download_enabled: !!this.newSubscription.sync_download_enabled,
+          sync_download_dir: this.newSubscription.sync_download_dir,
+          keep_progress_on_source_change: !!this.newSubscription.keep_progress_on_source_change,
+          continue_from_current_episode: !!this.newSubscription.continue_from_current_episode,
+          metadata: this.newSubscription.metadata,
+          rule_preset_id: this.newSubscription.rule_preset_id || '',
+          rules,
+          target_dir: rules.target_dir,
+          rename_template: rules.rename_template
+        };
+        if (this.shouldSendManualSchedule()) {
+          payload.manual_schedule = this.manualSchedulePayload();
+        }
         const response = await apiFetch(`/api/subscriptions/${this.subscriptionEditingId}`, {
           method: 'PUT',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-            title: this.newSubscription.title,
-            url: this.newSubscription.url,
-            password: this.newSubscription.password,
-            media_type: this.newSubscription.media_type,
-            season: this.normalizeSeason(this.newSubscription.season),
-            start_episode_number: this.subscriptionStartEpisodePayload(),
-            notify_only: this.newSubscription.notify_only,
-            sync_download_enabled: !!this.newSubscription.sync_download_enabled,
-            sync_download_dir: this.newSubscription.sync_download_dir,
-            strm_enabled: !!this.newSubscription.strm_enabled,
-            keep_progress_on_source_change: !!this.newSubscription.keep_progress_on_source_change,
-            continue_from_current_episode: !!this.newSubscription.continue_from_current_episode,
-            metadata: this.newSubscription.metadata,
-            manual_schedule: this.manualSchedulePayload(),
-            rule_preset_id: this.newSubscription.rule_preset_id || '',
-            rules,
-            target_dir: rules.target_dir,
-            rename_template: rules.rename_template
-          })
+          body: JSON.stringify(payload)
         });
         const result = await response.json().catch(() => ({}));
         if (response.ok && result.data) {
@@ -1645,19 +1722,39 @@
     },
 
     async confirmTransfer() {
+      // 订阅向导里选目录：写回 target_fid/path，不发起转存
+      if (this.transferingForSubscription) {
+        this.newSubscription.target_fid = this.transferTargetFid || '0';
+        this.newSubscription.target_path = this.transferTargetPath || '';
+        if (this.transferTargetPath && this.transferTargetPath !== '根目录') {
+          this.newSubscription.custom_dir = true;
+          this.newSubscription.target_dir_name = this.transferTargetPath.startsWith('/')
+            ? this.transferTargetPath
+            : `/${this.transferTargetPath.split(' / ').filter(Boolean).join('/')}`;
+        }
+        this.showTransferModal = false;
+        this.transferingForSubscription = false;
+        this.transferTargetResult = null;
+        this.showNotification('success', '已选择目标目录');
+        return;
+      }
+
       if (!this.transferTargetResult) return;
 
       this.showTransferModal = false;
 
       try {
         this.showNotification('info', '正在转存到夸克网盘...');
+        const passcode = this.transferTargetResult.password
+          || this.transferTargetResult.passcode
+          || '';
 
         const data = await apiData('/api/transfer', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
             url: this.transferTargetResult.url,
-            passcode: '',
+            passcode,
             target_fid: this.transferTargetFid
           })
         });
@@ -1676,6 +1773,7 @@
         this.showNotification('error', this.apiErrorMessage(error, '转存失败'));
       } finally {
         this.transferTargetResult = null;
+        this.transferingForSubscription = false;
       }
     },
 
@@ -1703,15 +1801,7 @@
           await this.loadTransferBrowse(data.fid);
           this.showNotification('success', `已切换到 ${selected.name}`);
         } else {
-          this.showNotification('warning', `目录 ${selected.path} 不存在，已创建`);
-          // 目录已被 ensure_dir_path 创建，重新查找
-          const retryData = await apiData(`/api/drive/find-path?path=${encodeURIComponent(selected.path)}`);
-          if (retryData.found && retryData.fid) {
-            this.transferTargetFid = retryData.fid;
-            this.transferTargetPath = selected.path;
-            this.transferBrowseFidStack = [{fid: '0', name: '根目录'}, {fid: retryData.fid, name: selected.name}];
-            await this.loadTransferBrowse(retryData.fid);
-          }
+          this.showNotification('warning', `目录 ${selected.path} 不存在，请先在网盘中创建或手动浏览选择`);
         }
       } catch (error) {
         console.error('查找目录失败:', error);
@@ -1885,6 +1975,10 @@
     async loadSubscriptions() {
       try {
         const response = await apiFetch('/api/subscriptions');
+        if (!response.ok) {
+          const result = await response.json().catch(() => ({}));
+          throw new Error(result.message || result.error || `加载订阅失败 (${response.status})`);
+        }
         const data = await response.json();
         this.subscriptions = data.data || [];
         if (typeof this.recoverRemoteImagesAfterDataRefresh === 'function') {
@@ -1898,6 +1992,7 @@
         }
       } catch (error) {
         console.error('加载订阅失败:', error);
+        this.showNotification('error', this.apiErrorMessage(error, '加载订阅失败'));
       }
     },
 
@@ -1924,9 +2019,10 @@
           await this.loadJobs();
           await this.loadNotifications();
           if (this.selectedSubscriptionId === id) await this.loadSubscriptionDetail(id);
-        } else {
-          if (!options.silent) this.showNotification('error', data.message || '检查失败');
+          return true;
         }
+        if (!options.silent) this.showNotification('error', data.message || '检查失败');
+        return false;
       } catch (error) {
         console.error('检查订阅失败:', error);
         if (!options.silent) this.showNotification('error', this.apiErrorMessage(error, '检查订阅失败'));
@@ -1988,25 +2084,8 @@
       }
     },
 
-    async generateSubscriptionStrm(id) {
-      try {
-        this.showNotification('info', '正在生成 STRM 文件...');
-        const response = await apiFetch(`/api/subscriptions/${id}/strm`, {
-          method: 'POST'
-        });
-        const result = await response.json().catch(() => ({}));
-
-        if (response.ok && result.data) {
-          const count = result.data.generated_count || 0;
-          const dir = result.data.output_dir || '';
-          this.showNotification('success', dir ? `已生成 ${count} 个 STRM 文件到 ${dir}` : `已生成 ${count} 个 STRM 文件`);
-        } else {
-          this.showNotification('error', result.message || result.error || '生成 STRM 失败');
-        }
-      } catch (error) {
-        console.error('生成 STRM 失败:', error);
-        this.showNotification('error', this.apiErrorMessage(error, '生成 STRM 失败'));
-      }
+    async generateSubscriptionStrm() {
+      this.showNotification('info', 'STRM 模块已下线，请使用 Aria2 同步下载或网盘直链');
     },
 
     async scrapeSubscriptionMetadata(id) {
