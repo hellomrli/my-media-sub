@@ -1177,9 +1177,7 @@ fn subscription_due_for_check(
     now: i64,
     weekday: i32,
 ) -> bool {
-    if !sub.rules.check_weekdays.is_empty()
-        && !sub.rules.check_weekdays.iter().any(|day| *day == weekday)
-    {
+    if !sub.rules.check_weekdays.is_empty() && !sub.rules.check_weekdays.contains(&weekday) {
         return false;
     }
 
