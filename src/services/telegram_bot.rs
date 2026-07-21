@@ -460,12 +460,7 @@ impl TelegramBotService {
                         .answer_callback(&settings, &callback.id, "请确认订阅", false)
                         .await;
                     let _ = self
-                        .send_message_with_markup(
-                            &settings,
-                            message.chat.id,
-                            &text,
-                            Some(markup),
-                        )
+                        .send_message_with_markup(&settings, message.chat.id, &text, Some(markup))
                         .await;
                 }
                 Err(error) => {
@@ -488,12 +483,7 @@ impl TelegramBotService {
                         .answer_callback(&settings, &callback.id, "请确认换源", false)
                         .await;
                     let _ = self
-                        .send_message_with_markup(
-                            &settings,
-                            message.chat.id,
-                            &text,
-                            Some(markup),
-                        )
+                        .send_message_with_markup(&settings, message.chat.id, &text, Some(markup))
                         .await;
                 }
                 Err(error) => {

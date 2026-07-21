@@ -189,10 +189,7 @@ pub async fn apply_source_switch(
     }
 
     let reason = if req.force && !preview.can_apply {
-        format!(
-            "用户强制应用（存在风险：{}）",
-            preview.warnings.join("；")
-        )
+        format!("用户强制应用（存在风险：{}）", preview.warnings.join("；"))
     } else {
         "用户确认预览后手动应用".to_string()
     };
