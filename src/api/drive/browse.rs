@@ -8,8 +8,9 @@ pub(super) async fn list_drive(
     let settings = state.settings_store.get().await;
     let cookie = settings.quark_cookie.clone();
 
+    // 未配置 Cookie 时返回空列表（与历史契约一致），避免设置页未完成时整页报错。
     if cookie.is_empty() {
-        return Err(AppError::Validation("未配置夸克 Cookie".to_string()));
+        return Ok(json_ok(ListResponse { list: vec![] }));
     }
 
     let client = QuarkSaveClient::new(cookie.clone());
@@ -35,6 +36,7 @@ pub(super) async fn list_drive(
         }
     }
 
+    // Cookie 已配置但列举失败时必须返回错误，不能伪装成空目录。
     let items = client.list_dir(&fid).await.map_err(|error| {
         tracing::error!("列出目录失败: {}", error);
         error
