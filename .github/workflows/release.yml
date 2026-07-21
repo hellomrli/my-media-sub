@@ -62,12 +62,18 @@ jobs:
             echo "README.md is missing exact release heading: ### $CARGO_VERSION" >&2
             exit 1
           }
-          for FILE in "CHANGELOG-v${CARGO_VERSION}.md" "docs/upgrade-v${CARGO_VERSION}.md"; do
-            if [ ! -s "$FILE" ]; then
-              echo "Required release document is missing or empty: $FILE" >&2
-              exit 1
-            fi
-          done
+          if [ ! -s CHANGELOG.md ]; then
+            echo "Required release document is missing or empty: CHANGELOG.md" >&2
+            exit 1
+          fi
+          grep -Fqx "## $CARGO_VERSION" CHANGELOG.md || {
+            echo "CHANGELOG.md is missing exact version heading: ## $CARGO_VERSION" >&2
+            exit 1
+          }
+          if [ ! -s "docs/upgrade-v${CARGO_VERSION}.md" ]; then
+            echo "Required release document is missing or empty: docs/upgrade-v${CARGO_VERSION}.md" >&2
+            exit 1
+          fi
 
       - name: Check frontend JavaScript
         run: |
@@ -109,8 +115,7 @@ jobs:
           cp -r static "dist/${DIST}/static"
           cp -r docs "dist/${DIST}/docs"
           cp README.md "dist/${DIST}/"
-          CHANGELOG="CHANGELOG-${VERSION}.md"
-          cp "$CHANGELOG" "dist/${DIST}/"
+          cp CHANGELOG.md "dist/${DIST}/"
           tar -C dist -czf "${DIST}.tar.gz" "${DIST}"
           sha256sum "${DIST}.tar.gz" > "${DIST}.tar.gz.sha256"
           echo "archive=${DIST}.tar.gz" >> "$GITHUB_ENV"

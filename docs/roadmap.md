@@ -27,7 +27,7 @@
 - 发布范围为 P22：完结状态协调、缩略图恢复、Alpine 动态列表稳定性、工作台信息架构和当前架构文档。
 - 版本目标为 `1.13.1`，保持 `schema_version: 1`、JSON 单写、OpenAPI 91/103 和单实例管理员模型。
 - 在线更新必须发布 annotated tag、GitHub Release、Linux x86_64 归档/SHA256 与完整 `static/`；仅修改 Cargo 版本不足以被更新器发现。
-- 必需资料：README 精确 `### 1.13.1`、`CHANGELOG-v1.13.1.md`、`docs/upgrade-v1.13.1.md` 和发布检查清单。
+- 必需资料：README 精确 `### 1.13.1`、`CHANGELOG.md（1.13.1 章节）`、`docs/upgrade-v1.13.1.md` 和发布检查清单。
 - 本地发布门已通过：434 个 Rust 测试登记（433 通过、1 忽略）、17 个前端测试、OpenAPI 91/103、locked check/Clippy/test、Release build、二进制 smoke、真实浏览器和 Telegram 安全跳过均成功。
 - release commit `3aa26e8` 与 annotated tag `v1.13.1` 已推送；GitHub Release 为 latest、非 draft/prerelease。
 - Release `29166870806`、main CI `29166870737`、tag Docker `29166870815` 与 main/latest Docker `29166870749` 全部成功。
@@ -129,7 +129,7 @@
 - 筛选：状态、媒体类型；API 还支持订阅 ID 和日期范围。
 - 操作：订阅详情、立即检查、检查并补集。
 - 订阅编辑器：支持开播日期、播出星期、上海时间、周期、首集编号和总集数；关闭手动排期会向 API 发送 `null` 并清除覆盖。
-- 发布文档：`CHANGELOG-v1.3.0.md`、`docs/upgrade-v1.3.0.md`、`docs/v1.3.0-release-checklist.md`。
+- 发布文档：`CHANGELOG.md（1.3.0 章节）`、`docs/upgrade-v1.3.0.md`、`docs/v1.3.0-release-checklist.md`。
 - 架构：`docs/architecture.md` 与 Graphviz SVG/PNG 已更新为 v1.3.0，并包含 Calendar model/service/API、手动排期和前端模块。
 
 ### P2 已完成能力
@@ -283,7 +283,7 @@ git diff --check
 - [x] `P0-05-01` 已在 `docs/v1.2.0-release-checklist.md` 整理 6 个逻辑提交边界和交叉文件 staging 规则。
 - [!] `P0-05-02` 经用户确认后创建提交；不擅自提交或推送。
 - [x] `P0-05-03` 版本已升级到 1.2.0，并同步 Cargo、README、镜像标签示例、升级文档和 Release 工作流。
-- [x] `P0-05-04` 已新增 `CHANGELOG-v1.2.0.md` 和 README 1.2.0 Release 正文。
+- [x] `P0-05-04` 已新增 `CHANGELOG.md（1.2.0 章节）` 和 README 1.2.0 Release 正文。
 - [x] `P0-05-05` 已完成手工二进制/static 与 Docker 同数据卷的 v1.1.3→v1.2.0→v1.1.3 升级回滚演练。
 - [x] `P0-05-06` 已完成 1440/768/390px、深浅主题、8 个主页面共 48 组无头浏览器回归。
 - [x] `P0-05-07` 完整质量门、Release 归档、SHA256、内容和工作流校验均通过。
@@ -644,7 +644,7 @@ git diff --check
 
 - `docs/v1.2.0-release-checklist.md`：6 个逻辑提交边界、版本同步、工作流和发布验证清单；
 - `Cargo.toml`、`Cargo.lock`：版本 1.2.0；
-- `CHANGELOG-v1.2.0.md`、README `### 1.2.0`：完整更新内容和可提取 Release notes；
+- `CHANGELOG.md（1.2.0 章节）`、README `### 1.2.0`：完整更新内容和可提取 Release notes；
 - `.github/workflows/ci.yml`：all-targets/all-features check、clippy 和完整测试；
 - `.github/workflows/release.yml`：tag/Cargo 版本校验、前端测试、rustfmt、clippy、完整测试及 docs/CHANGELOG 归档；
 - 本地 Release 包：`my-media-sub-v1.2.0-linux-x86_64.tar.gz`，约 5.2 MiB；
@@ -674,7 +674,7 @@ git diff --check
 
 代码、文档和发布证据：
 
-- `CHANGELOG-v1.3.0.md`：日历能力、API、排期规则、兼容性和升级注意事项；
+- `CHANGELOG.md（1.3.0 章节）`：日历能力、API、排期规则、兼容性和升级注意事项；
 - `docs/upgrade-v1.3.0.md`：v1.2.0/v1.1.x 升级差异、备份、验证和回滚；
 - `docs/v1.3.0-release-checklist.md`：P1 逻辑提交边界、版本同步、工作流和发布验证；
 - `Cargo.toml`、`Cargo.lock`、README：版本、镜像/tag 示例和 `### 1.3.0` Release 正文统一；
