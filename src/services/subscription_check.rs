@@ -1,3 +1,4 @@
+use chrono::Datelike;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Weak};
@@ -569,13 +570,35 @@ impl SubscriptionCheckService {
             .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))
     }
 
-    /// 检查所有启用的订阅
+    /// 检查所有启用的订阅（手动/API：忽略单订阅间隔）
     pub async fn check_all_subscriptions(&self, cookie: &str) -> Result<Vec<CheckResult>> {
+        self.check_subscriptions_internal(cookie, false).await
+    }
+
+    /// 仅检查已到期的订阅（定时调度：尊重 `rules.check_interval_minutes` / `check_weekdays`）
+    pub async fn check_due_subscriptions(&self, cookie: &str) -> Result<Vec<CheckResult>> {
+        self.check_subscriptions_internal(cookie, true).await
+    }
+
+    async fn check_subscriptions_internal(
+        &self,
+        cookie: &str,
+        due_only: bool,
+    ) -> Result<Vec<CheckResult>> {
         let subscriptions = self.subscription_store.list().await;
+        let settings = self.settings_store.get().await;
+        let global_interval = crate::models::settings::normalize_check_interval_minutes(i64::from(
+            settings.subscription_check_interval_minutes,
+        ));
+        let now = unix_now();
+        let weekday = chrono::Local::now().weekday().number_from_monday() as i32;
         let eligible_ids = subscriptions
             .iter()
             .filter(|sub| sub.enabled)
             .filter(|sub| !sub.completed || should_reopen_completed_subscription(sub))
+            .filter(|sub| {
+                !due_only || subscription_due_for_check(sub, global_interval, now, weekday)
+            })
             .map(|sub| sub.id.clone())
             .collect::<Vec<_>>();
         if eligible_ids.is_empty() {
@@ -593,7 +616,6 @@ impl SubscriptionCheckService {
         let batch_service = self
             .with_subscription_store(batch_store.clone())
             .with_batch_probe_cache();
-        let settings = self.settings_store.get().await;
         let concurrency = settings
             .subscription_check_max_concurrency
             .min(settings.external_api_max_concurrency)
@@ -1141,6 +1163,122 @@ impl SubscriptionCheckService {
         .await;
 
         Ok(())
+    }
+}
+
+/// 是否到了该订阅的检查时间。
+///
+/// - `rules.check_interval_minutes > 0` 时覆盖全局间隔；
+/// - `rules.check_weekdays` 非空时仅在指定星期（1=周一 … 7=周日）检查；
+/// - 从未检查过（`last_checked_at == 0`）始终视为到期。
+fn subscription_due_for_check(
+    sub: &Subscription,
+    global_interval_minutes: i32,
+    now: i64,
+    weekday: i32,
+) -> bool {
+    if !sub.rules.check_weekdays.is_empty()
+        && !sub.rules.check_weekdays.iter().any(|day| *day == weekday)
+    {
+        return false;
+    }
+
+    if sub.last_checked_at <= 0 {
+        return true;
+    }
+
+    let interval_minutes = if sub.rules.check_interval_minutes > 0 {
+        crate::models::settings::normalize_check_interval_minutes(i64::from(
+            sub.rules.check_interval_minutes,
+        ))
+    } else {
+        global_interval_minutes
+    };
+    let interval_secs = i64::from(interval_minutes).saturating_mul(60);
+    now.saturating_sub(sub.last_checked_at) >= interval_secs
+}
+
+#[cfg(test)]
+mod due_check_tests {
+    use super::subscription_due_for_check;
+    use crate::models::rules::TransferRules;
+    use crate::models::subscription::Subscription;
+
+    fn sample_sub(interval: i32, last_checked: i64, weekdays: Vec<i32>) -> Subscription {
+        Subscription {
+            id: "s1".into(),
+            title: "t".into(),
+            source_title: String::new(),
+            media_type: "series".into(),
+            season: 1,
+            start_episode_number: None,
+            current_episode_number: 0,
+            total_episode_number: None,
+            source_group: String::new(),
+            tags: vec![],
+            metadata: None,
+            manual_schedule: None,
+            cloud_type: "quark".into(),
+            url: "u".into(),
+            password: String::new(),
+            known_files: vec![],
+            known_file_keys: vec![],
+            known_episodes: vec![],
+            transferred_files: vec![],
+            transferred_file_keys: vec![],
+            last_probe: None,
+            last_plan_summary: String::new(),
+            notify_only: false,
+            sync_download_enabled: false,
+            sync_download_dir: String::new(),
+            sync_downloads: vec![],
+            strm_enabled: false,
+            enabled: true,
+            completed: false,
+            rules: TransferRules {
+                check_interval_minutes: interval,
+                check_weekdays: weekdays,
+                ..TransferRules::default()
+            },
+            rule_preset_id: String::new(),
+            created_at: 0,
+            updated_at: 0,
+            last_checked_at: last_checked,
+            last_new_files: vec![],
+            last_new_episodes: vec![],
+            last_check_summary: String::new(),
+            check_history: vec![],
+            status: "active".into(),
+            invalid_since: None,
+            last_error: String::new(),
+            rule_summary: String::new(),
+            source_candidates: vec![],
+            last_source_search_time: None,
+            previous_share_links: vec![],
+            source_failure_count: 0,
+            last_source_switch_at: None,
+            source_switch_history: vec![],
+        }
+    }
+
+    #[test]
+    fn never_checked_is_due() {
+        let sub = sample_sub(60, 0, vec![]);
+        assert!(subscription_due_for_check(&sub, 60, 1_000, 1));
+    }
+
+    #[test]
+    fn respects_per_subscription_interval() {
+        let sub = sample_sub(30, 1_000, vec![]);
+        assert!(!subscription_due_for_check(&sub, 60, 1_000 + 29 * 60, 1));
+        assert!(subscription_due_for_check(&sub, 60, 1_000 + 30 * 60, 1));
+    }
+
+    #[test]
+    fn respects_check_weekdays() {
+        let sub = sample_sub(5, 0, vec![1, 3, 5]);
+        assert!(subscription_due_for_check(&sub, 60, 1, 1));
+        assert!(!subscription_due_for_check(&sub, 60, 1, 2));
     }
 }
 

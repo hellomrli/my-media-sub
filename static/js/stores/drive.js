@@ -156,7 +156,7 @@
         this.driveCurrentFid = parent.fid;
         this.updateDriveCurrentPath();
         this.driveSelectedItems = [];
-        await this.loadDrive();
+        await this.loadDrive(true);
       }
     },
 
@@ -167,7 +167,7 @@
       this.driveCurrentFid = current.fid;
       this.updateDriveCurrentPath();
       this.driveSelectedItems = [];
-      await this.loadDrive();
+      await this.loadDrive(true);
     },
 
     async driveItemClick(item) {
@@ -180,7 +180,7 @@
         this.driveCurrentFid = item.fid;
         this.updateDriveCurrentPath();
         this.driveSelectedItems = [];
-        await this.loadDrive();
+        await this.loadDrive(true);
       }
     },
 
@@ -421,7 +421,10 @@
         const data = await apiData('/api/drive/delete', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({fids})
+          body: JSON.stringify({
+            fids,
+            confirmation: fids.length === 1 ? `DELETE ${fids[0]}` : `DELETE ${fids.length}`
+          })
         });
         if (data.success === false) {
           this.showNotification('error', data.message || data.error || '批量删除失败');

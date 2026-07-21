@@ -11,9 +11,9 @@
   <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%234f46e5%27/%3E%3Cpath d=%27M8 9h16v14H8zm4-4v22m8-22v22%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27/%3E%3C/svg%3E">
-  <script src="js/theme-init.js?v=2.2.4"></script>
-  <link rel="stylesheet" href="styles.css?v=2.2.4">
-  <script defer src="vendor/alpine.min.js?v=2.2.4"></script>
+  <script src="js/theme-init.js?v=2.2.5"></script>
+  <link rel="stylesheet" href="styles.css?v=2.2.5">
+  <script defer src="vendor/alpine.min.js?v=2.2.5"></script>
 </head>
 <body class="bg-app text-text/90 min-h-screen" x-data="app()" x-cloak>
 
@@ -140,10 +140,9 @@
       </header>
 
       <div x-show="pwaOffline" class="pwa-status-banner is-offline" role="status"><span>离线模式：API 与媒体流不会使用缓存</span></div>
-      <div x-show="pwaUpdateReady" class="pwa-status-banner is-update" role="status"><span>新版本静态资源已就绪</span><div><button @click="dismissPwaUpdate()">稍后</button><button @click="applyPwaUpdate()">立即更新</button></div></div>
+      <div x-show="pwaUpdateReady" class="pwa-status-banner is-update" role="status"><span x-text="pwaApplyingUpdate ? '正在切换到新版本…' : '新版本静态资源已就绪'"></span><div><button @click="dismissPwaUpdate()" :disabled="pwaApplyingUpdate">稍后</button><button @click="applyPwaUpdate()" :disabled="pwaApplyingUpdate" x-text="pwaApplyingUpdate ? '更新中…' : '立即更新'"></button></div></div>
 
       <div class="app-content flex-1 overflow-y-auto px-4 sm:px-5 py-4 sm:py-5">
-
         <!-- 工作台 -->
         <div x-show="currentTab === 'dashboard'" class="page-stack dashboard-page">
           <section x-show="dashboardWidgetEnabled('quick_actions')" class="pwa-quick-actions app-panel p-3" aria-label="快捷入口">
@@ -1083,7 +1082,7 @@
                     <div class="flex flex-wrap justify-end gap-2">
                       <button @click="openEditSubscriptionDialog(sub); subscriptionActionMenuId = ''" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">编辑订阅</button>
                       <button @click="renameExistingFiles(sub.id); subscriptionActionMenuId = ''" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">修复命名</button>
-                      <button @click="generateSubscriptionStrm(sub.id); subscriptionActionMenuId = ''" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">生成 STRM</button>
+
                       <button @click="scrapeSubscriptionMetadata(sub.id); subscriptionActionMenuId = ''" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">自动刮削</button>
                       <button @click="openManualMetadataScrape(sub); subscriptionActionMenuId = ''" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">手动刮削</button>
                       <button @click="openSourceSwitchDialog(sub); subscriptionActionMenuId = ''" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">换源</button>
@@ -1134,7 +1133,7 @@
                   <div x-show="subscriptionActionMenuId === sub.id" class="grid grid-cols-2 gap-1 border-t border-border pt-2">
                     <button @click="openEditSubscriptionDialog(sub); subscriptionActionMenuId = ''" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">编辑</button>
                     <button @click="renameExistingFiles(sub.id); subscriptionActionMenuId = ''" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">修复</button>
-                    <button @click="generateSubscriptionStrm(sub.id); subscriptionActionMenuId = ''" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">STRM</button>
+
                     <button @click="scrapeSubscriptionMetadata(sub.id); subscriptionActionMenuId = ''" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">刮削</button>
                     <button @click="openManualMetadataScrape(sub); subscriptionActionMenuId = ''" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">手动</button>
                     <button @click="openSourceSwitchDialog(sub); subscriptionActionMenuId = ''" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">换源</button>
@@ -2457,8 +2456,8 @@
 
       <!-- 操作按钮 -->
       <div class="flex gap-3">
-        <button @click="showTransferModal = false" class="btn-secondary flex-1 px-4 py-2 rounded-lg transition-colors">取消</button>
-        <button @click="confirmTransfer()" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors">确认转存到此目录</button>
+        <button @click="showTransferModal = false; transferingForSubscription = false" class="btn-secondary flex-1 px-4 py-2 rounded-lg transition-colors">取消</button>
+        <button @click="confirmTransfer()" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors" x-text="transferingForSubscription ? '确认选择此目录' : '确认转存到此目录'"></button>
       </div>
     </div>
   </div>
@@ -2585,7 +2584,6 @@
       <div class="mb-6">
         <div class="border-b border-border flex gap-2 overflow-x-auto">
           <button @click="subscriptionDialogTab = 'content'" :class="subscriptionDialogTab === 'content' ? 'text-text border-primary' : 'text-muted border-transparent hover:text-text/90'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">订阅内容</button>
-          <button x-show="subscriptionMode === 'continuous' || subscriptionEditingId" @click="subscriptionDialogTab = 'schedule'" :class="subscriptionDialogTab === 'schedule' ? 'text-text border-primary' : 'text-muted border-transparent hover:text-text/90'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">播出排期</button>
           <button x-show="subscriptionMode === 'continuous' || subscriptionEditingId" @click="subscriptionDialogTab = 'rename'" :class="subscriptionDialogTab === 'rename' ? 'text-text border-primary' : 'text-muted border-transparent hover:text-text/90'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">高级规则</button>
           <button x-show="subscriptionMode === 'continuous' || subscriptionEditingId" @click="subscriptionDialogTab = 'download'" :class="subscriptionDialogTab === 'download' ? 'text-text border-primary' : 'text-muted border-transparent hover:text-text/90'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">下载</button>
         </div>
@@ -2745,8 +2743,11 @@
                   <span class="text-success" x-text="getDefaultTargetDir()"></span>
                 </div>
                 <div x-show="newSubscription.custom_dir" class="space-y-2">
-                  <input type="text" x-model="newSubscription.target_dir_name" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="目录名称，例如：庆余年（2024）" />
-                  <p class="text-xs text-muted/75">电影保存到该目录；连续剧和动画会在该目录下保存到 Season X。</p>
+                  <div class="flex gap-2">
+                    <input type="text" x-model="newSubscription.target_dir_name" class="flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="目录名称或完整路径，例如：庆余年（2024）" />
+                    <button type="button" @click="browseTargetDir()" class="btn-secondary px-3 py-2 rounded-lg text-sm whitespace-nowrap">浏览网盘</button>
+                  </div>
+                  <p class="text-xs text-muted/75">可手填目录名，或浏览夸克网盘选择已有路径。电影保存到该目录；连续剧和动画会在该目录下保存到 Season X。</p>
                 </div>
               </div>
               <div>
@@ -2775,6 +2776,7 @@
               <div><label class="field-label">候选排除词</label><input type="text" x-model="newSubscription.source_exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" /></div>
               <div><label class="field-label">候选质量偏好</label><input type="text" x-model="newSubscription.source_prefer_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="2160p, 简中, HEVC" /></div>
               <div><label class="field-label">完成集数</label><input type="number" min="1" x-model="newSubscription.finish_after_episode" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：12" /></div>
+              <div><label class="field-label">检查间隔（分钟）</label><input type="number" min="5" step="5" x-model.number="newSubscription.check_interval_minutes" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="默认跟随全局设置" /><small class="field-help">仅本订阅；定时调度会尊重此间隔，手动检查全部不受限。</small></div>
               <div>
                 <label class="field-label">同集保留策略</label>
                 <select x-model="newSubscription.duplicate_episode_strategy" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
@@ -2801,24 +2803,28 @@
               <div>
                 <div class="text-sm font-medium text-text/80">重命名预览</div>
                 <div class="text-xs text-muted/75" x-text="renamePreview ? renamePreview.summary : '使用搜索嗅探文件、最近探测文件或下面的样例文件预览规则。'"></div>
+                <div x-show="renamePreviewError" class="text-xs text-warning mt-1" x-text="renamePreviewError"></div>
               </div>
-              <button @click="previewSubscriptionRename()" :disabled="renamePreviewLoading" class="btn-secondary px-3 py-2 rounded text-sm disabled:opacity-50">
-                <span x-show="!renamePreviewLoading">预览</span>
-                <span x-show="renamePreviewLoading">预览中</span>
-              </button>
+              <div class="flex flex-wrap gap-2">
+                <div class="segmented-control"><button type="button" @click="renamePreviewScope = 'matched'" :class="renamePreviewScope === 'matched' ? 'is-active' : ''">符合条件</button><button type="button" @click="renamePreviewScope = 'all'" :class="renamePreviewScope === 'all' ? 'is-active' : ''">全部文件</button></div>
+                <button @click="previewSubscriptionRename()" :disabled="renamePreviewLoading" class="btn-secondary px-3 py-2 rounded text-sm disabled:opacity-50">
+                  <span x-show="!renamePreviewLoading">预览</span><span x-show="renamePreviewLoading">预览中</span>
+                </button>
+              </div>
             </div>
-            <textarea x-model="newSubscription.preview_samples" rows="4" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="每行一个样例文件名，例如：&#10;第01集.mkv&#10;Show.S01E02.1080p.mkv"></textarea>
+            <textarea x-model="newSubscription.preview_samples" @input="clearStructuredPreviewFiles()" rows="4" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="每行一个样例文件名，例如：&#10;第01集.mkv&#10;Show.S01E02.1080p.mkv"></textarea>
+            <p class="text-xs text-muted/70">搜索嗅探结果会保留子文件夹路径；手动修改上方样例后将改用文本预览。</p>
             <div x-show="renamePreviewError" class="text-sm text-danger" x-text="renamePreviewError"></div>
-            <div x-show="renamePreview && renamePreview.items && renamePreview.items.length > 0" class="border border-border rounded-lg overflow-hidden">
+            <div x-show="renamePreview && visibleRenamePreviewItems().length > 0" class="border border-border rounded-lg overflow-hidden">
               <div class="hidden md:grid grid-cols-12 gap-2 px-3 py-2 bg-app text-xs text-muted/75">
                 <div class="col-span-4">原文件名</div>
                 <div class="col-span-4">目标文件名</div>
                 <div class="col-span-2">集数</div>
                 <div class="col-span-2">结果</div>
               </div>
-              <template x-for="(item, itemIndex) in (renamePreview && renamePreview.items) || []" :key="'rename-preview-' + item.source_name + '-' + item.target_name + '-' + itemIndex">
+              <template x-for="(item, itemIndex) in visibleRenamePreviewItems()" :key="'rename-preview-' + item.source_name + '-' + item.target_name + '-' + itemIndex">
                 <div class="grid gap-2 px-3 py-3 border-t border-border text-xs md:grid-cols-12">
-                  <div class="text-text/80 break-all md:col-span-4" x-text="item.source_name"></div>
+                  <div class="text-text/80 break-all md:col-span-4" x-text="renamePreviewSourceLabel(item)"></div>
                   <div class="text-success break-all md:col-span-4" x-text="item.target_name"></div>
                   <div class="text-muted md:col-span-2"><span class="text-muted/75 md:hidden">集数 </span><span x-text="item.episode ? '第 ' + item.episode + ' 集' : '-'"></span></div>
                   <div class="md:col-span-2">
@@ -2827,44 +2833,7 @@
                 </div>
               </template>
             </div>
-          </div>
-        </div>
-
-        <div x-show="subscriptionDialogTab === 'schedule' && (subscriptionMode === 'continuous' || subscriptionEditingId)" class="space-y-4">
-          <div class="app-panel-soft p-4 space-y-3">
-            <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer">
-              <input type="checkbox" x-model="newSubscription.manual_schedule_enabled" class="rounded" />
-              <span>使用手动播出排期</span>
-            </label>
-            <p class="text-xs text-muted/75">手动排期优先于 TMDB 逐集日期，但不会修改已刮削的原始元数据。关闭后恢复使用元数据和周期推断。</p>
-          </div>
-
-          <div x-show="newSubscription.manual_schedule_enabled" class="app-panel-soft p-4 space-y-4">
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div><label class="field-label">开播日期</label><input type="date" x-model="newSubscription.manual_schedule_start_date" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" /></div>
-              <div><label class="field-label">播出时间（上海）</label><input type="time" x-model="newSubscription.manual_schedule_air_time" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" /></div>
-            </div>
-            <div>
-              <label class="field-label">播出星期 <span class="text-muted/60">未选择时使用开播日期的星期</span></label>
-              <div class="schedule-weekdays">
-                <template x-for="day in [{id:1,name:'一'},{id:2,name:'二'},{id:3,name:'三'},{id:4,name:'四'},{id:5,name:'五'},{id:6,name:'六'},{id:7,name:'日'}]" :key="day.id">
-                  <button type="button" @click="toggleManualScheduleWeekday(day.id)" :class="newSubscription.manual_schedule_weekdays.map(Number).includes(day.id) ? 'is-active' : ''" x-text="'周' + day.name"></button>
-                </template>
-              </div>
-            </div>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div><label class="field-label">周期（周）</label><input type="number" min="1" max="52" x-model.number="newSubscription.manual_schedule_interval_weeks" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" /></div>
-              <div><label class="field-label">首集编号</label><input type="number" min="1" x-model.number="newSubscription.manual_schedule_first_episode" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" /></div>
-              <div><label class="field-label">总集数</label><input type="number" min="1" x-model="newSubscription.manual_schedule_total_episodes" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="可留空" /></div>
-            </div>
-            <div class="text-xs text-muted/75 leading-6">
-              示例：开播日期为周一，选择“周一、周四”，周期为 1，将按每周两集生成排期；周期为 2 则隔周播出。
-            </div>
-          </div>
-
-          <div x-show="!newSubscription.manual_schedule_enabled" class="app-panel-soft p-4">
-            <div class="text-sm font-medium text-text/80">自动排期来源</div>
-            <p class="mt-2 text-xs text-muted/75">优先使用逐集元数据和下一集日期；只有发布日期时显示开播/上映日期；数据不足时会标记为“排期未知”。</p>
+            <div x-show="renamePreview && visibleRenamePreviewItems().length === 0" class="rounded-lg border border-border p-4 text-sm text-muted/75">当前筛选下没有可显示的文件。</div>
           </div>
         </div>
 
@@ -2964,29 +2933,29 @@
     </div>
   </div>
   <!-- Alpine.js 应用逻辑 -->
-  <script src="js/core/api.js?v=2.2.4"></script>
-  <script src="js/core/formatters.js?v=2.2.4"></script>
-  <script src="js/core/ux.js?v=2.2.4"></script>
-  <script src="js/features/search-results.js?v=2.2.4"></script>
-  <script src="js/features/subscription-detail.js?v=2.2.4"></script>
-  <script src="js/features/calendar.js?v=2.2.4"></script>
-  <script src="js/features/source-switch.js?v=2.2.4"></script>
-  <script src="js/features/automation-events.js?v=2.2.4"></script>
-  <script src="js/core/polling.js?v=2.2.4"></script>
-  <script src="js/core/router.js?v=2.2.4"></script>
-  <script src="js/core/notifications.js?v=2.2.4"></script>
-  <script src="js/stores/downloads.js?v=2.2.4"></script>
-  <script src="js/stores/drive.js?v=2.2.4"></script>
-  <script src="js/stores/jobs.js?v=2.2.4"></script>
-  <script src="js/stores/subscriptions.js?v=2.2.4"></script>
-  <script src="js/features/updates.js?v=2.2.4"></script>
-  <script src="js/features/settings.js?v=2.2.4"></script>
-  <script src="js/features/diagnostics.js?v=2.2.4"></script>
-  <script src="js/features/pwa.js?v=2.2.4"></script>
-  <script src="js/features/dashboard.js?v=2.2.4"></script>
-  <script src="js/features/search-page.js?v=2.2.4"></script>
-  <script src="js/features/calendar-page.js?v=2.2.4"></script>
-  <script src="js/core/shell.js?v=2.2.4"></script>
-  <script src="app.js?v=2.2.4"></script>
+  <script src="js/core/api.js?v=2.2.5"></script>
+  <script src="js/core/formatters.js?v=2.2.5"></script>
+  <script src="js/core/ux.js?v=2.2.5"></script>
+  <script src="js/features/search-results.js?v=2.2.5"></script>
+  <script src="js/features/subscription-detail.js?v=2.2.5"></script>
+  <script src="js/features/calendar.js?v=2.2.5"></script>
+  <script src="js/features/source-switch.js?v=2.2.5"></script>
+  <script src="js/features/automation-events.js?v=2.2.5"></script>
+  <script src="js/core/polling.js?v=2.2.5"></script>
+  <script src="js/core/router.js?v=2.2.5"></script>
+  <script src="js/core/notifications.js?v=2.2.5"></script>
+  <script src="js/stores/downloads.js?v=2.2.5"></script>
+  <script src="js/stores/drive.js?v=2.2.5"></script>
+  <script src="js/stores/jobs.js?v=2.2.5"></script>
+  <script src="js/stores/subscriptions.js?v=2.2.5"></script>
+  <script src="js/features/updates.js?v=2.2.5"></script>
+  <script src="js/features/settings.js?v=2.2.5"></script>
+  <script src="js/features/diagnostics.js?v=2.2.5"></script>
+  <script src="js/features/pwa.js?v=2.2.5"></script>
+  <script src="js/features/dashboard.js?v=2.2.5"></script>
+  <script src="js/features/search-page.js?v=2.2.5"></script>
+  <script src="js/features/calendar-page.js?v=2.2.5"></script>
+  <script src="js/core/shell.js?v=2.2.5"></script>
+  <script src="app.js?v=2.2.5"></script>
 </body>
 </html>

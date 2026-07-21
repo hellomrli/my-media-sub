@@ -91,7 +91,7 @@ impl SubscriptionScheduler {
                         return;
                     }
 
-                    match check_service.check_all_subscriptions(&cookie).await {
+                    match check_service.check_due_subscriptions(&cookie).await {
                         Ok(results) => {
                             let total = results.len();
                             let updated: Vec<_> =

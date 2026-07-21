@@ -9,19 +9,23 @@ pub(super) async fn list_drive(
     let cookie = settings.quark_cookie.clone();
 
     if cookie.is_empty() {
-        return Ok(json_ok(ListResponse { list: vec![] }));
+        return Err(AppError::Validation("未配置夸克 Cookie".to_string()));
     }
 
-    // 优先使用 fid，如果没有则使用 path
-    let fid = if let Some(f) = req.fid {
+    let client = QuarkSaveClient::new(cookie.clone());
+
+    // 优先使用 fid；否则按 path 只读解析（不创建目录）
+    let fid = if let Some(f) = req.fid.filter(|value| !value.trim().is_empty()) {
         f
     } else {
         let path = req.path.unwrap_or_else(|| "/".to_string());
-        if path == "/" || path.is_empty() {
+        if path.trim().is_empty() || path.trim() == "/" {
             "0".to_string()
         } else {
-            // 暂时只支持根目录
-            "0".to_string()
+            client
+                .resolve_dir_path(&path)
+                .await?
+                .ok_or_else(|| AppError::NotFound(format!("目录不存在: {path}")))?
         }
     };
     let cache_key = drive_cache_key(&cookie, &fid);
@@ -31,18 +35,12 @@ pub(super) async fn list_drive(
         }
     }
 
-    let client = QuarkSaveClient::new(cookie);
-
-    match client.list_dir(&fid).await {
-        Ok(items) => {
-            cache_drive_items(&state, cache_key, items.clone()).await;
-            Ok(json_ok(ListResponse { list: items }))
-        }
-        Err(e) => {
-            tracing::error!("列出目录失败: {}", e);
-            Ok(json_ok(ListResponse { list: vec![] }))
-        }
-    }
+    let items = client.list_dir(&fid).await.map_err(|error| {
+        tracing::error!("列出目录失败: {}", error);
+        error
+    })?;
+    cache_drive_items(&state, cache_key, items.clone()).await;
+    Ok(json_ok(ListResponse { list: items }))
 }
 
 pub(super) async fn cached_drive_items(
@@ -96,18 +94,16 @@ pub(super) async fn find_path(
 
     let client = QuarkSaveClient::new(cookie);
 
-    // 使用 ensure_dir_path 查找或创建路径
-    match client.ensure_dir_path(&req.path).await {
-        Ok(fid) => {
-            clear_drive_cache(&state).await;
-            Ok(json_ok(FindPathResponse { fid, found: true }))
-        }
+    // 只读查找，不创建缺失目录
+    match client.resolve_dir_path(&req.path).await {
+        Ok(Some(fid)) => Ok(json_ok(FindPathResponse { fid, found: true })),
+        Ok(None) => Ok(json_ok(FindPathResponse {
+            fid: "0".to_string(),
+            found: false,
+        })),
         Err(e) => {
             tracing::warn!("查找路径 {} 失败: {}", req.path, e);
-            Ok(json_ok(FindPathResponse {
-                fid: "0".to_string(),
-                found: false,
-            }))
+            Err(e)
         }
     }
 }

@@ -33,6 +33,7 @@ pub struct TransferPlan {
 #[derive(Debug, Clone)]
 pub struct TransferItem {
     pub source_name: String,
+    pub source_parent_path: String,
     pub source_fid: String,
     pub episode: Option<i32>,
     pub episodes: Vec<i32>,
@@ -378,6 +379,7 @@ pub fn build_transfer_plan(
 
         let mut item = TransferItem {
             source_name: name.clone(),
+            source_parent_path: raw.parent_path.clone(),
             source_fid: raw.fid.clone(),
             episode,
             episodes: ep_info.episodes.clone(),
@@ -804,6 +806,10 @@ mod tests {
 
         assert_eq!(plan.transfer_count, 1);
         assert_eq!(plan.transfers[0].source_name, "25 4K.mp4");
+        assert_eq!(
+            plan.transfers[0].source_parent_path,
+            "一人之下 第六季/第6季"
+        );
         assert_eq!(plan.skipped[0].skip_reason, "非当前订阅季");
         assert_eq!(plan.skipped[1].skip_reason, "目录暂不规划转存");
     }

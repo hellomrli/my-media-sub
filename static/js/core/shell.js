@@ -24,7 +24,7 @@
     _dangerConfirmResolve: null,
 
     get uiBusy() {
-      return !!(this.subscriptionDetailLoading || this.subscriptionBatchLoading || this.driveLoading || this.downloadsLoading || this.diagnosticsLoading || this.calendarLoading || this.searchLoading || this.checkingAllSubscriptions);
+      return !!(this.subscriptionDetailLoading || this.subscriptionBatchLoading || this.driveLoading || this.downloadsLoading || this.diagnosticsLoading || this.calendarLoading || this.searching || this.checkingAllSubscriptions);
     },
 
     async init() {

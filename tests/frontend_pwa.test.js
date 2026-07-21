@@ -64,6 +64,29 @@ test('shortcut parser only accepts declared actions', () => {
   assert.equal(pwa.SHORTCUTS.length, 6);
 });
 
+test('PWA update unwraps Alpine native registrations and requests activation', async () => {
+  const originalAlpine = global.Alpine;
+  const originalWindow = global.window;
+  const rawRegistration = {waiting: {postMessage(message) { this.message = message; }}};
+  const wrappedRegistration = {wrapped: true};
+  global.Alpine = {raw(value) {
+    assert.equal(value, wrappedRegistration);
+    return rawRegistration;
+  }};
+  global.window = {location: {reload() {}}};
+  try {
+    const store = pwa.createStore();
+    store.pwaRegistration = wrappedRegistration;
+    await store.applyPwaUpdate();
+    assert.deepEqual(rawRegistration.waiting.message, {type: 'SKIP_WAITING'});
+    assert.equal(store.pwaApplyingUpdate, true);
+    clearTimeout(store.pwaUpdateReloadTimer);
+  } finally {
+    global.Alpine = originalAlpine;
+    global.window = originalWindow;
+  }
+});
+
 test('390px mobile contract and install hooks are present', () => {
   const css = fs.readFileSync(path.join(root, 'tailwind/input.css'), 'utf8');
   const html = fs.readFileSync(path.join(root, 'static/index.html'), 'utf8');
