@@ -18,6 +18,7 @@ use crate::services::push::{
 use crate::services::subscription_progress::reconcile_completed_subscription_status;
 use crate::services::{MetadataService, SubscriptionTransferService};
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
+use crate::utils::metrics::global_metrics;
 
 use super::model::{
     job_idempotency_key, now, Job, JobErrorClass, JobKind, JobPriority, JobStatus,
@@ -43,6 +44,25 @@ const WATCHDOG_POLL_SECONDS: u64 = 60;
 
 /// 运行中任务的中止句柄注册表：取消 API 通过它真正终止已在执行的任务。
 pub(crate) type RunningJobHandles = Arc<StdMutex<HashMap<String, AbortHandle>>>;
+
+pub(crate) fn running_job_handles(
+    handles: &RunningJobHandles,
+) -> std::sync::MutexGuard<'_, HashMap<String, AbortHandle>> {
+    handles.lock().unwrap_or_else(|poisoned| {
+        warn!("running job handle registry lock was poisoned; recovering inner map");
+        poisoned.into_inner()
+    })
+}
+
+fn record_job_store_update_failure(job_id: &str, operation: &str, error: &AppError) {
+    global_metrics().increment_job_store_update_failure();
+    error!(
+        job_id = %job_id,
+        operation,
+        error = %error,
+        "job store update failed"
+    );
+}
 
 /// Tokio 的 JoinHandle 在 Drop 时会 detach。外层调度包装器被 abort 时，用该
 /// guard 确保内层业务任务也同步终止，而不是脱离 JoinSet 继续修改状态。
@@ -150,9 +170,7 @@ impl JobWorker {
                                 .await
                             });
                             let _abort_on_drop = AbortTaskOnDrop::new(handle.abort_handle());
-                            handles
-                                .lock()
-                                .expect("running job handle registry poisoned")
+                            running_job_handles(&handles)
                                 .insert(job.id.clone(), handle.abort_handle());
                             // 看门狗只在任务超过阈值没有任何心跳（store 更新会刷新
                             // updated_at）时才判定卡死；缓慢但持续汇报进度的批量转存
@@ -185,10 +203,7 @@ impl JobWorker {
                                     JobTaskResult::TimedOut
                                 }
                             };
-                            handles
-                                .lock()
-                                .expect("running job handle registry poisoned")
-                                .remove(&job.id);
+                            running_job_handles(&handles).remove(&job.id);
                             let duration = job_started.elapsed();
                             crate::utils::metrics::global_metrics().observe_slow_operation(
                                 &format!("job:{}", job.kind.as_str()),
@@ -331,10 +346,7 @@ impl JobWorker {
     }
 
     fn abort_running_jobs(&self) -> usize {
-        let handles = self
-            .running_handles
-            .lock()
-            .expect("running job handle registry poisoned")
+        let handles = running_job_handles(&self.running_handles)
             .drain()
             .map(|(_, handle)| handle)
             .collect::<Vec<_>>();
@@ -359,7 +371,9 @@ impl JobWorker {
                         due_at.saturating_sub(now()) as u64,
                     ))
                     .await;
-                    let _ = sender.send(id).await;
+                    if sender.send(id.clone()).await.is_err() {
+                        warn!(job_id = %id, "failed to wake delayed job: channel closed");
+                    }
                 });
                 return;
             }
@@ -408,7 +422,7 @@ impl JobWorker {
             }
             JobTaskResult::TimedOut => {
                 error!("任务 {} 超过卡死检测阈值，已终止", job_id);
-                let _ = self
+                if let Err(error) = self
                     .store
                     .update_if(job_id, |job| {
                         if job.status != JobStatus::Running {
@@ -422,7 +436,10 @@ impl JobWorker {
                         job.finished_at = Some(now());
                         true
                     })
-                    .await;
+                    .await
+                {
+                    record_job_store_update_failure(job_id, "mark_timed_out", &error);
+                }
             }
         }
     }
@@ -434,7 +451,7 @@ impl JobWorker {
         let class = super::scheduler::job_resource(&job).class;
         if job.status == JobStatus::Succeeded {
             circuits.record_success(class);
-            let _ = self
+            if let Err(error) = self
                 .store
                 .update_if(&job.id, |current| {
                     if current.status != JobStatus::Succeeded {
@@ -445,7 +462,10 @@ impl JobWorker {
                     current.next_attempt_at = None;
                     true
                 })
-                .await;
+                .await
+            {
+                record_job_store_update_failure(&job.id, "clear_success_error", &error);
+            }
             return;
         }
         let Some(error_class) = job_error_class(&job) else {
@@ -453,7 +473,7 @@ impl JobWorker {
             return;
         };
         circuits.record_failure(class, error_class);
-        let _ = self
+        if let Err(error) = self
             .store
             .update_if(&job.id, |current| {
                 if current.status != JobStatus::Failed {
@@ -462,7 +482,10 @@ impl JobWorker {
                 current.error_class = Some(error_class);
                 true
             })
-            .await;
+            .await
+        {
+            record_job_store_update_failure(&job.id, "attach_error_class", &error);
+        }
 
         if !job.kind.supports_automatic_retry()
             || !is_retryable(error_class)
@@ -473,7 +496,7 @@ impl JobWorker {
         let next_attempt = job.attempt + 1;
         let delay = retry_delay_seconds(&job.id, next_attempt);
         let due_at = now() + delay;
-        if self
+        match self
             .store
             .update_if(&job.id, |current| {
                 if current.status != JobStatus::Failed {
@@ -489,16 +512,21 @@ impl JobWorker {
                 true
             })
             .await
-            .ok()
-            .flatten()
-            .is_some()
         {
-            let sender = self.sender.clone();
-            let id = job.id;
-            tokio::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_secs(delay as u64)).await;
-                let _ = sender.send(id).await;
-            });
+            Ok(Some(_)) => {
+                let sender = self.sender.clone();
+                let id = job.id;
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(delay as u64)).await;
+                    if sender.send(id.clone()).await.is_err() {
+                        warn!(job_id = %id, "failed to requeue job after retry delay: channel closed");
+                    }
+                });
+            }
+            Ok(None) => {}
+            Err(error) => {
+                record_job_store_update_failure(&job.id, "requeue_retry", &error);
+            }
         }
     }
 
