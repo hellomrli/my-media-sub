@@ -1,6 +1,6 @@
 # My Media Sub 当前架构
 
-> 本文以 `main`（v1.13.1）为准，只描述当前仍在运行的结构与约束。阶段进度见 [`roadmap.md`](roadmap.md)，HTTP 细节见 [`api-contract.md`](api-contract.md)，自动化与 Telegram 的安全合同分别见 [`automation-api.md`](automation-api.md) 和 [`telegram-bot.md`](telegram-bot.md)。
+> 本文以 `main`（v2.2.7）为准，只描述当前仍在运行的结构与约束。阶段进度见 [`roadmap.md`](roadmap.md)，HTTP 细节见 [`api-contract.md`](api-contract.md)，自动化与 Telegram 的安全合同分别见 [`automation-api.md`](automation-api.md) 和 [`telegram-bot.md`](telegram-bot.md)。
 
 ## 架构图
 
@@ -84,15 +84,15 @@ SubscriptionScheduler / API / Telegram
 - 日历缩略图优先级为剧集 still → 当前季 poster → 媒体 poster。
 - `MediaCalendarService` 是从 Subscription、Job、Notification 和 AutomationEvent 快照计算出的只读视图，不维护第二份日历 Store。
 
-### 转存、STRM 与下载
+### 转存与下载
 
 ```text
 检查结果 -> SubscriptionTransfer Job -> CloudDriveProvider::transfer
-         -> 重命名 -> STRM -> Aria2 -> DownloadMonitor
-         -> 媒体库刷新 -> Notification / Push / AutomationEvent
+         -> 重命名 -> Aria2（可选同步下载）-> DownloadMonitor
+         -> 媒体库刷新（PostTransferModule）-> Notification / Push / AutomationEvent
 ```
 
-每个阶段使用稳定幂等键和 correlation；Job 的业务结果与 AutomationEvent、Notification、Metrics 各自承担不同职责，不能互相替代。
+STRM 自 v2.2.0 起模块级下线（`STRM_MODULE_ENABLED=false`），转存链路不再生成 STRM；settings 中仍保留字段以便日后以独立模块接回。每个阶段使用稳定幂等键和 correlation；Job 的业务结果与 AutomationEvent、Notification、Metrics 各自承担不同职责，不能互相替代。
 
 ## 后台执行
 
@@ -149,7 +149,7 @@ static/js/
 - `apiData()` 处理标准成功信封；`apiFetch()` 保留状态码/响应头语义。
 - Job 优先使用 SSE，断线后有界重连；下载、通知和页面数据使用具备生命周期清理的轮询。
 - 高频 `x-for` 列表必须使用唯一且可恢复的渲染 key；外部图片加载失败后必须允许新 URL 或重试恢复。
-- Service Worker 只缓存应用壳层：HTML network-first，静态资源 stale-while-revalidate；API、STRM、health、跨域和非 GET 永不缓存。
+- Service Worker 只缓存应用壳层：HTML network-first，静态资源 stale-while-revalidate；API、health、跨域和非 GET 永不缓存。
 - 修改任何静态资源时必须提升 `CACHE_VERSION`，发布时二进制和完整 `static/` 必须配套替换。
 
 ## 可观测性、安全与数据生命周期

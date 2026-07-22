@@ -19,6 +19,7 @@ pub struct Metrics {
     failed_stages: AtomicU64,
     source_switches: AtomicU64,
     job_queue_depth: AtomicU64,
+    job_store_update_failures: AtomicU64,
     backup_successes: AtomicU64,
     backup_failures: AtomicU64,
     restore_successes: AtomicU64,
@@ -76,6 +77,7 @@ pub struct MetricsSnapshot {
     pub failed_stages: u64,
     pub source_switches: u64,
     pub job_queue_depth: u64,
+    pub job_store_update_failures: u64,
     pub backup_successes: u64,
     pub backup_failures: u64,
     pub restore_successes: u64,
@@ -172,6 +174,10 @@ impl Metrics {
     }
     pub fn set_job_queue_depth(&self, value: u64) {
         self.job_queue_depth.store(value, Ordering::Relaxed);
+    }
+    pub fn increment_job_store_update_failure(&self) {
+        self.job_store_update_failures
+            .fetch_add(1, Ordering::Relaxed);
     }
     pub fn increment_backup_success(&self) {
         self.backup_successes.fetch_add(1, Ordering::Relaxed);
@@ -328,6 +334,12 @@ impl Metrics {
             snapshot.job_queue_depth
         );
         metric!(
+            "my_media_sub_job_store_update_failures_total",
+            "counter",
+            "Job store update failures in worker reliability paths.",
+            snapshot.job_store_update_failures
+        );
+        metric!(
             "my_media_sub_push_sent_total",
             "counter",
             "Push messages sent.",
@@ -391,6 +403,7 @@ impl Metrics {
             failed_stages: self.failed_stages.load(Ordering::Relaxed),
             source_switches: self.source_switches.load(Ordering::Relaxed),
             job_queue_depth: self.job_queue_depth.load(Ordering::Relaxed),
+            job_store_update_failures: self.job_store_update_failures.load(Ordering::Relaxed),
             backup_successes: self.backup_successes.load(Ordering::Relaxed),
             backup_failures: self.backup_failures.load(Ordering::Relaxed),
             restore_successes: self.restore_successes.load(Ordering::Relaxed),
@@ -444,5 +457,17 @@ mod tests {
         assert_eq!(jobs.parse_duration_us_total, 35);
         assert_eq!(jobs.write_duration_us_total, 40);
         assert_eq!(jobs.failures, 1);
+    }
+
+    #[test]
+    fn job_store_update_failure_metric_increments() {
+        let metrics = Metrics::default();
+        metrics.increment_job_store_update_failure();
+        metrics.increment_job_store_update_failure();
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.job_store_update_failures, 2);
+        assert!(metrics
+            .prometheus()
+            .contains("my_media_sub_job_store_update_failures_total 2"));
     }
 }

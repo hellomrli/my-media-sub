@@ -181,11 +181,7 @@ impl JobQueue {
 
         // 状态已成功置为 Canceled 后再真正中止已在运行的任务，让它立即释放
         // 并发额度，而不是继续占用到卡死阈值。
-        let handle = self
-            .running_handles
-            .lock()
-            .expect("running job handle registry poisoned")
-            .remove(id);
+        let handle = super::worker::running_job_handles(&self.running_handles).remove(id);
         if let Some(handle) = handle {
             handle.abort();
         }

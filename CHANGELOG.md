@@ -4,6 +4,39 @@ My Media Sub 的版本变更记录。新版本写在上方。
 
 升级步骤见对应的 [`docs/upgrade-v*.md`](docs/)；当前版本发布说明摘要也写在 [`README.md`](README.md) 的「版本说明」中。
 
+## 2.2.7
+
+### 修复
+
+- Job Worker：超时标记、成功清理错误字段、附加 `error_class`、自动重试入队等路径在 store 写失败时写入日志并累加 `job_store_update_failures` 指标，不再静默丢弃。
+- Job 运行句柄注册表：mutex poison 时恢复内层 map 并告警，避免后续取消/中止路径 panic。
+- 延迟唤醒与重试信号在 channel 关闭时记录警告。
+
+### 文档
+
+- `docs/roadmap.md` / `docs/architecture.md` 对齐当前基线；架构图转存流水线标注 STRM 已下线。
+
+### 其他
+
+- Telegram 搜索结果上限 5 → 10。
+- PWA 缓存代次与前端资源版本升至 2.2.7。
+
+### 兼容性
+
+- JSON Store schema 未变化。
+- 可直接从 v2.2.6 升级，保留现有 `data/`。
+
+### 升级
+
+```bash
+# Docker
+docker compose pull && docker compose up -d
+
+# 二进制：备份 DATA_DIR → 校验新包 → 同时替换二进制和整个 static/ → 保留 data/ → 启动后检查 /health
+```
+
+不要只替换二进制而继续使用旧版 `static/`。
+
 ## 2.2.6
 
 ### 新功能
