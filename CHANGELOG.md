@@ -4,6 +4,28 @@ My Media Sub 的版本变更记录。新版本写在上方。
 
 升级步骤见对应的 [`docs/upgrade-v*.md`](docs/)；当前版本发布说明摘要也写在 [`README.md`](README.md) 的「版本说明」中。
 
+## 2.2.10
+
+### 修复
+
+- 订阅「高级规则」界面：去掉与步骤条重复的第二套 Tab；修正覆盖设置里表单嵌套错误；默认规则/预设合并为单卡；样例文件收进折叠区，仅保留季度折叠预览列表。
+
+### 兼容性
+
+- JSON Store schema 未变化。
+- 可直接从 v2.2.9 升级，保留现有 `data/`。
+
+### 升级
+
+```bash
+# Docker
+docker compose pull && docker compose up -d
+
+# 二进制：备份 DATA_DIR → 校验新包 → 同时替换二进制和整个 static/ → 保留 data/ → 启动后检查 /health
+```
+
+不要只替换二进制而继续使用旧版 `static/`。
+
 ## 2.2.9
 
 ### 修复

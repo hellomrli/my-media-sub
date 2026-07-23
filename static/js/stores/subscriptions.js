@@ -185,7 +185,7 @@
 
     // 设置
     get subscriptionWizardSteps() {
-      const steps = [{id: 'content', name: '内容'}];
+      const steps = [{id: 'content', name: '订阅内容'}];
       if (this.subscriptionMode === 'continuous' || this.subscriptionEditingId) {
         steps.push({id: 'rename', name: '高级规则'});
         steps.push({id: 'download', name: '下载'});

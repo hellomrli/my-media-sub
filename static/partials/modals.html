@@ -200,9 +200,10 @@
     <div class="app-panel dialog-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="订阅配置" tabindex="-1">
       <h3 class="text-xl font-bold text-text mb-6" x-text="subscriptionEditingId ? '编辑订阅' : '创建订阅'"></h3>
 
-      <div class="mb-6 grid grid-cols-3 gap-2">
+      <!-- 步骤导航（唯一入口，不再重复 Tab） -->
+      <div class="mb-6 grid gap-2" :class="subscriptionWizardSteps.length > 1 ? 'grid-cols-3' : 'grid-cols-1'">
         <template x-for="(step, index) in subscriptionWizardSteps" :key="step.id">
-          <button @click="subscriptionDialogTab = step.id" class="border rounded-lg px-3 py-2 text-sm transition-colors" :class="subscriptionWizardStepClass(step, index)">
+          <button type="button" @click="subscriptionDialogTab = step.id; if (step.id === 'rename' && !renamePreview && newSubscription.preview_samples) previewSubscriptionRename(true)" class="border rounded-lg px-3 py-2 text-sm transition-colors" :class="subscriptionWizardStepClass(step, index)">
             <span class="font-semibold" x-text="index + 1"></span>
             <span class="ml-1" x-text="step.name"></span>
           </button>
@@ -213,23 +214,14 @@
       <div x-show="!subscriptionEditingId" class="mb-6">
         <label class="block text-sm font-medium text-text/80 mb-3">订阅类型</label>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <button @click="setSubscriptionMode('once')" :class="subscriptionMode === 'once' ? 'bg-primary/20 border-primary' : 'bg-surface-2 border-border hover:border-border'" class="p-4 rounded-lg border transition-all text-left">
+          <button type="button" @click="setSubscriptionMode('once')" :class="subscriptionMode === 'once' ? 'bg-primary/20 border-primary' : 'bg-surface-2 border-border hover:border-border'" class="p-4 rounded-lg border transition-all text-left">
             <div class="text-text font-semibold mb-1">仅转存一次</div>
             <div class="text-sm text-muted">立即转存到网盘，不创建订阅记录</div>
           </button>
-          <button @click="setSubscriptionMode('continuous')" :class="subscriptionMode === 'continuous' ? 'bg-primary/20 border-primary' : 'bg-surface-2 border-border hover:border-border'" class="p-4 rounded-lg border transition-all text-left">
+          <button type="button" @click="setSubscriptionMode('continuous')" :class="subscriptionMode === 'continuous' ? 'bg-primary/20 border-primary' : 'bg-surface-2 border-border hover:border-border'" class="p-4 rounded-lg border transition-all text-left">
             <div class="text-text font-semibold mb-1">持续追更</div>
             <div class="text-sm text-muted">创建订阅，定期检查并自动转存</div>
           </button>
-        </div>
-      </div>
-
-      <!-- 订阅配置 -->
-      <div class="mb-6">
-        <div class="border-b border-border flex gap-2 overflow-x-auto">
-          <button @click="subscriptionDialogTab = 'content'" :class="subscriptionDialogTab === 'content' ? 'text-text border-primary' : 'text-muted border-transparent hover:text-text/90'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">订阅内容</button>
-          <button x-show="subscriptionMode === 'continuous' || subscriptionEditingId" @click="subscriptionDialogTab = 'rename'" :class="subscriptionDialogTab === 'rename' ? 'text-text border-primary' : 'text-muted border-transparent hover:text-text/90'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">高级规则</button>
-          <button x-show="subscriptionMode === 'continuous' || subscriptionEditingId" @click="subscriptionDialogTab = 'download'" :class="subscriptionDialogTab === 'download' ? 'text-text border-primary' : 'text-muted border-transparent hover:text-text/90'" class="px-4 py-2 border-b-2 text-sm font-medium whitespace-nowrap transition-colors">下载</button>
         </div>
       </div>
 
@@ -340,29 +332,27 @@
         </div>
 
         <div x-show="subscriptionDialogTab === 'rename' && (subscriptionMode === 'continuous' || subscriptionEditingId)" class="space-y-4">
+          <!-- 默认规则 + 预设（单卡，避免与覆盖设置重复） -->
           <div class="app-panel-soft p-4 space-y-3">
-            <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-              <div>
-                <div class="text-sm font-medium text-text/80">默认跟随系统规则</div>
-                <div class="text-xs text-muted/75">未开启自定义模板时，订阅会按规则中心/系统默认模板重命名。</div>
+            <div class="flex flex-col sm:flex-row gap-3 sm:items-start sm:justify-between">
+              <div class="min-w-0">
+                <div class="text-sm font-medium text-text/80">当前生效规则</div>
+                <div class="text-xs text-muted/75 mt-1">未自定义时跟随规则中心；下方可选用预设或展开覆盖。</div>
               </div>
-              <button @click="showSubscriptionDialog = false; selectTab('settings'); selectSettingsTab('naming')" class="btn-secondary px-3 py-2 rounded text-xs">规则中心</button>
+              <button type="button" @click="showSubscriptionDialog = false; selectTab('settings'); selectSettingsTab('naming')" class="btn-secondary px-3 py-2 rounded text-xs shrink-0">规则中心</button>
             </div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-              <div class="p-3 bg-app rounded-lg border border-border">
-                <span class="block text-xs text-muted/75 mb-1">重命名模板</span>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+              <div class="rounded-lg border border-border bg-app px-3 py-2">
+                <span class="block text-xs text-muted/75">模板</span>
                 <span class="text-success break-all" x-text="getDefaultRenameTemplate()"></span>
               </div>
-              <div class="p-3 bg-app rounded-lg border border-border">
-                <span class="block text-xs text-muted/75 mb-1">保存目录</span>
+              <div class="rounded-lg border border-border bg-app px-3 py-2">
+                <span class="block text-xs text-muted/75">目录</span>
                 <span class="text-success break-all" x-text="getDefaultTargetDir()"></span>
               </div>
             </div>
-          </div>
-
-          <div class="app-panel-soft p-4 space-y-3">
             <div class="flex flex-col sm:flex-row sm:items-end gap-3">
-              <div class="flex-1">
+              <div class="flex-1 min-w-0">
                 <label class="field-label">规则预设</label>
                 <select x-model="newSubscription.rule_preset_id" @change="applyRulePresetToSubscription(newSubscription.rule_preset_id)" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
                   <option value="">不使用预设</option>
@@ -371,18 +361,17 @@
                   </template>
                 </select>
               </div>
-              <button @click="showSubscriptionDialog = false; selectTab('settings'); selectSettingsTab('naming')" class="btn-secondary px-3 py-2 rounded text-sm">管理预设</button>
             </div>
             <div x-show="newSubscription.rule_preset_id" class="text-xs text-muted/75" x-text="rulePresetById(newSubscription.rule_preset_id)?.description || ruleSummary(rulePresetById(newSubscription.rule_preset_id)?.rules)"></div>
           </div>
 
           <details class="app-panel-soft p-4">
-            <summary class="cursor-pointer text-sm font-medium text-text/80 hover:text-text">本订阅覆盖设置</summary>
+            <summary class="cursor-pointer text-sm font-medium text-text/80 hover:text-text">本订阅覆盖设置（可选）</summary>
             <div class="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div>
                 <label class="flex items-center justify-between text-sm font-medium text-text/80 mb-2">
                   <span>转存目录</span>
-                  <button @click="newSubscription.custom_dir = !newSubscription.custom_dir" class="text-xs text-primary hover:text-primary">
+                  <button type="button" @click="newSubscription.custom_dir = !newSubscription.custom_dir" class="text-xs text-primary hover:text-primary">
                     <span x-text="newSubscription.custom_dir ? '使用默认' : '自定义'"></span>
                   </button>
                 </label>
@@ -395,13 +384,13 @@
                     <input type="text" x-model="newSubscription.target_dir_name" class="flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="目录名称或完整路径，例如：庆余年（2024）" />
                     <button type="button" @click="browseTargetDir()" class="btn-secondary px-3 py-2 rounded-lg text-sm whitespace-nowrap">浏览网盘</button>
                   </div>
-                  <p class="text-xs text-muted/75">可手填剧名目录，或浏览网盘选择。单季会落到 Season N；多季（如 1-4）只写剧名，转存时自动创建对应 Season 文件夹。</p>
+                  <p class="text-xs text-muted/75">单季落到 Season N；多季只写剧名，转存时自动创建 Season 文件夹。</p>
                 </div>
               </div>
               <div>
                 <label class="flex items-center justify-between text-sm font-medium text-text/80 mb-2">
                   <span>重命名模板</span>
-                  <button @click="newSubscription.custom_rename = !newSubscription.custom_rename" class="text-xs text-primary hover:text-primary">
+                  <button type="button" @click="newSubscription.custom_rename = !newSubscription.custom_rename" class="text-xs text-primary hover:text-primary">
                     <span x-text="newSubscription.custom_rename ? '使用默认' : '自定义'"></span>
                   </button>
                 </label>
@@ -410,35 +399,61 @@
                   <span class="text-success" x-text="getDefaultRenameTemplate()"></span>
                 </div>
                 <div x-show="newSubscription.custom_rename" class="space-y-2">
-                  <input type="text" x-model="newSubscription.rename_template" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="例如：庆余年.S01E{} 或 影片名" />
+                  <input type="text" x-model="newSubscription.rename_template" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="例如：{title}.S{season}E{episode}.{ext}" />
                   <p class="text-xs text-muted/75">支持 <code class="text-text/80">{title}</code>、<code class="text-text/80">{season}</code>、<code class="text-text/80">{episode}</code>、<code class="text-text/80">{ext}</code>。</p>
                 </div>
               </div>
             </div>
-            <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div><label class="field-label">包含关键词</label><input type="text" x-model="newSubscription.include_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="多个用逗号或换行分隔" /></div>
-              <div><label class="field-label">排除关键词</label><input type="text" x-model="newSubscription.exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="预告, 花絮, trailer" /></div>
-              <div><label class="field-label">匹配正则</label><input type="text" x-model="newSubscription.match_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：S01E\\d+|第\\d+集" /></div>
-              <div><label class="field-label">集数识别覆盖正则</label><input type="text" x-model="newSubscription.episode_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：\\[(?P&lt;episode&gt;\\d+)\\]" /><small class="field-help">必须包含命名捕获 episode，可选 season。</small></div>
-              <div><label class="field-label">换源搜索关键词</label><input type="text" x-model="newSubscription.source_search_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="多个关键词用逗号分隔" /></div>
-              <div><label class="field-label">候选排除词</label><input type="text" x-model="newSubscription.source_exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" /></div>
-              <div><label class="field-label">候选质量偏好</label><input type="text" x-model="newSubscription.source_prefer_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="2160p, 简中, HEVC" /></div>
-              <div><label class="field-label">完成集数</label><input type="number" min="1" x-model="newSubscription.finish_after_episode" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：12" /></div>
-              <div><label class="field-label">检查间隔（分钟）</label><input type="number" min="5" step="5" x-model.number="newSubscription.check_interval_minutes" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="默认跟随全局设置" /><small class="field-help">仅本订阅；定时调度会尊重此间隔，手动检查全部不受限。</small></div>
-              <div>
-                <label class="field-label">同集保留策略</label>
-                <select x-model="newSubscription.duplicate_episode_strategy" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
-                  <option value="highest_quality">清晰度最高</option>
-                  <option value="latest_upload">上传时间最新</option>
-                  <option value="largest_size">文件最大</option>
-                  <option value="first">最先出现</option>
-                </select>
-              <div><label class="field-label">目标同名冲突</label><select x-model="newSubscription.conflict_strategy" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text"><option value="skip">跳过已有文件</option><option value="overwrite">覆盖已有文件</option><option value="keep_both">保留两份</option></select></div>
+
+            <div class="mt-4 space-y-3">
+              <div class="text-xs font-medium text-muted/80">过滤与识别</div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div><label class="field-label">包含关键词</label><input type="text" x-model="newSubscription.include_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="多个用逗号或换行分隔" /></div>
+                <div><label class="field-label">排除关键词</label><input type="text" x-model="newSubscription.exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="预告, 花絮, trailer" /></div>
+                <div><label class="field-label">匹配正则</label><input type="text" x-model="newSubscription.match_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：S01E\\d+|第\\d+集" /></div>
+                <div>
+                  <label class="field-label">集数识别覆盖正则</label>
+                  <input type="text" x-model="newSubscription.episode_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：\\[(?P&lt;episode&gt;\\d+)\\]" />
+                  <small class="field-help">须含命名捕获 episode，可选 season。</small>
+                </div>
               </div>
-              <div><label class="field-label">重命名正则</label><input type="text" x-model="newSubscription.rename_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：^\\d+\\." /></div>
-              <div><label class="field-label">替换文本</label><input type="text" x-model="newSubscription.rename_replacement" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：S01E$0" /></div>
             </div>
-            <div class="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-3">
+
+            <div class="mt-4 space-y-3">
+              <div class="text-xs font-medium text-muted/80">换源与进度</div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div><label class="field-label">换源搜索关键词</label><input type="text" x-model="newSubscription.source_search_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="多个关键词用逗号分隔" /></div>
+                <div><label class="field-label">候选排除词</label><input type="text" x-model="newSubscription.source_exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" /></div>
+                <div><label class="field-label">候选质量偏好</label><input type="text" x-model="newSubscription.source_prefer_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="2160p, 简中, HEVC" /></div>
+                <div><label class="field-label">完成集数</label><input type="number" min="1" x-model="newSubscription.finish_after_episode" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：12" /></div>
+                <div>
+                  <label class="field-label">检查间隔（分钟）</label>
+                  <input type="number" min="5" step="5" x-model.number="newSubscription.check_interval_minutes" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="默认跟随全局设置" />
+                  <small class="field-help">仅本订阅；手动检查不受此限制。</small>
+                </div>
+                <div>
+                  <label class="field-label">同集保留策略</label>
+                  <select x-model="newSubscription.duplicate_episode_strategy" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
+                    <option value="highest_quality">清晰度最高</option>
+                    <option value="latest_upload">上传时间最新</option>
+                    <option value="largest_size">文件最大</option>
+                    <option value="first">最先出现</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="field-label">目标同名冲突</label>
+                  <select x-model="newSubscription.conflict_strategy" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
+                    <option value="skip">跳过已有文件</option>
+                    <option value="overwrite">覆盖已有文件</option>
+                    <option value="keep_both">保留两份</option>
+                  </select>
+                </div>
+                <div><label class="field-label">重命名正则</label><input type="text" x-model="newSubscription.rename_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：^\\d+\\." /></div>
+                <div><label class="field-label">替换文本</label><input type="text" x-model="newSubscription.rename_replacement" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：S01E$0" /></div>
+              </div>
+            </div>
+
+            <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="newSubscription.ignore_extensions" class="rounded" />忽略扩展名匹配</label>
               <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="newSubscription.only_latest" class="rounded" />仅处理最新一集</label>
               <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="newSubscription.skip_existing_transferred" class="rounded" />跳过已转存</label>
@@ -446,23 +461,35 @@
             </div>
           </details>
 
+          <!-- 仅保留季度折叠预览；样例输入收进可折叠区 -->
           <div class="app-panel-soft p-4 space-y-3">
             <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-              <div>
+              <div class="min-w-0">
                 <div class="text-sm font-medium text-text/80">重命名预览</div>
-                <div class="text-xs text-muted/75" x-text="renamePreview ? renamePreview.summary : '使用搜索嗅探文件、最近探测文件或下面的样例文件预览规则。'"></div>
-                <div x-show="renamePreviewError" class="text-xs text-warning mt-1" x-text="renamePreviewError"></div>
+                <div class="text-xs text-muted/75 mt-0.5" x-text="renamePreview ? renamePreview.summary : '按季度折叠显示转存与重命名结果'"></div>
               </div>
-              <div class="flex flex-wrap gap-2">
-                <div class="segmented-control"><button type="button" @click="renamePreviewScope = 'matched'" :class="renamePreviewScope === 'matched' ? 'is-active' : ''">符合条件</button><button type="button" @click="renamePreviewScope = 'all'" :class="renamePreviewScope === 'all' ? 'is-active' : ''">全部文件</button></div>
-                <button @click="previewSubscriptionRename()" :disabled="renamePreviewLoading" class="btn-secondary px-3 py-2 rounded text-sm disabled:opacity-50">
-                  <span x-show="!renamePreviewLoading">预览</span><span x-show="renamePreviewLoading">预览中</span>
+              <div class="flex flex-wrap items-center gap-2 shrink-0">
+                <div class="segmented-control">
+                  <button type="button" @click="renamePreviewScope = 'matched'" :class="renamePreviewScope === 'matched' ? 'is-active' : ''">符合条件</button>
+                  <button type="button" @click="renamePreviewScope = 'all'" :class="renamePreviewScope === 'all' ? 'is-active' : ''">全部文件</button>
+                </div>
+                <button type="button" @click="previewSubscriptionRename()" :disabled="renamePreviewLoading" class="btn-secondary px-3 py-2 rounded text-sm disabled:opacity-50">
+                  <span x-show="!renamePreviewLoading">刷新预览</span>
+                  <span x-show="renamePreviewLoading">预览中</span>
                 </button>
               </div>
             </div>
-            <textarea x-model="newSubscription.preview_samples" @input="clearStructuredPreviewFiles()" rows="4" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="每行一个样例文件名，例如：&#10;第01集.mkv&#10;Show.S01E02.1080p.mkv"></textarea>
-            <p class="text-xs text-muted/70">搜索嗅探结果会保留子文件夹路径；手动修改上方样例后将改用文本预览。</p>
-            <div x-show="renamePreviewError" class="text-sm text-danger" x-text="renamePreviewError"></div>
+
+            <div x-show="renamePreviewError" class="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning" x-text="renamePreviewError"></div>
+
+            <details class="rounded-lg border border-border bg-app">
+              <summary class="cursor-pointer px-3 py-2 text-xs text-muted hover:text-text">样例文件（可选，默认用搜索嗅探结果）</summary>
+              <div class="border-t border-border p-3 space-y-2">
+                <textarea x-model="newSubscription.preview_samples" @input="clearStructuredPreviewFiles()" rows="3" class="w-full px-3 py-2 bg-panel border border-border rounded-lg text-text text-xs" placeholder="每行一个文件名，例如：&#10;第01集.mkv&#10;Show.S01E02.1080p.mkv"></textarea>
+                <p class="text-xs text-muted/70">修改样例后点「刷新预览」；会改用文本预览而非结构化嗅探路径。</p>
+              </div>
+            </details>
+
             <div x-show="renamePreview && groupedRenamePreviewSeasons().length > 0" class="space-y-2">
               <div class="flex flex-wrap gap-2 justify-end">
                 <button type="button" @click="expandAllRenamePreviewSeasons()" class="text-xs text-primary hover:text-primary">全部展开</button>
@@ -499,6 +526,7 @@
                 </div>
               </template>
             </div>
+            <div x-show="!renamePreview" class="rounded-lg border border-dashed border-border p-4 text-sm text-muted/75">进入本页会自动预览；也可点「刷新预览」。</div>
             <div x-show="renamePreview && groupedRenamePreviewSeasons().length === 0" class="rounded-lg border border-border p-4 text-sm text-muted/75">当前筛选下没有可显示的文件。</div>
           </div>
         </div>

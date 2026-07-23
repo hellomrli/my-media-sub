@@ -30,6 +30,7 @@ test('subscription wizard defaults to automatic scheduling and omits the schedul
   const state = store();
   state.subscriptionMode = 'continuous';
   assert.deepEqual(state.subscriptionWizardSteps.map(step => step.id), ['content', 'rename', 'download']);
+  assert.deepEqual(state.subscriptionWizardSteps.map(step => step.name), ['订阅内容', '高级规则', '下载']);
   assert.equal(state.manualSchedulePayload(), null);
 });
 
