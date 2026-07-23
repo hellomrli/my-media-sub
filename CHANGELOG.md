@@ -4,6 +4,29 @@ My Media Sub 的版本变更记录。新版本写在上方。
 
 升级步骤见对应的 [`docs/upgrade-v*.md`](docs/)；当前版本发布说明摘要也写在 [`README.md`](README.md) 的「版本说明」中。
 
+## 2.2.8
+
+### 修复
+
+- Aria2 同步下载与手动提交：超过「单批提交大小」时按批循环提交全部文件，不再截断丢弃剩余任务。
+- 设置文案改为「Aria2 单批提交大小」，明确该值控制每批提交数量而非任务总数上限。
+
+### 兼容性
+
+- JSON Store schema 未变化。
+- 可直接从 v2.2.7 升级，保留现有 `data/`。
+
+### 升级
+
+```bash
+# Docker
+docker compose pull && docker compose up -d
+
+# 二进制：备份 DATA_DIR → 校验新包 → 同时替换二进制和整个 static/ → 保留 data/ → 启动后检查 /health
+```
+
+不要只替换二进制而继续使用旧版 `static/`。
+
 ## 2.2.7
 
 ### 修复
