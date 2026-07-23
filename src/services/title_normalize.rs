@@ -48,9 +48,11 @@ pub fn normalize_title_detailed(title: &str) -> NormalizedTitle {
     }
 
     let mut cleaned = collapse_spaces(&output);
+    cleaned = strip_leading_decorative_symbols(&cleaned);
     cleaned = trim_bilingual_prefix(&cleaned);
     cleaned = SUFFIX_RE.replace(&cleaned, "").to_string();
     cleaned = collapse_spaces(&cleaned);
+    cleaned = strip_leading_decorative_symbols(&cleaned);
 
     let normalized = if cleaned.is_empty() {
         original.clone()
@@ -66,6 +68,127 @@ pub fn normalize_title_detailed(title: &str) -> NormalizedTitle {
 
 fn collapse_spaces(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// 去掉标题前方的 emoji / 符号装饰（如 🗄 📺 ★），避免干扰元数据匹配。
+fn strip_leading_decorative_symbols(value: &str) -> String {
+    let trimmed = value.trim_start();
+    let mut chars = trimmed.chars().peekable();
+    while let Some(&ch) = chars.peek() {
+        if is_decorative_leading_char(ch) {
+            chars.next();
+            continue;
+        }
+        break;
+    }
+    chars.collect::<String>().trim_start().to_string()
+}
+
+fn is_decorative_leading_char(ch: char) -> bool {
+    if ch.is_whitespace() {
+        return true;
+    }
+    // 保留中日韩文字、假名、字母数字与常见连接符
+    if ch.is_ascii_alphanumeric() {
+        return false;
+    }
+    if ('\u{4e00}'..='\u{9fff}').contains(&ch)
+        || ('\u{3400}'..='\u{4dbf}').contains(&ch)
+        || ('\u{3040}'..='\u{30ff}').contains(&ch)
+        || ('\u{ac00}'..='\u{d7af}').contains(&ch)
+        || ('\u{00c0}'..='\u{024f}').contains(&ch)
+    {
+        return false;
+    }
+    if matches!(
+        ch,
+        '·' | '・' | '•' | '\'' | '’' | '′' | '″' | '"' | '“' | '”' | '!' | '！' | '?' | '？'
+    ) {
+        return false;
+    }
+    // So/Sm/Sk 等装饰符号与 emoji 区间
+    matches!(
+        ch,
+        '\u{2000}'..='\u{206f}'
+            | '\u{2190}'..='\u{21ff}'
+            | '\u{2300}'..='\u{23ff}'
+            | '\u{2460}'..='\u{24ff}'
+            | '\u{2500}'..='\u{27bf}'
+            | '\u{2900}'..='\u{297f}'
+            | '\u{2b00}'..='\u{2bff}'
+            | '\u{3000}'..='\u{303f}'
+            | '\u{fe00}'..='\u{fe0f}'
+            | '\u{1f000}'..='\u{1faff}'
+    ) || matches!(
+        ch,
+        '★' | '☆'
+            | '✦'
+            | '✧'
+            | '✪'
+            | '✩'
+            | '❖'
+            | '※'
+            | '◆'
+            | '◇'
+            | '■'
+            | '□'
+            | '●'
+            | '○'
+            | '◎'
+            | '◉'
+            | '♦'
+            | '♠'
+            | '♣'
+            | '♥'
+            | '▶'
+            | '▷'
+            | '◀'
+            | '◁'
+            | '►'
+            | '◄'
+            | '▲'
+            | '△'
+            | '▼'
+            | '▽'
+            | '✓'
+            | '✔'
+            | '✕'
+            | '✖'
+            | '✗'
+            | '✘'
+            | '＋'
+            | '－'
+            | '＝'
+            | '｜'
+            | '¦'
+            | '§'
+            | '¶'
+            | '†'
+            | '‡'
+            | '‣'
+            | '⁃'
+            | '⁎'
+            | '⁑'
+            | '⁓'
+            | '⁕'
+            | '#'
+            | '@'
+            | '~'
+            | '`'
+            | '^'
+            | '*'
+            | '='
+            | '+'
+            | '|'
+            | '\\'
+            | '/'
+            | '<'
+            | '>'
+            | '{'
+            | '}'
+            | '['
+            | ']'
+    )
 }
 
 /// 中日/中英并列标题时优先保留中文段。
@@ -134,6 +257,14 @@ mod tests {
             clean_media_title("孤独摇滚！ / Bocchi the Rock!"),
             "孤独摇滚！"
         );
+    }
+
+    #[test]
+    fn strips_leading_emoji_and_symbols() {
+        assert_eq!(clean_media_title("🗄 庆余年"), "庆余年");
+        assert_eq!(clean_media_title("📺庆余年 1080p"), "庆余年");
+        assert_eq!(clean_media_title("★ 孤独摇滚！"), "孤独摇滚！");
+        assert_eq!(clean_media_title("🗄【字幕组】庆余年 S01"), "庆余年");
     }
 
     #[test]

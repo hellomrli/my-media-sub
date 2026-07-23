@@ -34,6 +34,22 @@ fn expected_video_names(file_names: &[String]) -> HashSet<String> {
         .collect()
 }
 
+/// 将分享侧转存结果映射为网盘 DriveItem，供落盘等待失败时回退提交 Aria2。
+fn provider_files_to_drive_items(files: &[&ProviderFile], parent_id: &str) -> Vec<DriveItem> {
+    files
+        .iter()
+        .filter(|file| !file.is_dir && !file.id.trim().is_empty())
+        .map(|file| DriveItem {
+            id: file.id.clone(),
+            parent_id: parent_id.to_string(),
+            name: file.name.clone(),
+            is_dir: false,
+            size: file.size,
+            updated_at: file.updated_at.clone().unwrap_or_default(),
+        })
+        .collect()
+}
+
 fn dedup_provider_episode_files<'a>(
     sub: &Subscription,
     files: Vec<&'a ProviderFile>,

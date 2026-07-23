@@ -463,7 +463,7 @@
             <textarea x-model="newSubscription.preview_samples" @input="clearStructuredPreviewFiles()" rows="4" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="每行一个样例文件名，例如：&#10;第01集.mkv&#10;Show.S01E02.1080p.mkv"></textarea>
             <p class="text-xs text-muted/70">搜索嗅探结果会保留子文件夹路径；手动修改上方样例后将改用文本预览。</p>
             <div x-show="renamePreviewError" class="text-sm text-danger" x-text="renamePreviewError"></div>
-            <div x-show="renamePreview && visibleRenamePreviewItems().length > 0 && shouldGroupRenamePreviewBySeason()" class="space-y-2">
+            <div x-show="renamePreview && groupedRenamePreviewSeasons().length > 0" class="space-y-2">
               <div class="flex flex-wrap gap-2 justify-end">
                 <button type="button" @click="expandAllRenamePreviewSeasons()" class="text-xs text-primary hover:text-primary">全部展开</button>
                 <button type="button" @click="collapseAllRenamePreviewSeasons()" class="text-xs text-muted hover:text-text">全部折叠</button>
@@ -499,25 +499,7 @@
                 </div>
               </template>
             </div>
-            <div x-show="renamePreview && visibleRenamePreviewItems().length > 0 && !shouldGroupRenamePreviewBySeason()" class="border border-border rounded-lg overflow-hidden">
-              <div class="hidden md:grid grid-cols-12 gap-2 px-3 py-2 bg-app text-xs text-muted/75">
-                <div class="col-span-4">原文件名</div>
-                <div class="col-span-4">目标文件名</div>
-                <div class="col-span-2">集数</div>
-                <div class="col-span-2">结果</div>
-              </div>
-              <template x-for="(item, itemIndex) in visibleRenamePreviewItems()" :key="'rename-preview-' + item.source_name + '-' + item.target_name + '-' + itemIndex">
-                <div class="grid gap-2 px-3 py-3 border-t border-border text-xs md:grid-cols-12">
-                  <div class="text-text/80 break-all md:col-span-4" x-text="renamePreviewSourceLabel(item)"></div>
-                  <div class="text-success break-all md:col-span-4" x-text="item.target_name"></div>
-                  <div class="text-muted md:col-span-2"><span class="text-muted/75 md:hidden">集数 </span><span x-text="item.episode ? '第 ' + item.episode + ' 集' : '-'"></span></div>
-                  <div class="md:col-span-2">
-                    <span :class="item.action === 'transfer' ? 'text-success' : 'text-warning'" x-text="item.action === 'transfer' ? '会转存' : (item.skip_reason || '跳过')"></span>
-                  </div>
-                </div>
-              </template>
-            </div>
-            <div x-show="renamePreview && visibleRenamePreviewItems().length === 0" class="rounded-lg border border-border p-4 text-sm text-muted/75">当前筛选下没有可显示的文件。</div>
+            <div x-show="renamePreview && groupedRenamePreviewSeasons().length === 0" class="rounded-lg border border-border p-4 text-sm text-muted/75">当前筛选下没有可显示的文件。</div>
           </div>
         </div>
 
