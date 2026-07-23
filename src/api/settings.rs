@@ -478,7 +478,7 @@ fn settings_schema() -> SettingsSchemaResponse {
         ),
         setting_field!(
             "aria2_batch_submit_limit",
-            "Aria2 单批提交上限",
+            "Aria2 单批提交大小",
             "number",
             "automation",
             20

@@ -42,7 +42,7 @@ use automation::aria2_automation_contexts;
 use browse::{clear_drive_cache, find_path, list_drive};
 
 #[cfg(test)]
-use aria2::{normalize_fids, validate_aria2_batch_size};
+use aria2::normalize_fids;
 #[cfg(test)]
 use automation::{
     completed_download_already_recorded, completed_subscription_download_files,
@@ -341,14 +341,6 @@ mod tests {
     fn test_normalize_fids_trims_and_dedups() {
         let fids = normalize_fids(vec![" a ".to_string(), "".to_string(), "a".to_string()]);
         assert_eq!(fids, vec!["a".to_string()]);
-    }
-
-    #[test]
-    fn aria2_batch_limit_rejects_oversized_submission() {
-        assert!(validate_aria2_batch_size(20, 20).is_ok());
-        let error = validate_aria2_batch_size(21, 20).unwrap_err();
-        assert!(matches!(error, AppError::RateLimited(_)));
-        assert!(error.to_string().contains("当前选择 21 个"));
     }
 
     #[test]

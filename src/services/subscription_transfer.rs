@@ -693,8 +693,6 @@ impl SubscriptionTransferService {
             .collect();
         fids.sort();
         fids.dedup();
-        let omitted_count = fids.len().saturating_sub(settings.aria2_batch_submit_limit);
-        fids.truncate(settings.aria2_batch_submit_limit);
 
         if fids.is_empty() {
             let error = "没有可同步下载的视频文件".to_string();
@@ -713,20 +711,6 @@ impl SubscriptionTransferService {
             dir.clone(),
         );
 
-        let download_infos = match save_client.download_info(&fids).await {
-            Ok(infos) => infos,
-            Err(e) => {
-                let error = format!("获取夸克下载直链失败: {}", e);
-                warn!("订阅 {} 同步下载失败: {}", sub.title, error);
-                return Some(SyncDownloadReport {
-                    submitted_count: 0,
-                    dir: dir.clone(),
-                    error: Some(error),
-                    items: vec![],
-                });
-            }
-        };
-
         let mut existing_tasks = HashMap::<String, String>::new();
         if let Ok(tasks) = aria2.list_tasks(500).await {
             for task in tasks
@@ -740,71 +724,87 @@ impl SubscriptionTransferService {
                 }
             }
         }
+
+        let batch_limit = settings.aria2_batch_submit_limit.max(1);
         let mut submitted_count = 0usize;
-        let mut last_error = (omitted_count > 0).then(|| {
-            format!(
-                "达到 Aria2 单批提交上限 {}，另有 {} 个文件留待下次提交",
-                settings.aria2_batch_submit_limit, omitted_count
-            )
-        });
+        let mut last_error = None;
         let mut items = Vec::new();
-        for info in download_infos {
-            if let Some(gid) = existing_tasks.get(&info.file_name.to_lowercase()).cloned() {
-                info!("复用已有 Aria2 任务: {} ({})", info.file_name, gid);
-                items.push(SyncDownloadItem {
-                    gid,
-                    file_name: info.file_name,
-                });
-                continue;
+
+        for (batch_index, chunk) in fids.chunks(batch_limit).enumerate() {
+            if batch_index > 0 {
+                tokio::time::sleep(Duration::from_millis(200)).await;
             }
-            let mut submitted = None;
-            let mut submit_error = None;
-            for attempt in 0..3u32 {
-                match aria2
-                    .add_uri(&info.download_url, Some(&info.file_name), &info.headers)
-                    .await
-                {
-                    Ok(gid) => {
-                        submitted = Some(gid);
-                        break;
-                    }
-                    Err(error) => {
-                        submit_error = Some(error.to_string());
-                        if let Ok(tasks) = aria2.list_tasks(500).await {
-                            if let Some(task) = tasks
-                                .active
-                                .into_iter()
-                                .chain(tasks.waiting)
-                                .chain(tasks.stopped)
-                                .find(|task| task.file_name.eq_ignore_ascii_case(&info.file_name))
-                            {
-                                submitted = Some(task.gid);
-                                break;
-                            }
+
+            let download_infos = match save_client.download_info(chunk).await {
+                Ok(infos) => infos,
+                Err(e) => {
+                    let error = format!("获取夸克下载直链失败: {}", e);
+                    warn!("订阅 {} 同步下载失败: {}", sub.title, error);
+                    last_error = Some(error);
+                    continue;
+                }
+            };
+
+            for info in download_infos {
+                if let Some(gid) = existing_tasks.get(&info.file_name.to_lowercase()).cloned() {
+                    info!("复用已有 Aria2 任务: {} ({})", info.file_name, gid);
+                    items.push(SyncDownloadItem {
+                        gid,
+                        file_name: info.file_name,
+                    });
+                    continue;
+                }
+                let mut submitted = None;
+                let mut submit_error = None;
+                for attempt in 0..3u32 {
+                    match aria2
+                        .add_uri(&info.download_url, Some(&info.file_name), &info.headers)
+                        .await
+                    {
+                        Ok(gid) => {
+                            submitted = Some(gid);
+                            break;
                         }
-                        if attempt < 2 {
-                            tokio::time::sleep(Duration::from_millis(250 * (1u64 << attempt)))
-                                .await;
+                        Err(error) => {
+                            submit_error = Some(error.to_string());
+                            if let Ok(tasks) = aria2.list_tasks(500).await {
+                                if let Some(task) = tasks
+                                    .active
+                                    .into_iter()
+                                    .chain(tasks.waiting)
+                                    .chain(tasks.stopped)
+                                    .find(|task| {
+                                        task.file_name.eq_ignore_ascii_case(&info.file_name)
+                                    })
+                                {
+                                    submitted = Some(task.gid);
+                                    break;
+                                }
+                            }
+                            if attempt < 2 {
+                                tokio::time::sleep(Duration::from_millis(250 * (1u64 << attempt)))
+                                    .await;
+                            }
                         }
                     }
                 }
-            }
-            if let Some(gid) = submitted {
-                submitted_count += 1;
-                existing_tasks.insert(info.file_name.to_lowercase(), gid.clone());
-                info!("已提交或复用 Aria2 同步下载: {} ({})", info.file_name, gid);
-                items.push(SyncDownloadItem {
-                    gid,
-                    file_name: info.file_name,
-                });
-            } else {
-                let error = format!(
-                    "提交 {} 到 Aria2 失败: {}",
-                    info.file_name,
-                    submit_error.unwrap_or_else(|| "unknown".to_string())
-                );
-                warn!("订阅 {} 同步下载失败: {}", sub.title, error);
-                last_error = Some(error);
+                if let Some(gid) = submitted {
+                    submitted_count += 1;
+                    existing_tasks.insert(info.file_name.to_lowercase(), gid.clone());
+                    info!("已提交或复用 Aria2 同步下载: {} ({})", info.file_name, gid);
+                    items.push(SyncDownloadItem {
+                        gid,
+                        file_name: info.file_name,
+                    });
+                } else {
+                    let error = format!(
+                        "提交 {} 到 Aria2 失败: {}",
+                        info.file_name,
+                        submit_error.unwrap_or_else(|| "unknown".to_string())
+                    );
+                    warn!("订阅 {} 同步下载失败: {}", sub.title, error);
+                    last_error = Some(error);
+                }
             }
         }
 

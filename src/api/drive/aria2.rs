@@ -21,23 +21,27 @@ pub(super) async fn send_to_aria2(
     if settings.aria2_rpc_url.trim().is_empty() {
         return Err(AppError::Validation("未配置 Aria2 RPC URL".to_string()));
     }
-    validate_aria2_batch_size(fids.len(), settings.aria2_batch_submit_limit)?;
-
     let quark = QuarkSaveClient::new(settings.quark_cookie);
     let aria2 = Aria2Client::new(settings.aria2_rpc_url, settings.aria2_secret, String::new());
-    let download_infos = quark.download_infos(&fids).await?;
-    let mut items = Vec::with_capacity(download_infos.len());
+    let batch_limit = settings.aria2_batch_submit_limit.max(1);
+    let mut items = Vec::with_capacity(fids.len());
 
-    for info in download_infos {
-        let gid = aria2
-            .add_uri(&info.download_url, Some(&info.file_name), &info.headers)
-            .await?;
-        items.push(Aria2DownloadItem {
-            fid: info.fid,
-            file_name: info.file_name,
-            size: info.size,
-            gid,
-        });
+    for (batch_index, chunk) in fids.chunks(batch_limit).enumerate() {
+        if batch_index > 0 {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        let download_infos = quark.download_infos(chunk).await?;
+        for info in download_infos {
+            let gid = aria2
+                .add_uri(&info.download_url, Some(&info.file_name), &info.headers)
+                .await?;
+            items.push(Aria2DownloadItem {
+                fid: info.fid,
+                file_name: info.file_name,
+                size: info.size,
+                gid,
+            });
+        }
     }
 
     Ok(json_ok(Aria2DownloadResponse {
@@ -323,16 +327,6 @@ pub(super) fn normalize_fids(fids: Vec<String>) -> Vec<String> {
     fids.sort();
     fids.dedup();
     fids
-}
-
-pub(super) fn validate_aria2_batch_size(count: usize, limit: usize) -> Result<()> {
-    if count > limit {
-        return Err(AppError::RateLimited(format!(
-            "单次最多提交 {} 个 Aria2 下载任务，当前选择 {} 个",
-            limit, count
-        )));
-    }
-    Ok(())
 }
 
 pub(super) fn default_stopped_limit() -> u64 {
