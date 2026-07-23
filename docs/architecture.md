@@ -1,6 +1,6 @@
 # My Media Sub 当前架构
 
-> 本文以 `main`（v2.2.8）为准，只描述当前仍在运行的结构与约束。阶段进度见 [`roadmap.md`](roadmap.md)，HTTP 细节见 [`api-contract.md`](api-contract.md)，自动化与 Telegram 的安全合同分别见 [`automation-api.md`](automation-api.md) 和 [`telegram-bot.md`](telegram-bot.md)。
+> 本文以 `main`（v2.2.9）为准，只描述当前仍在运行的结构与约束。阶段进度见 [`roadmap.md`](roadmap.md)，HTTP 细节见 [`api-contract.md`](api-contract.md)，自动化与 Telegram 的安全合同分别见 [`automation-api.md`](automation-api.md) 和 [`telegram-bot.md`](telegram-bot.md)。
 
 ## 架构图
 

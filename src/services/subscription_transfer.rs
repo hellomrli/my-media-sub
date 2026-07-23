@@ -110,7 +110,12 @@ impl SubscriptionTransferService {
             &settings.default_rename_template,
         );
 
-        if !force_transfer && !settings.auto_download_new_subscription_items {
+        // 与检查服务一致：开启全局自动转存即允许自动转存；
+        // force_transfer 或 auto_download 开关可显式覆盖。
+        if !force_transfer
+            && !settings.auto_download_new_subscription_items
+            && !settings.quark_save_enabled
+        {
             return Ok(TransferResult {
                 subscription_id: sub.id.clone(),
                 transferred_count: 0,
@@ -313,7 +318,8 @@ impl SubscriptionTransferService {
             let mut season_sub = sub.clone();
             season_sub.season = season;
             season_sub.season_end = None;
-            let (batch_renamed, batch_files) = if has_rename_rules(&sub.rules) {
+            let fallback_drive_items = provider_files_to_drive_items(&season_files, &target_fid);
+            let (batch_renamed, mut batch_files) = if has_rename_rules(&sub.rules) {
                 match self
                     .rename_transferred_files(
                         provider.as_ref(),
@@ -352,6 +358,16 @@ impl SubscriptionTransferService {
                     }
                 }
             };
+            // 落盘/重命名超时后仍需提交 Aria2：回退到转存返回的文件 ID。
+            if batch_files.is_empty() && !fallback_drive_items.is_empty() {
+                warn!(
+                    "订阅 {} Season {} 未枚举到网盘视频，使用转存结果提交 Aria2（{} 项）",
+                    sub.title,
+                    season,
+                    fallback_drive_items.len()
+                );
+                batch_files = fallback_drive_items;
+            }
             renamed_count += batch_renamed;
 
             // 按季提交 Aria2：多季自动写入 …/剧名/Season N

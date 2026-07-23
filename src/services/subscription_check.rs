@@ -549,7 +549,12 @@ impl SubscriptionCheckService {
         }
 
         let settings = self.settings_store.get().await;
-        if !force_transfer && !settings.auto_download_new_subscription_items {
+        // 已开启全局自动转存时，定时/手动检查发现新文件应自动转存；
+        // auto_download_new_subscription_items 仅作显式开关，force 时仍可覆盖。
+        if !force_transfer
+            && !settings.auto_download_new_subscription_items
+            && !settings.quark_save_enabled
+        {
             return Some("自动下载新订阅项未启用");
         }
         if !settings.quark_save_enabled {

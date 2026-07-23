@@ -426,7 +426,8 @@
                   <label class="mt-3 flex items-center gap-2 text-sm text-warning cursor-pointer"><input type="checkbox" x-model="settings.job_maintenance_mode" class="rounded" />维护模式：暂停认领新后台任务，运行中任务继续完成</label>
                 </div>
                 <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.subscription_scheduler_enabled" class="rounded" />启用自动检查</label>
-                <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.auto_download_new_subscription_items" class="rounded" />自动下载新订阅项</label>
+                <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.auto_download_new_subscription_items" class="rounded" />自动转存新订阅项</label>
+                <p class="text-xs text-muted/75 -mt-1">开启「启用自动转存」后，定时/手动检查发现新文件会自动转存；本项可额外显式开启。订阅内「同步用 Aria2 下载」会在转存成功后提交本地下载。</p>
               </div>
 
               <div class="app-panel-soft p-4 space-y-4">

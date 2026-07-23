@@ -678,6 +678,7 @@ mod tests {
             None
         );
 
+        // 仅开启全局自动转存时，定时检查也应允许自动转存
         service
             .settings_store
             .update(|settings| {
@@ -687,7 +688,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             service.auto_transfer_disabled_reason(&sub, false).await,
-            Some("自动下载新订阅项未启用")
+            None
         );
         assert_eq!(
             service.auto_transfer_disabled_reason(&sub, true).await,

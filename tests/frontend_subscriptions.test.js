@@ -113,6 +113,8 @@ test('inferSubscriptionTitle strips fan-sub noise for metadata matching', () => 
   const state = store();
   assert.equal(state.inferSubscriptionTitle('【字幕组】庆余年 1080p S01-S04 全集'), '庆余年');
   assert.equal(state.inferSubscriptionTitle('庆余年（2024）[简中]'), '庆余年');
+  assert.equal(state.inferSubscriptionTitle('🗄 庆余年'), '庆余年');
+  assert.equal(state.inferSubscriptionTitle('📺庆余年 1080p'), '庆余年');
 });
 
 test('buildSubscriptionRules keeps per-subscription check interval', () => {

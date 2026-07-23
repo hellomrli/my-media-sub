@@ -342,7 +342,36 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn auto_transfer_new_files_respects_subscription_auto_download_switch() {
+    async fn auto_transfer_new_files_skips_when_auto_save_disabled() {
+        let subscriptions = Arc::new(SubscriptionStore::new(test_path("subscriptions")));
+        let settings = Arc::new(SettingsStore::new(test_path("settings")));
+        let notifications = Arc::new(NotificationStore::new(test_path("notifications")));
+        subscriptions
+            .create(subscription("series", 1))
+            .await
+            .unwrap();
+        settings
+            .update(|settings| {
+                settings.auto_download_new_subscription_items = false;
+                settings.quark_save_enabled = false;
+                settings.quark_cookie = "cookie".to_string();
+            })
+            .await
+            .unwrap();
+
+        let service = SubscriptionTransferService::new(subscriptions, settings, notifications);
+        let result = service
+            .auto_transfer_new_files_with_options("sub", &["Episode.01.mkv".to_string()], false)
+            .await
+            .unwrap();
+
+        assert!(result.skipped);
+        assert_eq!(result.transferred_count, 0);
+        assert_eq!(result.reason, "自动下载新订阅项未启用");
+    }
+
+    #[tokio::test]
+    async fn auto_transfer_allows_when_quark_save_enabled_without_auto_download_flag() {
         let subscriptions = Arc::new(SubscriptionStore::new(test_path("subscriptions")));
         let settings = Arc::new(SettingsStore::new(test_path("settings")));
         let notifications = Arc::new(NotificationStore::new(test_path("notifications")));
@@ -360,14 +389,17 @@ mod tests {
             .unwrap();
 
         let service = SubscriptionTransferService::new(subscriptions, settings, notifications);
+        // 开启全局自动转存后不应再被 auto_download 开关挡住；
+        // 后续会因 mock 探测失败而报错，但不会以“自动下载未启用”跳过。
         let result = service
             .auto_transfer_new_files_with_options("sub", &["Episode.01.mkv".to_string()], false)
-            .await
-            .unwrap();
-
-        assert!(result.skipped);
-        assert_eq!(result.transferred_count, 0);
-        assert_eq!(result.reason, "自动下载新订阅项未启用");
+            .await;
+        match result {
+            Ok(outcome) => {
+                assert_ne!(outcome.reason, "自动下载新订阅项未启用");
+            }
+            Err(_) => {}
+        }
     }
 
     #[tokio::test]

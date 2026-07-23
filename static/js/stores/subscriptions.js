@@ -347,6 +347,8 @@
       plain = plain.replace(/\s+/g, ' ').trim()
         .replace(/(?:\s*(?:S\d{1,2}(?:\s*[-~～到至]\s*S?\d{1,2})?|Season\s*\d+|第\s*[0-9一二三四五六七八九十两]+\s*季|\d{3,4}p|4k|全集|完结))+$/ig, '')
         .trim();
+      // 去掉标题前方 emoji / 装饰符号（如 🗄 📺 ★）
+      plain = plain.replace(/^[\s\u2000-\u206f\u2190-\u21ff\u2300-\u23ff\u2460-\u24ff\u2500-\u27bf\u2900-\u297f\u2b00-\u2bff\u3000-\u303f\ufe00-\ufe0f\u{1f000}-\u{1faff}★☆✦✧✪✩❖※◆◇■□●○◎◉♦♠♣♥▶▷◀◁►◄▲△▼▽✓✔✕✖✗✘#@~`^*=+|\\/<>{}[\]]+/u, '').trim();
       return plain || original;
     },
 
@@ -1527,18 +1529,8 @@
     },
 
     shouldGroupRenamePreviewBySeason() {
-      if (this.newSubscription.media_type === 'movie') return false;
-      if (this.renamePreview && this.renamePreview.multi_season) return true;
-      if (Array.isArray(this.renamePreview && this.renamePreview.groups) && this.renamePreview.groups.length > 1) {
-        return true;
-      }
-      if (this.isMultiSeasonSpec()) return true;
-      const seasons = new Set(
-        this.visibleRenamePreviewItems()
-          .map(item => this.renamePreviewItemSeason(item))
-          .filter(season => season > 0)
-      );
-      return seasons.size > 1;
+      // 预览统一使用季度折叠列表；单季/电影也走同一结构。
+      return this.groupedRenamePreviewSeasons().length > 0;
     },
 
     groupedRenamePreviewSeasons() {
@@ -1554,7 +1546,7 @@
           return {
             key: group.key || String(group.season || 'unknown'),
             season: group.season == null ? 0 : Number(group.season),
-            label: group.label || (group.season ? `Season ${group.season}` : '未识别季'),
+            label: group.label || (group.season ? `Season ${group.season}` : (this.newSubscription.media_type === 'movie' ? '电影' : '未识别季')),
             items,
             transferCount: Number(group.transfer_count || items.filter(item => item.action === 'transfer').length),
             skipCount: Number(group.skip_count || items.filter(item => item.action !== 'transfer').length)
@@ -1565,12 +1557,13 @@
       const groups = new Map();
       for (const item of this.visibleRenamePreviewItems()) {
         const season = this.renamePreviewItemSeason(item);
-        const key = season > 0 ? String(season) : 'unknown';
+        const movie = this.newSubscription.media_type === 'movie';
+        const key = movie ? 'movie' : (season > 0 ? String(season) : 'unknown');
         if (!groups.has(key)) {
           groups.set(key, {
             key,
-            season,
-            label: season > 0 ? `Season ${season}` : '未识别季',
+            season: movie ? 0 : season,
+            label: movie ? '电影' : (season > 0 ? `Season ${season}` : '未识别季'),
             items: [],
             transferCount: 0,
             skipCount: 0
@@ -2224,10 +2217,12 @@
     async checkSubscription(id, options = {}) {
       try {
         if (!options.silent) this.showNotification('info', '正在检查订阅...');
+        // 手动检查默认允许转存；仅当调用方显式传入 forceTransfer:false 时关闭。
+        const forceTransfer = options.forceTransfer !== false;
         const response = await apiFetch(`/api/subscriptions/${id}/check`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({force_transfer: !!options.forceTransfer})
+          body: JSON.stringify({force_transfer: forceTransfer})
         });
         const data = await response.json();
 
