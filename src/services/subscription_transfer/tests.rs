@@ -394,11 +394,8 @@ mod tests {
         let result = service
             .auto_transfer_new_files_with_options("sub", &["Episode.01.mkv".to_string()], false)
             .await;
-        match result {
-            Ok(outcome) => {
-                assert_ne!(outcome.reason, "自动下载新订阅项未启用");
-            }
-            Err(_) => {}
+        if let Ok(outcome) = result {
+            assert_ne!(outcome.reason, "自动下载新订阅项未启用");
         }
     }
 
