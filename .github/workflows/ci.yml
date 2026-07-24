@@ -77,6 +77,13 @@ jobs:
           SOAK_SECONDS: 10
         run: scripts/smoke-soak.sh target/release/my-media-sub
 
+      - name: Install Chromium for browser smoke
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends chromium-browser || sudo apt-get install -y --no-install-recommends chromium
+          command -v chromium-browser || command -v chromium || command -v google-chrome || command -v google-chrome-stable
+
       - name: Real browser 390px and PWA shell smoke
         run: scripts/smoke-browser.sh target/release/my-media-sub
 
