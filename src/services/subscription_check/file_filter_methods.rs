@@ -88,7 +88,7 @@ macro_rules! subscription_check_file_filter_methods {
 
         let match_regex = sub.rules.match_regex.trim();
         if !match_regex.is_empty() {
-            match regex::Regex::new(match_regex) {
+            match crate::services::episode::cached_regex(match_regex) {
                 Ok(re) if !re.is_match(&comparable) => {
                     return Some("未命中匹配正则".to_string());
                 }
@@ -164,6 +164,25 @@ macro_rules! subscription_check_file_filter_methods {
         }));
 
         if sub.media_type == "movie" {
+            // 电影没有集数概念，但 known 未转存的视频文件同样要补转：
+            // 新文件判定只看 known_files，若首次转存提交失败，
+            // 文件已入 known 集合，之后的检查必须靠这里重新入选。
+            for file in files {
+                if file.is_dir || !crate::services::is_video_name(&file.name) {
+                    continue;
+                }
+                if self.transfer_rule_skip_reason(sub, file).is_some() {
+                    continue;
+                }
+                let episode = extract_episode_number(&file.name);
+                let key = transfer_state_key(&file.name, episode, sub.rules.ignore_extensions);
+                if transferred_keys.contains(&key) {
+                    continue;
+                }
+                if seen.insert(file.name.clone()) {
+                    names.push(file.name.clone());
+                }
+            }
             return names;
         }
 

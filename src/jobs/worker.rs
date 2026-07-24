@@ -275,8 +275,14 @@ impl JobWorker {
                             running.finish(&job);
                             self.handle_task_result(&job.id, outcome).await;
                             self.apply_reliability(&job, &mut circuits).await;
-                            if let Err(error) = self.store.archive_completed(job_history_retain()).await {
-                                warn!("归档历史任务失败: {}", error);
+                            // 归档批量化：终态任务超出保留量一批（25）才触发，
+                            // 避免每完成一个任务就重读重写整个归档文件。
+                            const ARCHIVE_BATCH: usize = 25;
+                            let retain = job_history_retain();
+                            if self.store.terminal_count().await >= retain + ARCHIVE_BATCH {
+                                if let Err(error) = self.store.archive_completed(retain).await {
+                                    warn!("归档历史任务失败: {}", error);
+                                }
                             }
                         }
                         Some(Err(join_error)) => {

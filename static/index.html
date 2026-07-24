@@ -11,9 +11,9 @@
   <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%234f46e5%27/%3E%3Cpath d=%27M8 9h16v14H8zm4-4v22m8-22v22%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27/%3E%3C/svg%3E">
-  <script src="js/theme-init.js?v=2.2.10"></script>
-  <link rel="stylesheet" href="styles.css?v=2.2.10">
-  <script defer src="vendor/alpine.min.js?v=2.2.10"></script>
+  <script src="js/theme-init.js?v=2.2.11"></script>
+  <link rel="stylesheet" href="styles.css?v=2.2.11">
+  <script defer src="vendor/alpine.min.js?v=2.2.11"></script>
 </head>
 <body class="bg-app text-text/90 min-h-screen" x-data="app()" x-cloak>
 
@@ -997,49 +997,55 @@
         <!-- 订阅管理页面 -->
         <div x-show="currentTab === 'subscriptions'" class="page-stack">
           <div x-show="!selectedSubscriptionId" class="page-stack">
-          <div class="app-panel p-4 toolbar-panel">
-            <div>
-              <h3 class="section-title">订阅列表</h3>
-              <p class="text-sm text-muted/75 mt-1">按状态、进度和最近检查时间快速扫描。</p>
-            </div>
-            <div class="control-row">
-              <button @click="checkAllSubscriptions()" :disabled="checkingAllSubscriptions" class="btn-secondary px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0019 5M19 5h-5M5 19h5" /></svg>
-                <span x-show="!checkingAllSubscriptions">批量检查</span>
-                <span x-show="checkingAllSubscriptions">检查中</span>
-              </button>
-              <button @click="scrapeAllSubscriptionMetadata()" :disabled="scrapingAllMetadata" class="btn-secondary px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6m14 10v-6h-6M5 19A9 9 0 0019 5m0 0h-5" /></svg>
-                <span x-show="!scrapingAllMetadata">刷新元数据</span>
-                <span x-show="scrapingAllMetadata">提交中</span>
-              </button>
-              <button @click="openBlankSubscriptionDialog()" class="btn-primary px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-                添加订阅
-              </button>
-            </div>
-          </div>
-          <div class="app-panel-soft p-2 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-            <div class="segmented-control">
-              <template x-for="tab in subscriptionStatusTabs" :key="tab.id">
-                <button @click="setSubscriptionStatusTab(tab.id)" :class="subscriptionStatusTab === tab.id ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm transition-colors">
-                  <span x-text="tab.name"></span>
-                  <span class="ml-1 tabular-nums" x-text="subscriptionStatusCount(tab.id)"></span>
+          <div class="app-panel p-4 space-y-3">
+            <div class="toolbar-panel">
+              <div>
+                <h3 class="section-title">订阅列表</h3>
+                <p class="text-sm text-muted/75 mt-1">按状态、进度和最近检查时间快速扫描。</p>
+              </div>
+              <div class="control-row">
+                <button @click="checkAllSubscriptions()" :disabled="checkingAllSubscriptions" class="btn-secondary px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0019 5M19 5h-5M5 19h5" /></svg>
+                  <span x-show="!checkingAllSubscriptions">批量检查</span>
+                  <span x-show="checkingAllSubscriptions">检查中</span>
                 </button>
-              </template>
+                <button @click="scrapeAllSubscriptionMetadata()" :disabled="scrapingAllMetadata" class="btn-secondary px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6m14 10v-6h-6M5 19A9 9 0 0019 5m0 0h-5" /></svg>
+                  <span x-show="!scrapingAllMetadata">刷新元数据</span>
+                  <span x-show="scrapingAllMetadata">提交中</span>
+                </button>
+                <button @click="openBlankSubscriptionDialog()" class="btn-primary px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                  添加订阅
+                </button>
+              </div>
             </div>
-            <div class="segmented-control">
-              <button @click="setSubscriptionViewMode('table')" :class="subscriptionViewMode === 'table' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">表格</button>
-              <button @click="setSubscriptionViewMode('poster')" :class="subscriptionViewMode === 'poster' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">海报墙</button>
+            <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+              <div class="segmented-control">
+                <template x-for="tab in subscriptionStatusTabs" :key="tab.id">
+                  <button @click="setSubscriptionStatusTab(tab.id)" :class="subscriptionStatusTab === tab.id ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm transition-colors">
+                    <span x-text="tab.name"></span>
+                    <span class="ml-1 tabular-nums" x-text="subscriptionStatusCount(tab.id)"></span>
+                  </button>
+                </template>
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <label x-show="filteredSubscriptions.length" class="flex items-center gap-2 px-2 text-sm"><input type="checkbox" :checked="allVisibleSubscriptionsSelected" @change="toggleAllVisibleSubscriptions()" />选择当前显示</label>
+                <div class="segmented-control">
+                  <button @click="setSubscriptionViewMode('table')" :class="subscriptionViewMode === 'table' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">表格</button>
+                  <button @click="setSubscriptionViewMode('poster')" :class="subscriptionViewMode === 'poster' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">海报墙</button>
+                </div>
+              </div>
+            </div>
+            <div x-show="selectedSubscriptionIds.length > 0" class="flex flex-wrap items-center gap-2 border-t border-border pt-2">
+              <span class="text-xs text-muted" x-text="selectedSubscriptionIds.length + ' 个已选 · 显示 ' + visibleFilteredSubscriptions.length + '/' + filteredSubscriptions.length"></span>
+              <button @click="batchCheckSelectedSubscriptions()" :disabled="subscriptionBatchLoading" class="btn-secondary px-3 py-2 text-sm disabled:opacity-40">检查所选</button>
+              <button @click="batchDeleteSelectedSubscriptions()" :disabled="subscriptionBatchLoading" class="btn-danger px-3 py-2 text-sm disabled:opacity-40">删除所选</button>
+              <button @click="selectedSubscriptionIds = []" class="btn-secondary px-3 py-2 text-sm">取消选择</button>
             </div>
           </div>
-          <div class="app-panel-soft p-2 flex flex-wrap items-center gap-2" x-show="filteredSubscriptions.length">
-            <label class="flex items-center gap-2 px-2 text-sm"><input type="checkbox" :checked="allVisibleSubscriptionsSelected" @change="toggleAllVisibleSubscriptions()" />选择当前显示</label>
-            <span class="text-xs text-muted" x-text="selectedSubscriptionIds.length + ' 个已选 · 显示 ' + visibleFilteredSubscriptions.length + '/' + filteredSubscriptions.length"></span>
-            <button @click="batchCheckSelectedSubscriptions()" :disabled="!selectedSubscriptionIds.length || subscriptionBatchLoading" class="btn-secondary px-3 py-2 text-sm disabled:opacity-40">检查所选</button>
-            <button @click="batchDeleteSelectedSubscriptions()" :disabled="!selectedSubscriptionIds.length || subscriptionBatchLoading" class="btn-danger px-3 py-2 text-sm disabled:opacity-40">删除所选</button>
-          </div>
-          <div x-show="subscriptionViewMode === 'table'" class="data-table">
+          <template x-if="subscriptionViewMode === 'table'">
+          <div class="data-table">
             <div class="data-table-scroll">
               <div class="data-table-head grid-cols-[minmax(300px,1.8fr)_88px_86px_150px_90px_130px_150px] px-3">
                 <div>订阅</div>
@@ -1061,7 +1067,7 @@
                       </div>
                       <div class="min-w-0">
                         <div class="truncate text-sm font-medium text-text" x-text="subscriptionDisplayTitle(sub)"></div>
-                        <div class="truncate text-xs text-muted/75" x-text="subscriptionSourceLabel(sub) || ((sub.rules && sub.rules.target_dir) || '-')"></div>
+                        <div class="truncate text-xs text-muted/75" x-text="subscriptionSubtitle(sub)"></div>
                       </div>
                     </div>
                     <div><span class="badge badge-primary" x-text="mediaTypeLabel(sub.media_type)"></span></div>
@@ -1073,20 +1079,15 @@
                     <div><span class="badge badge-muted" x-text="subscriptionRatingLabel(sub)"></span></div>
                     <div class="text-xs text-muted/75" x-text="formatTime(sub.last_checked_at)"></div>
                     <div class="flex flex-wrap justify-end gap-1">
-                      <button @click="openSubscriptionDetail(sub)" class="btn-primary px-2 py-1 rounded text-xs transition-colors">详情</button>
                       <button @click="checkSubscription(sub.id)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">检查</button>
                       <button @click="toggleSubscriptionActionMenu(sub.id)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">更多</button>
                     </div>
                   </div>
                   <div x-show="subscriptionActionMenuId === sub.id" class="border-b border-border bg-app/45 px-3 py-2">
                     <div class="flex flex-wrap justify-end gap-2">
-                      <button @click="openEditSubscriptionDialog(sub); subscriptionActionMenuId = ''" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">编辑订阅</button>
-                      <button @click="renameExistingFiles(sub.id); subscriptionActionMenuId = ''" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">修复命名</button>
-
-                      <button @click="scrapeSubscriptionMetadata(sub.id); subscriptionActionMenuId = ''" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">自动刮削</button>
-                      <button @click="openManualMetadataScrape(sub); subscriptionActionMenuId = ''" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">手动刮削</button>
-                      <button @click="openSourceSwitchDialog(sub); subscriptionActionMenuId = ''" class="btn-secondary px-3 py-1 rounded text-xs transition-colors">换源</button>
-                      <button @click="deleteSubscription(sub.id); subscriptionActionMenuId = ''" class="btn-danger px-3 py-1 rounded text-xs transition-colors">删除</button>
+                      <template x-for="action in subscriptionMenuActions()" :key="action.id">
+                        <button @click="runSubscriptionMenuAction(action.id, sub)" :class="action.danger ? 'btn-danger' : 'btn-secondary'" class="px-3 py-1 rounded text-xs transition-colors" x-text="action.label"></button>
+                      </template>
                     </div>
                   </div>
                   <div x-show="sub.status === 'invalid' && sub.last_error" class="border-b border-border bg-danger/5 px-3 py-2 text-xs text-danger break-all" x-text="'失效原因：' + sub.last_error"></div>
@@ -1094,7 +1095,9 @@
               </template>
             </div>
           </div>
-          <div x-show="subscriptionViewMode === 'poster'" class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
+          </template>
+          <template x-if="subscriptionViewMode === 'poster'">
+          <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
             <template x-for="(sub, subIndex) in visibleFilteredSubscriptions" :key="'subscription-' + (sub.id || 'missing') + '-' + subIndex">
               <div class="app-panel relative overflow-hidden hover:border-primary transition-colors">
                 <input type="checkbox" :checked="selectedSubscriptionIds.includes(sub.id)" @change="toggleSubscriptionSelection(sub.id)" :aria-label="'选择订阅 ' + subscriptionDisplayTitle(sub)" class="absolute left-2 top-2 z-10 h-5 w-5" />
@@ -1108,7 +1111,7 @@
                   <div class="flex items-start justify-between gap-2">
                     <div class="min-w-0">
                       <div class="truncate text-sm font-semibold text-text" x-text="subscriptionDisplayTitle(sub)"></div>
-                      <div class="truncate text-xs text-muted/75" x-text="subscriptionSourceLabel(sub) || ((sub.rules && sub.rules.target_dir) || '-')"></div>
+                      <div class="truncate text-xs text-muted/75" x-text="subscriptionSubtitle(sub)"></div>
                     </div>
                     <span :class="subscriptionStatusBadgeClass(sub)" x-text="subscriptionStatusLabel(sub)"></span>
                   </div>
@@ -1125,24 +1128,20 @@
                     </div>
                   </div>
                   <div x-show="sub.status === 'invalid' && sub.last_error" class="line-clamp-2 text-xs text-danger" x-text="sub.last_error"></div>
-                  <div class="grid grid-cols-3 gap-1">
-                    <button @click="openSubscriptionDetail(sub)" class="btn-primary px-2 py-1 rounded text-xs transition-colors">详情</button>
+                  <div class="grid grid-cols-2 gap-1">
                     <button @click="checkSubscription(sub.id)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">检查</button>
                     <button @click="toggleSubscriptionActionMenu(sub.id)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">更多</button>
                   </div>
                   <div x-show="subscriptionActionMenuId === sub.id" class="grid grid-cols-2 gap-1 border-t border-border pt-2">
-                    <button @click="openEditSubscriptionDialog(sub); subscriptionActionMenuId = ''" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">编辑</button>
-                    <button @click="renameExistingFiles(sub.id); subscriptionActionMenuId = ''" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">修复</button>
-
-                    <button @click="scrapeSubscriptionMetadata(sub.id); subscriptionActionMenuId = ''" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">刮削</button>
-                    <button @click="openManualMetadataScrape(sub); subscriptionActionMenuId = ''" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">手动</button>
-                    <button @click="openSourceSwitchDialog(sub); subscriptionActionMenuId = ''" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">换源</button>
-                    <button @click="deleteSubscription(sub.id); subscriptionActionMenuId = ''" class="btn-danger col-span-2 px-2 py-1 rounded text-xs transition-colors">删除</button>
+                    <template x-for="action in subscriptionMenuActions()" :key="action.id">
+                      <button @click="runSubscriptionMenuAction(action.id, sub)" :class="action.danger ? 'btn-danger' : 'btn-secondary'" class="px-2 py-1 rounded text-xs transition-colors" x-text="action.short"></button>
+                    </template>
                   </div>
                 </div>
               </div>
             </template>
           </div>
+          </template>
           <div x-show="hasMoreSubscriptions" class="flex justify-center"><button @click="subscriptionVisibleLimit += 100" class="btn-secondary px-5 py-2">加载更多订阅</button></div>
           <div x-show="subscriptions.length === 0" class="app-panel empty-state">暂无订阅</div>
           <div x-show="subscriptions.length > 0 && filteredSubscriptions.length === 0" class="app-panel empty-state" x-text="'暂无' + subscriptionStatusLabel(subscriptionStatusTab) + '订阅'"></div>
@@ -2985,29 +2984,29 @@
     </div>
   </div>
   <!-- Alpine.js 应用逻辑 -->
-  <script src="js/core/api.js?v=2.2.10"></script>
-  <script src="js/core/formatters.js?v=2.2.10"></script>
-  <script src="js/core/ux.js?v=2.2.10"></script>
-  <script src="js/features/search-results.js?v=2.2.10"></script>
-  <script src="js/features/subscription-detail.js?v=2.2.10"></script>
-  <script src="js/features/calendar.js?v=2.2.10"></script>
-  <script src="js/features/source-switch.js?v=2.2.10"></script>
-  <script src="js/features/automation-events.js?v=2.2.10"></script>
-  <script src="js/core/polling.js?v=2.2.10"></script>
-  <script src="js/core/router.js?v=2.2.10"></script>
-  <script src="js/core/notifications.js?v=2.2.10"></script>
-  <script src="js/stores/downloads.js?v=2.2.10"></script>
-  <script src="js/stores/drive.js?v=2.2.10"></script>
-  <script src="js/stores/jobs.js?v=2.2.10"></script>
-  <script src="js/stores/subscriptions.js?v=2.2.10"></script>
-  <script src="js/features/updates.js?v=2.2.10"></script>
-  <script src="js/features/settings.js?v=2.2.10"></script>
-  <script src="js/features/diagnostics.js?v=2.2.10"></script>
-  <script src="js/features/pwa.js?v=2.2.10"></script>
-  <script src="js/features/dashboard.js?v=2.2.10"></script>
-  <script src="js/features/search-page.js?v=2.2.10"></script>
-  <script src="js/features/calendar-page.js?v=2.2.10"></script>
-  <script src="js/core/shell.js?v=2.2.10"></script>
-  <script src="app.js?v=2.2.10"></script>
+  <script src="js/core/api.js?v=2.2.11"></script>
+  <script src="js/core/formatters.js?v=2.2.11"></script>
+  <script src="js/core/ux.js?v=2.2.11"></script>
+  <script src="js/features/search-results.js?v=2.2.11"></script>
+  <script src="js/features/subscription-detail.js?v=2.2.11"></script>
+  <script src="js/features/calendar.js?v=2.2.11"></script>
+  <script src="js/features/source-switch.js?v=2.2.11"></script>
+  <script src="js/features/automation-events.js?v=2.2.11"></script>
+  <script src="js/core/polling.js?v=2.2.11"></script>
+  <script src="js/core/router.js?v=2.2.11"></script>
+  <script src="js/core/notifications.js?v=2.2.11"></script>
+  <script src="js/stores/downloads.js?v=2.2.11"></script>
+  <script src="js/stores/drive.js?v=2.2.11"></script>
+  <script src="js/stores/jobs.js?v=2.2.11"></script>
+  <script src="js/stores/subscriptions.js?v=2.2.11"></script>
+  <script src="js/features/updates.js?v=2.2.11"></script>
+  <script src="js/features/settings.js?v=2.2.11"></script>
+  <script src="js/features/diagnostics.js?v=2.2.11"></script>
+  <script src="js/features/pwa.js?v=2.2.11"></script>
+  <script src="js/features/dashboard.js?v=2.2.11"></script>
+  <script src="js/features/search-page.js?v=2.2.11"></script>
+  <script src="js/features/calendar-page.js?v=2.2.11"></script>
+  <script src="js/core/shell.js?v=2.2.11"></script>
+  <script src="app.js?v=2.2.11"></script>
 </body>
 </html>

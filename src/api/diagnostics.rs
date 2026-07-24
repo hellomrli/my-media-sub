@@ -210,7 +210,7 @@ async fn build_snapshot(context: &AppContext) -> Result<DiagnosticsSnapshot> {
         .iter()
         .filter(|job| job.error_class == Some(JobErrorClass::TimedOut))
         .count();
-    let archived = context.job_store.archived_count()?;
+    let archived = context.job_store.archived_count().await?;
     let telegram_bot = context.telegram_bot.diagnostics().await;
     context
         .metrics
@@ -463,7 +463,39 @@ fn data_consistency_diagnostics(
                 message: message.to_string(),
             }
         })
+        .map(|mut entry| {
+            // 曾解析失败被隔离的 Store 文件（*.json.corrupt-*）需要显式暴露，
+            // 否则"隔离后以空数据继续运行"对用户完全不可见。
+            let quarantined = quarantine_file_count(data_dir, &entry.store);
+            if quarantined > 0 {
+                if matches!(entry.status, "ok" | "missing") {
+                    entry.status = "quarantined_backup_present";
+                }
+                entry.message = format!(
+                    "{}；检测到 {} 个隔离的损坏文件（{}.json.corrupt-*），请核对备份确认无数据丢失",
+                    entry.message, quarantined, entry.store
+                );
+            }
+            entry
+        })
         .collect()
+}
+
+fn quarantine_file_count(data_dir: &std::path::Path, store: &str) -> usize {
+    let prefix = format!("{store}.json.corrupt-");
+    std::fs::read_dir(data_dir)
+        .map(|entries| {
+            entries
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| {
+                    entry
+                        .file_name()
+                        .to_str()
+                        .is_some_and(|name| name.starts_with(&prefix))
+                })
+                .count()
+        })
+        .unwrap_or(0)
 }
 
 async fn dns_diagnostics(settings: &crate::models::Settings) -> Vec<DnsDiagnostics> {
@@ -564,16 +596,31 @@ fn diagnostic_recommendations(
             action: "检查容器 DNS、代理和防火墙；修复后重新运行只读诊断".to_string(),
         });
     }
-    if consistency
-        .iter()
-        .any(|entry| !matches!(entry.status, "ok" | "missing"))
-    {
+    if consistency.iter().any(|entry| {
+        !matches!(
+            entry.status,
+            "ok" | "missing" | "quarantined_backup_present"
+        )
+    }) {
         recommendations.push(DiagnosticRecommendation {
             severity: "error",
             category: "data",
             code: "store_consistency_failed",
             summary: "一个或多个 JSON Store 存在结构或记录数异常".to_string(),
             action: "先导出诊断与备份，再使用备份预览确认可恢复性；不要直接编辑线上 JSON"
+                .to_string(),
+        });
+    }
+    if consistency
+        .iter()
+        .any(|entry| entry.status == "quarantined_backup_present")
+    {
+        recommendations.push(DiagnosticRecommendation {
+            severity: "warning",
+            category: "data",
+            code: "store_quarantine_present",
+            summary: "存在被隔离的损坏 Store 文件（*.json.corrupt-*）".to_string(),
+            action: "该 Store 曾解析失败并以空数据继续运行；请核对隔离文件与备份，确认无数据丢失后再清理隔离文件"
                 .to_string(),
         });
     }

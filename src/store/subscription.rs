@@ -73,7 +73,10 @@ impl SubscriptionStore {
                 )));
             }
             Err(error) => {
-                tracing::warn!("解析订阅 JSON 失败，已隔离损坏文件并使用空订阅: {}", error);
+                tracing::error!(
+                    "解析订阅 JSON 失败，已隔离损坏文件并使用空订阅继续运行（启动通知与诊断接口会提示隔离文件）: {}",
+                    error
+                );
                 quarantine_corrupt_file(path);
                 self.replace_memory(Vec::new()).await;
             }

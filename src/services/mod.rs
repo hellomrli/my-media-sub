@@ -36,3 +36,7 @@ pub mod telegram_bot;
 /// the active application. Keeping the switch in Rust makes every execution
 /// path fail closed until STRM returns as an independently mounted module.
 pub const STRM_MODULE_ENABLED: bool = false;
+
+/// 订阅检查/转存探测分享时的文件数上限。
+/// 超限会在 ProbeResult 中标记 `partial` 状态，不再静默截断。
+pub const SHARE_PROBE_MAX_FILES: usize = 500;

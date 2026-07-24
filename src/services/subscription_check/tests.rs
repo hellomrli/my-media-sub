@@ -465,6 +465,47 @@ mod tests {
         assert_eq!(candidates, vec!["147.mp4".to_string()]);
     }
 
+    #[test]
+    fn test_transfer_candidates_movie_retries_known_untransferred_file() {
+        let (service, _, _) = make_service();
+        let mut sub = make_subscription();
+        sub.media_type = "movie".to_string();
+        sub.known_files = vec!["阿凡达.mkv".to_string(), "已转存电影.mkv".to_string()];
+        sub.transferred_files = vec!["已转存电影.mkv".to_string()];
+        sub.transferred_file_keys = vec![];
+        let files = vec![
+            ProbeFile {
+                name: "阿凡达.mkv".to_string(),
+                is_dir: false,
+                parent_path: String::new(),
+                size: 1,
+                updated_at: None,
+                file_key: "movie-1".to_string(),
+            },
+            ProbeFile {
+                name: "已转存电影.mkv".to_string(),
+                is_dir: false,
+                parent_path: String::new(),
+                size: 1,
+                updated_at: None,
+                file_key: "movie-2".to_string(),
+            },
+            ProbeFile {
+                name: "海报.jpg".to_string(),
+                is_dir: false,
+                parent_path: String::new(),
+                size: 1,
+                updated_at: None,
+                file_key: "poster".to_string(),
+            },
+        ];
+
+        // 电影转存链路断过一次后（文件已 known 但未转存），检查必须重新入选补转。
+        let candidates = service.transfer_candidate_file_names(&sub, &files, &[]);
+
+        assert_eq!(candidates, vec!["阿凡达.mkv".to_string()]);
+    }
+
     #[tokio::test]
     async fn test_mock_probe_result_reads_fixture() {
         let _guard = mock_env_lock().lock().await;
@@ -749,6 +790,7 @@ mod tests {
                 &new_episodes,
                 "发现 1 个新文件",
                 false,
+                &service.build_check_details(&sub, &probe.files),
             )
             .await
             .unwrap();
@@ -807,6 +849,7 @@ mod tests {
                 &new_episodes,
                 "发现 1 个新文件",
                 false,
+                &service.build_check_details(&sub, &probe.files),
             )
             .await
             .unwrap();

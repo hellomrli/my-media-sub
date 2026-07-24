@@ -142,7 +142,7 @@ async fn build_preview(context: &AppContext) -> Result<StorageCleanupPreview> {
     let notification_count = context.notification_store.count().await;
     let jobs = context.job_store.list().await;
     let terminal_jobs = context.job_store.terminal_count().await;
-    let archived_jobs = context.job_store.archived_count()?;
+    let archived_jobs = context.job_store.archived_count().await?;
     let jobs_to_archive = terminal_jobs.saturating_sub(policy.active_terminal_jobs);
     let projected_archive = archived_jobs.saturating_add(jobs_to_archive);
     let automation_count = context.automation_event_store.count().await;

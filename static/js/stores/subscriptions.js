@@ -15,6 +15,71 @@
   const automationEventTools = root.MediaSubAutomationEvents || {};
   const ux = root.MediaSubUx || {};
 
+  const DEFAULT_EXCLUDE_KEYWORDS = '预告, 花絮, 解说, 彩蛋, trailer, preview';
+
+  // newSubscription 表单字段的唯一来源：初始化、重置、创建、编辑都从这里展开，
+  // 新增字段只需在此补默认值，再在需要的入口覆盖。
+  function blankSubscriptionForm() {
+    return {
+      title: '',
+      url: '',
+      password: '',
+      original_url: '',
+      original_password: '',
+      original_current_episode: 0,
+      original_known_episode_count: 0,
+      original_transferred_count: 0,
+      original_start_episode_number: '',
+      media_type: 'series',
+      season: 1,
+      season_input: '1',
+      season_end: null,
+      source_title: '',
+      target_path: '',
+      target_fid: '0',
+      target_dir_name: '',
+      rename_template: '',
+      custom_dir: false,
+      custom_rename: false,
+      notify_only: false,
+      sync_download_enabled: false,
+      sync_download_dir: '',
+      strm_enabled: false,
+      metadata: null,
+      manual_schedule_enabled: false,
+      manual_schedule_start_date: '',
+      manual_schedule_weekdays: [],
+      manual_schedule_air_time: '',
+      manual_schedule_interval_weeks: 1,
+      manual_schedule_first_episode: 1,
+      manual_schedule_total_episodes: '',
+      include_keywords_text: '',
+      exclude_keywords_text: DEFAULT_EXCLUDE_KEYWORDS,
+      match_regex: '',
+      episode_regex: '',
+      source_search_keywords_text: '',
+      source_exclude_keywords_text: '',
+      source_prefer_keywords_text: '',
+      ignore_extensions: false,
+      rename_regex: '',
+      rename_replacement: '',
+      only_latest: false,
+      skip_existing_transferred: true,
+      duplicate_episode_strategy: 'highest_quality',
+      conflict_strategy: 'skip',
+      auto_create_target_dir: true,
+      start_episode_number: '',
+      keep_progress_on_source_change: true,
+      continue_from_current_episode: true,
+      finish_after_episode: '',
+      check_interval_minutes: 60,
+      rule_preset_id: '',
+      preview_samples: '',
+      preview_files: [],
+      preview_use_source_probe: false
+    };
+  }
+
   function createStore() {
     return {
     subscriptions: [],
@@ -78,64 +143,7 @@
     renamePreviewError: '',
     renamePreviewScope: 'matched',
     renamePreviewCollapsedSeasons: {},
-    newSubscription: {
-      title: '',
-      url: '',
-      password: '',
-      original_url: '',
-      original_password: '',
-      original_current_episode: 0,
-      original_known_episode_count: 0,
-      original_transferred_count: 0,
-      original_start_episode_number: '',
-      media_type: 'series',
-      season: 1,
-      season_input: '1',
-      season_end: null,
-      source_title: '',
-      target_path: '',
-      target_fid: '0',
-      target_dir_name: '',
-      rename_template: '',
-      custom_dir: false,
-      custom_rename: false,
-      notify_only: false,
-      sync_download_enabled: false,
-      sync_download_dir: '',
-      strm_enabled: false,
-      metadata: null,
-      manual_schedule_enabled: false,
-      manual_schedule_start_date: '',
-      manual_schedule_weekdays: [],
-      manual_schedule_air_time: '',
-      manual_schedule_interval_weeks: 1,
-      manual_schedule_first_episode: 1,
-      manual_schedule_total_episodes: '',
-      include_keywords_text: '',
-      exclude_keywords_text: '预告, 花絮, 解说, 彩蛋, trailer, preview',
-      match_regex: '',
-      episode_regex: '',
-      source_search_keywords_text: '',
-      source_exclude_keywords_text: '',
-      source_prefer_keywords_text: '',
-      ignore_extensions: false,
-      rename_regex: '',
-      rename_replacement: '',
-      only_latest: false,
-      skip_existing_transferred: true,
-      duplicate_episode_strategy: 'highest_quality',
-      conflict_strategy: 'skip',
-      auto_create_target_dir: true,
-      start_episode_number: '',
-      keep_progress_on_source_change: true,
-      continue_from_current_episode: true,
-      finish_after_episode: '',
-      check_interval_minutes: 60,
-      rule_preset_id: '',
-      preview_samples: '',
-      preview_files: [],
-      preview_use_source_probe: true
-    },
+    newSubscription: blankSubscriptionForm(),
 
     // 通知
     showTransferModal: false,
@@ -205,7 +213,7 @@
     },
 
     defaultExcludeKeywords() {
-      return '预告, 花絮, 解说, 彩蛋, trailer, preview';
+      return DEFAULT_EXCLUDE_KEYWORDS;
     },
 
     setSubscriptionMode(mode) {
@@ -215,70 +223,22 @@
       }
     },
 
-    resetSubscriptionForm() {
-      this.subscriptionEditingId = null;
-      this.subscriptionMode = 'continuous';
+    // 打开/重置订阅对话框时共用的状态复位
+    prepareSubscriptionDialog({mode = 'continuous', editingId = null, searchResult = null} = {}) {
+      this.subscriptionEditingId = editingId;
+      this.subscriptionMode = mode;
       this.subscriptionDialogTab = 'content';
-      this.currentSearchResult = null;
+      this.currentSearchResult = searchResult;
       this.renamePreview = null;
       this.renamePreviewError = '';
       this.renamePreviewScope = 'matched';
+    },
+
+    resetSubscriptionForm() {
+      this.prepareSubscriptionDialog();
       this.newSubscription = {
-        title: '',
-        url: '',
-        password: '',
-        original_url: '',
-        original_password: '',
-        original_current_episode: 0,
-        original_known_episode_count: 0,
-        original_transferred_count: 0,
-        original_start_episode_number: '',
-        media_type: 'series',
-        season: 1,
-        season_input: '1',
-        season_end: null,
-        target_path: '',
-        target_fid: '0',
-        target_dir_name: '',
-        rename_template: '',
-        custom_dir: false,
-        custom_rename: false,
-        notify_only: false,
-        sync_download_enabled: false,
-        sync_download_dir: '',
-        strm_enabled: false,
-        metadata: null,
-        manual_schedule_enabled: false,
-        manual_schedule_start_date: '',
-        manual_schedule_weekdays: [],
-        manual_schedule_air_time: '',
-        manual_schedule_interval_weeks: 1,
-        manual_schedule_first_episode: 1,
-        manual_schedule_total_episodes: '',
-        include_keywords_text: '',
-        exclude_keywords_text: this.defaultExcludeKeywords(),
-        match_regex: '',
-      episode_regex: '',
-      source_search_keywords_text: '',
-      source_exclude_keywords_text: '',
-      source_prefer_keywords_text: '',
-        ignore_extensions: false,
-        rename_regex: '',
-        rename_replacement: '',
-        only_latest: false,
-        skip_existing_transferred: true,
-        duplicate_episode_strategy: 'highest_quality',
-      conflict_strategy: 'skip',
-        auto_create_target_dir: true,
-        start_episode_number: '',
-        keep_progress_on_source_change: true,
-        continue_from_current_episode: true,
-        finish_after_episode: '',
-        check_interval_minutes: Number(this.settings.subscription_check_interval_minutes || 60),
-        rule_preset_id: '',
-        preview_samples: '',
-        preview_files: [],
-        preview_use_source_probe: false
+        ...blankSubscriptionForm(),
+        check_interval_minutes: Number(this.settings.subscription_check_interval_minutes || 60)
       };
     },
 
@@ -400,69 +360,18 @@
         return;
       }
 
-      this.currentSearchResult = result;
-      this.subscriptionEditingId = null;
-      this.subscriptionMode = mode;
-      this.subscriptionDialogTab = 'content';
-      this.renamePreview = null;
-      this.renamePreviewError = '';
-      this.renamePreviewScope = 'matched';
+      this.prepareSubscriptionDialog({mode, searchResult: result});
       const sourceTitle = this.searchResultTitle(result);
       const rawTitle = result && (result.note || result.title || sourceTitle) || sourceTitle;
       this.newSubscription = {
+        ...blankSubscriptionForm(),
         title: (result && result.display_title) || this.inferSubscriptionTitle(sourceTitle),
         source_title: rawTitle,
         url: result.url,
         password: result.password || '',
         original_url: result.url,
         original_password: result.password || '',
-        original_current_episode: 0,
-        original_known_episode_count: 0,
-        original_transferred_count: 0,
-        original_start_episode_number: '',
-        media_type: 'series',
-        season: 1,
-        season_input: '1',
-        season_end: null,
-        target_path: '',
-        target_fid: '0',
-        target_dir_name: '',
-        rename_template: '',
-        custom_dir: false,
-        custom_rename: false,
-        notify_only: false,
-        sync_download_enabled: false,
-        sync_download_dir: '',
-        strm_enabled: false,
-        metadata: null,
-        manual_schedule_enabled: false,
-        manual_schedule_start_date: '',
-        manual_schedule_weekdays: [],
-        manual_schedule_air_time: '',
-        manual_schedule_interval_weeks: 1,
-        manual_schedule_first_episode: 1,
-        manual_schedule_total_episodes: '',
-        include_keywords_text: '',
-        exclude_keywords_text: this.defaultExcludeKeywords(),
-        match_regex: '',
-      episode_regex: '',
-      source_search_keywords_text: '',
-      source_exclude_keywords_text: '',
-      source_prefer_keywords_text: '',
-        ignore_extensions: false,
-        rename_regex: '',
-        rename_replacement: '',
-        only_latest: false,
-        skip_existing_transferred: true,
-        duplicate_episode_strategy: 'highest_quality',
-      conflict_strategy: 'skip',
-        auto_create_target_dir: true,
-        start_episode_number: '',
-        keep_progress_on_source_change: true,
-        continue_from_current_episode: true,
-        finish_after_episode: '',
         check_interval_minutes: Number(this.settings.subscription_check_interval_minutes || 60),
-        rule_preset_id: '',
         preview_samples: this.sampleFilesFromSearchResult(result),
         preview_files: this.previewFilesFromSearchResult(result),
         preview_use_source_probe: true
@@ -486,14 +395,11 @@
 
     openEditSubscriptionDialog(sub) {
       const rules = sub.rules || {};
-      this.subscriptionEditingId = sub.id;
-      this.subscriptionMode = 'continuous';
-      this.subscriptionDialogTab = 'content';
-      this.currentSearchResult = null;
-      this.renamePreview = null;
-      this.renamePreviewError = '';
-      this.renamePreviewScope = 'matched';
+      this.prepareSubscriptionDialog({editingId: sub.id});
+      const seasonStart = this.normalizeSeason(sub.season);
+      const seasonEnd = sub.season_end != null ? this.normalizeSeason(sub.season_end) : seasonStart;
       this.newSubscription = {
+        ...blankSubscriptionForm(),
         title: sub.title || '',
         url: sub.url || '',
         password: sub.password || '',
@@ -504,16 +410,10 @@
         original_transferred_count: Array.isArray(sub.transferred_file_keys) ? sub.transferred_file_keys.length : (Array.isArray(sub.transferred_files) ? sub.transferred_files.length : 0),
         original_start_episode_number: sub.start_episode_number || '',
         media_type: sub.media_type || 'series',
-        season: this.normalizeSeason(sub.season),
-        season_input: (() => {
-          const start = this.normalizeSeason(sub.season);
-          const end = sub.season_end != null ? this.normalizeSeason(sub.season_end) : start;
-          return end > start ? `${start}-${end}` : String(start);
-        })(),
-        season_end: sub.season_end != null ? this.normalizeSeason(sub.season_end) : null,
+        season: seasonStart,
+        season_input: seasonEnd > seasonStart ? `${seasonStart}-${seasonEnd}` : String(seasonStart),
+        season_end: sub.season_end != null ? seasonEnd : null,
         source_title: sub.source_title || '',
-        target_path: '',
-        target_fid: '0',
         target_dir_name: rules.target_dir || '',
         rename_template: rules.rename_template || '',
         custom_dir: !!rules.target_dir,
@@ -550,7 +450,6 @@
         conflict_strategy: rules.conflict_strategy || 'skip',
         auto_create_target_dir: rules.auto_create_target_dir !== false,
         start_episode_number: sub.start_episode_number || '',
-        keep_progress_on_source_change: true,
         continue_from_current_episode: sub.media_type !== 'movie' && Number(sub.current_episode_number || 0) > 0,
         finish_after_episode: rules.finish_after_episode || '',
         rule_preset_id: sub.rule_preset_id || '',
@@ -564,11 +463,6 @@
       this.showSubscriptionDialog = true;
       this.metadataResults = [];
       this.previewSubscriptionRename(true);
-    },
-
-    // 显示订阅对话框（兼容旧版）
-    showSubscriptionDialogLegacy(result) {
-      this.openSubscriptionDialog(result, 'continuous');
     },
 
     formatTime(timestamp) {
@@ -2653,6 +2547,34 @@
       this.subscriptionActionMenuId = this.subscriptionActionMenuId === id ? '' : id;
     },
 
+    // 行内副标题：来源标签，退回目标目录
+    subscriptionSubtitle(sub) {
+      return this.subscriptionSourceLabel(sub) || (sub && sub.rules && sub.rules.target_dir) || '-';
+    },
+
+    // 表格与海报视图共用的"更多"菜单（label 用于表格，short 用于海报卡片）
+    subscriptionMenuActions() {
+      return [
+        {id: 'edit', label: '编辑订阅', short: '编辑'},
+        {id: 'rename', label: '修复命名', short: '修复'},
+        {id: 'scrape', label: '自动刮削', short: '刮削'},
+        {id: 'manual-scrape', label: '手动刮削', short: '手动'},
+        {id: 'source-switch', label: '换源', short: '换源'},
+        {id: 'delete', label: '删除', short: '删除', danger: true}
+      ];
+    },
+
+    runSubscriptionMenuAction(actionId, sub) {
+      this.subscriptionActionMenuId = '';
+      if (!sub) return;
+      if (actionId === 'edit') this.openEditSubscriptionDialog(sub);
+      else if (actionId === 'rename') this.renameExistingFiles(sub.id);
+      else if (actionId === 'scrape') this.scrapeSubscriptionMetadata(sub.id);
+      else if (actionId === 'manual-scrape') this.openManualMetadataScrape(sub);
+      else if (actionId === 'source-switch') this.openSourceSwitchDialog(sub);
+      else if (actionId === 'delete') this.deleteSubscription(sub.id);
+    },
+
     async deleteSubscription(id) {
       if (this.requestDangerConfirmation && !await this.requestDangerConfirmation({title:'删除订阅', message:'订阅配置将被永久删除，媒体文件不会删除。', phrase:'DELETE'})) return;
       try {
@@ -2666,10 +2588,6 @@
         console.error('删除失败:', error);
         this.showNotification('error', this.apiErrorMessage(error, '删除订阅失败'));
       }
-    },
-
-    editSubscription(sub) {
-      this.openEditSubscriptionDialog(sub);
     },
 
     // ===== 通知 =====

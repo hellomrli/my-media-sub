@@ -194,7 +194,13 @@ impl SubscriptionTransferService {
 
         // 1. Resolve the subscription's provider and probe the share.
         let provider = self.provider_registry.resolve(&sub.cloud_type, &settings)?;
-        let share_info = provider.probe(&sub.url, &sub.password, 200).await?;
+        let share_info = provider
+            .probe(
+                &sub.url,
+                &sub.password,
+                crate::services::SHARE_PROBE_MAX_FILES,
+            )
+            .await?;
 
         if !share_info.ok {
             warn!("探测分享链接失败: {}", share_info.message);
@@ -209,12 +215,20 @@ impl SubscriptionTransferService {
         let files_to_transfer =
             filter_transfer_candidates_by_targets(&sub, &share_info.files, &match_targets);
         let files_to_transfer = dedup_provider_episode_files(&sub, files_to_transfer);
+        // 业务级幂等：任务重试/重放时跳过已转存的文件，避免网盘出现重复内容。
+        let (files_to_transfer, already_transferred_count) =
+            filter_already_transferred_files(&sub, files_to_transfer);
         if files_to_transfer.is_empty() {
+            let reason = if already_transferred_count > 0 {
+                format!("{already_transferred_count} 个匹配文件均已转存过，跳过重复转存")
+            } else {
+                "未找到匹配的文件".to_string()
+            };
             return Ok(TransferResult {
                 subscription_id: sub.id.clone(),
                 transferred_count: 0,
                 skipped: true,
-                reason: "未找到匹配的文件".to_string(),
+                reason,
                 push_title: None,
                 push_message: None,
                 push_notification_id: None,
@@ -224,6 +238,12 @@ impl SubscriptionTransferService {
                 aria2_submitted_count: 0,
                 aria2_error: None,
             });
+        }
+        if already_transferred_count > 0 {
+            info!(
+                "订阅 {} 跳过 {} 个已转存文件（重试幂等）",
+                sub.title, already_transferred_count
+            );
         }
 
         // 3. 按季分组后转存到对应 Season 目录（多季）或单一 Season 目录（单季）。

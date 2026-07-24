@@ -40,6 +40,9 @@ pub struct SubscriptionCheckService {
     transfer_service: Option<Arc<SubscriptionTransferService>>,
     subscription_locks: Arc<tokio::sync::Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>>,
     share_locks: Arc<tokio::sync::Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>>,
+    /// 批量检查互斥：API、Telegram 与定时调度并发触发时只允许一个批量在跑，
+    /// 避免两个快照互相看不到对方写回而重复提交转存任务。
+    batch_check_lock: Arc<tokio::sync::Mutex<()>>,
     batch_probe_cache: Option<Arc<tokio::sync::Mutex<HashMap<String, ProbeResult>>>>,
     provider_registry: Arc<CloudDriveProviderRegistry>,
 }
@@ -59,6 +62,7 @@ impl SubscriptionCheckService {
             transfer_service: None,
             subscription_locks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             share_locks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            batch_check_lock: Arc::new(tokio::sync::Mutex::new(())),
             batch_probe_cache: None,
             provider_registry: Arc::new(CloudDriveProviderRegistry::new()),
         }
@@ -74,6 +78,7 @@ impl SubscriptionCheckService {
             transfer_service: self.transfer_service.clone(),
             subscription_locks: self.subscription_locks.clone(),
             share_locks: self.share_locks.clone(),
+            batch_check_lock: self.batch_check_lock.clone(),
             batch_probe_cache: self.batch_probe_cache.clone(),
             provider_registry: self.provider_registry.clone(),
         }
@@ -459,6 +464,7 @@ impl SubscriptionCheckService {
             &new_episodes,
             &summary,
             became_completed,
+            &details,
         )
         .await?;
 
@@ -591,6 +597,12 @@ impl SubscriptionCheckService {
         cookie: &str,
         due_only: bool,
     ) -> Result<Vec<CheckResult>> {
+        // 同一时间只允许一个批量检查（API / Telegram / 定时调度共用此锁）。
+        let Ok(_batch_guard) = self.batch_check_lock.try_lock() else {
+            return Err(AppError::Validation(
+                "批量检查已在进行中，请稍后再试".to_string(),
+            ));
+        };
         let subscriptions = self.subscription_store.list().await;
         let settings = self.settings_store.get().await;
         let global_interval = crate::models::settings::normalize_check_interval_minutes(i64::from(
@@ -708,7 +720,13 @@ impl SubscriptionCheckService {
         let provider = self
             .provider_registry
             .resolve_with_quark_cookie(&sub.cloud_type, cookie.to_string())?;
-        let provider_probe = provider.probe(&sub.url, &sub.password, 200).await?;
+        let provider_probe = provider
+            .probe(
+                &sub.url,
+                &sub.password,
+                crate::services::SHARE_PROBE_MAX_FILES,
+            )
+            .await?;
         if provider_probe.state == "rate_limited" {
             return Err(AppError::RateLimited(provider_probe.message));
         }
@@ -737,6 +755,7 @@ impl SubscriptionCheckService {
     subscription_check_file_filter_methods!();
 
     /// 更新订阅状态
+    #[allow(clippy::too_many_arguments)]
     async fn update_subscription_after_check(
         &self,
         sub: &Subscription,
@@ -745,9 +764,9 @@ impl SubscriptionCheckService {
         new_episodes: &[i32],
         summary: &str,
         completed: bool,
+        details: &CheckDetails,
     ) -> Result<()> {
         let now = unix_now();
-        let details = self.build_check_details(sub, &probe.files);
 
         self.subscription_store
             .update(&sub.id, |s| {
@@ -1023,7 +1042,7 @@ impl SubscriptionCheckService {
         if !settings.auto_source_switch_enabled || settings.auto_source_switch_mode != "apply" {
             return Ok(None);
         }
-        let mut subscription = self
+        let subscription = self
             .subscription_store
             .get(subscription_id)
             .await
@@ -1040,6 +1059,8 @@ impl SubscriptionCheckService {
         );
         let now = unix_now();
         let mut scored_candidates = Vec::new();
+        let mut probe_failures: Vec<(crate::models::subscription::SourceCandidate, String)> =
+            Vec::new();
 
         for candidate in candidates.iter().take(5) {
             let scored = service
@@ -1047,54 +1068,62 @@ impl SubscriptionCheckService {
                 .await?;
             let preview = service.preview_candidate(&subscription, scored.clone(), &settings, now);
             if !preview.probe_ok {
-                service.record_candidate_failure(
-                    &mut subscription,
-                    &scored,
-                    scored
-                        .probe_info
-                        .as_ref()
-                        .map(|probe| probe.message.as_str())
-                        .unwrap_or("候选探测失败"),
-                    true,
-                );
+                let message = scored
+                    .probe_info
+                    .as_ref()
+                    .map(|probe| probe.message.clone())
+                    .unwrap_or_else(|| "候选探测失败".to_string());
+                probe_failures.push((scored.clone(), message));
             }
             scored_candidates.push(scored);
         }
-        subscription.source_candidates = scored_candidates;
 
-        let Some(preview) = service.best_auto_candidate(
-            &subscription,
-            &subscription.source_candidates,
-            &settings,
-            now,
-        ) else {
-            let snapshot = subscription.clone();
-            self.subscription_store
-                .update(subscription_id, |current| *current = snapshot)
-                .await?;
+        // 失败审计与换源应用都在 update 闭包内基于最新记录执行，只改本流程
+        // 拥有的字段，避免用旧快照整条覆盖并发写入（如转存 job 刚落盘的进度）。
+        let mut apply_error: Option<AppError> = None;
+        let mut applied_candidate: Option<crate::models::subscription::SourceCandidate> = None;
+        let updated = self
+            .subscription_store
+            .update(subscription_id, |current| {
+                current.source_candidates = scored_candidates;
+                for (candidate, message) in &probe_failures {
+                    service.record_candidate_failure(current, candidate, message, true);
+                }
+                let Some(preview) = service.best_auto_candidate(
+                    current,
+                    &current.source_candidates,
+                    &settings,
+                    now,
+                ) else {
+                    return;
+                };
+                let candidate = preview.candidate.clone();
+                let reason = format!(
+                    "连续失效达到阈值，候选 {} 分，分差 {}",
+                    candidate.quality.score, preview.score_delta
+                );
+                match service.apply_source_switch_with_audit(current, &candidate.id, true, &reason)
+                {
+                    Ok(()) => {
+                        current.updated_at = now;
+                        applied_candidate = Some(candidate);
+                    }
+                    Err(error) => apply_error = Some(error),
+                }
+            })
+            .await?
+            .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?;
+        if let Some(error) = apply_error {
+            return Err(error);
+        }
+        let Some(candidate) = applied_candidate else {
             return Ok(None);
         };
-        let candidate = preview.candidate.clone();
-
-        service.apply_source_switch_with_audit(
-            &mut subscription,
-            &candidate.id,
-            true,
-            &format!(
-                "连续失效达到阈值，候选 {} 分，分差 {}",
-                candidate.quality.score, preview.score_delta
-            ),
-        )?;
-        subscription.updated_at = now;
-        let snapshot = subscription.clone();
-        self.subscription_store
-            .update(subscription_id, |current| *current = snapshot)
-            .await?;
 
         let mut meta = HashMap::new();
         meta.insert(
             "subscription_id".to_string(),
-            serde_json::Value::String(subscription.id.clone()),
+            serde_json::Value::String(updated.id.clone()),
         );
         meta.insert(
             "candidate_id".to_string(),
@@ -1112,7 +1141,7 @@ impl SubscriptionCheckService {
             "自动换源成功".to_string(),
             format!(
                 "订阅「{}」已自动切换到质量分 {} 的候选来源",
-                subscription.title, candidate.quality.score
+                updated.title, candidate.quality.score
             ),
             meta,
         )
@@ -1307,15 +1336,27 @@ fn merge_check_results(
     current.last_check_summary = checked.last_check_summary.clone();
     current.last_probe = checked.last_probe.clone();
     current.check_history = checked.check_history.clone();
-    current.status = checked.status.clone();
-    current.invalid_since = checked.invalid_since;
-    current.last_error = checked.last_error.clone();
     current.source_failure_count = checked.source_failure_count;
-    current.completed = checked.completed;
     current.total_episode_number = checked.total_episode_number;
     current.source_candidates = checked.source_candidates.clone();
     current.last_source_search_time = checked.last_source_search_time;
     current.updated_at = current.updated_at.max(checked.updated_at);
+
+    // 仅当本次检查确实改变了状态字段时才写回；否则保留当前值。
+    // 批量进行期间并发的转存任务可能刚把订阅置为已完结（或换源恢复为 active），
+    // 无条件写回快照值会把这些状态回退。
+    let status_changed_in_batch = original.is_none_or(|original| {
+        checked.status != original.status
+            || checked.completed != original.completed
+            || checked.invalid_since != original.invalid_since
+            || checked.last_error != original.last_error
+    });
+    if status_changed_in_batch {
+        current.status = checked.status.clone();
+        current.invalid_since = checked.invalid_since;
+        current.last_error = checked.last_error.clone();
+        current.completed = checked.completed;
+    }
 
     // 仅当批量检查期间确实发生了自动换源时，才同步换源相关字段；
     // 否则保留当前值，避免覆盖用户对分享链接的并发编辑。

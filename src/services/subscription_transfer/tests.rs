@@ -264,6 +264,64 @@ mod tests {
         assert_eq!(deduped.len(), 2);
     }
 
+    fn provider_video(name: &str, parent_path: &str) -> ProviderFile {
+        ProviderFile {
+            name: name.to_string(),
+            id: format!("fid-{name}"),
+            is_dir: false,
+            size: 1,
+            parent_path: parent_path.to_string(),
+            updated_at: None,
+        }
+    }
+
+    #[test]
+    fn filter_already_transferred_skips_by_name_and_episode_key() {
+        let mut sub = subscription("series", 1);
+        sub.transferred_files = vec!["第01集.mkv".to_string()];
+        sub.transferred_file_keys = vec!["ep:1".to_string(), "ep:2".to_string()];
+        let e1 = provider_video("第01集.mkv", "");
+        let e2_renamed = provider_video("Show.S01E02.1080p.mkv", "");
+        let e3 = provider_video("第03集.mkv", "");
+
+        let (kept, skipped) =
+            filter_already_transferred_files(&sub, vec![&e1, &e2_renamed, &e3]);
+
+        assert_eq!(skipped, 2);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].name, "第03集.mkv");
+    }
+
+    #[test]
+    fn filter_already_transferred_keeps_other_season_for_multi_season() {
+        let mut sub = subscription("series", 1);
+        sub.season_end = Some(2);
+        sub.transferred_files = vec!["Show.S01E05.mkv".to_string()];
+        sub.transferred_file_keys = vec!["ep:5".to_string()];
+        let same_name = provider_video("Show.S01E05.mkv", "");
+        let s2e5 = provider_video("Show.S02E05.mkv", "");
+
+        let (kept, skipped) = filter_already_transferred_files(&sub, vec![&same_name, &s2e5]);
+
+        assert_eq!(skipped, 1);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].name, "Show.S02E05.mkv");
+    }
+
+    #[test]
+    fn filter_already_transferred_respects_disabled_flag() {
+        let mut sub = subscription("series", 1);
+        sub.rules.skip_existing_transferred = false;
+        sub.transferred_files = vec!["第01集.mkv".to_string()];
+        sub.transferred_file_keys = vec!["ep:1".to_string()];
+        let e1 = provider_video("第01集.mkv", "");
+
+        let (kept, skipped) = filter_already_transferred_files(&sub, vec![&e1]);
+
+        assert_eq!(skipped, 0);
+        assert_eq!(kept.len(), 1);
+    }
+
     #[test]
     fn transfer_match_targets_match_renamed_same_episode_video() {
         let sub = subscription("anime", 1);

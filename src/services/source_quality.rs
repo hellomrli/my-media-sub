@@ -271,7 +271,7 @@ fn resolution_info(text: &str) -> (&'static str, i32) {
 }
 
 fn contains(text: &str, pattern: &str) -> bool {
-    Regex::new(pattern)
+    crate::services::episode::cached_regex(pattern)
         .expect("valid source quality regex")
         .is_match(text)
 }

@@ -20,7 +20,13 @@ impl JobWorker {
         self.update_running(job_id, 15, "正在探测分享链接").await?;
         let provider =
             CloudDriveProviderRegistry::new().resolve_with_quark_cookie("quark", cookie)?;
-        let share_info = provider.probe(&req.url, &req.passcode, 200).await?;
+        let share_info = provider
+            .probe(
+                &req.url,
+                &req.passcode,
+                crate::services::SHARE_PROBE_MAX_FILES,
+            )
+            .await?;
 
         if !share_info.ok {
             self.fail_manual_transfer(

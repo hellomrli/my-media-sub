@@ -6,7 +6,6 @@ use crate::services::episode::{
     is_video_name, normalize_duplicate_episode_strategy, season_hint_from_context, split_words,
     EpisodeDuplicateCandidate,
 };
-use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
@@ -253,7 +252,7 @@ pub fn apply_rename(
 
     // 正则替换
     if !rules.rename_regex.is_empty() {
-        match Regex::new(&rules.rename_regex) {
+        match crate::services::episode::cached_regex(&rules.rename_regex) {
             Ok(re) => {
                 target = re
                     .replace_all(&target, &rules.rename_replacement)
@@ -373,15 +372,13 @@ pub fn build_transfer_plan(
     let exclude_kw = split_words(&rules.exclude_keywords);
 
     let mut items: Vec<TransferItem> = Vec::new();
-    let compile_error: Option<String> = if !rules.match_regex.is_empty() {
-        Regex::new(&rules.match_regex).err().map(|e| e.to_string())
+    let (match_re, compile_error) = if rules.match_regex.is_empty() {
+        (None, None)
     } else {
-        None
-    };
-    let match_re = if compile_error.is_none() && !rules.match_regex.is_empty() {
-        Regex::new(&rules.match_regex).ok()
-    } else {
-        None
+        match crate::services::episode::cached_regex(&rules.match_regex) {
+            Ok(re) => (Some(re), None),
+            Err(error) => (None, Some(error)),
+        }
     };
 
     for raw in &files {
