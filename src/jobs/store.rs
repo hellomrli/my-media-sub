@@ -238,7 +238,7 @@ impl JobStore {
         let (mut archived_now, active): (Vec<_>, Vec<_>) = current
             .into_iter()
             .partition(|job| move_ids.contains(&job.id));
-        let mut archive = self.read_archive()?;
+        let mut archive = self.read_archive().await?;
         archive.append(&mut archived_now);
         let archive_retention = configured_archive_retention();
         if archive.len() > archive_retention {
@@ -251,7 +251,7 @@ impl JobStore {
     }
 
     pub async fn list_archived(&self, offset: usize, limit: usize) -> Result<Vec<Job>> {
-        let archive = self.read_archive()?;
+        let archive = self.read_archive().await?;
         Ok(archive.into_iter().rev().skip(offset).take(limit).collect())
     }
 
@@ -266,7 +266,7 @@ impl JobStore {
 
     pub async fn prune_archive(&self, retain: usize) -> Result<usize> {
         let _guard = self.save_lock.lock().await;
-        let mut archive = self.read_archive()?;
+        let mut archive = self.read_archive().await?;
         let before = archive.len();
         if archive.len() > retain {
             archive.drain(0..archive.len() - retain);
@@ -275,20 +275,26 @@ impl JobStore {
         Ok(before.saturating_sub(archive.len()))
     }
 
-    pub fn archived_count(&self) -> Result<usize> {
-        Ok(self.read_archive()?.len())
+    pub async fn archived_count(&self) -> Result<usize> {
+        Ok(self.read_archive().await?.len())
     }
 
-    fn read_archive(&self) -> Result<Vec<Job>> {
-        if !self.archive_path.exists() {
-            return Ok(Vec::new());
-        }
-        let content = std::fs::read_to_string(&self.archive_path)
-            .map_err(|error| AppError::Database(format!("读取任务归档失败: {error}")))?;
-        set_file_mode(&self.archive_path, 0o600)?;
-        decode_store_json::<Vec<Job>>(&content, StoreKind::Jobs)
-            .map(|decoded| decoded.data)
-            .map_err(|error| AppError::Database(format!("解析任务归档失败: {error}")))
+    /// 在阻塞线程池读取并解析归档文件，避免同步 IO 卡住 tokio worker。
+    async fn read_archive(&self) -> Result<Vec<Job>> {
+        let path = self.archive_path.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<Job>> {
+            if !path.exists() {
+                return Ok(Vec::new());
+            }
+            let content = std::fs::read_to_string(&path)
+                .map_err(|error| AppError::Database(format!("读取任务归档失败: {error}")))?;
+            set_file_mode(&path, 0o600)?;
+            decode_store_json::<Vec<Job>>(&content, StoreKind::Jobs)
+                .map(|decoded| decoded.data)
+                .map_err(|error| AppError::Database(format!("解析任务归档失败: {error}")))
+        })
+        .await
+        .map_err(|error| AppError::Database(format!("读取任务归档线程失败: {error}")))?
     }
 
     async fn replace_memory(&self, jobs: Vec<Job>) {
@@ -608,7 +614,7 @@ mod tests {
         assert!(active.iter().any(|job| job.id == "queued-kept"));
         let archived = store.list_archived(0, 10).await.unwrap();
         assert_eq!(archived.len(), 2);
-        assert_eq!(store.archived_count().unwrap(), 2);
+        assert_eq!(store.archived_count().await.unwrap(), 2);
 
         let archive_path = tmp.with_file_name(format!(
             "{}.archive.json",

@@ -63,6 +63,7 @@ impl AppContext {
         ));
         notification_store.load().await?;
         tracing::info!("✅ Loaded notifications");
+        notify_quarantined_store_files(&config.data_dir, &notification_store).await;
 
         let automation_event_store = Arc::new(AutomationEventStore::new(
             config.data_dir.join("automation_events.json"),
@@ -398,6 +399,62 @@ async fn warn_weak_auth_settings(settings_store: &SettingsStore) {
         tracing::warn!("应用正在使用常见默认密码，请立即通过 SERVER_PASSWORD 或系统设置修改");
     } else if crate::api::diagnostics::password_strength(&settings.app_password) == "weak" {
         tracing::warn!("应用密码强度较弱：建议至少 12 位并混合字母、数字和符号");
+    }
+}
+
+/// 启动时检测被隔离的损坏 Store 文件（*.json.corrupt-*）并发站内通知。
+/// Store 解析失败后会以空数据继续运行，没有这条通知用户完全无感知，
+/// 下一次写入就会把空数据固化成新文件。
+async fn notify_quarantined_store_files(
+    data_dir: &std::path::Path,
+    notification_store: &NotificationStore,
+) {
+    let mut quarantined: Vec<String> = std::fs::read_dir(data_dir)
+        .map(|entries| {
+            entries
+                .filter_map(|entry| entry.ok())
+                .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
+                .filter(|name| name.contains(".json.corrupt-"))
+                .collect()
+        })
+        .unwrap_or_default();
+    if quarantined.is_empty() {
+        return;
+    }
+    quarantined.sort();
+    tracing::error!(
+        "检测到 {} 个被隔离的损坏数据文件（对应 Store 正以空数据运行）: {}",
+        quarantined.len(),
+        quarantined.join(", ")
+    );
+    // 每次启动都会执行本检查；已有同类未读通知时不再重复提醒
+    let already_notified = notification_store
+        .list(false)
+        .await
+        .iter()
+        .any(|notification| notification.event == "store_file_quarantined");
+    if already_notified {
+        return;
+    }
+    let mut meta = std::collections::HashMap::new();
+    meta.insert(
+        "files".to_string(),
+        serde_json::Value::String(quarantined.join(", ")),
+    );
+    if let Err(error) = crate::services::notification::add_notification(
+        notification_store,
+        "error",
+        "store_file_quarantined",
+        "检测到损坏的数据文件已被隔离",
+        format!(
+            "以下数据文件解析失败被隔离，对应数据当前为空：{}。请核对备份确认无数据丢失，处理后清理隔离文件。",
+            quarantined.join("、")
+        ),
+        meta,
+    )
+    .await
+    {
+        tracing::warn!("写入隔离告警通知失败: {}", error);
     }
 }
 

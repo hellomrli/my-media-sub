@@ -496,6 +496,31 @@ pub fn detect_episode_explained(name: &str) -> EpisodeDetection {
     }
 }
 
+/// 进程级正则缓存。规则正则（match_regex / episode_regex / rename_regex 等）
+/// 在检查、转存、预览路径中被逐文件求值，缓存编译结果避免每个文件重新编译一次。
+/// 仅缓存编译成功的模式；无效模式由调用方按错误处理（本就少见且会尽快被用户修正）。
+/// 放在 episode 模块是为了让 `#[path]` 内嵌本文件的集成测试无需额外 crate 根 shim。
+pub fn cached_regex(pattern: &str) -> Result<std::sync::Arc<Regex>, String> {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex, OnceLock};
+
+    static CACHE: OnceLock<Mutex<HashMap<String, Arc<Regex>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(re) = guard.get(pattern) {
+        return Ok(re.clone());
+    }
+    let re = Arc::new(Regex::new(pattern).map_err(|error| error.to_string())?);
+    // 容量上界防止病态输入无限增长；到达后整体清空重建即可（缓存仅是性能优化）
+    if guard.len() >= 256 {
+        guard.clear();
+    }
+    guard.insert(pattern.to_string(), re.clone());
+    Ok(re)
+}
+
 /// Apply a subscription-level override. The regex must expose a named `episode`
 /// capture and may expose `season`; invalid/non-matching overrides safely fall back.
 pub fn detect_episode_with_override(
@@ -506,7 +531,7 @@ pub fn detect_episode_with_override(
     if pattern.is_empty() {
         return Ok(detect_episode_explained(name));
     }
-    let regex = Regex::new(pattern).map_err(|error| format!("episode_regex 无效：{error}"))?;
+    let regex = cached_regex(pattern).map_err(|error| format!("episode_regex 无效：{error}"))?;
     if regex
         .capture_names()
         .flatten()

@@ -652,7 +652,7 @@ impl TelegramBotService {
         let (subscription_id, candidate_id) = resource
             .split_once('|')
             .ok_or_else(|| "换源资源标识无效".to_string())?;
-        let mut sub = self
+        let sub = self
             .subscription_store
             .get(subscription_id)
             .await
@@ -678,14 +678,7 @@ impl TelegramBotService {
             )
             .await
             .map_err(|error| sanitize_error(&error.to_string()))?;
-        if let Some(slot) = sub
-            .source_candidates
-            .iter_mut()
-            .find(|item| item.id == scored.id)
-        {
-            *slot = scored.clone();
-        }
-        let preview = service.preview_candidate(&sub, scored, &settings, unix_now());
+        let preview = service.preview_candidate(&sub, scored.clone(), &settings, unix_now());
         if !preview.probe_ok {
             return Err(format!(
                 "候选探测失败：{}",
@@ -703,23 +696,39 @@ impl TelegramBotService {
                 preview.warnings.join("；")
             )
         };
-        service
-            .apply_source_switch_with_audit(&mut sub, candidate_id, false, &reason)
-            .map_err(|error| sanitize_error(&error.to_string()))?;
-        sub.updated_at = unix_now();
-        self.subscription_store
+        // 在 update 闭包内基于最新记录应用换源，仅修改换源流程拥有的字段，
+        // 避免用旧快照整条覆盖并发写入（如转存 job 刚落盘的进度）。
+        let mut apply_error: Option<crate::error::AppError> = None;
+        let updated = self
+            .subscription_store
             .update(subscription_id, |current| {
-                *current = sub.clone();
+                match current
+                    .source_candidates
+                    .iter_mut()
+                    .find(|item| item.id == scored.id)
+                {
+                    Some(slot) => *slot = scored.clone(),
+                    // 候选列表可能已被并发刷新，补回以便应用能找到
+                    None => current.source_candidates.push(scored.clone()),
+                }
+                match service.apply_source_switch_with_audit(current, candidate_id, false, &reason)
+                {
+                    Ok(()) => current.updated_at = unix_now(),
+                    Err(error) => apply_error = Some(error),
+                }
             })
             .await
             .map_err(|error| sanitize_error(&error.to_string()))?
             .ok_or_else(|| "订阅不存在".to_string())?;
+        if let Some(error) = apply_error {
+            return Err(sanitize_error(&error.to_string()));
+        }
         Ok(format!(
             "已换源：{}\n新链接：{}\n质量：{} 分\n\n建议立即 /check {}",
-            sub.title,
-            one_line(&sub.url, 120),
+            updated.title,
+            one_line(&updated.url, 120),
             preview.candidate.quality.score,
-            short_id(&sub.id)
+            short_id(&updated.id)
         ))
     }
 }

@@ -135,7 +135,7 @@ pub async fn apply_source_switch(
     Json(req): Json<ApplySourceSwitchRequest>,
 ) -> Result<Json<Response<ApplySourceSwitchResponse>>> {
     let settings = ctx.settings_store.get().await;
-    let mut sub = ctx
+    let sub = ctx
         .subscription_store
         .get(&subscription_id)
         .await
@@ -154,14 +154,8 @@ pub async fn apply_source_switch(
             chrono::Utc::now().timestamp_millis(),
         )
         .await?;
-    if let Some(candidate) = sub
-        .source_candidates
-        .iter_mut()
-        .find(|candidate| candidate.id == scored.id)
-    {
-        *candidate = scored.clone();
-    }
-    let preview = service.preview_candidate(&sub, scored, &settings, crate::utils::unix_now());
+    let preview =
+        service.preview_candidate(&sub, scored.clone(), &settings, crate::utils::unix_now());
     if !preview.probe_ok {
         return Err(AppError::Validation(format!(
             "候选探测失败，无法换源：{}",
@@ -193,9 +187,32 @@ pub async fn apply_source_switch(
     } else {
         "用户确认预览后手动应用".to_string()
     };
-    service.apply_source_switch_with_audit(&mut sub, &req.candidate_id, false, &reason)?;
-    sub.updated_at = crate::utils::unix_now();
-    persist_subscription(&ctx, &sub).await?;
+    // 在 update 闭包内基于最新记录应用换源，仅修改换源流程拥有的字段，
+    // 避免用旧快照整条覆盖并发写入（如转存 job 刚落盘的进度）。
+    let mut apply_error: Option<AppError> = None;
+    let sub = ctx
+        .subscription_store
+        .update(&subscription_id, |current| {
+            match current
+                .source_candidates
+                .iter_mut()
+                .find(|candidate| candidate.id == scored.id)
+            {
+                Some(candidate) => *candidate = scored.clone(),
+                // 候选列表可能已被并发刷新，补回以便应用能找到
+                None => current.source_candidates.push(scored.clone()),
+            }
+            match service.apply_source_switch_with_audit(current, &req.candidate_id, false, &reason)
+            {
+                Ok(()) => current.updated_at = crate::utils::unix_now(),
+                Err(error) => apply_error = Some(error),
+            }
+        })
+        .await?
+        .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?;
+    if let Some(error) = apply_error {
+        return Err(error);
+    }
 
     let mut meta = HashMap::new();
     meta.insert("subscription_id".to_string(), Value::String(sub.id.clone()));
@@ -273,15 +290,22 @@ pub async fn rollback_source_switch(
     Path(subscription_id): Path<String>,
 ) -> Result<Json<Response<SourceSwitchRollbackResult>>> {
     let settings = ctx.settings_store.get().await;
-    let mut sub = ctx
-        .subscription_store
-        .get(&subscription_id)
-        .await
-        .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?;
     let service = source_switch_service(&settings.pansou_api_url, &settings.quark_cookie);
-    let result = service.rollback_last_source(&mut sub)?;
-    sub.updated_at = crate::utils::unix_now();
-    persist_subscription(&ctx, &sub).await?;
+    // 回滚在 update 闭包内基于最新记录执行，避免整条覆盖并发写入。
+    let mut rollback_outcome: Option<Result<SourceSwitchRollbackResult>> = None;
+    let sub = ctx
+        .subscription_store
+        .update(&subscription_id, |current| {
+            let outcome = service.rollback_last_source(current);
+            if outcome.is_ok() {
+                current.updated_at = crate::utils::unix_now();
+            }
+            rollback_outcome = Some(outcome);
+        })
+        .await?
+        .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?;
+    let result =
+        rollback_outcome.ok_or_else(|| AppError::Validation("回滚未执行".to_string()))??;
 
     let mut meta = HashMap::new();
     meta.insert("subscription_id".to_string(), Value::String(sub.id.clone()));
@@ -359,17 +383,6 @@ async fn persist_scored_candidate(
                 *candidate = scored;
             }
         })
-        .await?;
-    Ok(())
-}
-
-async fn persist_subscription(
-    ctx: &Arc<AppContext>,
-    subscription: &crate::models::Subscription,
-) -> Result<()> {
-    let snapshot = subscription.clone();
-    ctx.subscription_store
-        .update(&subscription.id, |current| *current = snapshot)
         .await?;
     Ok(())
 }

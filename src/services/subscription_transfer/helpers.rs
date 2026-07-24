@@ -177,6 +177,41 @@ fn filter_transfer_candidates_by_targets<'a>(
         .collect()
 }
 
+/// 执行前过滤已转存文件（业务级幂等）：任务重试/重放时不把已成功的批次再转一遍。
+/// 名称与 `name:` 键匹配对所有类型安全；`ep:` 集数键不含季号，仅单季订阅启用，
+/// 避免把多季订阅中未转存的 S02E05 误判成已转存的 S01E05。
+fn filter_already_transferred_files<'a>(
+    sub: &Subscription,
+    files: Vec<&'a ProviderFile>,
+) -> (Vec<&'a ProviderFile>, usize) {
+    if !sub.rules.skip_existing_transferred {
+        return (files, 0);
+    }
+    let transferred_names: HashSet<&str> =
+        sub.transferred_files.iter().map(String::as_str).collect();
+    let transferred_keys: HashSet<&str> = sub
+        .transferred_file_keys
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let episode_keys_usable = !sub.is_multi_season();
+    let before = files.len();
+    let kept: Vec<&ProviderFile> = files
+        .into_iter()
+        .filter(|file| {
+            if transferred_names.contains(file.name.as_str()) {
+                return false;
+            }
+            let episode = crate::services::detect_episode(&file.name).episode;
+            let key = transfer_state_key(&file.name, episode, sub.rules.ignore_extensions);
+            let key_usable = episode_keys_usable || key.starts_with("name:");
+            !(key_usable && transferred_keys.contains(key.as_str()))
+        })
+        .collect();
+    let skipped = before - kept.len();
+    (kept, skipped)
+}
+
 #[derive(Debug, Clone)]
 struct RenameResult {
     renamed_count: usize,

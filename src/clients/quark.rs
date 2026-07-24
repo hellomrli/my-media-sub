@@ -223,43 +223,73 @@ impl QuarkShareProbe {
         pdir_fid: &str,
     ) -> Result<(Vec<HashMap<String, serde_json::Value>>, Option<String>)> {
         let url = format!("{}/share/sharepage/detail", QUARK_API_BASE);
+        const PAGE_SIZE: usize = 100;
+        // 单目录分页安全上限，防止异常响应导致无限翻页
+        const MAX_PAGES: usize = 20;
 
-        let resp = self
-            .client
-            .get(&url)
-            .query(&[
-                ("pr", "ucpro"),
-                ("fr", "pc"),
-                ("pwd_id", pwd_id),
-                ("stoken", stoken),
-                ("pdir_fid", pdir_fid),
-                ("force", "0"),
-                ("_page", "1"),
-                ("_size", "100"),
-                ("_fetch_total", "1"),
-                ("_fetch_sub_dirs", "0"),
-                ("_sort", "file_type:asc,file_name:asc"),
-            ])
-            .send_observed("quark")
-            .await
-            .map_err(|e| AppError::Http(format!("请求夸克文件列表失败: {}", e)))?;
-        ensure_upstream_status(&resp, "请求夸克文件列表")?;
+        // 目录内容按页拉取：单页 100 项，翻页直到取完。
+        // 返回 Some(错误) 时列表可能不完整（首页失败则为空），由调用方标记 partial。
+        let mut all: Vec<HashMap<String, serde_json::Value>> = Vec::new();
+        for page in 1..=MAX_PAGES {
+            let page_param = page.to_string();
+            let resp = self
+                .client
+                .get(&url)
+                .query(&[
+                    ("pr", "ucpro"),
+                    ("fr", "pc"),
+                    ("pwd_id", pwd_id),
+                    ("stoken", stoken),
+                    ("pdir_fid", pdir_fid),
+                    ("force", "0"),
+                    ("_page", page_param.as_str()),
+                    ("_size", "100"),
+                    ("_fetch_total", "1"),
+                    ("_fetch_sub_dirs", "0"),
+                    ("_sort", "file_type:asc,file_name:asc"),
+                ])
+                .send_observed("quark")
+                .await
+                .map_err(|e| AppError::Http(format!("请求夸克文件列表失败: {}", e)));
+            let resp = match resp {
+                Ok(resp) => resp,
+                Err(error) if page > 1 => return Ok((all, Some(error.to_string()))),
+                Err(error) => return Err(error),
+            };
+            if let Err(error) = ensure_upstream_status(&resp, "请求夸克文件列表") {
+                // 限流错误始终向上传播，交给统一退避处理
+                if page > 1 && !matches!(error, AppError::RateLimited(_)) {
+                    return Ok((all, Some(error.to_string())));
+                }
+                return Err(error);
+            }
 
-        let data: FileListResponse = resp
-            .json()
-            .await
-            .map_err(|e| AppError::Http(format!("解析夸克文件列表失败: {}", e)))?;
+            let data: Result<FileListResponse> = resp
+                .json()
+                .await
+                .map_err(|e| AppError::Http(format!("解析夸克文件列表失败: {}", e)));
+            let data = match data {
+                Ok(data) => data,
+                Err(error) if page > 1 => return Ok((all, Some(error.to_string()))),
+                Err(error) => return Err(error),
+            };
 
-        if data.code != 0 {
-            let msg = data
-                .message
-                .or(data.msg)
-                .unwrap_or_else(|| "未知错误".to_string());
-            return Ok((vec![], Some(msg)));
+            if data.code != 0 {
+                let msg = data
+                    .message
+                    .or(data.msg)
+                    .unwrap_or_else(|| "未知错误".to_string());
+                return Ok((all, Some(msg)));
+            }
+
+            let list = data.data.and_then(|d| d.list).unwrap_or_default();
+            let fetched = list.len();
+            all.extend(list);
+            if fetched < PAGE_SIZE {
+                break;
+            }
         }
-
-        let list = data.data.and_then(|d| d.list).unwrap_or_default();
-        Ok((list, None))
+        Ok((all, None))
     }
 
     /// 探测分享链接
@@ -349,25 +379,32 @@ impl QuarkShareProbe {
             }
         };
 
+        // 根目录分页部分失败时保留已取得的文件并标记 partial；完全失败仍视为 bad。
+        let mut partial_failure = false;
         if let Some(err_msg) = err {
-            return QuarkShareInfo {
-                ok: false,
-                state: "bad".to_string(),
-                message: err_msg,
-                files: vec![],
-                file_count: 0,
-                episode_count: 0,
-            };
+            if raw.is_empty() {
+                return QuarkShareInfo {
+                    ok: false,
+                    state: "bad".to_string(),
+                    message: err_msg,
+                    files: vec![],
+                    file_count: 0,
+                    episode_count: 0,
+                };
+            }
+            partial_failure = true;
+            tracing::warn!("分享根目录分页读取部分失败，文件树可能不完整: {}", err_msg);
         }
 
         // 递归遍历文件夹
         let mut files = Vec::new();
-        let mut partial_failure = false;
+        let mut truncated = false;
         let mut queue: std::collections::VecDeque<_> =
             raw.into_iter().map(|item| (item, String::new())).collect();
 
         while let Some((item, parent_path)) = queue.pop_front() {
             if files.len() >= max_files {
+                truncated = true;
                 break;
             }
             let fid = item
@@ -413,53 +450,61 @@ impl QuarkShareProbe {
                     .map(|n| n as i32),
             });
 
-            // 如果是目录且未达上限，递归获取
-            if is_dir && !fid.is_empty() && files.len() < max_files {
-                match self.list_files(&pwd_id, &stoken, &fid).await {
-                    Ok((children, None)) => {
-                        let child_parent_path = append_display_path(&parent_path, &name);
-                        queue.extend(
-                            children
-                                .into_iter()
-                                .map(|child| (child, child_parent_path.clone())),
-                        );
+            // 如果是目录，递归获取（达到上限则记为截断）
+            if is_dir && !fid.is_empty() {
+                if files.len() < max_files {
+                    match self.list_files(&pwd_id, &stoken, &fid).await {
+                        Ok((children, child_err)) => {
+                            if let Some(err_msg) = child_err {
+                                partial_failure = true;
+                                tracing::warn!(
+                                    "列举子目录 {} (fid={}) 部分失败，文件树可能不完整: {}",
+                                    name,
+                                    fid,
+                                    err_msg
+                                );
+                            }
+                            let child_parent_path = append_display_path(&parent_path, &name);
+                            queue.extend(
+                                children
+                                    .into_iter()
+                                    .map(|child| (child, child_parent_path.clone())),
+                            );
+                        }
+                        Err(e) => {
+                            partial_failure = true;
+                            tracing::warn!(
+                                "列举子目录 {} (fid={}) 请求失败，文件树可能不完整: {}",
+                                name,
+                                fid,
+                                e
+                            );
+                        }
                     }
-                    Ok((_, Some(err_msg))) => {
-                        partial_failure = true;
-                        tracing::warn!(
-                            "列举子目录 {} (fid={}) 返回错误，文件树可能不完整: {}",
-                            name,
-                            fid,
-                            err_msg
-                        );
-                    }
-                    Err(e) => {
-                        partial_failure = true;
-                        tracing::warn!(
-                            "列举子目录 {} (fid={}) 请求失败，文件树可能不完整: {}",
-                            name,
-                            fid,
-                            e
-                        );
-                    }
+                } else {
+                    truncated = true;
                 }
             }
         }
 
         let episode_count = count_episodes(&files);
 
+        let state = if partial_failure || truncated {
+            "partial".to_string()
+        } else {
+            "ok".to_string()
+        };
+        let message = if truncated {
+            format!("链接可访问，但文件数超过探测上限 {max_files}，列表已截断，可能有内容未被发现")
+        } else if partial_failure {
+            "链接可访问，但部分目录读取失败，文件列表可能不完整".to_string()
+        } else {
+            "链接可访问".to_string()
+        };
         QuarkShareInfo {
             ok: true,
-            state: if partial_failure {
-                "partial".to_string()
-            } else {
-                "ok".to_string()
-            },
-            message: if partial_failure {
-                "链接可访问，但部分子目录读取失败，文件列表可能不完整".to_string()
-            } else {
-                "链接可访问".to_string()
-            },
+            state,
+            message,
             file_count: files.len(),
             episode_count,
             files,
