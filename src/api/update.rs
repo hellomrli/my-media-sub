@@ -72,6 +72,11 @@ pub struct UpdateCheckResponse {
     pub published_at: Option<String>,
     pub checked_at: String,
     pub runtime: String,
+    /// Whether this process can replace its own executable in place.
+    ///
+    /// Container images are immutable at runtime, so Docker deployments must
+    /// be upgraded by pulling and recreating the container on the host.
+    pub online_update_supported: bool,
     pub linux_x86_64_asset: Option<UpdateAsset>,
 }
 
@@ -151,6 +156,7 @@ async fn check_update() -> Result<impl IntoResponse> {
     let latest_version = normalize_version(&release.tag_name);
     let update_available = is_newer_version(&latest_version, &current_version);
     let linux_x86_64_asset = find_asset(&release.assets, "linux-x86_64.tar.gz").map(Into::into);
+    let runtime = detect_runtime();
 
     let response = UpdateCheckResponse {
         repository: GITHUB_REPO.to_string(),
@@ -163,7 +169,8 @@ async fn check_update() -> Result<impl IntoResponse> {
         release_notes: release.body.unwrap_or_default(),
         published_at: release.published_at,
         checked_at: Utc::now().to_rfc3339(),
-        runtime: detect_runtime(),
+        online_update_supported: online_update_supported(&runtime),
+        runtime,
         linux_x86_64_asset,
     };
 
@@ -182,6 +189,14 @@ async fn list_releases() -> Result<impl IntoResponse> {
 }
 
 async fn apply_update(request: Option<Json<UpdateApplyRequest>>) -> Result<impl IntoResponse> {
+    let runtime = detect_runtime();
+    if !online_update_supported(&runtime) {
+        return Err(AppError::Validation(
+            "当前运行在 Docker 容器中，不能在线替换二进制；请在宿主机执行：docker compose pull && docker compose up -d"
+                .to_string(),
+        ));
+    }
+
     let target_tag = request.and_then(|Json(req)| req.tag).and_then(|tag| {
         let tag = tag.trim().to_string();
         (!tag.is_empty()).then_some(tag)
@@ -517,6 +532,10 @@ fn detect_runtime() -> String {
     } else {
         "binary".to_string()
     }
+}
+
+fn online_update_supported(runtime: &str) -> bool {
+    runtime == "binary"
 }
 
 async fn download_asset(url: &str, path: &Path, expected_size: u64) -> Result<()> {
@@ -978,5 +997,12 @@ mod tests {
         assert!(!newer.is_current);
         assert!(newer.is_newer);
         assert!(newer.asset.is_some());
+    }
+
+    #[test]
+    fn test_online_update_is_disabled_for_docker_runtime() {
+        assert!(!online_update_supported("docker"));
+        assert!(online_update_supported("binary"));
+        assert!(!online_update_supported("unknown"));
     }
 }

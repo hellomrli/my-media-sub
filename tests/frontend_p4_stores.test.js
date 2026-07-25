@@ -118,6 +118,27 @@ test('updates and notification helpers clamp unsafe input and preserve immutable
   assert.equal(notifications.toastIcon('error'), '✕');
 });
 
+test('Docker deployments expose manual image upgrade instructions', () => {
+  const store = updates.createStore();
+  store.updateInfo = {
+    runtime: 'docker',
+    online_update_supported: false,
+    update_available: true
+  };
+  store.updateReleases = [{
+    tag: 'v2.2.13',
+    asset: {size: 1},
+    is_current: false,
+    is_newer: true
+  }];
+  store.selectedUpdateTag = 'v2.2.13';
+
+  assert.equal(store.onlineUpdateSupported(), false);
+  assert.equal(store.canApplySelectedUpdate(), false);
+  assert.equal(store.dockerUpdateCommand(), 'docker compose pull && docker compose up -d');
+  assert.match(store.selectedUpdateDescription(), /Docker/);
+});
+
 test('activity merge sorts jobs and notifications and supports source filters', () => {
   const items = notifications.mergeActivityItems([
     {id: 'job-old', kind: 'manual_transfer', status: 'succeeded', updated_at: 10, title: '旧任务'},
