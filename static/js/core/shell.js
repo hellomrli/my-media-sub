@@ -72,13 +72,15 @@
       this.driveFilterType = ux.readPreference('drive.filter', 'all', ['all','folder','video','other']);
       this.driveViewMode = ux.readPreference('drive.view', 'list', ['list','grid']);
       this.notificationFilter = ux.readPreference('notifications.filter', 'all', ['all','unread']);
+      this.activityFilter = ux.readPreference('activity.filter', 'all', ['all','unread','jobs','notifications','failed']);
       if (this.$watch) {
-        for (const [property,key] of [['backgroundJobFilterKind','jobs.kind'],['backgroundJobFilterStatus','jobs.status'],['driveFilterType','drive.filter'],['driveViewMode','drive.view'],['notificationFilter','notifications.filter']]) {
+        for (const [property,key] of [['backgroundJobFilterKind','jobs.kind'],['backgroundJobFilterStatus','jobs.status'],['driveFilterType','drive.filter'],['driveViewMode','drive.view'],['notificationFilter','notifications.filter'],['activityFilter','activity.filter']]) {
           this.$watch(property, value => {
             ux.writePreference(key, value);
             if (property.startsWith('backgroundJob')) this.backgroundJobVisibleLimit = 80;
             if (property.startsWith('drive')) this.driveVisibleLimit = 200;
             if (property === 'notificationFilter') this.notificationVisibleLimit = 100;
+            if (property === 'activityFilter') this.activityVisibleLimit = 100;
           });
         }
       }
@@ -179,10 +181,7 @@
         await this.loadSubscriptions();
         if (this.selectedSubscriptionId) await this.loadSubscriptionDetail(this.selectedSubscriptionId);
       }
-      else if (this.currentTab === 'transferHistory') {
-        await this.loadJobs();
-      }
-      else if (this.currentTab === 'notifications') await this.loadNotifications();
+      else if (this.currentTab === 'notifications' || this.currentTab === 'transferHistory') await this.loadActivity();
       else if (this.currentTab === 'diagnostics') await this.loadDiagnostics();
       else if (this.currentTab === 'settings') {
         if (this.currentSettingsTab === 'maintenance') {

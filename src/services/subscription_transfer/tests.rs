@@ -197,6 +197,36 @@ mod tests {
     }
 
     #[test]
+    fn sync_download_directory_preserves_explicit_season_path() {
+        let settings = Settings {
+            aria2_series_dir: "/downloads/series".to_string(),
+            ..Default::default()
+        };
+        let mut sub = subscription("series", 1);
+        sub.sync_download_dir = "/downloads/custom/Show/Season 2".to_string();
+
+        assert_eq!(
+            resolve_sync_download_dir_for_season(&sub, &settings, 4),
+            "/downloads/custom/Show/Season 2"
+        );
+    }
+
+    #[test]
+    fn sync_download_directory_appends_detected_season_when_not_explicit() {
+        let settings = Settings {
+            aria2_series_dir: "/downloads/series".to_string(),
+            ..Default::default()
+        };
+        let mut sub = subscription("series", 1);
+        sub.sync_download_dir = "/downloads/custom/Show".to_string();
+
+        assert_eq!(
+            resolve_sync_download_dir_for_season(&sub, &settings, 4),
+            "/downloads/custom/Show/Season 4"
+        );
+    }
+
+    #[test]
     fn expected_video_names_only_keeps_videos() {
         let names = vec![
             "Joy.of.Life.2019.S01.EP05.WEB-DL.4K.HEVC.AAC-LeagueWEB.mp4".to_string(),

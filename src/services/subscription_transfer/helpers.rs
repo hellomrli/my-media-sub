@@ -427,7 +427,14 @@ fn season_target_directory(show_root: &str, season: i32) -> String {
 fn resolve_sync_download_base(sub: &Subscription, settings: &Settings) -> String {
     let custom = sub.sync_download_dir.trim();
     if !custom.is_empty() {
-        return strip_season_suffix(custom);
+        // 用户明确选择了 Season N 时，尊重这个具体路径；只有未指定季目录
+        // 时，后续才按探测到的文件季号追加 Season N。
+        let normalized = custom.trim_end_matches('/');
+        return if normalized.is_empty() {
+            "/".to_string()
+        } else {
+            normalized.to_string()
+        };
     }
     let category = media_type_aria2_directory(sub, settings);
     if category.is_empty() {
@@ -440,7 +447,8 @@ fn resolve_sync_download_base(sub: &Subscription, settings: &Settings) -> String
     }
 }
 
-/// 剧集/动画自动落到 `…/Season N`；电影保持原路径。
+/// 剧集/动画自动落到 `…/Season N`；如果订阅明确填写了 Season N 目录则
+/// 保持该目录不变；电影保持原路径。
 fn resolve_sync_download_dir_for_season(
     sub: &Subscription,
     settings: &Settings,
@@ -614,4 +622,3 @@ where
 
     Ok(rename_candidates)
 }
-

@@ -19,7 +19,8 @@ test('downloads store normalizes groups, summaries, and task capabilities', () =
   assert.deepEqual(downloads.downloadTaskCapabilities({status: 'paused'}), {
     pause: false,
     resume: true,
-    stop: true
+    stop: true,
+    retry: false
   });
   assert.deepEqual(
     downloads.flattenDownloadTasks({
@@ -28,6 +29,31 @@ test('downloads store normalizes groups, summaries, and task capabilities', () =
     }).map(task => task.gid),
     ['same', 'next']
   );
+});
+
+test('downloads are split into completed, active, queued and failed groups', () => {
+  const categorized = downloads.categorizeDownloadTasks({
+    active: [
+      {gid: 'active-1', status: 'active'},
+      {gid: 'paused-active', status: 'paused'}
+    ],
+    waiting: [
+      {gid: 'queued-1', status: 'waiting'},
+      {gid: 'paused-waiting', status: 'paused'}
+    ],
+    stopped: [
+      {gid: 'done', status: 'complete'},
+      {gid: 'failed', status: 'error'},
+      {gid: 'removed', status: 'removed'},
+      // A stale duplicate snapshot must stay in the first group it appears in.
+      {gid: 'active-1', status: 'error'}
+    ]
+  });
+  assert.deepEqual(categorized.downloading.map(task => task.gid), ['active-1', 'paused-active']);
+  assert.deepEqual(categorized.queued.map(task => task.gid), ['queued-1', 'paused-waiting']);
+  assert.deepEqual(categorized.completed.map(task => task.gid), ['done']);
+  assert.deepEqual(categorized.failed.map(task => task.gid), ['failed', 'removed']);
+  assert.equal(downloads.downloadTaskCapabilities({status: 'error'}).retry, true);
 });
 
 test('downloads high-frequency polling only needs active or waiting tasks', () => {
@@ -90,4 +116,30 @@ test('updates and notification helpers clamp unsafe input and preserve immutable
   assert.deepEqual(notifications.filterNotificationItems(items, 'unread'), [items[0]]);
   assert.equal(notifications.normalizeNotificationType('unknown'), 'info');
   assert.equal(notifications.toastIcon('error'), '✕');
+});
+
+test('activity merge sorts jobs and notifications and supports source filters', () => {
+  const items = notifications.mergeActivityItems([
+    {id: 'job-old', kind: 'manual_transfer', status: 'succeeded', updated_at: 10, title: '旧任务'},
+    {id: 'job-new', kind: 'subscription_transfer', status: 'failed', updated_at: 30, title: '失败任务'}
+  ], [
+    {id: 'notice-mid', event: 'subscription_updated', level: 'info', read: false, created_at: 20, title: '未读通知'},
+    {id: 'notice-new', event: 'push_sent', level: 'success', read: true, created_at: 30, title: '推送'}
+  ]);
+  assert.deepEqual(items.map(item => item.id), [
+    'notification:notice-new', 'job:job-new', 'notification:notice-mid', 'job:job-old'
+  ]);
+  assert.deepEqual(items.map(item => item.source), ['notification', 'job', 'notification', 'job']);
+
+  const store = notifications.createStore();
+  store.backgroundJobs = [
+    {id: 'job-1', kind: 'manual_transfer', status: 'failed', updated_at: 4, title: '任务失败'}
+  ];
+  store.notifications = [
+    {id: 'notice-1', event: 'subscription_updated', level: 'info', read: false, created_at: 5, title: '未读'}
+  ];
+  store.activityFilter = 'failed';
+  assert.deepEqual(store.filteredActivityItems.map(item => item.id), ['job:job-1']);
+  store.activityFilter = 'unread';
+  assert.deepEqual(store.filteredActivityItems.map(item => item.id), ['notification:notice-1']);
 });

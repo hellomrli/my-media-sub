@@ -305,7 +305,7 @@
         if (depth === 0) plain += (ch === '.' || ch === '_' || ch === '-') ? ' ' : ch;
       }
       plain = plain.replace(/\s+/g, ' ').trim()
-        .replace(/(?:\s*(?:S\d{1,2}(?:\s*[-~～到至]\s*S?\d{1,2})?|Season\s*\d+|第\s*[0-9一二三四五六七八九十两]+\s*季|\d{3,4}p|4k|全集|完结))+$/ig, '')
+        .replace(/(?:\s*(?:S\d{1,2}(?:\s*[-~～到至]\s*S?\d{1,2})?|Season\s*\d+|第\s*[0-9一二三四五六七八九十两]+\s*季|\d{3,4}\s*p|\d+\s*帧|4k|8k|web[- ]?dl|bluray|bdrip|hdtv|remux|proper|repack|x26[45]|hevc|avc|hdr(?:10)?|dolby|aac|flac|高码率|低码率|高码|低码|超高清?|高清|标清|蓝光|原盘|无损|高帧率|高帧|杜比|完整版|纯净版|收藏版|加长版|导演剪辑版|国语|粤语|中字|简中|繁中|双语|国粤双语|全集|合集|完结|持续更新|更新至.*))+$/ig, '')
         .trim();
       // 去掉标题前方 emoji / 装饰符号（如 🗄 📺 ★）
       plain = plain.replace(/^[\s\u2000-\u206f\u2190-\u21ff\u2300-\u23ff\u2460-\u24ff\u2500-\u27bf\u2900-\u297f\u2b00-\u2bff\u3000-\u303f\ufe00-\ufe0f\u{1f000}-\u{1faff}★☆✦✧✪✩❖※◆◇■□●○◎◉♦♠♣♥▶▷◀◁►◄▲△▼▽✓✔✕✖✗✘#@~`^*=+|\\/<>{}[\]]+/u, '').trim();
@@ -344,11 +344,14 @@
       if (cleaned && cleaned !== raw) {
         this.newSubscription.title = cleaned;
         if (!silent) this.showNotification('info', `已识别剧名：${cleaned}`);
-        if (this.metadataSearchAvailable && this.metadataSearchAvailable()) {
-          this.searchMetadataForSubscription(true);
-        }
       } else if (!silent) {
         this.showNotification('info', '标题已是干净剧名，无需再处理');
+      }
+      // 标题清洗和 TMDB 搜索必须串行完成。创建订阅时如果只触发而不
+      // 等待搜索，用户快速点击保存会把带有画质后缀的查询结果遗漏掉。
+      if (this.metadataSearchAvailable && this.metadataSearchAvailable()
+        && typeof this.searchMetadataForSubscription === 'function') {
+        await this.searchMetadataForSubscription(true);
       }
       return cleaned || raw;
     },
@@ -365,7 +368,7 @@
       const rawTitle = result && (result.note || result.title || sourceTitle) || sourceTitle;
       this.newSubscription = {
         ...blankSubscriptionForm(),
-        title: (result && result.display_title) || this.inferSubscriptionTitle(sourceTitle),
+        title: this.inferSubscriptionTitle(sourceTitle),
         source_title: rawTitle,
         url: result.url,
         password: result.password || '',
@@ -378,18 +381,21 @@
       };
       this.showSubscriptionDialog = true;
       this.metadataResults = [];
-      // 服务端权威清洗（搜索结果已有 display_title 时跳过）
-      if (!(result && result.display_title)) {
-        this.normalizeTitleRemote(rawTitle).then(normalized => {
-          if (!normalized || !normalized.normalized) return;
-          if (this.newSubscription.url === result.url) {
+      // 即使搜索结果带 display_title 也再次走权威清洗；上游旧缓存可能仍
+      // 保留「4K 高码率」等后缀，直接使用会降低 TMDB 命中率。
+      const initialTitle = this.newSubscription.title;
+      this.normalizeTitleRemote(sourceTitle || rawTitle).then(normalized => {
+        if (!normalized || !normalized.normalized) return;
+        if (this.newSubscription.url === result.url) {
+          // 用户可能在异步清洗完成前手动改过标题；此时保留手工输入，
+          // 但仍按当前输入触发一次元数据搜索。
+          if (this.newSubscription.title === initialTitle) {
             this.newSubscription.title = normalized.normalized;
-            this.newSubscription.source_title = normalized.original || rawTitle;
-            this.searchMetadataForSubscription(true);
           }
-        }).catch(() => {});
-      }
-      this.searchMetadataForSubscription(true);
+          this.newSubscription.source_title = rawTitle;
+          return this.searchMetadataForSubscription(true);
+        }
+      }).catch(() => {});
       if (this.newSubscription.preview_samples) this.previewSubscriptionRename(true);
     },
 
@@ -1243,6 +1249,20 @@
       return sub.sync_download_dir || this.aria2DirForMediaType(sub.media_type);
     },
 
+    resolvedSubscriptionAria2Dir() {
+      const type = this.newSubscription.media_type;
+      const rawCustom = String(this.newSubscription.sync_download_dir || '').trim();
+      const custom = rawCustom === '/' ? '/' : rawCustom.replace(/\/+$/, '');
+      if (type === 'movie') return custom || this.aria2DirForMediaType(type);
+      if (custom && this.hasSeasonSuffix(custom)) return custom;
+      const base = custom || this.appendPath(this.aria2DirForMediaType(type), this.mediaFolderName());
+      if (!base) return '';
+      // 多季订阅由后端按每个文件识别出的季号分别提交，预览中明确标注
+      // 这是动态目录，避免把起始季误解成所有文件都会落入的固定目录。
+      const season = this.isMultiSeasonSpec() ? 'Season N（按文件识别）' : this.seasonFolderName();
+      return this.appendPath(base, season);
+    },
+
     metadataYear() {
       const date = this.newSubscription.metadata && this.newSubscription.metadata.release_date;
       if (!date || !/^\d{4}/.test(date)) return '';
@@ -1696,7 +1716,7 @@
     // 创建持续订阅
     async createContinuousSubscription() {
       try {
-        this.applyMagicTitleMatch({silent: true});
+        await this.applyMagicTitleMatch({silent: true});
         const rules = this.buildSubscriptionRules();
 
         const response = await apiFetch('/api/subscriptions', {

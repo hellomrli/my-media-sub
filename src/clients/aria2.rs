@@ -4,6 +4,7 @@ use crate::error::{AppError, Result};
 use reqwest::Client;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 
 pub struct Aria2Client {
     rpc_url: String,
@@ -66,7 +67,7 @@ pub struct Aria2TaskFile {
     pub selected: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct RawAria2Task {
     #[serde(default)]
     gid: String,
@@ -92,7 +93,7 @@ struct RawAria2Task {
     files: Vec<RawAria2TaskFile>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct RawAria2TaskFile {
     #[serde(default)]
     index: String,
@@ -108,7 +109,7 @@ struct RawAria2TaskFile {
     uris: Vec<RawAria2TaskUri>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct RawAria2TaskUri {
     #[serde(default)]
     uri: String,
@@ -136,6 +137,17 @@ impl Aria2Client {
         output_name: Option<&str>,
         headers: &[String],
     ) -> Result<String> {
+        self.add_uri_in_dir(uri, self.dir.trim(), output_name, headers)
+            .await
+    }
+
+    async fn add_uri_in_dir(
+        &self,
+        uri: &str,
+        dir: &str,
+        output_name: Option<&str>,
+        headers: &[String],
+    ) -> Result<String> {
         if self.rpc_url.trim().is_empty() {
             return Err(AppError::Validation("未配置 Aria2 RPC URL".to_string()));
         }
@@ -143,16 +155,55 @@ impl Aria2Client {
             return Err(AppError::Validation("下载地址为空".to_string()));
         }
 
-        let payload = build_add_uri_payload(
-            uri,
-            self.secret.trim(),
-            self.dir.trim(),
-            output_name,
-            headers,
-        );
+        let payload = build_add_uri_payload(uri, self.secret.trim(), dir, output_name, headers);
         let gid: Option<String> = self.send_payload(payload).await?;
         gid.filter(|gid| !gid.trim().is_empty())
             .ok_or_else(|| AppError::Http("Aria2 响应缺少任务 GID".to_string()))
+    }
+
+    /// Retry a stopped Aria2 task by reusing its original source URI.
+    ///
+    /// Aria2 does not provide a portable "retry stopped task" RPC method. A
+    /// failed task can therefore only be retried by reading its source URI and
+    /// submitting a fresh `addUri` request. The URI is deliberately kept on
+    /// the server side and is never returned to the browser.
+    pub async fn retry(&self, gid: &str) -> Result<String> {
+        let gid = gid.trim();
+        if gid.is_empty() {
+            return Err(AppError::Validation("Aria2 任务 GID 为空".to_string()));
+        }
+
+        let raw: RawAria2Task = self
+            .call_rpc(
+                "aria2.tellStatus",
+                vec![json!(gid), json!(["gid", "status", "dir", "files"])],
+            )
+            .await?;
+
+        if !matches!(raw.status.as_str(), "error" | "removed") {
+            return Err(AppError::Validation(format!(
+                "只有失败或已移除的 Aria2 任务可以重试（当前状态：{}）",
+                if raw.status.trim().is_empty() {
+                    "未知"
+                } else {
+                    raw.status.as_str()
+                }
+            )));
+        }
+
+        let options: HashMap<String, Value> = self
+            .call_rpc("aria2.getOption", vec![json!(gid)])
+            .await
+            .unwrap_or_default();
+        let (uri, output_name) = retry_source_from_raw(&raw, &options).ok_or_else(|| {
+            AppError::Validation("Aria2 任务没有可重试的下载地址，请重新提交文件".to_string())
+        })?;
+        let dir = option_string(&options, "dir")
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| raw.dir.trim().to_string());
+        let headers = option_headers(&options);
+        self.add_uri_in_dir(&uri, dir.trim(), output_name.as_deref(), &headers)
+            .await
     }
 
     pub async fn list_tasks(&self, stopped_limit: u64) -> Result<Aria2TaskList> {
@@ -453,6 +504,60 @@ fn file_name_from_uri(uri: &str) -> String {
         .to_string()
 }
 
+fn retry_source_from_raw(
+    raw: &RawAria2Task,
+    options: &HashMap<String, Value>,
+) -> Option<(String, Option<String>)> {
+    let source = raw
+        .files
+        .iter()
+        .flat_map(|file| file.uris.iter())
+        .map(|uri| uri.uri.trim())
+        .find(|uri| !uri.is_empty())?
+        .to_string();
+    let output_name = option_string(options, "out").or_else(|| {
+        raw.files
+            .iter()
+            .map(|file| file_name_from_path(&file.path))
+            .find(|name| !name.trim().is_empty())
+    });
+    Some((source, output_name))
+}
+
+fn option_string(options: &HashMap<String, Value>, key: &str) -> Option<String> {
+    options
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn option_headers(options: &HashMap<String, Value>) -> Vec<String> {
+    let mut headers = options
+        .get("header")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    // Older Aria2 versions may expose a single header as a string. Accept it
+    // as well so retry remains useful across RPC implementations.
+    if headers.is_empty() {
+        if let Some(header) = option_string(options, "header") {
+            headers.push(header);
+        }
+    }
+    headers
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -546,5 +651,46 @@ mod tests {
         assert_eq!(task.eta_seconds, Some(6));
         assert_eq!(task.connections, 2);
         assert!(task.files[0].selected);
+    }
+
+    #[test]
+    fn retry_source_uses_uri_and_keeps_output_name_without_exposing_it() {
+        let raw = RawAria2Task {
+            gid: "failed".to_string(),
+            status: "error".to_string(),
+            dir: "/downloads/series/Show/Season 2".to_string(),
+            files: vec![RawAria2TaskFile {
+                index: "1".to_string(),
+                path: "/downloads/series/Show/Season 2/E01.mkv".to_string(),
+                uris: vec![RawAria2TaskUri {
+                    uri: "https://example.test/temp?signature=secret".to_string(),
+                }],
+                ..RawAria2TaskFile::default()
+            }],
+            ..RawAria2Task::default()
+        };
+
+        let options = HashMap::from([
+            ("dir".to_string(), json!("/downloads/series/Show/Season 2")),
+            ("out".to_string(), json!("renamed.mkv")),
+            (
+                "header".to_string(),
+                json!(["Cookie: a=b", "Referer: https://example.test/"]),
+            ),
+        ]);
+        let (uri, output) = retry_source_from_raw(&raw, &options).expect("retry source");
+        assert_eq!(uri, "https://example.test/temp?signature=secret");
+        assert_eq!(output.as_deref(), Some("renamed.mkv"));
+        assert_eq!(
+            option_string(&options, "dir").as_deref(),
+            Some("/downloads/series/Show/Season 2")
+        );
+        assert_eq!(
+            option_headers(&options),
+            vec!["Cookie: a=b", "Referer: https://example.test/"]
+        );
+        let view = Aria2Task::from(raw);
+        let serialized = serde_json::to_string(&view).unwrap();
+        assert!(!serialized.contains("signature=secret"));
     }
 }

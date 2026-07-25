@@ -461,7 +461,7 @@
             </div>
           </details>
 
-          <!-- 仅保留季度折叠预览；样例输入收进可折叠区 -->
+          <!-- 仅保留按 Season 折叠的预览，避免重复展示样例文件内容 -->
           <div class="app-panel-soft p-4 space-y-3">
             <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
               <div class="min-w-0">
@@ -481,14 +481,6 @@
             </div>
 
             <div x-show="renamePreviewError" class="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning" x-text="renamePreviewError"></div>
-
-            <details class="rounded-lg border border-border bg-app">
-              <summary class="cursor-pointer px-3 py-2 text-xs text-muted hover:text-text">样例文件（可选，默认用搜索嗅探结果）</summary>
-              <div class="border-t border-border p-3 space-y-2">
-                <textarea x-model="newSubscription.preview_samples" @input="clearStructuredPreviewFiles()" rows="3" class="w-full px-3 py-2 bg-panel border border-border rounded-lg text-text text-xs" placeholder="每行一个文件名，例如：&#10;第01集.mkv&#10;Show.S01E02.1080p.mkv"></textarea>
-                <p class="text-xs text-muted/70">修改样例后点「刷新预览」；会改用文本预览而非结构化嗅探路径。</p>
-              </div>
-            </details>
 
             <div x-show="renamePreview && groupedRenamePreviewSeasons().length > 0" class="space-y-2">
               <div class="flex flex-wrap gap-2 justify-end">
@@ -544,8 +536,9 @@
                   <input type="text" x-model="newSubscription.sync_download_dir" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" :placeholder="aria2DirForMediaType() || '/downloads/剧集/Season 1'" />
                   <button type="button" @click="openAria2DirBrowser()" class="btn-secondary px-4 py-2 rounded-lg text-sm whitespace-nowrap">浏览</button>
                 </div>
+                <p class="text-xs text-muted/75 mt-1">预期下载目录：<span class="text-success break-all" x-text="resolvedSubscriptionAria2Dir() || '未配置（使用 Aria2 默认目录）'"></span></p>
               </div>
-              <p class="text-xs text-muted/75">留空时按媒体类型使用系统设置中的 Aria2 下载目录；未配置时不指定目录，由 Aria2 自身决定。订阅检查发现更新并完成转存后，会提交重命名后的文件到 Aria2。</p>
+              <p class="text-xs text-muted/75">填写到具体 Season 目录时按填写内容执行；未写 Season 时会根据识别到的文件季号自动创建 Season N。留空则按媒体类型和剧名生成目录；未配置时不指定目录，由 Aria2 自身决定。</p>
             </div>
           </div>
 

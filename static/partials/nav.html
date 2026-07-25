@@ -30,7 +30,7 @@
 
         <div class="nav-group">
           <div class="nav-group-label">运行记录</div>
-          <template x-for="tab in tabs.filter(item => ['transferHistory', 'notifications', 'diagnostics'].includes(item.id))" :key="tab.id">
+          <template x-for="tab in tabs.filter(item => ['notifications', 'diagnostics'].includes(item.id))" :key="tab.id">
             <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : ''" class="nav-button">
               <span x-html="tab.icon" class="nav-icon"></span>
               <span class="min-w-0 flex-1 text-left">

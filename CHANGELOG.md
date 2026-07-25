@@ -4,6 +4,37 @@ My Media Sub 的版本变更记录。新版本写在上方。
 
 升级步骤见对应的 [`docs/upgrade-v*.md`](docs/)；当前版本发布说明摘要也写在 [`README.md`](README.md) 的「版本说明」中。
 
+## 2.2.12
+
+### 新功能
+
+- 后台日志与通知中心合并为「活动中心」：后台任务与系统通知按时间统一展示，支持来源、失败、未读筛选、全文搜索、任务详情、优先级调整、取消与安全重试；旧 `transferHistory` 路由保留为兼容别名。
+- 下载任务按「正在下载 / 队列中 / 已完成 / 下载失败」分区；失败或已移除任务新增重试按钮和 `POST /api/drive/aria2/tasks/{gid}/retry` 接口。
+- Aria2 重试复用服务端保存的原始 URI、下载目录、输出名和请求头；订阅自动下载任务会把持久化关联迁移到新 GID，并清理旧失败记录。
+
+### 修复
+
+- 订阅 Aria2 下载目录自适应：用户明确填写 `Season N` 时保持该路径；未填写具体季目录时，按实际识别出的文件季号追加 `Season N`，多季订阅可分别落入正确目录。
+- 魔法剧名识别扩展中文码率、画质、语言和版本后缀；`凡人修仙传 4K 高码率` 现在会清洗为 `凡人修仙传`。标题清洗与 TMDB 搜索改为串行等待，后端创建订阅时也会再次清洗。
+- 创建订阅的高级规则移除与 Season 预览重复的「样例文件」文本区，仅保留按 Season 折叠视图。
+
+### 兼容性
+
+- JSON Store schema 未变化。
+- 可直接从 v2.2.11 升级，保留现有 `data/`。
+- PWA 缓存代次升至 2.2.12；二进制部署必须同时替换完整 `static/`。
+
+### 升级
+
+```bash
+# Docker
+docker compose pull && docker compose up -d
+
+# 二进制：备份 DATA_DIR → 校验新包 → 同时替换二进制和整个 static/ → 保留 data/ → 启动后检查 /health
+```
+
+不要只替换二进制而继续使用旧版 `static/`。
+
 ## 2.2.11
 
 ### 修复
@@ -972,4 +1003,3 @@ curl http://localhost:56001/api/subscriptions/{订阅ID}/source-candidates \
 **完整更新内容请查看**：
 - GitHub Release: https://github.com/hellomrli/my-media-sub/releases/tag/v1.1.0
 - 提交历史: https://github.com/hellomrli/my-media-sub/compare/v1.0.5...v1.1.0
-

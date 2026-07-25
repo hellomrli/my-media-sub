@@ -8,7 +8,7 @@ const {
   routeUrl
 } = require('../static/js/core/router.js');
 
-const tabs = ['dashboard', 'calendar', 'search', 'drive', 'downloads', 'subscriptions', 'transferHistory', 'notifications', 'settings'];
+const tabs = ['dashboard', 'calendar', 'search', 'drive', 'downloads', 'subscriptions', 'notifications', 'settings'];
 const settingsTabs = ['connections', 'automation', 'naming', 'notifications', 'maintenance'];
 
 test('router normalizes legacy settings aliases and rejects unknown tabs', () => {
@@ -31,6 +31,13 @@ test('router parses subscription details only on the subscriptions page', () => 
     routeFromSearch('?tab=dashboard&subscription=sub-1', tabs, settingsTabs).subscriptionId,
     ''
   );
+});
+
+test('router maps legacy background-log routes to the unified activity center', () => {
+  assert.equal(normalizeRoute({tab: 'transferHistory'}, tabs, settingsTabs).tab, 'notifications');
+  assert.equal(routeFromSearch('?tab=transferHistory', tabs, settingsTabs).tab, 'notifications');
+  // Keep a rolling-upgrade caller with only the old tab list functional.
+  assert.equal(normalizeRoute({tab: 'transferHistory'}, ['dashboard', 'transferHistory'], settingsTabs).tab, 'transferHistory');
 });
 
 test('router serializes route state without dropping unrelated query params or hashes', () => {
