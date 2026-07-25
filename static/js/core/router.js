@@ -23,12 +23,29 @@
     rules: 'naming'
   });
 
+  const TAB_ALIASES = Object.freeze({
+    // v2.2 and earlier exposed background jobs as a separate page. Keep old
+    // bookmarks and PWA shortcuts working while rendering the unified center.
+    transferHistory: 'notifications'
+  });
+
+  function normalizeTab(tabId) {
+    return TAB_ALIASES[tabId] || tabId;
+  }
+
   function normalizeSettingsTab(tabId) {
     return SETTINGS_TAB_ALIASES[tabId] || tabId;
   }
 
   function normalizeRoute(route = {}, validTabs = [], validSettingsTabs = []) {
-    const tab = validTabs.includes(route.tab) ? route.tab : 'dashboard';
+    const legacyTab = route.tab;
+    const requestedTab = normalizeTab(legacyTab);
+    // During a rolling upgrade a caller may still expose the old tab list. If
+    // the canonical tab is not available there, keep the legacy value rather
+    // than silently sending an old bookmark to the dashboard.
+    const tab = validTabs.includes(requestedTab)
+      ? requestedTab
+      : (validTabs.includes(legacyTab) ? legacyTab : 'dashboard');
     const requestedSettingsTab = normalizeSettingsTab(route.settingsTab || route.settings);
     const settingsTab = validSettingsTabs.includes(requestedSettingsTab) ? requestedSettingsTab : 'connections';
     return {
@@ -73,8 +90,7 @@
       {id: 'drive', name: '我的网盘', description: '管理夸克网盘文件', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>'},
       {id: 'downloads', name: '下载任务', description: '查看 Aria2 实时进度', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4m0 0l4-4m-4 4V4"/></svg>'},
       {id: 'subscriptions', name: '订阅管理', description: '管理媒体订阅', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>'},
-      {id: 'transferHistory', name: '后台日志', description: '查看后台任务和执行记录', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0019 5M19 5h-5M5 19h5"/></svg>'},
-      {id: 'notifications', name: '通知中心', description: '查看用户通知和推送记录', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>'},
+      {id: 'notifications', name: '活动中心', description: '统一查看后台任务、通知和失败重试', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0019 5M15 17h5l-1.4-1.4A2 2 0 0118 14v-3"/></svg>'},
       {id: 'diagnostics', name: '系统诊断', description: '备份、指标与安全状态', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 19h16M5 16l4-5 4 3 6-8M5 5v11"/></svg>'},
       {id: 'settings', name: '系统设置', description: '配置系统参数', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>'}
     ],
@@ -100,7 +116,8 @@
     },
 
     isValidTab(tabId) {
-      return this.tabs.some(tab => tab.id === tabId);
+      const normalized = normalizeTab(tabId);
+      return this.tabs.some(tab => tab.id === normalized || tab.id === tabId);
     },
 
     normalizeSettingsTab(tabId) {
@@ -178,6 +195,9 @@
           this.loadAutomationSummary();
         }
         this.startNotificationsPolling();
+      } else if (this.currentTab === 'notifications' || this.currentTab === 'transferHistory') {
+        if (!options.initialDataLoaded) this.loadActivity();
+        this.startNotificationsPolling();
       } else {
         this.stopNotificationsPolling();
       }
@@ -215,6 +235,8 @@
     },
 
     selectTab(tabId, pushHistory = true) {
+      const normalized = normalizeTab(tabId);
+      if (this.tabs.some(tab => tab.id === normalized)) tabId = normalized;
       if (!this.isValidTab(tabId)) return;
       if (tabId === 'subscriptions' && this.currentTab === 'subscriptions' && this.selectedSubscriptionId) {
         this.closeSubscriptionDetail(pushHistory);
@@ -251,5 +273,5 @@
     };
   }
 
-  return {SETTINGS_TAB_ALIASES, normalizeSettingsTab, normalizeRoute, routeFromSearch, routeUrl, createStore};
+  return {SETTINGS_TAB_ALIASES, TAB_ALIASES, normalizeSettingsTab, normalizeTab, normalizeRoute, routeFromSearch, routeUrl, createStore};
 });

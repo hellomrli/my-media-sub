@@ -11,9 +11,9 @@
   <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%234f46e5%27/%3E%3Cpath d=%27M8 9h16v14H8zm4-4v22m8-22v22%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27/%3E%3C/svg%3E">
-  <script src="js/theme-init.js?v=2.2.11"></script>
-  <link rel="stylesheet" href="styles.css?v=2.2.11">
-  <script defer src="vendor/alpine.min.js?v=2.2.11"></script>
+  <script src="js/theme-init.js?v=2.2.12"></script>
+  <link rel="stylesheet" href="styles.css?v=2.2.12">
+  <script defer src="vendor/alpine.min.js?v=2.2.12"></script>
 </head>
 <body class="bg-app text-text/90 min-h-screen" x-data="app()" x-cloak>
 
@@ -57,7 +57,7 @@
 
         <div class="nav-group">
           <div class="nav-group-label">运行记录</div>
-          <template x-for="tab in tabs.filter(item => ['transferHistory', 'notifications', 'diagnostics'].includes(item.id))" :key="tab.id">
+          <template x-for="tab in tabs.filter(item => ['notifications', 'diagnostics'].includes(item.id))" :key="tab.id">
             <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : ''" class="nav-button">
               <span x-html="tab.icon" class="nav-icon"></span>
               <span class="min-w-0 flex-1 text-left">
@@ -203,7 +203,7 @@
               <span class="kpi-copy"><small>活跃订阅</small><strong x-text="dashboardStats.activeSubs"></strong><em>持续追踪更新</em></span>
               <span class="kpi-arrow">↗</span>
             </button>
-            <button @click="selectTab('transferHistory')" class="dashboard-kpi kpi-cyan">
+            <button @click="selectTab('notifications')" class="dashboard-kpi kpi-cyan">
               <span class="kpi-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0019 5"/></svg></span>
               <span class="kpi-copy"><small>后台任务</small><strong x-text="dashboardStats.runningJobs"></strong><em x-text="dashboardStats.failedJobs ? dashboardStats.failedJobs + ' 个需要关注' : '运行状态良好'"></em></span>
               <span class="kpi-arrow">↗</span>
@@ -279,29 +279,16 @@
               </section>
 
               <section class="app-panel activity-panel">
-                <div class="panel-heading compact"><div><h3>最近任务</h3></div><button @click="selectTab('transferHistory')" class="text-action">日志 →</button></div>
+                <div class="panel-heading compact"><div><h3>最近活动</h3><p>后台任务与系统通知已合并</p></div><button @click="selectTab('notifications')" class="text-action">活动中心 →</button></div>
                 <div class="activity-list">
-                  <template x-for="(job, jobIndex) in dashboardRecentJobs.slice(0, 4)" :key="'dashboard-job-' + (job.id || 'missing') + '-' + jobIndex">
-                    <button @click="selectTab('transferHistory')" class="activity-item">
-                      <span class="activity-dot" :class="job.status"></span>
-                      <span class="activity-copy"><strong x-text="job.title || jobKindLabel(job.kind)"></strong><small x-text="job.message || job.error || jobKindLabel(job.kind)"></small></span>
-                      <time x-text="formatTime(job.updated_at || job.created_at)"></time>
+                  <template x-for="(item, itemIndex) in dashboardRecentActivity.slice(0, 6)" :key="(item.source === 'job' ? 'dashboard-job-' : 'dashboard-notification-') + (item.id || 'missing') + '-' + itemIndex">
+                    <button @click="openDashboardActivity(item)" class="activity-item">
+                      <span :class="item.source === 'job' ? 'activity-dot ' + item.status : 'inbox-level ' + item.level"></span>
+                      <span class="activity-copy"><strong x-text="item.source === 'job' ? (item.title || jobKindLabel(item.event)) : item.title"></strong><small x-text="item.message || activityEventLabel(item)"></small></span>
+                      <time x-text="activityTimeLabel(item)"></time>
                     </button>
                   </template>
-                  <template x-if="dashboardRecentJobs.length === 0"><div class="activity-empty">暂无后台任务</div></template>
-                </div>
-              </section>
-
-              <section class="app-panel inbox-panel">
-                <div class="panel-heading compact"><div><h3>最近通知</h3></div><button @click="selectTab('notifications')" class="text-action">全部 →</button></div>
-                <div class="inbox-list">
-                  <template x-for="(notif, notifIndex) in dashboardRecentNotifications.slice(0, 3)" :key="'dashboard-notification-' + (notif.id || 'missing') + '-' + notifIndex">
-                    <button @click="selectTab('notifications')" class="inbox-item">
-                      <span class="inbox-level" :class="notif.level"></span>
-                      <span><strong x-text="notif.title"></strong><small x-text="notif.message"></small></span>
-                    </button>
-                  </template>
-                  <template x-if="dashboardRecentNotifications.length === 0"><div class="activity-empty">暂无通知</div></template>
+                  <template x-if="dashboardRecentActivity.length === 0"><div class="activity-empty">暂无活动</div></template>
                 </div>
               </section>
             </aside>
@@ -874,26 +861,12 @@
         <!-- 下载任务页面 -->
         <div x-show="currentTab === 'downloads'" class="page-stack">
           <div class="metric-grid">
-            <div class="stat-tile p-4">
-              <div class="text-xs text-muted/75">下载中</div>
-              <div class="mt-2 text-2xl font-semibold text-text" x-text="downloads.active.length"></div>
-            </div>
-            <div class="stat-tile p-4">
-              <div class="text-xs text-muted/75">排队中</div>
-              <div class="mt-2 text-2xl font-semibold text-text" x-text="downloads.waiting.length"></div>
-            </div>
-            <div class="stat-tile p-4">
-              <div class="text-xs text-muted/75">总速度</div>
-              <div class="mt-2 text-lg font-semibold text-success" x-text="formatSpeed(downloadStats.speed)"></div>
-            </div>
-            <div class="stat-tile p-4">
-              <div class="text-xs text-muted/75">最近结束</div>
-              <div class="mt-2 text-2xl font-semibold text-text" x-text="downloads.stopped.length"></div>
-            </div>
-            <div class="stat-tile p-4">
-              <div class="text-xs text-muted/75">订阅关联</div>
-              <div class="mt-2 text-2xl font-semibold text-primary" x-text="downloadAutomationStats.linked"></div>
-            </div>
+            <div class="stat-tile p-4"><div class="text-xs text-muted/75">正在下载</div><div class="mt-2 text-2xl font-semibold text-primary" x-text="downloadCategoryTasks('downloading').length"></div></div>
+            <div class="stat-tile p-4"><div class="text-xs text-muted/75">队列中</div><div class="mt-2 text-2xl font-semibold text-warning" x-text="downloadCategoryTasks('queued').length"></div></div>
+            <div class="stat-tile p-4"><div class="text-xs text-muted/75">已完成</div><div class="mt-2 text-2xl font-semibold text-success" x-text="downloadCategoryTasks('completed').length"></div></div>
+            <div class="stat-tile p-4"><div class="text-xs text-muted/75">下载失败</div><div class="mt-2 text-2xl font-semibold text-danger" x-text="downloadCategoryTasks('failed').length"></div></div>
+            <div class="stat-tile p-4"><div class="text-xs text-muted/75">总速度</div><div class="mt-2 text-lg font-semibold text-success" x-text="formatSpeed(downloadStats.speed)"></div></div>
+            <div class="stat-tile p-4"><div class="text-xs text-muted/75">订阅关联</div><div class="mt-2 text-2xl font-semibold text-primary" x-text="downloadAutomationStats.linked"></div></div>
           </div>
 
           <div class="app-panel list-surface">
@@ -903,97 +876,67 @@
                 <p class="text-sm text-muted/75 mt-1" x-text="downloadsError || (downloadsUpdatedAt ? '更新时间 ' + new Date(downloadsUpdatedAt).toLocaleTimeString() : '等待刷新')"></p>
               </div>
               <div class="control-row">
-                <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer">
-                  <input type="checkbox" x-model="downloadsAutoRefresh" @change="downloadsAutoRefresh ? startDownloadsPolling() : stopDownloadsPolling()" class="rounded" />
-                  <span>实时刷新</span>
-                </label>
-                <button @click="controlAllDownloads('pause')" :disabled="downloadsBulkAction || !hasRunningDownloadTasks()" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
-                  <span x-show="downloadsBulkAction !== 'pause'">全部暂停</span>
-                  <span x-show="downloadsBulkAction === 'pause'">暂停中</span>
-                </button>
-                <button @click="controlAllDownloads('stop')" :disabled="downloadsBulkAction || !hasRunningDownloadTasks()" class="btn-danger px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
-                  <span x-show="downloadsBulkAction !== 'stop'">全部停止</span>
-                  <span x-show="downloadsBulkAction === 'stop'">停止中</span>
-                </button>
-                <button @click="loadDownloads()" :disabled="downloadsLoading" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
-                  <span x-show="!downloadsLoading">刷新</span>
-                  <span x-show="downloadsLoading">刷新中</span>
-                </button>
+                <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="downloadsAutoRefresh" @change="downloadsAutoRefresh ? startDownloadsPolling() : stopDownloadsPolling()" class="rounded" /><span>实时刷新</span></label>
+                <button @click="controlAllDownloads('pause')" :disabled="downloadsBulkAction || !hasRunningDownloadTasks()" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"><span x-show="downloadsBulkAction !== 'pause'">全部暂停</span><span x-show="downloadsBulkAction === 'pause'">暂停中</span></button>
+                <button @click="controlAllDownloads('stop')" :disabled="downloadsBulkAction || !hasRunningDownloadTasks()" class="btn-danger px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"><span x-show="downloadsBulkAction !== 'stop'">全部停止</span><span x-show="downloadsBulkAction === 'stop'">停止中</span></button>
+                <button @click="loadDownloads()" :disabled="downloadsLoading" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"><span x-show="!downloadsLoading">刷新</span><span x-show="downloadsLoading">刷新中</span></button>
               </div>
             </div>
 
-            <div class="data-table">
-              <div class="data-table-scroll">
-                <div class="data-table-head grid-cols-[minmax(280px,1.7fr)_92px_150px_92px_92px_110px_190px] px-3">
-                  <div>任务</div>
-                  <div>状态</div>
-                  <div>进度</div>
-                  <div>速度</div>
-                  <div>剩余</div>
-                  <div>连接</div>
-                  <div class="text-right">操作</div>
-                </div>
-                <template x-for="(task, taskIndex) in allDownloadTasks" :key="'download-task-' + (task.gid || 'missing') + '-' + taskIndex">
-                  <div>
-                    <div class="data-table-row grid-cols-[minmax(280px,1.7fr)_92px_150px_92px_92px_110px_190px] px-3">
-                      <div class="min-w-0">
-                        <div class="truncate text-sm font-medium text-text" x-text="task.file_name || task.gid"></div>
-                        <div class="truncate text-xs text-muted/75" x-text="task.dir || ('GID ' + task.gid)"></div>
-                        <button x-show="task.automation" @click="openDownloadTaskSubscription(task)" class="download-task-origin is-subscription" x-text="downloadTaskOriginLabel(task)"></button>
-                        <span x-show="!task.automation" class="download-task-origin" x-text="downloadTaskOriginLabel(task)"></span>
-                      </div>
-                      <div><span :class="downloadStatusBadgeClass(task.status)" x-text="downloadStatusLabel(task.status)"></span></div>
-                      <div class="space-y-1">
-                        <div class="progress-inline"><span :style="downloadProgressStyle(task)"></span></div>
-                        <div class="text-xs text-muted/75 tabular-nums" x-text="formatDownloadSize(task.completed_length) + ' / ' + formatDownloadSize(task.total_length)"></div>
-                      </div>
-                      <div class="text-xs text-muted/80" x-text="formatSpeed(task.download_speed)"></div>
-                      <div class="text-xs text-muted/80" x-text="formatDuration(task.eta_seconds)"></div>
-                      <div class="text-xs text-muted/80" x-text="task.connections + ' 连接'"></div>
-                      <div class="flex flex-wrap justify-end gap-1">
-                        <button x-show="canPauseDownloadTask(task)" @click="controlDownloadTask(task, 'pause')" :disabled="downloadTaskActionLoading(task)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">暂停</button>
-                        <button x-show="canResumeDownloadTask(task)" @click="controlDownloadTask(task, 'resume')" :disabled="downloadTaskActionLoading(task)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">继续</button>
-                        <button x-show="canStopDownloadTask(task)" @click="controlDownloadTask(task, 'stop')" :disabled="downloadTaskActionLoading(task)" class="btn-danger px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">停止</button>
-                        <button @click="controlDownloadTask(task, 'delete')" :disabled="downloadTaskActionLoading(task)" class="btn-danger px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">删除</button>
-                      </div>
-                    </div>
-                    <div x-show="task.automation" class="download-automation-strip">
-                      <div class="download-automation-source"><span>订阅自动化</span><strong x-text="downloadTaskOriginLabel(task)"></strong><small x-text="task.automation ? (task.automation.target_dir || '目标目录未记录') : ''"></small></div>
-                      <div class="download-pipeline-steps">
-                        <template x-for="step in downloadTaskAutomationSteps(task)" :key="task.gid + '-' + step.id">
-                          <div :class="downloadTaskStepClass(step)"><i></i><span x-text="step.label"></span></div>
-                        </template>
-                      </div>
-                      <button @click="openDownloadTaskSubscription(task)">查看订阅详情 →</button>
-                    </div>
-                    <div x-show="task.error_message || (task.files && task.files.length)" class="border-b border-border bg-app/40 px-3 py-2 text-xs">
-                      <div x-show="task.error_message" class="mb-2 text-danger break-all" x-text="task.error_code ? task.error_code + ': ' + task.error_message : task.error_message"></div>
-                      <details>
-                        <summary class="cursor-pointer text-muted hover:text-text">文件详情</summary>
-                        <div class="mt-2 divide-y divide-border border border-border rounded-lg overflow-hidden">
-                          <template x-for="(file, fileIndex) in task.files" :key="'download-file-' + (task.gid || 'missing') + '-' + (file.index ?? fileIndex) + '-' + fileIndex">
-                            <div class="grid grid-cols-[minmax(0,1fr)_160px] gap-3 p-2">
-                              <div class="min-w-0">
-                                <div class="text-text/85 truncate" x-text="file.file_name || file.path || ('文件 ' + file.index)"></div>
-                                <div class="text-muted/75 truncate" x-text="file.path"></div>
-                              </div>
-                              <div class="text-right text-muted" x-text="formatDownloadSize(file.completed_length) + ' / ' + formatDownloadSize(file.length)"></div>
-                            </div>
-                          </template>
-                          <div x-show="!task.files || task.files.length === 0" class="p-2 text-muted/75">暂无文件详情</div>
-                        </div>
-                      </details>
-                    </div>
+            <div class="p-4 space-y-4">
+              <template x-for="category in downloadCategoryList" :key="'download-category-' + category.id">
+                <section class="app-panel-soft overflow-hidden">
+                  <div class="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between px-4 py-3 border-b border-border">
+                    <div><h3 class="text-sm font-semibold text-text" x-text="category.name + '（' + downloadCategoryTasks(category.id).length + '）'"></h3><p class="text-xs text-muted/70 mt-1" x-text="category.description"></p></div>
+                    <span class="badge" :class="category.id === 'failed' ? 'badge-danger' : (category.id === 'completed' ? 'badge-success' : (category.id === 'queued' ? 'badge-warning' : 'badge-primary'))" x-text="category.name"></span>
                   </div>
-                </template>
-              </div>
-              <div x-show="allDownloadTasks.length === 0" class="empty-state">
-                <p x-text="downloadsError || '暂无 Aria2 下载任务'"></p>
-              </div>
+                  <div class="data-table">
+                    <div class="data-table-scroll">
+                      <div class="data-table-head grid-cols-[minmax(280px,1.7fr)_92px_150px_92px_92px_110px_220px] px-3">
+                        <div>任务</div><div>状态</div><div>进度</div><div>速度</div><div>剩余</div><div>连接</div><div class="text-right">操作</div>
+                      </div>
+                      <template x-for="(task, taskIndex) in downloadCategoryTasks(category.id)" :key="'download-task-' + category.id + '-' + (task.gid || 'missing') + '-' + taskIndex">
+                        <div>
+                          <div class="data-table-row grid-cols-[minmax(280px,1.7fr)_92px_150px_92px_92px_110px_220px] px-3">
+                            <div class="min-w-0">
+                              <div class="truncate text-sm font-medium text-text" x-text="task.file_name || task.gid"></div>
+                              <div class="truncate text-xs text-muted/75" x-text="task.dir || ('GID ' + task.gid)"></div>
+                              <button x-show="task.automation" @click="openDownloadTaskSubscription(task)" class="download-task-origin is-subscription" x-text="downloadTaskOriginLabel(task)"></button>
+                              <span x-show="!task.automation" class="download-task-origin" x-text="downloadTaskOriginLabel(task)"></span>
+                            </div>
+                            <div><span :class="downloadStatusBadgeClass(task.status)" x-text="downloadStatusLabel(task.status)"></span></div>
+                            <div class="space-y-1"><div class="progress-inline"><span :style="downloadProgressStyle(task)"></span></div><div class="text-xs text-muted/75 tabular-nums" x-text="formatDownloadSize(task.completed_length) + ' / ' + formatDownloadSize(task.total_length)"></div></div>
+                            <div class="text-xs text-muted/80" x-text="formatSpeed(task.download_speed)"></div>
+                            <div class="text-xs text-muted/80" x-text="formatDuration(task.eta_seconds)"></div>
+                            <div class="text-xs text-muted/80" x-text="task.connections + ' 连接'"></div>
+                            <div class="flex flex-wrap justify-end gap-1">
+                              <button x-show="canPauseDownloadTask(task)" @click="controlDownloadTask(task, 'pause')" :disabled="downloadTaskActionLoading(task)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">暂停</button>
+                              <button x-show="canResumeDownloadTask(task)" @click="controlDownloadTask(task, 'resume')" :disabled="downloadTaskActionLoading(task)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">继续</button>
+                              <button x-show="canRetryDownloadTask(task)" @click="retryDownloadTask(task)" :disabled="downloadTaskActionLoading(task)" class="btn-primary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50"><span x-text="downloadTaskActionLoading(task) === 'retry' ? '重试中' : '重试'"></span></button>
+                              <button x-show="canStopDownloadTask(task)" @click="controlDownloadTask(task, 'stop')" :disabled="downloadTaskActionLoading(task)" class="btn-danger px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">停止</button>
+                              <button @click="controlDownloadTask(task, 'delete')" :disabled="downloadTaskActionLoading(task)" class="btn-danger px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">删除</button>
+                            </div>
+                          </div>
+                          <div x-show="task.automation" class="download-automation-strip">
+                            <div class="download-automation-source"><span>订阅自动化</span><strong x-text="downloadTaskOriginLabel(task)"></strong><small x-text="task.automation ? (task.automation.target_dir || '目标目录未记录') : ''"></small></div>
+                            <div class="download-pipeline-steps"><template x-for="step in downloadTaskAutomationSteps(task)" :key="task.gid + '-' + step.id"><div :class="downloadTaskStepClass(step)"><i></i><span x-text="step.label"></span></div></template></div>
+                            <button @click="openDownloadTaskSubscription(task)">查看订阅详情 →</button>
+                          </div>
+                          <div x-show="task.error_message || (task.files && task.files.length)" class="border-b border-border bg-app/40 px-3 py-2 text-xs">
+                            <div x-show="task.error_message" class="mb-2 text-danger break-all" x-text="task.error_code ? task.error_code + ': ' + task.error_message : task.error_message"></div>
+                            <details><summary class="cursor-pointer text-muted hover:text-text">文件详情</summary><div class="mt-2 divide-y divide-border border border-border rounded-lg overflow-hidden"><template x-for="(file, fileIndex) in task.files" :key="'download-file-' + (task.gid || 'missing') + '-' + (file.index ?? fileIndex) + '-' + fileIndex"><div class="grid grid-cols-[minmax(0,1fr)_160px] gap-3 p-2"><div class="min-w-0"><div class="text-text/85 truncate" x-text="file.file_name || file.path || ('文件 ' + file.index)"></div><div class="text-muted/75 truncate" x-text="file.path"></div></div><div class="text-right text-muted" x-text="formatDownloadSize(file.completed_length) + ' / ' + formatDownloadSize(file.length)"></div></div></template><div x-show="!task.files || task.files.length === 0" class="p-2 text-muted/75">暂无文件详情</div></div></details>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                    <div x-show="downloadCategoryTasks(category.id).length === 0" class="empty-state py-6"><span x-text="category.id === 'failed' ? '暂无失败下载' : '暂无' + category.name + '任务'"></span></div>
+                  </div>
+                </section>
+              </template>
+              <div x-show="downloadsError && allDownloadTasks.length === 0" class="empty-state"><p x-text="downloadsError"></p></div>
             </div>
           </div>
         </div>
-
         <!-- 订阅管理页面 -->
         <div x-show="currentTab === 'subscriptions'" class="page-stack">
           <div x-show="!selectedSubscriptionId" class="page-stack">
@@ -1365,32 +1308,32 @@
           </div>
         </div>
 
-        <!-- 后台日志页面 -->
-        <div x-show="currentTab === 'transferHistory'" class="page-stack">
+        <!-- 活动中心：统一承载后台任务与系统通知 -->
+        <div x-show="currentTab === 'notifications'" class="page-stack">
           <div class="metric-grid">
             <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">全部活动</div>
+              <div class="mt-2 text-2xl font-semibold text-text" x-text="activityStats.total"></div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">运行中任务</div>
+              <div class="mt-2 text-2xl font-semibold text-warning" x-text="activityStats.running"></div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">失败项</div>
+              <div class="mt-2 text-2xl font-semibold text-danger" x-text="activityStats.failed"></div>
+            </div>
+            <div class="stat-tile p-4">
+              <div class="text-xs text-muted/75">未读通知</div>
+              <div class="mt-2 text-2xl font-semibold text-primary" x-text="activityStats.unread"></div>
+            </div>
+            <div class="stat-tile p-4">
               <div class="text-xs text-muted/75">后台任务</div>
-              <div class="mt-2 text-2xl font-semibold text-text" x-text="backgroundLogStats.total"></div>
+              <div class="mt-2 text-2xl font-semibold text-primary" x-text="activityStats.jobs"></div>
             </div>
             <div class="stat-tile p-4">
-              <div class="text-xs text-muted/75">进行中</div>
-              <div class="mt-2 text-2xl font-semibold text-warning" x-text="backgroundLogStats.active"></div>
-            </div>
-            <div class="stat-tile p-4">
-              <div class="text-xs text-muted/75">成功</div>
-              <div class="mt-2 text-2xl font-semibold text-success" x-text="backgroundLogStats.success"></div>
-            </div>
-            <div class="stat-tile p-4">
-              <div class="text-xs text-muted/75">失败</div>
-              <div class="mt-2 text-2xl font-semibold text-danger" x-text="backgroundLogStats.failed"></div>
-            </div>
-            <div class="stat-tile p-4">
-              <div class="text-xs text-muted/75">已取消</div>
-              <div class="mt-2 text-2xl font-semibold text-text/80" x-text="backgroundLogStats.canceled"></div>
-            </div>
-            <div class="stat-tile p-4">
-              <div class="text-xs text-muted/75">处理文件</div>
-              <div class="mt-2 text-2xl font-semibold text-primary" x-text="backgroundLogStats.saved"></div>
+              <div class="text-xs text-muted/75">系统通知</div>
+              <div class="mt-2 text-2xl font-semibold text-secondary" x-text="activityStats.notifications"></div>
             </div>
           </div>
 
@@ -1414,20 +1357,14 @@
             <div x-show="checkDetailItems().length > 0" class="data-table">
               <div class="data-table-scroll">
                 <div class="data-table-head grid-cols-[minmax(320px,1fr)_90px_90px_minmax(240px,0.8fr)] px-3">
-                  <div>文件名</div>
-                  <div>集数</div>
-                  <div>结果</div>
-                  <div>原因</div>
+                  <div>文件名</div><div>集数</div><div>结果</div><div>原因</div>
                 </div>
                 <template x-for="(item, itemIndex) in checkDetailItems()" :key="'check-detail-' + (item.file_key || item.name || 'missing') + '-' + itemIndex">
                   <div class="data-table-row grid-cols-[minmax(320px,1fr)_90px_90px_minmax(240px,0.8fr)] px-3">
-                    <div class="min-w-0">
-                      <div class="truncate text-text/85" x-text="item.name"></div>
-                      <div x-show="item.parent_path" class="truncate text-xs text-muted/75" x-text="item.parent_path"></div>
-                    </div>
-                    <div class="text-xs text-muted/80" x-text="item.episode ? '第 ' + item.episode + ' 集' : '-'"></div>
+                    <div class="min-w-0"><div class="truncate text-text/85" x-text="item.name"></div><div x-show="item.parent_path" class="truncate text-xs text-muted/75" x-text="item.parent_path"></div></div>
+                    <div class="text-xs text-muted/80" x-text="item.episode ? '第 ' + item.episode + ' 集' : '-' "></div>
                     <div><span class="badge" :class="item.action === 'new' ? 'badge-success' : (item.action === 'skip' ? 'badge-warning' : 'badge-primary')" x-text="checkActionLabel(item.action)"></span></div>
-                    <div class="truncate text-xs text-muted/80" x-text="item.reason || '-'"></div>
+                    <div class="truncate text-xs text-muted/80" x-text="item.reason || '-' "></div>
                   </div>
                 </template>
               </div>
@@ -1437,146 +1374,72 @@
           <div class="app-panel list-surface">
             <div class="p-4 border-b border-border toolbar-panel">
               <div>
-                <h3 class="section-title">任务日志</h3>
-                <p class="text-sm text-muted/75 mt-1">记录转存、元数据刮削和推送派发等后台任务，排队和运行中的任务可取消，失败任务可重试。</p>
+                <h3 class="section-title">活动中心</h3>
+                <p class="text-sm text-muted/75 mt-1">后台任务和系统通知按时间合并展示；失败任务可直接重试，通知仍可单独标记已读。</p>
               </div>
-              <button @click="loadJobs()" class="btn-secondary px-4 py-2 rounded-lg transition-colors text-sm">刷新任务</button>
+              <div class="control-row">
+                <button @click="markAllRead()" class="btn-secondary px-3 py-2 rounded-lg transition-colors text-sm">全部已读</button>
+                <button @click="clearNotifications()" class="btn-danger px-3 py-2 rounded-lg transition-colors text-sm">清空通知</button>
+                <button @click="loadActivity()" class="btn-secondary px-3 py-2 rounded-lg transition-colors text-sm">刷新</button>
+              </div>
             </div>
-            <div class="p-4 border-b border-border grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_180px_180px_auto] gap-3">
-              <input type="search" x-model="backgroundJobQuery" placeholder="搜索标题、消息、错误或任务参数" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" />
-              <select x-model="backgroundJobFilterKind" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
-                <template x-for="kind in backgroundJobKinds" :key="kind.id">
-                  <option :value="kind.id" x-text="kind.name"></option>
+            <div class="p-4 border-b border-border grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto_auto] gap-3">
+              <input type="search" x-model="activityQuery" placeholder="搜索任务、通知、错误或事件" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" />
+              <div class="flex gap-2 overflow-x-auto">
+                <template x-for="filter in activityFilters" :key="filter.id">
+                  <button @click="activityFilter = filter.id" :class="activityFilter === filter.id ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm transition-colors whitespace-nowrap">
+                    <span x-text="filter.name"></span><span class="ml-1 text-xs opacity-70" x-text="activityFilterCount(filter.id)"></span>
+                  </button>
                 </template>
-              </select>
-              <select x-model="backgroundJobFilterStatus" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
-                <template x-for="status in backgroundJobStatuses" :key="status.id">
-                  <option :value="status.id" x-text="status.name"></option>
-                </template>
-              </select>
-              <button @click="resetBackgroundJobFilters()" class="btn-secondary px-4 py-2 rounded-lg text-sm">清空筛选</button>
+              </div>
+              <button @click="resetActivityFilters()" class="btn-secondary px-3 py-2 rounded-lg text-sm">清空筛选</button>
             </div>
             <div class="data-table">
               <div class="data-table-scroll">
-                <div class="data-table-head grid-cols-[92px_110px_minmax(300px,1.8fr)_150px_90px_150px] px-3">
-                  <div>状态</div>
-                  <div>类型</div>
-                  <div>任务</div>
-                  <div>进度</div>
-                  <div>耗时</div>
-                  <div class="text-right">操作</div>
+                <div class="data-table-head grid-cols-[96px_98px_130px_minmax(300px,1fr)_132px_170px] px-3">
+                  <div>来源</div><div>状态</div><div>事件</div><div>内容</div><div>时间</div><div class="text-right">操作</div>
                 </div>
-                <template x-for="(job, jobIndex) in recentBackgroundJobs" :key="'job-' + (job.id || 'missing') + '-' + jobIndex">
+                <template x-for="(item, itemIndex) in visibleActivityItems" :key="'activity-' + (item.id || 'missing') + '-' + itemIndex">
                   <div>
-                    <div class="data-table-row grid-cols-[92px_110px_minmax(300px,1.8fr)_150px_90px_150px] px-3">
-                      <div><span :class="jobStatusBadgeClass(job.status)" x-text="jobStatusLabel(job.status)"></span></div>
-                      <div class="flex flex-col items-start gap-1">
-                        <span class="badge badge-primary" x-text="jobKindLabel(job.kind)"></span>
-                        <span class="text-[10px] text-muted/75" x-text="'优先级 ' + jobPriorityLabel(job.priority)"></span>
-                      </div>
+                    <div class="data-table-row grid-cols-[96px_98px_130px_minmax(300px,1fr)_132px_170px] px-3" :class="item.source === 'notification' && !item.read ? 'bg-primary/5' : ''">
+                      <div><span class="badge" :class="item.source === 'job' ? 'badge-cyan' : 'badge-muted'" x-text="activitySourceLabel(item.source)"></span></div>
+                      <div><span :class="activityLevelBadgeClass(item)" x-text="activityStatusLabel(item)"></span></div>
+                      <div><span class="badge badge-muted" x-text="activityEventLabel(item)"></span></div>
                       <div class="min-w-0">
-                        <div class="truncate text-sm font-medium text-text" x-text="job.title"></div>
-                        <div class="truncate text-xs text-muted/75" x-text="job.message || job.error || formatTime(job.created_at)"></div>
-                        <div x-show="(job.attempt || 1) > 1 || job.error_class" class="truncate text-[10px] text-warning/80" x-text="'第 ' + (job.attempt || 1) + ' 次 · ' + jobErrorClassLabel(job.error_class)"></div>
+                        <div class="truncate text-sm font-medium text-text" x-text="item.title"></div>
+                        <div class="truncate text-xs text-muted/75" x-text="item.message || activityTimeLabel(item)"></div>
+                        <div x-show="item.source === 'job' && ((item.raw.attempt || 1) > 1 || item.raw.error_class)" class="truncate text-[10px] text-warning/80" x-text="'第 ' + (item.raw.attempt || 1) + ' 次 · ' + jobErrorClassLabel(item.raw.error_class)"></div>
                       </div>
-                      <div class="space-y-1">
-                        <div class="progress-inline"><span :style="'width: ' + (job.progress || 0) + '%'"></span></div>
-                        <div class="text-xs text-muted/75 tabular-nums" x-text="(job.progress || 0) + '%'"></div>
-                      </div>
-                      <div class="text-xs text-muted/80" x-text="jobDurationLabel(job)"></div>
+                      <div class="text-xs text-muted/75" x-text="activityTimeLabel(item)"></div>
                       <div class="flex flex-wrap justify-end gap-1">
-                        <select x-show="job.status === 'queued'" :value="job.priority || 'normal'" @change="setJobPriority(job, $event.target.value)" class="app-select px-1 py-1 text-xs" aria-label="任务优先级">
+                        <button x-show="item.source === 'job'" @click="openActivityItem(item)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">详情</button>
+                        <select x-show="item.source === 'job' && item.raw.status === 'queued'" :value="item.raw.priority || 'normal'" @change="setJobPriority(item.raw, $event.target.value)" class="app-select px-1 py-1 text-xs" aria-label="任务优先级">
                           <option value="high">高</option><option value="normal">普通</option><option value="low">低</option>
                         </select>
-                        <button @click="openJobDetail(job)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">详情</button>
-                        <button x-show="canCancelJob(job)" @click="cancelJob(job)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">取消</button>
-                        <button x-show="canRetryJob(job)" @click="retryJob(job)" class="btn-primary px-2 py-1 rounded text-xs transition-colors">重试</button>
+                        <button x-show="item.source === 'job' && canCancelJob(item.raw)" @click="cancelJob(item.raw)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">取消</button>
+                        <button x-show="item.source === 'job' && canRetryJob(item.raw)" @click="retryJob(item.raw)" class="btn-primary px-2 py-1 rounded text-xs transition-colors">重试</button>
+                        <button x-show="item.source === 'notification' && !item.read" @click="markRead(item.raw.id)" class="btn-primary px-2 py-1 rounded text-xs transition-colors">已读</button>
                       </div>
                     </div>
-                    <div x-show="job.error" class="border-b border-border bg-danger/5 px-3 py-2 text-xs text-danger break-all" x-text="job.error"></div>
+                    <div x-show="item.source === 'job' && item.raw.error" class="border-b border-border bg-danger/5 px-3 py-2 text-xs text-danger break-all" x-text="item.raw.error"></div>
+                    <div x-show="item.source === 'notification' && notificationHasPush(item.raw)" class="border-b border-border bg-app/40 px-3 py-2 text-xs text-text/80">
+                      <details><summary class="cursor-pointer text-muted hover:text-text">推送详情</summary>
+                        <div class="mt-2 flex flex-wrap gap-2">
+                          <template x-for="(channel, channelIndex) in notificationPushChannelStatuses(item.raw)" :key="'activity-push-' + (channel.channel || 'missing') + '-' + channelIndex">
+                            <span class="inline-flex items-center gap-1.5 rounded border px-2 py-1" :class="channel.success ? 'border-success/30 bg-success/10 text-success/85' : 'border-danger/30 bg-danger/10 text-danger/85'"><span x-text="channel.success ? '✓' : '!'"></span><span x-text="channel.name"></span><span x-show="channel.attempts > 1" class="text-muted" x-text="'x' + channel.attempts"></span></span>
+                          </template>
+                        </div>
+                        <div x-show="notificationPushErrors(item.raw).length > 0" class="mt-2 space-y-1 text-danger/85"><template x-for="(error, errorIndex) in notificationPushErrors(item.raw)" :key="'activity-push-error-' + error.channel + '-' + errorIndex"><div><span x-text="pushChannelName(error.channel)"></span>: <span x-text="error.error"></span></div></template></div>
+                      </details>
+                    </div>
                   </div>
                 </template>
               </div>
-              <div x-show="filteredBackgroundJobs.length > recentBackgroundJobs.length" class="p-3 text-center"><button @click="backgroundJobVisibleLimit += 80" class="btn-secondary px-5 py-2">加载更多任务</button></div><div x-show="recentBackgroundJobs.length === 0" class="empty-state">暂无后台日志</div>
+              <div x-show="filteredActivityItems.length > visibleActivityItems.length" class="p-3 text-center"><button @click="activityVisibleLimit += 100" class="btn-secondary px-5 py-2">加载更多活动</button></div>
+              <div x-show="visibleActivityItems.length === 0" class="empty-state">暂无匹配的活动</div>
             </div>
           </div>
         </div>
-
-        <!-- 通知页面 -->
-        <div x-show="currentTab === 'notifications'" class="page-stack">
-          <div class="app-panel p-4 toolbar-panel">
-            <div>
-              <h3 class="section-title">通知中心</h3>
-              <p class="text-sm text-muted/75 mt-1">系统通知会保留在这里，相关推送状态会合并显示在同一条通知内。</p>
-            </div>
-            <div class="control-row">
-              <button @click="markAllRead()" class="btn-secondary px-4 py-2 rounded-lg transition-colors text-sm">全部已读</button>
-              <button @click="clearNotifications()" class="btn-danger px-4 py-2 rounded-lg transition-colors text-sm">清空通知</button>
-            </div>
-          </div>
-          <div class="app-panel p-2 flex gap-2 overflow-x-auto">
-            <template x-for="filter in notificationFilters" :key="filter.id">
-              <button @click="notificationFilter = filter.id" :class="notificationFilter === filter.id ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg text-sm transition-colors whitespace-nowrap">
-                <span x-text="filter.name"></span>
-                <span class="ml-1 text-xs opacity-70" x-text="notificationFilterCount(filter.id)"></span>
-              </button>
-            </template>
-          </div>
-          <div class="data-table">
-            <div class="data-table-scroll">
-              <div class="data-table-head grid-cols-[30px_88px_110px_minmax(320px,1fr)_150px_100px] px-3">
-                <div></div>
-                <div>级别</div>
-                <div>事件</div>
-                <div>内容</div>
-                <div>时间</div>
-                <div class="text-right">操作</div>
-              </div>
-              <template x-for="(notif, notifIndex) in visibleNotifications" :key="'notification-' + (notif.id || 'missing') + '-' + notifIndex">
-                <div>
-                  <div class="data-table-row grid-cols-[30px_88px_110px_minmax(320px,1fr)_150px_100px] px-3" :class="!notif.read ? 'bg-primary/5' : ''">
-                    <div><span x-show="!notif.read" class="block h-2 w-2 rounded-full bg-cyan"></span></div>
-                    <div><span :class="notificationLevelBadgeClass(notif.level)" x-text="notificationLevelLabel(notif.level)"></span></div>
-                    <div><span class="badge badge-primary" x-text="notificationEventLabel(notif.event)"></span></div>
-                    <div class="min-w-0">
-                      <div class="truncate text-sm font-medium text-text" x-text="notif.title"></div>
-                      <div class="truncate text-xs text-muted/75" x-text="notif.message"></div>
-                    </div>
-                    <div class="text-xs text-muted/75" x-text="formatTime(notif.created_at)"></div>
-                    <div class="flex justify-end">
-                      <button x-show="!notif.read" @click="markRead(notif.id)" class="btn-primary px-2 py-1 rounded text-xs transition-colors">已读</button>
-                    </div>
-                  </div>
-                  <div x-show="notificationHasPush(notif)" class="border-b border-border bg-app/40 px-3 py-2 text-xs text-text/80">
-                    <details>
-                      <summary class="cursor-pointer text-muted hover:text-text">推送详情</summary>
-                      <div class="mt-2 flex flex-wrap gap-2">
-                        <template x-for="(item, channelIndex) in notificationPushChannelStatuses(notif)" :key="'push-channel-' + (item.channel || 'missing') + '-' + channelIndex">
-                          <span class="inline-flex items-center gap-1.5 rounded border px-2 py-1" :class="item.success ? 'border-success/30 bg-success/10 text-success/85' : 'border-danger/30 bg-danger/10 text-danger/85'">
-                            <span class="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold" :class="item.success ? 'bg-success/20 text-success/85' : 'bg-danger/20 text-danger/85'" x-text="item.success ? '✓' : '!'"></span>
-                            <span x-text="item.name"></span>
-                            <span x-show="item.attempts > 1" class="text-muted" x-text="'x' + item.attempts"></span>
-                          </span>
-                        </template>
-                      </div>
-                      <div class="mt-2 flex flex-wrap gap-2 text-muted">
-                        <span>推送成功: <span class="text-success" x-text="notificationPushMeta(notif).success_count || 0"></span></span>
-                        <span>推送失败: <span class="text-danger" x-text="notificationPushMeta(notif).failed_count || 0"></span></span>
-                      </div>
-                      <div x-show="notificationPushErrors(notif).length > 0" class="mt-2 space-y-1 text-danger/85">
-                        <template x-for="(item, errorIndex) in notificationPushErrors(notif)" :key="'push-error-' + (item.channel || 'missing') + '-' + errorIndex">
-                          <div><span x-text="pushChannelName(item.channel)"></span>: <span x-text="item.error"></span></div>
-                        </template>
-                      </div>
-                    </details>
-                  </div>
-                </div>
-              </template>
-            </div>
-          </div>
-          <div x-show="filteredNotifications.length > visibleNotifications.length" class="flex justify-center"><button @click="notificationVisibleLimit += 100" class="btn-secondary px-5 py-2">加载更多通知</button></div><div x-show="filteredNotifications.length === 0" class="app-panel empty-state">暂无通知</div>
-        </div>
-
         <!-- 系统诊断与备份 -->
         <div x-show="currentTab === 'diagnostics'" class="page-stack">
           <section class="page-header app-panel p-5">
@@ -2818,7 +2681,7 @@
             </div>
           </details>
 
-          <!-- 仅保留季度折叠预览；样例输入收进可折叠区 -->
+          <!-- 仅保留按 Season 折叠的预览，避免重复展示样例文件内容 -->
           <div class="app-panel-soft p-4 space-y-3">
             <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
               <div class="min-w-0">
@@ -2838,14 +2701,6 @@
             </div>
 
             <div x-show="renamePreviewError" class="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning" x-text="renamePreviewError"></div>
-
-            <details class="rounded-lg border border-border bg-app">
-              <summary class="cursor-pointer px-3 py-2 text-xs text-muted hover:text-text">样例文件（可选，默认用搜索嗅探结果）</summary>
-              <div class="border-t border-border p-3 space-y-2">
-                <textarea x-model="newSubscription.preview_samples" @input="clearStructuredPreviewFiles()" rows="3" class="w-full px-3 py-2 bg-panel border border-border rounded-lg text-text text-xs" placeholder="每行一个文件名，例如：&#10;第01集.mkv&#10;Show.S01E02.1080p.mkv"></textarea>
-                <p class="text-xs text-muted/70">修改样例后点「刷新预览」；会改用文本预览而非结构化嗅探路径。</p>
-              </div>
-            </details>
 
             <div x-show="renamePreview && groupedRenamePreviewSeasons().length > 0" class="space-y-2">
               <div class="flex flex-wrap gap-2 justify-end">
@@ -2901,8 +2756,9 @@
                   <input type="text" x-model="newSubscription.sync_download_dir" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" :placeholder="aria2DirForMediaType() || '/downloads/剧集/Season 1'" />
                   <button type="button" @click="openAria2DirBrowser()" class="btn-secondary px-4 py-2 rounded-lg text-sm whitespace-nowrap">浏览</button>
                 </div>
+                <p class="text-xs text-muted/75 mt-1">预期下载目录：<span class="text-success break-all" x-text="resolvedSubscriptionAria2Dir() || '未配置（使用 Aria2 默认目录）'"></span></p>
               </div>
-              <p class="text-xs text-muted/75">留空时按媒体类型使用系统设置中的 Aria2 下载目录；未配置时不指定目录，由 Aria2 自身决定。订阅检查发现更新并完成转存后，会提交重命名后的文件到 Aria2。</p>
+              <p class="text-xs text-muted/75">填写到具体 Season 目录时按填写内容执行；未写 Season 时会根据识别到的文件季号自动创建 Season N。留空则按媒体类型和剧名生成目录；未配置时不指定目录，由 Aria2 自身决定。</p>
             </div>
           </div>
 
@@ -2984,29 +2840,29 @@
     </div>
   </div>
   <!-- Alpine.js 应用逻辑 -->
-  <script src="js/core/api.js?v=2.2.11"></script>
-  <script src="js/core/formatters.js?v=2.2.11"></script>
-  <script src="js/core/ux.js?v=2.2.11"></script>
-  <script src="js/features/search-results.js?v=2.2.11"></script>
-  <script src="js/features/subscription-detail.js?v=2.2.11"></script>
-  <script src="js/features/calendar.js?v=2.2.11"></script>
-  <script src="js/features/source-switch.js?v=2.2.11"></script>
-  <script src="js/features/automation-events.js?v=2.2.11"></script>
-  <script src="js/core/polling.js?v=2.2.11"></script>
-  <script src="js/core/router.js?v=2.2.11"></script>
-  <script src="js/core/notifications.js?v=2.2.11"></script>
-  <script src="js/stores/downloads.js?v=2.2.11"></script>
-  <script src="js/stores/drive.js?v=2.2.11"></script>
-  <script src="js/stores/jobs.js?v=2.2.11"></script>
-  <script src="js/stores/subscriptions.js?v=2.2.11"></script>
-  <script src="js/features/updates.js?v=2.2.11"></script>
-  <script src="js/features/settings.js?v=2.2.11"></script>
-  <script src="js/features/diagnostics.js?v=2.2.11"></script>
-  <script src="js/features/pwa.js?v=2.2.11"></script>
-  <script src="js/features/dashboard.js?v=2.2.11"></script>
-  <script src="js/features/search-page.js?v=2.2.11"></script>
-  <script src="js/features/calendar-page.js?v=2.2.11"></script>
-  <script src="js/core/shell.js?v=2.2.11"></script>
-  <script src="app.js?v=2.2.11"></script>
+  <script src="js/core/api.js?v=2.2.12"></script>
+  <script src="js/core/formatters.js?v=2.2.12"></script>
+  <script src="js/core/ux.js?v=2.2.12"></script>
+  <script src="js/features/search-results.js?v=2.2.12"></script>
+  <script src="js/features/subscription-detail.js?v=2.2.12"></script>
+  <script src="js/features/calendar.js?v=2.2.12"></script>
+  <script src="js/features/source-switch.js?v=2.2.12"></script>
+  <script src="js/features/automation-events.js?v=2.2.12"></script>
+  <script src="js/core/polling.js?v=2.2.12"></script>
+  <script src="js/core/router.js?v=2.2.12"></script>
+  <script src="js/core/notifications.js?v=2.2.12"></script>
+  <script src="js/stores/downloads.js?v=2.2.12"></script>
+  <script src="js/stores/drive.js?v=2.2.12"></script>
+  <script src="js/stores/jobs.js?v=2.2.12"></script>
+  <script src="js/stores/subscriptions.js?v=2.2.12"></script>
+  <script src="js/features/updates.js?v=2.2.12"></script>
+  <script src="js/features/settings.js?v=2.2.12"></script>
+  <script src="js/features/diagnostics.js?v=2.2.12"></script>
+  <script src="js/features/pwa.js?v=2.2.12"></script>
+  <script src="js/features/dashboard.js?v=2.2.12"></script>
+  <script src="js/features/search-page.js?v=2.2.12"></script>
+  <script src="js/features/calendar-page.js?v=2.2.12"></script>
+  <script src="js/core/shell.js?v=2.2.12"></script>
+  <script src="app.js?v=2.2.12"></script>
 </body>
 </html>

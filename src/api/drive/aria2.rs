@@ -145,6 +145,55 @@ pub(super) async fn stop_aria2_task(
     }))
 }
 
+/// Retry a failed/removed Aria2 task by submitting its original source again.
+pub(super) async fn retry_aria2_task(
+    State(state): State<Arc<DriveState>>,
+    AxumPath(gid): AxumPath<String>,
+) -> Result<Json<Response<Aria2TaskActionResponse>>> {
+    let aria2 = aria2_client(&state.settings_store.get().await)?;
+    let new_gid = aria2.retry(&gid).await?;
+
+    // 订阅自动下载的业务关联原本指向旧 GID。迁移记录后，新的任务仍会
+    // 在活动中心显示为订阅任务；普通手动任务没有匹配记录则直接跳过。
+    let old_gid = gid.trim().to_string();
+    let now = crate::utils::unix_now();
+    let candidates = state
+        .subscription_store
+        .list()
+        .await
+        .into_iter()
+        .filter(|subscription| {
+            subscription
+                .sync_downloads
+                .iter()
+                .any(|download| download.gid == old_gid)
+        })
+        .collect::<Vec<_>>();
+    if !candidates.is_empty() {
+        if let Err(error) = state
+            .subscription_store
+            .merge_many(candidates, |subscription, _| {
+                remap_subscription_download_gid(subscription, &old_gid, &new_gid, now);
+            })
+            .await
+        {
+            tracing::warn!(old_gid = %old_gid, new_gid = %new_gid, error = %error, "重试 Aria2 任务后更新订阅关联失败");
+        }
+    }
+
+    // 成功创建新任务后移除旧的失败记录，避免下一次刷新同时展示两个
+    // 相同文件；移除失败不影响已经提交的新任务。
+    if new_gid != old_gid {
+        let _ = aria2.remove_download_result(&old_gid).await;
+    }
+    Ok(json_ok(Aria2TaskActionResponse {
+        success: true,
+        message: "已重新加入 Aria2 下载队列".to_string(),
+        gid: Some(new_gid),
+        affected_count: 1,
+    }))
+}
+
 pub(super) async fn delete_aria2_task(
     State(state): State<Arc<DriveState>>,
     AxumPath(gid): AxumPath<String>,
@@ -329,6 +378,27 @@ pub(super) fn normalize_fids(fids: Vec<String>) -> Vec<String> {
     fids
 }
 
+pub(super) fn remap_subscription_download_gid(
+    subscription: &mut Subscription,
+    old_gid: &str,
+    new_gid: &str,
+    submitted_at: i64,
+) -> usize {
+    let mut remapped = 0;
+    for download in &mut subscription.sync_downloads {
+        if download.gid == old_gid {
+            download.gid = new_gid.to_string();
+            download.submitted_at = submitted_at;
+            download.completed_at = None;
+            remapped += 1;
+        }
+    }
+    if remapped > 0 {
+        subscription.updated_at = submitted_at;
+    }
+    remapped
+}
+
 pub(super) fn default_stopped_limit() -> u64 {
-    10
+    50
 }

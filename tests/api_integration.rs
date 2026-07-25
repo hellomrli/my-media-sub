@@ -481,6 +481,29 @@ async fn create_subscription_returns_201_and_can_be_fetched() {
 }
 
 #[tokio::test]
+async fn create_subscription_cleans_quality_suffix_before_persisting_title() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+
+    let created = json_body(
+        &app,
+        auth_post(
+            "/api/subscriptions",
+            serde_json::json!({
+                "title": "凡人修仙传 4K 高码率",
+                "url": "https://pan.quark.cn/s/title-normalize-001",
+                "media_type": "series",
+                "season": 1
+            }),
+        ),
+    )
+    .await;
+
+    assert_eq!(created["data"]["title"], "凡人修仙传");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
 async fn changing_subscription_season_resets_previous_progress() {
     let (ctx, dir) = test_context().await;
     let app = create_app(ctx.clone());

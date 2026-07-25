@@ -8,7 +8,7 @@
   const SHORTCUTS = Object.freeze([
     {id: 'calendar-today', label: '今日更新', tab: 'calendar'},
     {id: 'calendar-missing', label: '缺集', tab: 'calendar'},
-    {id: 'failed-jobs', label: '失败任务', tab: 'transferHistory'},
+    {id: 'failed-jobs', label: '失败任务', tab: 'notifications'},
     {id: 'check-all', label: '检查全部', tab: 'subscriptions'},
     {id: 'downloads', label: '下载进度', tab: 'downloads'},
     {id: 'quark-signin', label: '夸克签到', tab: 'dashboard'}
@@ -177,7 +177,8 @@
           await this.loadCalendar();
         } else if (action === 'failed-jobs') {
           this.backgroundJobFilterStatus = 'failed';
-          this.selectTab('transferHistory', options.pushHistory !== false);
+          this.activityFilter = 'failed';
+          this.selectTab('notifications', options.pushHistory !== false);
           await this.loadJobs();
         } else if (action === 'check-all') {
           this.selectTab('subscriptions', options.pushHistory !== false);

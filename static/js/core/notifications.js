@@ -29,12 +29,82 @@
     return filter === 'unread' ? list.filter(item => !item.read) : list;
   }
 
+  function activityTimestamp(item) {
+    const value = item && (item.timestamp ?? item.updated_at ?? item.created_at);
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric !== 0) return numeric;
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Date.parse(value);
+      if (Number.isFinite(parsed)) return parsed / 1000;
+    }
+    return 0;
+  }
+
+  function jobActivityLevel(status) {
+    if (status === 'succeeded') return 'success';
+    if (status === 'failed') return 'error';
+    if (status === 'queued' || status === 'running') return 'warning';
+    return 'info';
+  }
+
+  /**
+   * Convert jobs and user-facing notifications to one stable timeline shape.
+   * Background notifications are intentionally supplied by the caller after
+   * filtering; this keeps one event from being rendered twice (once as a Job
+   * and once as the notification emitted by that Job).
+   */
+  function mergeActivityItems(jobs, notifications) {
+    const jobItems = (Array.isArray(jobs) ? jobs : []).map(job => ({
+      id: `job:${job.id || 'missing'}`,
+      source: 'job',
+      kind: 'job',
+      title: job.title || '后台任务',
+      message: job.message || job.error || '',
+      level: jobActivityLevel(job.status),
+      event: job.kind || 'job',
+      status: job.status || '',
+      read: true,
+      timestamp: activityTimestamp(job),
+      raw: job
+    }));
+    const notificationItems = (Array.isArray(notifications) ? notifications : []).map(notification => ({
+      id: `notification:${notification.id || 'missing'}`,
+      source: 'notification',
+      kind: 'notification',
+      title: notification.title || '系统通知',
+      message: notification.message || '',
+      level: normalizeNotificationType(notification.level),
+      event: notification.event || '',
+      status: notification.read ? 'read' : 'unread',
+      read: !!notification.read,
+      timestamp: activityTimestamp(notification),
+      raw: notification
+    }));
+
+    return [...jobItems, ...notificationItems].sort((left, right) => {
+      const time = activityTimestamp(right) - activityTimestamp(left);
+      if (time !== 0) return time;
+      return String(right.id).localeCompare(String(left.id));
+    });
+  }
+
   function createStore() {
     return {
     notifications: [],
     notificationsPoller: null,
     notificationFilter: 'all',
     notificationVisibleLimit: 100,
+    activityFilter: 'all',
+    activityQuery: '',
+    activityVisibleLimit: 100,
+    activityFilters: [
+      {id: 'all', name: '全部活动'},
+      {id: 'unread', name: '未读通知'},
+      {id: 'jobs', name: '后台任务'},
+      {id: 'notifications', name: '系统通知'},
+      {id: 'failed', name: '失败项'}
+    ],
     notificationFilters: [
       {id: 'all', name: '全部'},
       {id: 'unread', name: '未读'}
@@ -70,6 +140,46 @@
     },
     get visibleNotifications() { return this.filteredNotifications.slice(0, this.notificationVisibleLimit); },
 
+    get activityItems() {
+      const jobs = Array.isArray(this.backgroundJobs) ? this.backgroundJobs : [];
+      return mergeActivityItems(jobs, this.notificationCenterNotifications);
+    },
+
+    get filteredActivityItems() {
+      const query = String(this.activityQuery || '').trim().toLowerCase();
+      return this.activityItems.filter(item => {
+        if (this.activityFilter === 'unread' && (item.source !== 'notification' || item.read)) return false;
+        if (this.activityFilter === 'jobs' && item.source !== 'job') return false;
+        if (this.activityFilter === 'notifications' && item.source !== 'notification') return false;
+        if (this.activityFilter === 'failed' && !(item.status === 'failed' || item.level === 'error')) return false;
+        if (!query) return true;
+        const rawSearch = item.source === 'job'
+          ? [item.raw && item.raw.payload, item.raw && item.raw.result, item.raw && item.raw.error]
+          : [item.raw && item.raw.meta];
+        return [item.title, item.message, item.event, item.status, item.source, ...rawSearch]
+          .some(value => {
+            const text = value && typeof value === 'object' ? JSON.stringify(value) : String(value || '');
+            return text.toLowerCase().includes(query);
+          });
+      });
+    },
+
+    get visibleActivityItems() {
+      return this.filteredActivityItems.slice(0, this.activityVisibleLimit);
+    },
+
+    get activityStats() {
+      const items = this.activityItems;
+      return {
+        total: items.length,
+        jobs: items.filter(item => item.source === 'job').length,
+        notifications: items.filter(item => item.source === 'notification').length,
+        unread: items.filter(item => item.source === 'notification' && !item.read).length,
+        failed: items.filter(item => item.status === 'failed' || item.level === 'error').length,
+        running: items.filter(item => item.source === 'job' && ['queued', 'running'].includes(item.status)).length
+      };
+    },
+
     async loadNotifications() {
       try {
         const response = await apiFetch('/api/notifications');
@@ -82,8 +192,11 @@
 
     startNotificationsPolling() {
       this.stopNotificationsPolling();
-      if (this.currentTab !== 'dashboard') return;
-      this.notificationsPoller = this.startPolling('notifications', () => this.loadNotifications(), 30000);
+      if (!['dashboard', 'notifications', 'transferHistory'].includes(this.currentTab)) return;
+      const refresh = typeof this.loadActivity === 'function'
+        ? () => this.loadActivity()
+        : () => this.loadNotifications();
+      this.notificationsPoller = this.startPolling('notifications', refresh, 30000);
     },
 
     stopNotificationsPolling() {
@@ -94,6 +207,64 @@
     notificationFilterCount(filterId) {
       if (filterId === 'unread') return this.unreadNotifications;
       return this.notificationCenterNotifications.length;
+    },
+
+    activityFilterCount(filterId) {
+      if (filterId === 'unread') return this.activityStats.unread;
+      if (filterId === 'jobs') return this.activityStats.jobs;
+      if (filterId === 'notifications') return this.activityStats.notifications;
+      if (filterId === 'failed') return this.activityStats.failed;
+      return this.activityStats.total;
+    },
+
+    activitySourceLabel(source) {
+      return source === 'job' ? '后台任务' : '系统通知';
+    },
+
+    activityStatusLabel(item) {
+      if (!item) return '-';
+      if (item.source === 'job' && typeof this.jobStatusLabel === 'function') return this.jobStatusLabel(item.status);
+      return item.read ? '已读' : '未读';
+    },
+
+    activityLevelBadgeClass(item) {
+      if (!item) return 'badge badge-muted';
+      if (item.source === 'job' && typeof this.jobStatusBadgeClass === 'function') return this.jobStatusBadgeClass(item.status);
+      return typeof this.notificationLevelBadgeClass === 'function'
+        ? this.notificationLevelBadgeClass(item.level)
+        : 'badge badge-muted';
+    },
+
+    activityEventLabel(item) {
+      if (!item) return '-';
+      if (item.source === 'job' && typeof this.jobKindLabel === 'function') return this.jobKindLabel(item.event);
+      return this.notificationEventLabel(item.event);
+    },
+
+    activityTimeLabel(item) {
+      return this.formatTime(activityTimestamp(item));
+    },
+
+    resetActivityFilters() {
+      this.activityFilter = 'all';
+      this.activityQuery = '';
+      this.activityVisibleLimit = 100;
+    },
+
+    async loadActivity() {
+      await Promise.all([
+        typeof this.loadJobs === 'function' ? this.loadJobs() : Promise.resolve(),
+        this.loadNotifications()
+      ]);
+    },
+
+    openActivityItem(item) {
+      if (!item) return;
+      if (item.source === 'job' && typeof this.openJobDetail === 'function') {
+        this.openJobDetail(item.raw);
+      } else if (item.source === 'notification' && !item.read && item.raw && item.raw.id) {
+        this.markRead(item.raw.id);
+      }
     },
 
     notificationLevelLabel(level) {
@@ -246,5 +417,5 @@
     };
   }
 
-  return {TOAST_ICONS, normalizeNotificationType, toastIcon, filterNotificationItems, createStore};
+  return {TOAST_ICONS, normalizeNotificationType, toastIcon, filterNotificationItems, activityTimestamp, mergeActivityItems, createStore};
 });

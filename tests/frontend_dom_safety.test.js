@@ -35,6 +35,6 @@ test('rapidly refreshed Alpine lists use collision-resistant render keys', () =>
   ]) {
     assert.ok(html.includes(prefix), `missing stable render key prefix ${prefix}`);
   }
-  assert.match(html, /x-for="\(task, taskIndex\) in allDownloadTasks"/);
+  assert.match(html, /x-for="\(task, taskIndex\) in downloadCategoryTasks\(category\.id\)"/);
   assert.match(html, /x-for="\(item, itemIndex\) in day\.items"/);
 });

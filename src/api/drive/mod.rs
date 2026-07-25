@@ -35,14 +35,14 @@ mod browse;
 use actions::{delete_items, mkdir, quark_signin, rename_item, test_quark};
 use aria2::{
     browse_aria2_dir, default_stopped_limit, delete_aria2_task, list_aria2_tasks,
-    pause_all_aria2_tasks, pause_aria2_task, resume_aria2_task, send_to_aria2,
+    pause_all_aria2_tasks, pause_aria2_task, resume_aria2_task, retry_aria2_task, send_to_aria2,
     stop_all_aria2_tasks, stop_aria2_task, test_aria2,
 };
 use automation::aria2_automation_contexts;
 use browse::{clear_drive_cache, find_path, list_drive};
 
 #[cfg(test)]
-use aria2::normalize_fids;
+use aria2::{normalize_fids, remap_subscription_download_gid};
 #[cfg(test)]
 use automation::{
     completed_download_already_recorded, completed_subscription_download_files,
@@ -321,6 +321,7 @@ pub fn routes(
             post(resume_aria2_task),
         )
         .route("/api/drive/aria2/tasks/{gid}/stop", post(stop_aria2_task))
+        .route("/api/drive/aria2/tasks/{gid}/retry", post(retry_aria2_task))
         .route(
             "/api/drive/aria2/tasks/{gid}/delete",
             post(delete_aria2_task),
@@ -483,6 +484,40 @@ mod tests {
         assert_eq!(context.episode, Some(12));
         assert_eq!(context.strm_status, "generated");
         assert_eq!(context.rename_status, "completed");
+    }
+
+    #[test]
+    fn retry_remaps_persisted_subscription_download_gid() {
+        let mut subscription: Subscription = serde_json::from_value(json!({
+            "id": "sub1",
+            "title": "Show",
+            "media_type": "series",
+            "season": 1,
+            "url": "https://pan.quark.cn/s/test",
+            "sync_downloads": [{
+                "gid": "failed-gid",
+                "file_name": "Show.S01E01.mkv",
+                "download_dir": "/downloads/Show/Season 1",
+                "submitted_at": 10,
+                "completed_at": 20
+            }],
+            "enabled": true,
+            "completed": false,
+            "created_at": 1,
+            "updated_at": 1,
+            "last_checked_at": 1,
+            "status": "active"
+        }))
+        .unwrap();
+
+        assert_eq!(
+            remap_subscription_download_gid(&mut subscription, "failed-gid", "retry-gid", 30),
+            1
+        );
+        assert_eq!(subscription.sync_downloads[0].gid, "retry-gid");
+        assert_eq!(subscription.sync_downloads[0].submitted_at, 30);
+        assert_eq!(subscription.sync_downloads[0].completed_at, None);
+        assert_eq!(subscription.updated_at, 30);
     }
 
     #[test]

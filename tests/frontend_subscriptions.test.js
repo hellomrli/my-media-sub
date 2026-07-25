@@ -116,6 +116,44 @@ test('inferSubscriptionTitle strips fan-sub noise for metadata matching', () => 
   assert.equal(state.inferSubscriptionTitle('庆余年（2024）[简中]'), '庆余年');
   assert.equal(state.inferSubscriptionTitle('🗄 庆余年'), '庆余年');
   assert.equal(state.inferSubscriptionTitle('📺庆余年 1080p'), '庆余年');
+  assert.equal(state.inferSubscriptionTitle('凡人修仙传 4K 高码率'), '凡人修仙传');
+});
+
+test('magic title matching waits for the cleaned title before TMDB lookup', async () => {
+  const state = store();
+  state.newSubscription.title = '凡人修仙传 4K 高码率';
+  state.normalizeTitleRemote = async original => ({original, normalized: '凡人修仙传', changed: true});
+  state.metadataSearchAvailable = () => true;
+  let searchedTitle = '';
+  let searchFinished = false;
+  state.searchMetadataForSubscription = async () => {
+    searchedTitle = state.newSubscription.title;
+    await Promise.resolve();
+    searchFinished = true;
+  };
+
+  await state.applyMagicTitleMatch({silent: true});
+  assert.equal(state.newSubscription.title, '凡人修仙传');
+  assert.equal(searchedTitle, '凡人修仙传');
+  assert.equal(searchFinished, true);
+});
+
+test('Aria2 directory preview preserves explicit seasons and marks dynamic multi-season paths', () => {
+  const state = store();
+  state.settings = {aria2_series_dir: '/downloads/series'};
+  state.newSubscription.media_type = 'series';
+  state.newSubscription.title = '凡人修仙传';
+  state.newSubscription.season_input = '1-4';
+  state.newSubscription.sync_download_dir = '/downloads/custom/凡人修仙传';
+  assert.equal(
+    state.resolvedSubscriptionAria2Dir(),
+    '/downloads/custom/凡人修仙传/Season N（按文件识别）'
+  );
+  state.newSubscription.sync_download_dir = '/downloads/custom/凡人修仙传/Season 2';
+  assert.equal(
+    state.resolvedSubscriptionAria2Dir(),
+    '/downloads/custom/凡人修仙传/Season 2'
+  );
 });
 
 test('buildSubscriptionRules keeps per-subscription check interval', () => {

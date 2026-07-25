@@ -39,7 +39,7 @@ test('dashboard attention links set the relevant filter before navigation', () =
   app.openDashboardAttention('notifications');
   assert.deepEqual(calls, [
     ['subscription', 'invalid'], ['tab', 'subscriptions'],
-    ['tab', 'transferHistory'], ['tab', 'notifications']
+    ['tab', 'notifications'], ['tab', 'notifications']
   ]);
   assert.equal(app.backgroundJobFilterStatus, 'failed');
   assert.equal(app.notificationFilter, 'unread');

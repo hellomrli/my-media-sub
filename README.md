@@ -79,11 +79,11 @@ docker run -d \
   ghcr.io/hellomrli/my-media-sub:latest
 ```
 
-生产环境请钉死版本标签。每个发布会同时打补丁与次版本标签（例如 `2.2.11` 与 `2.2`）：
+生产环境请钉死版本标签。每个发布会同时打补丁与次版本标签（例如 `2.2.12` 与 `2.2`）：
 
 ```bash
-docker pull ghcr.io/hellomrli/my-media-sub:2.2.11
-docker image inspect ghcr.io/hellomrli/my-media-sub:2.2.11 --format '{{.RepoDigests}}'
+docker pull ghcr.io/hellomrli/my-media-sub:2.2.12
+docker image inspect ghcr.io/hellomrli/my-media-sub:2.2.12 --format '{{.RepoDigests}}'
 ```
 
 ### 方式三：Linux 二进制
@@ -91,7 +91,7 @@ docker image inspect ghcr.io/hellomrli/my-media-sub:2.2.11 --format '{{.RepoDige
 从 [GitHub Releases](https://github.com/hellomrli/my-media-sub/releases) 下载并校验：
 
 ```bash
-VERSION=v2.2.11
+VERSION=v2.2.12
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz"
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
 sha256sum -c "my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
@@ -297,7 +297,7 @@ static/
 - [媒体日历](docs/media-calendar.md) · [资源质量与换源](docs/source-quality.md)
 - [HTTPS 与安全部署](docs/https-reverse-proxy.md) · [PWA](docs/pwa.md)
 - [存储扩展与 SQLite 决策](docs/storage-scaling.md)
-- 当前版本：[v2.2.11 升级指南](docs/upgrade-v2.2.11.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
+- 当前版本：[v2.2.12 升级指南](docs/upgrade-v2.2.12.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
 
 各版本升级步骤在 `docs/upgrade-v*.md`；变更历史统一写在 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -318,6 +318,15 @@ docker compose pull && docker compose up -d
 ---
 
 ## 版本说明
+
+### 2.2.12
+
+- 后台日志与通知中心合并为「活动中心」：任务、通知按时间统一展示，支持来源、失败、未读筛选与搜索；失败任务可直接重试，旧 `transferHistory` 链接继续兼容。
+- 下载任务按「正在下载 / 队列中 / 已完成 / 下载失败」分区；失败或已移除的 Aria2 任务可复用原目录、输出名、请求头与下载地址重新入队，订阅下载关联会迁移到新 GID。
+- 订阅高级规则移除重复的样例文件文本区，仅保留按 Season 折叠的重命名预览。
+- Aria2 订阅目录自适应：明确填写 `Season N` 时保持该路径；未填写具体季目录时，按每个文件识别出的季号创建对应 `Season N`。
+- 魔法剧名识别扩展中文码率、语言、版本和常见画质后缀；例如 `凡人修仙传 4K 高码率` 会清洗为 `凡人修仙传`，并等待清洗完成后再查询 TMDB；后端创建订阅时再次权威清洗。
+- OpenAPI 补充 Aria2 任务重试接口；PWA 缓存代次升至 2.2.12。JSON Store schema 未变化，可从 v2.2.11 直接升级。
 
 ### 2.2.11
 

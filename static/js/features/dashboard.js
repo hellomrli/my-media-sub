@@ -60,9 +60,11 @@
         this.selectTab('subscriptions');
       } else if (kind === 'jobs') {
         this.backgroundJobFilterStatus = 'failed';
-        this.selectTab('transferHistory');
+        this.activityFilter = 'failed';
+        this.selectTab('notifications');
       } else if (kind === 'notifications') {
         this.notificationFilter = 'unread';
+        this.activityFilter = 'unread';
         this.selectTab('notifications');
       }
     },
@@ -89,6 +91,18 @@
 
     get dashboardRecentNotifications() {
       return this.notificationCenterNotifications.slice(0, 6);
+    },
+
+    get dashboardRecentActivity() {
+      return (this.activityItems || []).slice(0, 6);
+    },
+
+    openDashboardActivity(item) {
+      if (!item) return;
+      this.selectTab('notifications');
+      if (item.source === 'job' && typeof this.openJobDetail === 'function') {
+        this.openJobDetail(item.raw);
+      }
     },
 
     };

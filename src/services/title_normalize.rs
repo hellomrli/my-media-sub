@@ -10,6 +10,16 @@ static SUFFIX_RE: LazyLock<Regex> = LazyLock::new(|| {
     .expect("title suffix regex")
 });
 
+// 中文资源标题经常把码率、版本和语言信息写成自然语言，单靠上面的
+// 技术规格词无法覆盖「4K 高码率」「高清 国粤双语」这类组合。单独再做
+// 一轮尾部清理，避免修改旧规则时破坏历史标题兼容性。
+static EXTRA_SUFFIX_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)(?:\s*(?:高码率|低码率|高码|低码|超高清?|高清|标清|蓝光|原盘|无损|高帧率|高帧|杜比|完整版|纯净版|收藏版|加长版|导演剪辑版|国语|粤语|中字|简中|繁中|双语|国粤双语|合集|持续更新|remux|proper|repack|hdr(?:10)?|dolby|avc|\d+\s*帧))+$",
+    )
+    .expect("extra title suffix regex")
+});
+
 /// 清洗结果
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NormalizedTitle {
@@ -50,7 +60,16 @@ pub fn normalize_title_detailed(title: &str) -> NormalizedTitle {
     let mut cleaned = collapse_spaces(&output);
     cleaned = strip_leading_decorative_symbols(&cleaned);
     cleaned = trim_bilingual_prefix(&cleaned);
-    cleaned = SUFFIX_RE.replace(&cleaned, "").to_string();
+    // 两组后缀可能交错出现（例如「4K 高码率」或「高清 4K」），循环几轮
+    // 直到稳定，才能让后一组移除后暴露出的前一组继续被清理。
+    for _ in 0..3 {
+        let before = cleaned.clone();
+        cleaned = SUFFIX_RE.replace(&cleaned, "").to_string();
+        cleaned = EXTRA_SUFFIX_RE.replace(&cleaned, "").to_string();
+        if cleaned == before {
+            break;
+        }
+    }
     cleaned = collapse_spaces(&cleaned);
     cleaned = strip_leading_decorative_symbols(&cleaned);
 
@@ -257,6 +276,8 @@ mod tests {
             clean_media_title("孤独摇滚！ / Bocchi the Rock!"),
             "孤独摇滚！"
         );
+        assert_eq!(clean_media_title("凡人修仙传 4K 高码率"), "凡人修仙传");
+        assert_eq!(clean_media_title("凡人修仙传 高清 国粤双语"), "凡人修仙传");
     }
 
     #[test]

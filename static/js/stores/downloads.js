@@ -46,6 +46,28 @@
     });
   }
 
+  function categorizeDownloadTasks(value) {
+    const groups = normalizeDownloadGroups(value);
+    const seen = new Set();
+    const unique = items => (Array.isArray(items) ? items : []).filter(task => {
+      const gid = String((task && task.gid) || '').trim();
+      if (!gid) return true;
+      if (seen.has(gid)) return false;
+      seen.add(gid);
+      return true;
+    });
+    const active = unique(groups.active);
+    const waiting = unique(groups.waiting);
+    const stopped = unique(groups.stopped);
+    const statusOf = task => String((task && task.status) || '').trim().toLowerCase();
+    return {
+      completed: stopped.filter(task => statusOf(task) === 'complete'),
+      downloading: active.filter(task => !task || ['active', 'paused'].includes(statusOf(task))),
+      queued: waiting.filter(task => !task || ['waiting', 'paused'].includes(statusOf(task))),
+      failed: stopped.filter(task => ['error', 'removed'].includes(statusOf(task)))
+    };
+  }
+
   function summarizeActiveDownloads(value) {
     const active = normalizeDownloadGroups(value).active;
     return {
@@ -56,11 +78,12 @@
   }
 
   function downloadTaskCapabilities(task) {
-    const status = task && task.status;
+    const status = String((task && task.status) || '').trim().toLowerCase();
     return {
       pause: ['active', 'waiting'].includes(status),
       resume: status === 'paused',
-      stop: ['active', 'waiting', 'paused'].includes(status)
+      stop: ['active', 'waiting', 'paused'].includes(status),
+      retry: ['error', 'removed'].includes(status)
     };
   }
 
@@ -79,6 +102,23 @@
     // 在线更新
     get allDownloadTasks() {
       return flattenDownloadTasks(this.downloads);
+    },
+
+    get categorizedDownloads() {
+      return categorizeDownloadTasks(this.downloads);
+    },
+
+    get downloadCategoryList() {
+      return [
+        {id: 'downloading', name: '正在下载', description: '当前正在传输或已暂停的任务'},
+        {id: 'queued', name: '队列中', description: '等待 Aria2 调度的任务'},
+        {id: 'completed', name: '已完成', description: '最近完成的下载任务'},
+        {id: 'failed', name: '下载失败', description: '失败或被移除，可直接重试'}
+      ];
+    },
+
+    downloadCategoryTasks(category) {
+      return (this.categorizedDownloads && this.categorizedDownloads[category]) || [];
     },
 
     get downloadAutomationStats() {
@@ -112,7 +152,7 @@
       this.downloadsLoading = !silent;
       this.downloadsRefreshing = silent;
       try {
-        const data = await apiData('/api/drive/aria2/tasks?stopped_limit=10');
+        const data = await apiData('/api/drive/aria2/tasks?stopped_limit=50');
         this.downloads = normalizeDownloadGroups(data);
         this.downloadsError = '';
         this.downloadsUpdatedAt = Date.now();
@@ -177,6 +217,28 @@
       }
     },
 
+    async retryDownloadTask(task) {
+      if (!task || !this.canRetryDownloadTask(task)) return;
+      const gid = String(task.gid || '').trim();
+      if (!gid) return;
+      this.downloadTaskActions = {...this.downloadTaskActions, [gid]: 'retry'};
+      try {
+        const data = await apiData(`/api/drive/aria2/tasks/${encodeURIComponent(gid)}/retry`, {method: 'POST'});
+        if (data.success === false) {
+          this.showNotification('error', data.message || data.error || '重试下载失败');
+          return;
+        }
+        this.showNotification('success', data.message || '已重新加入下载队列');
+        await this.loadDownloads(true);
+      } catch (error) {
+        this.showNotification('error', this.apiErrorMessage(error, '重试下载失败'));
+      } finally {
+        const next = {...this.downloadTaskActions};
+        delete next[gid];
+        this.downloadTaskActions = next;
+      }
+    },
+
     downloadTaskOriginLabel(task) {
       if (!task || !task.automation) return '网盘手动任务';
       const episode = task.automation.episode ? ` · E${String(task.automation.episode).padStart(2, '0')}` : '';
@@ -232,6 +294,10 @@
 
     canStopDownloadTask(task) {
       return downloadTaskCapabilities(task).stop;
+    },
+
+    canRetryDownloadTask(task) {
+      return downloadTaskCapabilities(task).retry;
     },
 
     startDownloadsPolling() {
@@ -300,5 +366,5 @@
     };
   }
 
-  return {normalizeDownloadGroups, hasPollableDownloadTasks, flattenDownloadTasks, summarizeActiveDownloads, downloadTaskCapabilities, createStore};
+  return {normalizeDownloadGroups, hasPollableDownloadTasks, flattenDownloadTasks, categorizeDownloadTasks, summarizeActiveDownloads, downloadTaskCapabilities, createStore};
 });
