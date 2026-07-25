@@ -101,6 +101,25 @@
       return this.updateReleases.find(item => item.tag === this.selectedUpdateTag) || null;
     },
 
+    onlineUpdateSupported() {
+      if (!this.updateInfo) return true;
+      if (typeof this.updateInfo.online_update_supported === 'boolean') {
+        return this.updateInfo.online_update_supported;
+      }
+      // Keep older backends compatible while the frontend is cached during an
+      // upgrade. The runtime field was already present before this capability
+      // flag was added.
+      return this.updateInfo.runtime !== 'docker';
+    },
+
+    dockerUpdateCommand() {
+      return 'docker compose pull && docker compose up -d';
+    },
+
+    dockerUpdateMessage() {
+      return `当前运行在 Docker 容器中，请在宿主机执行：${this.dockerUpdateCommand()}`;
+    },
+
     selectedUpdateActionLabel() {
       const item = this.selectedUpdateRelease();
       if (!item) return '选择版本';
@@ -109,6 +128,7 @@
     },
 
     selectedUpdateDescription() {
+      if (!this.onlineUpdateSupported()) return this.dockerUpdateMessage();
       const item = this.selectedUpdateRelease();
       if (!item) return '请选择一个 Release 版本。';
       if (!item.asset) return '该版本没有 Linux x86_64 二进制包，不能在线切换。';
@@ -119,10 +139,16 @@
 
     canApplySelectedUpdate() {
       const item = this.selectedUpdateRelease();
-      return Boolean(item && item.asset && !item.is_current && !this.updateApplying);
+      return Boolean(
+        this.onlineUpdateSupported() && item && item.asset && !item.is_current && !this.updateApplying
+      );
     },
 
     async applySelectedUpdate() {
+      if (!this.onlineUpdateSupported()) {
+        this.showNotification('info', this.dockerUpdateMessage());
+        return;
+      }
       const item = this.selectedUpdateRelease();
       if (!item) {
         this.showNotification('info', '请先选择版本');
@@ -136,6 +162,10 @@
     },
 
     async applyUpdate(targetTag = null) {
+      if (!this.onlineUpdateSupported()) {
+        this.showNotification('info', this.dockerUpdateMessage());
+        return;
+      }
       if (!targetTag && (!this.updateInfo || !this.updateInfo.update_available)) {
         this.showNotification('info', '当前已是最新版本');
         return;
@@ -350,11 +380,13 @@
 
     updateStatusLabel() {
       if (!this.updateInfo) return '未检查';
+      if (!this.onlineUpdateSupported() && this.updateInfo.update_available) return '需拉取镜像';
       return this.updateInfo.update_available ? '可更新' : '已最新';
     },
 
     updateStatusClass() {
       if (!this.updateInfo) return 'text-muted';
+      if (!this.onlineUpdateSupported() && this.updateInfo.update_available) return 'text-primary';
       return this.updateInfo.update_available ? 'text-warning' : 'text-success';
     },
 

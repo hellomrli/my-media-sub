@@ -4,6 +4,28 @@ My Media Sub 的版本变更记录。新版本写在上方。
 
 升级步骤见对应的 [`docs/upgrade-v*.md`](docs/)；当前版本发布说明摘要也写在 [`README.md`](README.md) 的「版本说明」中。
 
+## 2.2.13
+
+### 修复
+
+- Docker 部署点击在线升级后不再尝试在容器内备份/替换 `/usr/local/bin/my-media-sub`，避免因权限错误返回「服务内部错误」；后端现在返回明确的宿主机升级命令。
+- 更新设置页会根据运行时能力禁用不适用的二进制在线替换和指定版本切换，同时保留普通 Linux 二进制部署的在线升级能力。
+
+### 兼容性
+
+- JSON Store schema 未变化。
+- 可直接从 v2.2.12 升级，保留现有 `data/`。
+- PWA 缓存代次升至 2.2.13；二进制部署必须同时替换完整 `static/`。
+
+### 升级
+
+```bash
+# Docker
+docker compose pull && docker compose up -d
+
+# 二进制：备份 DATA_DIR → 校验新包 → 同时替换二进制和整个 static/ → 保留 data/ → 启动后检查 /health
+```
+
 ## 2.2.12
 
 ### 新功能

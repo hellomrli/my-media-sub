@@ -79,11 +79,11 @@ docker run -d \
   ghcr.io/hellomrli/my-media-sub:latest
 ```
 
-生产环境请钉死版本标签。每个发布会同时打补丁与次版本标签（例如 `2.2.12` 与 `2.2`）：
+生产环境请钉死版本标签。每个发布会同时打补丁与次版本标签（例如 `2.2.13` 与 `2.2`）：
 
 ```bash
-docker pull ghcr.io/hellomrli/my-media-sub:2.2.12
-docker image inspect ghcr.io/hellomrli/my-media-sub:2.2.12 --format '{{.RepoDigests}}'
+docker pull ghcr.io/hellomrli/my-media-sub:2.2.13
+docker image inspect ghcr.io/hellomrli/my-media-sub:2.2.13 --format '{{.RepoDigests}}'
 ```
 
 ### 方式三：Linux 二进制
@@ -91,7 +91,7 @@ docker image inspect ghcr.io/hellomrli/my-media-sub:2.2.12 --format '{{.RepoDige
 从 [GitHub Releases](https://github.com/hellomrli/my-media-sub/releases) 下载并校验：
 
 ```bash
-VERSION=v2.2.12
+VERSION=v2.2.13
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz"
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
 sha256sum -c "my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
@@ -297,7 +297,7 @@ static/
 - [媒体日历](docs/media-calendar.md) · [资源质量与换源](docs/source-quality.md)
 - [HTTPS 与安全部署](docs/https-reverse-proxy.md) · [PWA](docs/pwa.md)
 - [存储扩展与 SQLite 决策](docs/storage-scaling.md)
-- 当前版本：[v2.2.12 升级指南](docs/upgrade-v2.2.12.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
+- 当前版本：[v2.2.13 升级指南](docs/upgrade-v2.2.13.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
 
 各版本升级步骤在 `docs/upgrade-v*.md`；变更历史统一写在 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -318,6 +318,13 @@ docker compose pull && docker compose up -d
 ---
 
 ## 版本说明
+
+### 2.2.13
+
+- 修复 Docker 部署点击在线升级后返回「服务内部错误」的问题：容器运行时会明确提示使用宿主机执行 `docker compose pull && docker compose up -d`，不再尝试写入只读的镜像二进制目录。
+- 在线升级能力增加运行环境标识；普通 Linux 二进制部署仍保留原有的在线替换、静态资源更新和重启流程。
+- Docker 部署的更新按钮与指定版本切换会自动禁用，并在设置页展示可直接复制的镜像更新命令。
+- OpenAPI/前端缓存版本升至 2.2.13；JSON Store schema 未变化，可从 v2.2.12 直接升级。
 
 ### 2.2.12
 
