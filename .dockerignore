@@ -5,10 +5,12 @@ target/
 *.log
 .env
 data/
+runtime/
 docs/
 tests/
 src.backup/
 *.sh
+!scripts/docker-entrypoint.sh
 README.md
 .claude/
 .ruff_cache/

@@ -542,7 +542,8 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
     );
 
     // 静态文件服务
-    let serve_static = ServeDir::new("static").append_index_html_on_directories(true);
+    let serve_static =
+        ServeDir::new(crate::utils::static_dir()).append_index_html_on_directories(true);
 
     // 构建路由：API 优先，静态文件作为 fallback
     Router::new()

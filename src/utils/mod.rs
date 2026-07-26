@@ -14,6 +14,21 @@ pub fn unix_now() -> i64 {
         .as_secs() as i64
 }
 
+/// Resolve the WebUI directory used by both the static file server and the
+/// online updater. Relative paths remain relative to the process working
+/// directory for compatibility with existing binary deployments.
+pub fn static_dir() -> PathBuf {
+    static_dir_from_value(std::env::var("STATIC_DIR").ok().as_deref())
+}
+
+fn static_dir_from_value(value: Option<&str>) -> PathBuf {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("static"))
+}
+
 pub fn write_file_atomic(path: &Path, content: &[u8], mode: u32) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -206,6 +221,16 @@ mod tests {
         assert!(!constant_time_eq("abcdef", "abcdeg"));
         assert!(!constant_time_eq("abcdef", "abc"));
         assert!(!constant_time_eq("abc", "abcdef"));
+    }
+
+    #[test]
+    fn static_dir_uses_non_empty_override() {
+        assert_eq!(static_dir_from_value(None), PathBuf::from("static"));
+        assert_eq!(static_dir_from_value(Some("  ")), PathBuf::from("static"));
+        assert_eq!(
+            static_dir_from_value(Some(" /srv/my-media-sub/static ")),
+            PathBuf::from("/srv/my-media-sub/static")
+        );
     }
 
     #[test]

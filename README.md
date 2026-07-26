@@ -42,7 +42,7 @@ STRM 相关能力自 v2.2.0 起暂时下线，旧字段保留，方便以后以�
 ### 方式一：Docker Compose（推荐）
 
 ```bash
-mkdir -p my-media-sub/data && cd my-media-sub
+mkdir -p my-media-sub/{data,runtime} && cd my-media-sub
 curl -LO https://raw.githubusercontent.com/hellomrli/my-media-sub/main/docker-compose.yml
 
 # 同目录写入管理员密码（必需，勿使用 change-me）
@@ -54,14 +54,16 @@ docker compose up -d
 
 > **从 v2.0.0 起，默认密码不可登录。** 必须通过 `SERVER_PASSWORD` / `APP_PASSWORD` 或系统设置配置真实密码。
 
-容器以 uid/gid `1000` 运行；入口脚本会自动修正挂载数据目录属主，旧版本升级一般无需手动 `chown`。
+容器以 uid/gid `1000` 运行；入口脚本会自动修正挂载目录属主。业务数据位于 `data/`，可在线更新的二进制和 WebUI 位于独立的 `runtime/`，容器重启或重建后仍会保留。
+
+首次从旧镜像迁移到支持 Docker 在线更新的版本，仍需先执行一次镜像升级。之后可在「系统设置 → 维护 → 在线更新」直接切换 Release；升级器会校验 SHA256、同时替换二进制与完整 WebUI，并在后台任务优雅停机后重启进程。
 
 常用运维命令：
 
 ```bash
 docker compose ps            # 状态
 docker compose logs -f       # 日志
-docker compose pull && docker compose up -d   # 升级
+docker compose pull && docker compose up -d   # 更新基础镜像和系统库
 docker compose down          # 停止
 ```
 
@@ -73,17 +75,18 @@ docker run -d \
   --restart unless-stopped \
   -p 56001:56001 \
   -v "$(pwd)/data:/app/data" \
+  -v "$(pwd)/runtime:/app/runtime" \
   -e SERVER_USERNAME=admin \
   -e SERVER_PASSWORD='replace-with-a-strong-password' \
   -e TZ=Asia/Shanghai \
   ghcr.io/hellomrli/my-media-sub:latest
 ```
 
-生产环境请钉死版本标签。每个发布会同时打补丁与次版本标签（例如 `2.2.13` 与 `2.2`）：
+生产环境请钉死版本标签。每个发布会同时打补丁与次版本标签（例如 `2.2.14` 与 `2.2`）：
 
 ```bash
-docker pull ghcr.io/hellomrli/my-media-sub:2.2.13
-docker image inspect ghcr.io/hellomrli/my-media-sub:2.2.13 --format '{{.RepoDigests}}'
+docker pull ghcr.io/hellomrli/my-media-sub:2.2.14
+docker image inspect ghcr.io/hellomrli/my-media-sub:2.2.14 --format '{{.RepoDigests}}'
 ```
 
 ### 方式三：Linux 二进制
@@ -91,7 +94,7 @@ docker image inspect ghcr.io/hellomrli/my-media-sub:2.2.13 --format '{{.RepoDige
 从 [GitHub Releases](https://github.com/hellomrli/my-media-sub/releases) 下载并校验：
 
 ```bash
-VERSION=v2.2.13
+VERSION=v2.2.14
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz"
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
 sha256sum -c "my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
@@ -154,6 +157,10 @@ SERVER_PASSWORD='replace-with-a-strong-password' ./my-media-sub
 | `SERVER_USERNAME` | `admin` | 初始管理员账号 |
 | `SERVER_PASSWORD` | 无（必填） | 管理员密码；未设置或仍为默认值时拒绝登录 |
 | `DATA_DIR` | `./data` | JSON 数据、备份与运行状态 |
+| `SELF_UPDATE_ENABLED` | Docker 为 `true` | 是否开放当前运行目录的在线更新能力 |
+| `SELF_UPDATE_BACKUP_RETENTION` | `3` | 在线更新二进制和 `static/` 各自保留的回滚副本数（1–20） |
+| `APP_RUNTIME_DIR` | Docker 为 `/app/runtime` | Docker 可写二进制与更新元数据目录；高级部署项 |
+| `STATIC_DIR` | `./static`；Docker 为 `/app/runtime/static` | WebUI 静态资源目录 |
 | `BACKUP_INTERVAL_HOURS` | `24` | 自动备份间隔；`0` 关闭 |
 | `BACKUP_VERIFY_INTERVAL_HOURS` | `24` | 备份隔离恢复验证间隔；`0` 关闭 |
 | `BACKUP_EXTERNAL_DIR` | 空 | 校验后原子复制到外部目录 |
@@ -212,6 +219,8 @@ data/
 ```
 
 存储是带 `schema_version` 的 JSON 信封：临时文件写入 → `fsync` → 原子 rename；写盘成功后才替换内存；Unix 上文件权限 `0600`。损坏文件会被隔离为 `*.json.corrupt-*` 并**显式告警**：启动时发站内通知，`/api/diagnostics` 数据一致性检查会持续报告，直到你核对备份并清理隔离文件。任务裁剪只淘汰终态任务，排队与运行中的不会被顺手清掉。
+
+Docker 的 `runtime/` 不属于业务数据备份，包含当前二进制、完整 `static/`、版本标记和升级回滚副本。它必须保持 uid/gid `1000` 可写；详细的初始化、镜像/在线更新优先级与恢复方式见 [Docker 在线更新说明](docs/docker-online-update.md)。
 
 ---
 
@@ -295,9 +304,9 @@ static/
 - [架构](docs/architecture.md) · [API 契约](docs/api-contract.md) · [自动化事件](docs/automation-events.md)
 - [自动化 API / Token / 导入导出](docs/automation-api.md) · [Telegram Bot](docs/telegram-bot.md)
 - [媒体日历](docs/media-calendar.md) · [资源质量与换源](docs/source-quality.md)
-- [HTTPS 与安全部署](docs/https-reverse-proxy.md) · [PWA](docs/pwa.md)
+- [HTTPS 与安全部署](docs/https-reverse-proxy.md) · [Docker 在线更新](docs/docker-online-update.md) · [PWA](docs/pwa.md)
 - [存储扩展与 SQLite 决策](docs/storage-scaling.md)
-- 当前版本：[v2.2.13 升级指南](docs/upgrade-v2.2.13.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
+- 当前版本：[v2.2.14 升级指南](docs/upgrade-v2.2.14.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
 
 各版本升级步骤在 `docs/upgrade-v*.md`；变更历史统一写在 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -306,18 +315,26 @@ static/
 ## 升级
 
 ```bash
-# Docker
+# Docker 应用版本：WebUI「系统设置 → 维护 → 在线更新」
+# Docker 基础镜像 / 系统库：
 docker compose pull && docker compose up -d
 
 # 二进制：备份 DATA_DIR → 校验新包
 #        → 同时替换二进制与整个 static/ → 保留 data/ → 检查 /health
 ```
 
-**不要只换二进制却留着旧的 `static/`。** 细节与回滚见对应版本的升级指南。
+在线更新会把二进制与完整 `static/` 作为同一个可回滚升级事务处理，并分别通过同目录 rename 原子切换。手工升级时仍然**不要只换二进制却留着旧的 `static/`**。Docker 在线更新只覆盖应用载荷，Debian 基础镜像与系统库仍应定期拉取新镜像。细节与回滚见对应版本的升级指南。
 
 ---
 
 ## 版本说明
+
+### 2.2.14
+
+- Docker 新增独立 `runtime/` 持久化运行载荷，可在 WebUI 中校验并在线切换 Release；容器重启或应用载荷相同的镜像重建会保留更新结果，二进制或 WebUI 内容变化时镜像仍优先刷新。
+- 二进制和完整 WebUI 改为同一可回滚升级事务，缺少 `static/` 或任一步失败时不会留下前后端版本错配。
+- 在线重启接入 HTTP 与 JobQueue 优雅关闭链路；静态服务和更新器统一遵循 `STATIC_DIR`。
+- PWA 与 OpenAPI 版本升至 2.2.14；JSON Store schema 未变化，可直接从 v2.2.13 升级并保留现有 `data/`。
 
 ### 2.2.13
 

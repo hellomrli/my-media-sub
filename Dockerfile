@@ -18,7 +18,8 @@ COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 
 # 构建 release 版本
-RUN cargo build --release --locked
+RUN cargo build --release --locked \
+    && awk -F '"' '/^version = / { print $2; exit }' Cargo.toml > target/release/VERSION
 
 # Stage 2: 运行阶段
 FROM debian:bookworm-slim
@@ -38,29 +39,50 @@ RUN apt-get update && apt-get install -y \
     gosu \
     && rm -rf /var/lib/apt/lists/*
 
-# 从构建阶段复制二进制文件
-COPY --from=builder /app/target/release/my-media-sub /usr/local/bin/my-media-sub
+# 镜像内只保留一份不可变的发布载荷。入口脚本会把它原子初始化到
+# /app/runtime；应用实际从可写持久化卷运行，在线升级不会修改镜像层。
+COPY --from=builder /app/target/release/my-media-sub /opt/my-media-sub/my-media-sub
+COPY --from=builder /app/target/release/VERSION /opt/my-media-sub/VERSION
+COPY static /opt/my-media-sub/static
 
-# 复制静态文件
-COPY static /app/static
+# 版本号不足以区分同一开发版本的不同 latest/main 镜像；对实际应用载荷生成
+# 内容指纹。这样显式拉取到二进制或 WebUI 已变化的镜像时会刷新 runtime，
+# 仅基础镜像变化而应用载荷相同时则保留 WebUI 在线更新结果。
+RUN (sha256sum /opt/my-media-sub/my-media-sub; \
+     find /opt/my-media-sub/static -type f -print0 \
+       | LC_ALL=C sort -z \
+       | xargs -0 sha256sum) \
+    | sha256sum \
+    | awk '{ print $1 }' > /opt/my-media-sub/PAYLOAD_ID
 
 # 入口脚本：以 root 启动、修正数据目录属主后 gosu 降权到非 root 用户。
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# 创建非 root 运行用户和数据目录。进程最终以 UID/GID 1000 的 app 用户运行。
-# /app/data 常由 bind mount / 命名卷挂载；入口脚本会在启动时把其属主修正为
-# 运行用户，兼容从旧 root 镜像升级的数据。如需完全固定身份，可用 compose 的
-# `user:` 覆盖，此时入口脚本检测到非 root 会跳过 chown 直接运行。
+# 创建非 root 运行用户及数据/运行目录。进程最终以 UID/GID 1000 的 app 用户
+# 运行；入口脚本会修正默认挂载的属主。若用 compose `user:` 覆盖身份，data 和
+# runtime 挂载必须预先对该用户可写，入口脚本不会尝试提升权限。
 RUN groupadd --gid 1000 app \
     && useradd --uid 1000 --gid 1000 --home-dir /app --no-create-home app \
-    && mkdir -p /app/data \
+    && mkdir -p /app/data /app/runtime \
+    && chmod 0755 /opt/my-media-sub/my-media-sub \
+    && ln -s /opt/my-media-sub/my-media-sub /usr/local/bin/my-media-sub \
+    && ln -s /app/runtime/static /app/static \
     && chown -R app:app /app
 
 # 设置环境变量
 ENV SERVER_HOST=0.0.0.0
 ENV SERVER_PORT=56001
 ENV DATA_DIR=/app/data
+ENV APP_IMAGE_DIR=/opt/my-media-sub
+ENV APP_RUNTIME_DIR=/app/runtime
+ENV STATIC_DIR=/app/runtime/static
+ENV SELF_UPDATE_ENABLED=true
+ENV SELF_UPDATE_BACKUP_RETENTION=3
+
+# 未显式挂载时也为 docker run 创建匿名持久化卷；Compose 配置使用宿主机
+# ./runtime 绑定挂载，方便备份、检查和跨容器重建保留在线更新结果。
+VOLUME ["/app/runtime"]
 
 # 暴露端口
 EXPOSE 56001

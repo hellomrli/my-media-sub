@@ -4,6 +4,40 @@ My Media Sub 的版本变更记录。新版本写在上方。
 
 升级步骤见对应的 [`docs/upgrade-v*.md`](docs/)；当前版本发布说明摘要也写在 [`README.md`](README.md) 的「版本说明」中。
 
+## 2.2.14
+
+### 新功能
+
+- Docker 镜像新增独立的 `/app/runtime` 持久化运行载荷：二进制和完整 WebUI 会从只读镜像种子原子初始化到可写卷，WebUI 可直接执行 SHA256 校验后的在线升级与历史版本切换。
+- Compose 默认挂载 `./runtime:/app/runtime`；容器重启或重建会保留在线更新结果，显式切换到应用载荷不同的 Docker 镜像时仍会以新镜像载荷为准。
+
+### 修复
+
+- 静态文件服务和在线更新器统一遵循 `STATIC_DIR`，修复测试/高级部署传入该变量但服务端仍硬编码 `static/` 的问题。
+- 二进制和 WebUI 改为同一可回滚升级事务，并分别通过同目录 rename 原子切换；升级包缺少完整 `static/` 时拒绝安装，任一切换失败会恢复旧静态资源，避免前后端版本错配。
+- 在线升级重启改为先停止 HTTP 接入并等待 JobQueue 优雅关闭，再 `exec` 新二进制，不再从异步任务中直接替换正在运行的进程。
+
+### 安全与运维
+
+- Docker 在线更新必须同时满足 `SELF_UPDATE_ENABLED=true`、`APP_RUNTIME_DIR` 已配置且当前进程确实从该目录运行；自定义/旧容器继续回退到宿主机镜像升级提示。
+- 镜像入口使用二进制与完整 WebUI 的内容指纹识别同版本号下的 `latest/main` 更新，避免持久化 runtime 遮蔽新镜像代码。
+- 应用在线更新不替代基础镜像安全更新；仍建议定期执行 `docker compose pull && docker compose up -d`。
+
+### 兼容性
+
+- JSON Store schema 未变化，可直接从 v2.2.13 升级并保留现有 `data/`。
+- PWA 与 OpenAPI 版本升至 2.2.14；二进制部署仍必须同时替换完整 `static/`。
+
+### 升级
+
+```bash
+# Docker：首次迁移先在 Compose 中增加 ./runtime:/app/runtime
+mkdir -p runtime
+docker compose pull && docker compose up -d
+
+# 二进制：校验发布包后同时替换 my-media-sub 与整个 static/
+```
+
 ## 2.2.13
 
 ### 修复

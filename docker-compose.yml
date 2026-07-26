@@ -11,6 +11,8 @@ services:
     volumes:
       # 数据持久化
       - ./data:/app/data
+      # 可在线更新的二进制与 WebUI；与业务数据分开，容器重建后仍保留。
+      - ./runtime:/app/runtime
     environment:
       # 基础服务配置
       - SERVER_HOST=0.0.0.0
@@ -22,6 +24,9 @@ services:
 
       # 数据目录
       - DATA_DIR=/app/data
+      # 默认启用 Docker 持久化运行目录在线更新；设为 false 可禁用更新 API。
+      - SELF_UPDATE_ENABLED=${SELF_UPDATE_ENABLED:-true}
+      - SELF_UPDATE_BACKUP_RETENTION=${SELF_UPDATE_BACKUP_RETENTION:-3}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:56001/health"]
       interval: 30s
