@@ -3,17 +3,19 @@ const assert = require('node:assert/strict');
 
 const calendar = require('../static/js/features/calendar.js');
 
-test('week range uses Monday through Sunday across year boundary', () => {
+test('week range uses Sunday through Saturday across year boundary', () => {
+  // 2027-01-01 是周五，所在周从 2026-12-27（周日）到 2027-01-02（周六）
   assert.deepEqual(calendar.viewRange('week', '2027-01-01'), {
-    from: '2026-12-28',
-    to: '2027-01-03'
+    from: '2026-12-27',
+    to: '2027-01-02'
   });
 });
 
-test('month cells are Monday-based and always contain six weeks', () => {
+test('month cells are Sunday-based and always contain six weeks', () => {
   const cells = calendar.monthCells('2026-07-10', [{scheduled_date: '2026-07-10', id: 'a'}], '2026-07-10');
   assert.equal(cells.length, 42);
-  assert.equal(cells[0].key, '2026-06-29');
+  // 2026-07-01 是周三，网格从上一个周日 2026-06-28 开始
+  assert.equal(cells[0].key, '2026-06-28');
   assert.equal(cells.find(cell => cell.key === '2026-07-10').items.length, 1);
   assert.equal(cells.find(cell => cell.key === '2026-07-10').isToday, true);
 });

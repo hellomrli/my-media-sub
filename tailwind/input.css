@@ -52,28 +52,28 @@
 }
 :root[data-theme="light"] {
   color-scheme: light;
-  --c-bg: 249 248 245;
-  --c-bg-2: 243 241 236;
-  --c-surface: 255 255 254;
-  --c-surface-2: 246 244 239;
-  --c-surface-3: 236 233 226;
-  --c-border: 214 210 200;
-  --c-muted: 114 112 105;
-  --c-text: 28 27 25;
-  --c-primary: 194 128 30;
-  --c-primary-hover: 168 108 20;
-  --c-secondary: 74 108 140;
-  --c-success: 42 138 74;
-  --c-warning: 176 130 20;
-  --c-danger: 198 58 58;
-  --c-cyan: 40 130 150;
-  --c-violet: 120 92 176;
-  --app-input-bg: rgb(255 255 255 / 0.92);
-  --app-input-border: rgb(114 112 105 / 0.34);
-  --app-placeholder: rgb(114 112 105 / 0.72);
-  --app-shadow-card: 0 1px 2px rgb(28 27 25 / 0.08), 0 10px 26px rgb(28 27 25 / 0.06);
-  --app-shadow-soft: 0 1px 2px rgb(28 27 25 / 0.05);
-  --app-focus: 0 0 0 3px rgb(var(--c-primary) / 0.18);
+  --c-bg: 238 234 226;
+  --c-bg-2: 231 226 217;
+  --c-surface: 246 242 235;
+  --c-surface-2: 238 233 224;
+  --c-surface-3: 228 222 211;
+  --c-border: 203 196 183;
+  --c-muted: 108 102 92;
+  --c-text: 45 41 35;
+  --c-primary: 176 116 24;
+  --c-primary-hover: 152 98 16;
+  --c-secondary: 70 102 132;
+  --c-success: 44 128 72;
+  --c-warning: 158 118 22;
+  --c-danger: 186 60 56;
+  --c-cyan: 38 122 140;
+  --c-violet: 112 88 164;
+  --app-input-bg: rgb(250 247 241 / 0.95);
+  --app-input-border: rgb(108 102 92 / 0.36);
+  --app-placeholder: rgb(108 102 92 / 0.7);
+  --app-shadow-card: 0 1px 2px rgb(45 41 35 / 0.06), 0 10px 24px rgb(45 41 35 / 0.05);
+  --app-shadow-soft: 0 1px 2px rgb(45 41 35 / 0.04);
+  --app-focus: 0 0 0 3px rgb(var(--c-primary) / 0.16);
 }
 * {
   box-sizing: border-box;
@@ -2376,8 +2376,6 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
 .calendar-item.is-row .calendar-thumbnail.is-week { width: 34px; height: 46px; margin: 0; border-radius: 6px; }
 .calendar-item.is-row .calendar-item-title strong { display: block; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .calendar-item.is-row .calendar-item-title small { font-size: 11px; white-space: nowrap; }
-.calendar-item.is-row .calendar-item-side { display: grid; flex: 0 0 auto; gap: 4px; justify-items: end; }
-.calendar-item.is-row .calendar-item-badges, .calendar-item.is-row .calendar-item-actions { margin: 0; }
 @media (max-width: 1023px) {
   .calendar-item.is-row { flex: 1 1 100%; max-width: none; }
 }
@@ -2387,3 +2385,35 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
   .dashboard-page .calendar-day-items { align-items: center; }
   .dashboard-page .calendar-item.is-row { max-height: 100%; }
 }
+
+/* ─── P22 追剧卡撑满行高、集数右置；侧边栏 meta 双行 ─────────────────── */
+.automation-meta + .automation-meta { margin-top: 5px; }
+
+/* 卡片贴近行高：条目在行内拉伸，缩略图放大，集数用等宽字体右对齐 */
+.calendar-item.is-row { flex: 0 1 430px; min-width: 300px; max-width: 500px; padding: 9px 14px; }
+.calendar-item.is-row .calendar-item-title { display: flex; align-items: center; gap: 12px; }
+.calendar-item.is-row .calendar-thumbnail.is-week { width: 46px; height: 62px; max-height: 100%; border-radius: 8px; }
+.calendar-item.is-row .calendar-item-title > span:first-of-type { flex: 1 1 auto; min-width: 0; }
+.calendar-item.is-row .calendar-item-title strong { font-size: 14px; }
+.calendar-item-episode { flex: 0 0 auto; margin-left: auto; color: rgb(var(--c-text) / .88); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; font-weight: 650; white-space: nowrap; }
+@media (min-width: 1024px) {
+  .dashboard-page .calendar-day-items { align-items: stretch; }
+  .dashboard-page .calendar-item.is-row { max-height: none; }
+}
+
+/* 缩略图固定 42x56：900p 的行高也放得下；百分比高度在 flex 里不可靠，不用 clamp */
+.calendar-item.is-row .calendar-thumbnail.is-week { width: 42px; height: 56px; }
+
+/* ─── P22b 工作台字阶统一 ────────────────────────────────────────────────
+   三级字阶：标题 16 / 正文 14 / 辅助 12，日期数字统一 20。
+   消灭 11/13/17/21/23px 的零散字号，同层级不再忽大忽小。 */
+.calendar-range h3 { font-size: 16px; }
+.calendar-day-head { padding: 8px 12px; }
+.calendar-day-head span { font-size: 12px; }
+.calendar-day-head strong { font-size: 20px; }
+.calendar-day-head small { font-size: 12px; }
+.calendar-item.is-row .calendar-item-title strong { font-size: 14px; }
+.calendar-item.is-row .calendar-item-title small { font-size: 12px; }
+.calendar-item-episode { font-size: 14px; }
+.calendar-inline-metrics span { font-size: 12px; }
+.calendar-toolbar-filters select { font-size: 12px; }
