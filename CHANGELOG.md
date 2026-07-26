@@ -4,6 +4,53 @@ My Media Sub 的版本变更记录。新版本写在上方。
 
 升级步骤见对应的 [`docs/upgrade-v*.md`](docs/)；当前版本发布说明摘要也写在 [`README.md`](README.md) 的「版本说明」中。
 
+## 2.2.15
+
+### 修复
+
+- 浏览器 Push 开关完全不可用：`static/js/features/pwa.js` 缺少与其余模块一致的 `MediaSubApi` 依赖声明，`apiData` 在模块作用域是未定义的裸标识符。启用与关闭走同一个 `toggleBrowserPush()`，两条路径都抛 `ReferenceError` 并被函数体外层的 `catch` 转成一句通用的「浏览器 Push 操作失败」，所以看起来像 Push 服务故障而不是代码缺陷。已补依赖声明并新增两个回归测试。
+- `static/openapi.json` 中的幽灵路由：`GET /strm/quark/{fid}/{file_name}` 对外宣称存在，但其 handler 所在文件从未被 `mod` 声明、根本不参与编译。`scripts/check-openapi.py` 以文本方式扫描 `src/api/**`，把这个死文件里的 `.route(...)` 字面量当成了真实路由写进规范。现已同步移除（92 路径 / 104 operation）。
+- `src/services/episode.rs` 中一个覆盖父目录季号匹配的测试缺少 `#[test]` 标注，从未被执行；模块级 `#![allow(dead_code)]` 掩盖了编译器警告。补上标注后测试通过——生产代码本身是正确的，只是这份断言一直没生效。
+
+### 工程与发布门禁
+
+- 新增 ESLint 配置（`no-undef` + `no-unused-vars`，globals 手工枚举、零 npm 依赖），CI 与发布流程各增加一步 lint。`no-undef` 正是拦截上述 Push 缺陷那一类问题的规则：模块作用域的裸标识符在 `'use strict'` 下要等用户触发才抛错，`node --check` 与单元测试都抓不到。全量扫描确认仓库中无同类缺陷。
+- Docker 镜像发布以 CI 成功为前置条件：`main` 分支的发布改为 `workflow_run` 触发并要求 `conclusion == success`，同时统一检出通过了 CI 的 `head_sha` 打标，避免「CI 验证的是提交 A、实际构建的是更新的提交 B」。tag 与手动触发保留原行为。
+- 浏览器 E2E 冒烟改为经 HTTP 渲染真实服务器（渲染流量经脚本内嵌的 Authorization 注入代理，Chrome 已不支持 URL 内嵌凭据），断言只有执行了 JS 才可能出现的证据：Alpine 摘除全部 `x-cloak`、`x-show` 写入行内样式；console 的 `Uncaught`、`ERR_*` 与资源加载失败均视为失败。此前用 `file://` 渲染临时文件，相对路径资产全部 404、Alpine 从不启动，而被断言的 6 个标记在未执行任何 JS 的原始 HTML 中就已存在，测试长期静默通过。
+- CI 与发布新增 `node scripts/build-frontend.mjs --check`：改了 `static/partials/*.html` 却忘记重新生成 `index.html` 会让流水线失败。
+- `scripts/check-openapi.py` 校验 `info.version` 与 `Cargo.toml` 一致，`--update` 会自动同步；此前是全部版本面中唯一没有强制的一处。
+- `docker-compose.yml` 增加容器日志轮转上限（json-file，`10m × 3`）。日志只写 stdout，不设上限时长期运行会在宿主机上无界增长。
+
+### 清理
+
+- 删除 4 个 Rust 死文件：`src/api/strm.rs`（从未被 `mod` 声明，不参与编译）、`src/models/transfer.rs`（活的版本在 `services/transfer_rule.rs`）、`src/store/session.rs`（`telegram_bot` 使用的是同名但不同的私有类型）、`src/models/search.rs`（唯一消费者就是 `store/session.rs`）。
+- 移除 3 个零使用依赖（`anyhow`、`thiserror`、`tokio-test`）；`tower` 从 `[dependencies]` 移到 `[dev-dependencies]`。
+- 摘除 7 处标注在活代码上的 `#[allow(dead_code)]`，包括 4 处模块级 `#![allow(dead_code)]` 毯子——这层毯子会永久掩盖后续新增的死代码。
+- 删除 2 个孤儿页面模板（`page-jobs.html`、`page-notifications.html`）：v2.2.12 活动中心上线后就不在 `index.tmpl.html` 的 include 列表里，物理上已无法渲染。
+- 删除 214 行零引用的 store 成员、11 个退化为只写的状态字段及其 localStorage 持久化条目、3 处因 `currentTab` 始终经过归一化而永不可达的 `transferHistory` 分支（`router.js` 中的别名映射保留，老书签仍可用）、以及死 CSS 规则与 2 个零引用资源文件。
+- 合计约 1130 行。
+
+### 文档
+
+- 新增 [`docs/code-review-2026-07-26.md`](docs/code-review-2026-07-26.md)（工程质量）与 [`docs/frontend-design-review-2026-07-26.md`](docs/frontend-design-review-2026-07-26.md)（界面布局与功能设计）。
+- README 新增「只能通过设置 API 配置的功能」一节，记录三个后端完整可用但没有 WebUI 入口的能力：媒体库刷新（Jellyfin / Emby / Plex / Webhook）、订阅手动排期、`trust_proxy_headers`。此前 README 的功能表把媒体库刷新列为已有能力，却没说明它无法从界面配置。
+- 版本说明精简到最近 3 个版本，更早的内容以本文件为准。
+
+### 兼容性
+
+- JSON Store schema 未变化，可直接从 v2.2.13 或 v2.2.14 升级并保留现有 `data/`。
+- PWA 与 OpenAPI 版本升至 2.2.15；二进制部署仍必须同时替换完整 `static/`。
+- v2.2.14 已提交但未发布 Release，其内容随本版本一并发出。
+
+### 升级
+
+```bash
+# Docker
+docker compose pull && docker compose up -d
+
+# 二进制：校验发布包后同时替换 my-media-sub 与整个 static/
+```
+
 ## 2.2.14
 
 ### 新功能
