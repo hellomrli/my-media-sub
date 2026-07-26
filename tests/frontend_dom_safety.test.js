@@ -30,9 +30,11 @@ test('critical browser assets carry the current application version', () => {
 
 test('rapidly refreshed Alpine lists use collision-resistant render keys', () => {
   for (const prefix of [
-    'dashboard-event-', 'calendar-week-', 'calendar-month-', 'calendar-list-',
+    // v2.2.19 移除了「自动化执行」和「最近活动」卡片，dashboard-event- 与
+    // dashboard-job-（含 job- 子串）随之消失；任务与通知统一由活动中心承载。
+    'calendar-week-', 'calendar-month-', 'calendar-list-',
     'search-result-', 'drive-item-', 'download-task-', 'subscription-',
-    'subscription-event-', 'subscription-activity-', 'job-', 'notification-'
+    'subscription-event-', 'subscription-activity-', 'activity-'
   ]) {
     assert.ok(html.includes(prefix), `missing stable render key prefix ${prefix}`);
   }

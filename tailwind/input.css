@@ -2232,3 +2232,51 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
 .settings-pane { align-items: start; }
 .settings-actions { align-self: end; }
 .settings-actions button { min-height: 40px; align-self: center; }
+
+/* 设置页布局修正：v2.2.18 的 320px 自适应多列把输入框挤到 140px 宽，
+   连 TMDB API Key 都看不全。改为「够宽才分栏」：低于 1500px 单列，
+   分栏时每栏至少 560px，保证两字段一行时输入框仍有 250px 以上。 */
+.settings-pane { grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1500px) {
+  .settings-pane { grid-template-columns: repeat(auto-fit, minmax(560px, 1fr)); }
+}
+/* 栏内字段按卡片自身宽度决定分不分列，而不是跟着视口猜 */
+.settings-pane > * { container-type: inline-size; }
+@container (max-width: 620px) {
+  .settings-pane .md\:grid-cols-3,
+  .settings-pane .md\:grid-cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container (max-width: 380px) {
+  .settings-pane .md\:grid-cols-2,
+  .settings-pane .md\:grid-cols-3,
+  .settings-pane .md\:grid-cols-4 { grid-template-columns: minmax(0, 1fr); }
+}
+/* 输入框不再被 flex 压缩到看不清 */
+.settings-pane input[type="text"],
+.settings-pane input[type="password"],
+.settings-pane input[type="number"],
+.settings-pane select { min-width: 0; }
+.settings-pane .setting-input-action { flex-wrap: wrap; }
+.settings-pane .setting-input-action > input { min-width: 180px; }
+
+/* 工作台内的日历卡片：内容自带工具栏与内边距，卡片体只负责撑满高度 */
+.dash-panel-body.is-flush { padding: 0; gap: 0; }
+.dash-panel-body.is-flush > .calendar-toolbar { border: 0; border-bottom: 1px solid var(--app-border); border-radius: 0; background: transparent; }
+.dash-panel-body.is-flush > .calendar-week-shell,
+.dash-panel-body.is-flush > .calendar-month-shell,
+.dash-panel-body.is-flush > .calendar-list-shell { flex: 1; min-height: 0; overflow: auto; padding: 12px; border: 0; background: transparent; }
+.dash-panel-body.is-flush > .calendar-state { flex: 1; display: grid; place-content: center; gap: 6px; padding: 24px; text-align: center; }
+
+/* 面板区行高：之前按「两行」写死 1.35fr/1fr，卡片减少到一行后会空掉 43% 的高度。
+   改回等分自动行——一行时占满，两行时平分。 */
+@media (min-width: 1024px) {
+  .dashboard-zone-panels { grid-template-rows: none; grid-auto-rows: minmax(0, 1fr); }
+}
+/* 周视图放进卡片后列宽要能收窄，否则 7 列会被裁掉 */
+.calendar-week-grid { grid-template-columns: repeat(7, minmax(118px, 1fr)); min-width: 860px; }
+
+/* 窄屏没有「填满一屏」的高度约束，日历列表会把整页撑到上万像素。
+   给面板卡片一个视口相对上限，长内容改在卡片内部滚动。 */
+@media (max-width: 1023px) {
+  .dash-card.is-panel { max-height: 72vh; }
+}

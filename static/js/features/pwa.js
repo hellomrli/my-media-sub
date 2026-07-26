@@ -9,8 +9,8 @@
   const {apiData} = api;
 
   const SHORTCUTS = Object.freeze([
-    {id: 'calendar-today', label: '今日更新', tab: 'calendar'},
-    {id: 'calendar-missing', label: '缺集', tab: 'calendar'},
+    {id: 'calendar-today', label: '今日更新', tab: 'dashboard'},
+    {id: 'calendar-missing', label: '缺集', tab: 'dashboard'},
     {id: 'failed-jobs', label: '失败任务', tab: 'notifications'},
     {id: 'check-all', label: '检查全部', tab: 'subscriptions'},
     {id: 'downloads', label: '下载进度', tab: 'downloads'},
@@ -175,7 +175,7 @@
           this.calendarView = 'list';
           this.calendarCursor = this.calendarTodayKey();
           this.calendarStatusFilter = action === 'calendar-today' ? 'today' : 'completed_missing';
-          this.selectTab('calendar', options.pushHistory !== false);
+          this.selectTab('dashboard', options.pushHistory !== false);
           await this.loadCalendar();
         } else if (action === 'failed-jobs') {
           this.backgroundJobFilterStatus = 'failed';

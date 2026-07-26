@@ -7,20 +7,24 @@
 
   /// 工作台卡片目录。zone 决定卡片落在哪一区：compact 区按内容高度排布，
   /// panel 区平分剩余高度并各自内部滚动——这样无论用户怎么排都还是一屏。
+  /// 工作台卡片目录。zone 决定卡片落在哪一区：compact 区按内容高度排布，
+  /// panel 区平分剩余高度并各自内部滚动——这样无论用户怎么排都还是一屏。
   const CARD_CATALOG = Object.freeze([
-    {id: 'command', name: '概览与操作', hint: '状态摘要与主操作', zone: 'compact', span: 8},
-    {id: 'quick_actions', name: '快捷入口', hint: '常用页面跳转', zone: 'compact', span: 4},
+    {id: 'command', name: '概览与操作', hint: '状态摘要与主操作', zone: 'compact', span: 12},
     {id: 'kpis', name: '运行指标', hint: '订阅、任务与下载计数', zone: 'compact', span: 12},
-    {id: 'library', name: '订阅看板', hint: '追更中的订阅进度', zone: 'panel', span: 7},
-    {id: 'cloud', name: '夸克网盘', hint: '账号与转存状态', zone: 'panel', span: 5},
-    {id: 'automation', name: '自动化执行', hint: '成功率与失败阶段', zone: 'panel', span: 6},
-    {id: 'activity', name: '最近活动', hint: '后台任务与通知', zone: 'panel', span: 6}
+    {id: 'calendar', name: '更新日历', hint: '播出排期与缺集状态', zone: 'panel', span: 8},
+    {id: 'cloud', name: '夸克网盘', hint: '账号、转存与签到', zone: 'panel', span: 4}
   ]);
 
-  /// v2.2.17 之前的组件 id；旧配置要能无损映射到新卡片，否则升级后布局会丢。
+  /// 旧布局映射。v2.2.19 把更新日历并入工作台并顶替了订阅看板，
+  /// 快捷入口、自动化执行、最近活动的内容已被指标格和活动中心覆盖，不再单列卡片。
   const LEGACY_CARD_IDS = Object.freeze({
     hero: ['command'],
-    operations: ['cloud', 'automation', 'activity']
+    library: ['calendar'],
+    operations: ['cloud'],
+    quick_actions: [],
+    automation: [],
+    activity: []
   });
 
   const CARD_IDS = CARD_CATALOG.map(card => card.id);
