@@ -154,7 +154,7 @@ fn settings_schema() -> SettingsSchemaResponse {
             "首页卡片",
             "array",
             "basic",
-            DASHBOARD_WIDGET_IDS.to_vec()
+            DASHBOARD_WIDGET_IDS[..2].to_vec()
         ),
         setting_field!(
             "custom_categories",

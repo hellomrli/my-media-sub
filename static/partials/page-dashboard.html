@@ -50,18 +50,6 @@
                   </div>
                 </template>
 
-
-                <template x-if="card.id === 'kpis'">
-                  <div class="dashboard-stat-row">
-                    <template x-for="tile in dashboardTiles()" :key="tile.id">
-                      <button @click="openDashboardTile(tile.id)" class="dashboard-stat" :class="'is-' + tile.tone" :title="tile.hint">
-                        <small x-text="tile.label"></small>
-                        <strong x-text="tile.value"></strong>
-                        <em x-text="tile.hint"></em>
-                      </button>
-                    </template>
-                  </div>
-                </template>
               </section>
             </template>
           </div>
@@ -127,11 +115,12 @@
                       <div class="calendar-day-head"><span x-text="calendarDateLabel(day.key, true)"></span><strong x-text="day.day"></strong><small x-text="day.items.length + ' 项'"></small></div>
                       <div class="calendar-day-items">
                         <template x-for="(item, itemIndex) in day.items" :key="'calendar-week-' + (item.id || 'missing') + '-' + itemIndex">
-                          <article :class="calendarItemClass(item)">
-                            <div class="calendar-item-head"><span class="calendar-status-dot"></span><small x-text="item.scheduled_time || '日期排期'"></small></div>
-                            <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-item-title"><img x-show="item.thumbnail_url" :src="remoteImageUrl(item.thumbnail_url)" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" class="calendar-thumbnail is-week"><span><strong x-text="item.subscription_title"></strong><small x-text="item.episode ? 'S' + item.season + ' · E' + item.episode : '上映 / 开播'"></small></span></button>
-                            <div class="calendar-item-badges"><span x-text="calendarStatusLabel(item.primary_status)"></span><span :class="'is-' + item.confidence" x-text="calendarConfidenceLabel(item.confidence)"></span></div>
-                            <div class="calendar-item-actions"><button @click="openSubscriptionDetail(item.subscription_id)">详情</button><button x-show="item.actions.can_check" @click="runCalendarAction(item, false)">检查</button><button x-show="item.actions.can_repair" @click="runCalendarAction(item, true)" class="is-repair">补集</button></div>
+                          <article :class="calendarItemClass(item)" class="calendar-item is-row">
+                            <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-item-title"><img x-show="item.thumbnail_url" :src="remoteImageUrl(item.thumbnail_url)" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" class="calendar-thumbnail is-week"><span><strong x-text="item.subscription_title"></strong><small x-text="(item.episode ? 'S' + item.season + ' · E' + item.episode : '上映 / 开播') + (item.scheduled_time ? ' · ' + item.scheduled_time : '')"></small></span></button>
+                            <div class="calendar-item-side">
+                              <div class="calendar-item-badges"><span x-text="calendarStatusLabel(item.primary_status)"></span></div>
+                              <div class="calendar-item-actions"><button @click="openSubscriptionDetail(item.subscription_id)">详情</button><button x-show="item.actions.can_check" @click="runCalendarAction(item, false)">检查</button><button x-show="item.actions.can_repair" @click="runCalendarAction(item, true)" class="is-repair">补集</button></div>
+                            </div>
                           </article>
                         </template>
                         <div x-show="day.items.length === 0" class="calendar-day-empty">暂无排期</div>
