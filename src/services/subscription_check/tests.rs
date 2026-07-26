@@ -540,6 +540,84 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn transient_probe_failure_keeps_subscription_active() {
+        let _guard = mock_env_lock().lock().await;
+        let path = test_path("mock_transient_probe");
+        std::fs::write(
+            &path,
+            r#"{
+                "https://pan.quark.cn/s/flaky": {
+                    "ok": false,
+                    "state": "error",
+                    "message": "HTTP error: 请求夸克 token 失败: error sending request",
+                    "files": []
+                }
+            }"#,
+        )
+        .unwrap();
+        std::env::set_var("MOCK_QUARK_SHARE_FIXTURE", &path);
+
+        let (service, store, notifications) = make_service();
+        let mut sub = make_subscription();
+        sub.id = "flaky-sub".to_string();
+        sub.url = "https://pan.quark.cn/s/flaky".to_string();
+        store.create(sub).await.unwrap();
+
+        let result = service.check_subscription("flaky-sub", "cookie").await;
+
+        std::env::remove_var("MOCK_QUARK_SHARE_FIXTURE");
+        let _ = std::fs::remove_file(&path);
+
+        let result = result.unwrap();
+        assert!(!result.became_invalid);
+        let stored = store.get("flaky-sub").await.unwrap();
+        assert_eq!(stored.status, "active");
+        assert_eq!(stored.invalid_since, None);
+        assert_eq!(stored.source_failure_count, 0);
+        assert!(stored.last_check_summary.contains("来源暂时不可用"));
+        assert!(notifications
+            .list(true)
+            .await
+            .iter()
+            .all(|item| item.event != "subscription_invalid"));
+    }
+
+    #[tokio::test]
+    async fn dead_share_probe_failure_still_marks_invalid() {
+        let _guard = mock_env_lock().lock().await;
+        let path = test_path("mock_dead_probe");
+        std::fs::write(
+            &path,
+            r#"{
+                "https://pan.quark.cn/s/dead": {
+                    "ok": false,
+                    "state": "bad",
+                    "message": "分享已被取消",
+                    "files": []
+                }
+            }"#,
+        )
+        .unwrap();
+        std::env::set_var("MOCK_QUARK_SHARE_FIXTURE", &path);
+
+        let (service, store, _) = make_service();
+        let mut sub = make_subscription();
+        sub.id = "dead-sub".to_string();
+        sub.url = "https://pan.quark.cn/s/dead".to_string();
+        store.create(sub).await.unwrap();
+
+        let result = service.check_subscription("dead-sub", "cookie").await;
+
+        std::env::remove_var("MOCK_QUARK_SHARE_FIXTURE");
+        let _ = std::fs::remove_file(&path);
+
+        assert!(result.unwrap().became_invalid);
+        let stored = store.get("dead-sub").await.unwrap();
+        assert_eq!(stored.status, "invalid");
+        assert_eq!(stored.source_failure_count, 1);
+    }
+
+    #[tokio::test]
     async fn check_all_subscriptions_persists_real_store_once() {
         let _guard = mock_env_lock().lock().await;
         let path = test_path("mock_batch_probe");

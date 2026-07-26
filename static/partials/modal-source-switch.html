@@ -5,6 +5,7 @@
               <div class="min-w-0">
                 <h3 class="text-xl font-bold text-text">换源候选</h3>
                 <p class="mt-1 text-sm text-muted/75 truncate" x-text="sourceSwitchSubscriptionTitle"></p>
+                <p class="mt-1 text-xs text-muted/75">「确认应用」会先自动探测候选再切换；未通过安全检查时会二次确认强制应用。</p>
               </div>
               <div class="flex gap-2">
                 <button @click="loadSourceCandidates()" :disabled="sourceSwitchLoading || sourceSwitchSearching" class="btn-secondary px-3 py-2 rounded text-sm disabled:opacity-50">刷新</button>
@@ -39,7 +40,7 @@
                     </div>
                     <div class="flex gap-2 sm:flex-col">
                       <button @click="previewSourceCandidate(candidate)" :disabled="sourceSwitchPreviewingId === candidate.id || sourceSwitchApplyingId === candidate.id" class="btn-secondary px-3 py-2 rounded text-sm whitespace-nowrap disabled:opacity-50"><span x-show="sourceSwitchPreviewingId !== candidate.id">预览</span><span x-show="sourceSwitchPreviewingId === candidate.id">探测中</span></button>
-                      <button @click="applySourceCandidate(candidate)" :disabled="sourceSwitchApplyingId === candidate.id || !(sourceSwitchPreview && sourceSwitchPreview.candidate && sourceSwitchPreview.candidate.id === candidate.id && sourceSwitchPreview.probe_ok && sourceSwitchPreview.season_matches !== false)" class="btn-primary px-3 py-2 rounded text-sm whitespace-nowrap disabled:opacity-50"><span x-show="sourceSwitchApplyingId !== candidate.id" x-text="sourceSwitchPreview && sourceSwitchPreview.candidate && sourceSwitchPreview.candidate.id === candidate.id && !sourceSwitchPreview.can_apply ? '强制应用' : '确认应用'"></span><span x-show="sourceSwitchApplyingId === candidate.id">应用中</span></button>
+                      <button @click="applySourceCandidate(candidate)" :disabled="sourceCandidateApplyState(candidate).disabled" class="btn-primary px-3 py-2 rounded text-sm whitespace-nowrap disabled:opacity-50" x-text="sourceCandidateApplyState(candidate).label"></button>
                     </div>
                   </div>
                   <div x-show="sourceSwitchPreview && sourceSwitchPreview.candidate && sourceSwitchPreview.candidate.id === candidate.id" class="rounded border border-border bg-panel p-3 space-y-2 text-xs">

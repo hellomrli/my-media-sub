@@ -279,7 +279,11 @@ pub(super) async fn update_subscription(
                     sub.total_episode_number = sub.rules.finish_after_episode;
                 }
             }
-            reconcile_completion_status(sub);
+            // 手动标记优先于自动推导：否则「重新追更」会被证据立刻改回已完结。
+            match req.completed {
+                Some(completed) => apply_manual_completion(sub, completed),
+                None => reconcile_completion_status(sub),
+            }
             sub.rule_summary = summarize_rules(Some(&sub.rules));
             sub.updated_at = unix_now();
         })

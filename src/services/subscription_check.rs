@@ -18,9 +18,9 @@ use crate::services::notification::{
 };
 use crate::services::push::{PushEvent, PushLevel};
 use crate::services::subscription_progress::{
-    completion_target_episode, reopen_completed_subscription_status,
-    should_mark_completed_from_known_episodes, should_mark_completed_from_transferred_files,
-    should_reopen_completed_subscription,
+    completion_target_episode, reconcile_completed_subscription_status,
+    reopen_completed_subscription_status, should_mark_completed_from_known_episodes,
+    should_mark_completed_from_transferred_files, should_reopen_completed_subscription,
 };
 use crate::services::transfer_rule::transfer_state_key;
 use crate::services::SubscriptionTransferService;
@@ -257,6 +257,28 @@ impl SubscriptionCheckService {
                 std::collections::BTreeMap::new(),
             )
             .await;
+
+            // 网络抖动、上游 5xx 这类失败与分享本身无关：不能据此判失效，
+            // 否则会误报失效通知，甚至把可用的来源自动换掉。
+            if probe_failure_is_transient(&probe_result) {
+                warn!(
+                    "订阅 {} 来源探测遇到临时故障，保持原状态: {}",
+                    sub.title, probe_result.message
+                );
+                let summary = format!("来源暂时不可用，将在下次检查重试: {}", probe_result.message);
+                self.record_transient_check_failure(&sub, &summary).await?;
+                return Ok(CheckResult {
+                    subscription_id: sub.id.clone(),
+                    subscription_title: sub.title.clone(),
+                    new_files: vec![],
+                    new_episodes: vec![],
+                    details: CheckDetails::default(),
+                    became_invalid: false,
+                    became_completed: false,
+                    summary,
+                });
+            }
+
             // 探测失败，标记为失效
             self.mark_subscription_invalid(&sub, &probe_result.message)
                 .await?;
@@ -440,11 +462,12 @@ impl SubscriptionCheckService {
             should_mark_completed_from_known_episodes(&sub, &new_episodes)
         } else if sub.sync_download_enabled {
             false
-        } else if transfer_file_names.is_empty() {
+        } else if transfer_file_names.is_empty() || auto_transfer_enabled.is_some() {
             // When the provider reports no new files and the known snapshot
             // already contains the configured final episode, completion can
             // be reconciled even if legacy transferred filenames lack a
-            // parseable SxxExx marker.
+            // parseable SxxExx marker. 自动转存被关闭时同理：这类订阅永远等不到
+            // 转存证据，只能用已发现的集数判断完结。
             should_mark_completed_from_known_episodes(&sub, &new_episodes)
         } else {
             should_mark_completed_from_transferred_files(&sub, &[])
@@ -467,6 +490,10 @@ impl SubscriptionCheckService {
             &details,
         )
         .await?;
+
+        // 写回后用最新记录再核对一次完结：目标集数可能刚由元数据回填，
+        // 或者本轮新增的集数正好补齐了完结集。
+        let became_completed = became_completed || self.reconcile_completion(&sub.id).await?;
 
         // 5. 发送通知
         if !new_file_names.is_empty() && sub.rules.notify_on_update {
@@ -856,6 +883,50 @@ impl SubscriptionCheckService {
         Ok(())
     }
 
+    /// 用最新持久化记录复核完结状态，返回本次是否刚被标记为完结。
+    /// 无需改动时不落盘，避免每轮检查都多写一次订阅文件。
+    async fn reconcile_completion(&self, subscription_id: &str) -> Result<bool> {
+        let Some(current) = self.subscription_store.get(subscription_id).await else {
+            return Ok(false);
+        };
+        let mut candidate = current.clone();
+        reconcile_completed_subscription_status(&mut candidate);
+        if candidate.completed == current.completed
+            && candidate.status == current.status
+            && candidate.total_episode_number == current.total_episode_number
+        {
+            return Ok(false);
+        }
+
+        let mut newly_completed = false;
+        self.subscription_store
+            .update(subscription_id, |sub| {
+                let was_completed = sub.completed;
+                reconcile_completed_subscription_status(sub);
+                newly_completed = !was_completed && sub.completed;
+                sub.updated_at = unix_now();
+            })
+            .await?;
+        Ok(newly_completed)
+    }
+
+    /// 临时故障只记录检查结果，不改订阅状态、不累加失效计数、不触发换源。
+    async fn record_transient_check_failure(
+        &self,
+        sub: &Subscription,
+        summary: &str,
+    ) -> Result<()> {
+        let now = unix_now();
+        self.subscription_store
+            .update(&sub.id, |s| {
+                s.last_checked_at = now;
+                s.last_check_summary = summary.to_string();
+                s.updated_at = now;
+            })
+            .await?;
+        Ok(())
+    }
+
     /// 标记订阅为失效
     async fn mark_subscription_invalid(&self, sub: &Subscription, error: &str) -> Result<()> {
         let now = unix_now();
@@ -1199,6 +1270,15 @@ impl SubscriptionCheckService {
 
         Ok(())
     }
+}
+
+/// 探测失败是否属于与分享链接无关的临时故障。
+///
+/// 夸克在网络抖动或上游 5xx 时返回 `error`（例如 `请求夸克 token 失败: error sending
+/// request for url ...`），限速返回 `rate_limited`。这两类都不能证明分享失效——
+/// 真正失效的分享会带回 `bad`（分享已取消/过期）或 `locked`（需要提取码）。
+fn probe_failure_is_transient(probe: &ProbeResult) -> bool {
+    matches!(probe.state.as_str(), "error" | "rate_limited" | "timeout")
 }
 
 /// 是否到了该订阅的检查时间。

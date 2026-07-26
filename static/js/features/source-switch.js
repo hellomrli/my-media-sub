@@ -45,5 +45,36 @@
     return !!(preview && preview.can_apply && preview.candidate && preview.candidate.id === candidateId);
   }
 
-  return Object.freeze({canApplyPreview, episodeRange, historyLabel, quality, sortCandidates});
+  function previewMatches(preview, candidateId) {
+    return !!(preview && preview.candidate && preview.candidate.id === candidateId);
+  }
+
+  /// 应用按钮状态：没有预览时也必须可点，点击会先探测再应用。
+  /// 唯一的硬门槛是季度不匹配（强制也不可越过），其余风险交给强制确认与后端校验。
+  function applyButtonState(preview, candidateId, applyingId, previewingId) {
+    const applying = !!candidateId && applyingId === candidateId;
+    const probing = !!candidateId && previewingId === candidateId;
+    const matched = previewMatches(preview, candidateId);
+    const seasonBlocked = matched && preview.season_matches === false;
+    let label = '确认应用';
+    if (applying) label = '应用中';
+    else if (probing) label = '探测中';
+    else if (seasonBlocked) label = '季度不匹配';
+    else if (matched && preview.probe_ok && !preview.can_apply) label = '强制应用';
+    return {
+      disabled: applying || probing || seasonBlocked || !candidateId,
+      label,
+      force: !seasonBlocked && matched && !!preview.probe_ok && !preview.can_apply
+    };
+  }
+
+  return Object.freeze({
+    applyButtonState,
+    canApplyPreview,
+    episodeRange,
+    historyLabel,
+    previewMatches,
+    quality,
+    sortCandidates
+  });
 });

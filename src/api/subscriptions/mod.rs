@@ -42,7 +42,7 @@ use metadata::{
     preview_subscription_rename, scrape_all_subscription_metadata, scrape_subscription_metadata,
 };
 use source::{
-    apply_source_change_options, continue_from_current_episode_default,
+    apply_manual_completion, apply_source_change_options, continue_from_current_episode_default,
     normalize_start_episode_number, reconcile_completion_status, reset_progress_for_content_change,
 };
 use status::get_subscription_status;
@@ -167,6 +167,9 @@ pub struct UpdateSubscriptionRequest {
     pub rename_template: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rule_preset_id: Option<String>,
+    /// 手动标记完结/重新追更；显式设置时以用户判断为准，不再按证据自动推导。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -765,5 +768,24 @@ mod tests {
         assert!(!sub.completed);
         assert_eq!(sub.invalid_since, None);
         assert!(sub.last_error.is_empty());
+    }
+
+    #[test]
+    fn manual_completion_overrides_evidence_in_both_directions() {
+        let mut sub = subscription_for_source_change();
+        sub.total_episode_number = Some(12);
+        sub.transferred_files = vec!["Show.S01E12.mkv".to_string()];
+
+        apply_manual_completion(&mut sub, true);
+        assert!(sub.completed);
+        assert_eq!(sub.status, "completed");
+        assert_eq!(sub.invalid_since, None);
+        assert!(sub.last_error.is_empty());
+
+        // 证据仍然满足完结条件，但用户手动恢复追更时不能被自动改回去。
+        apply_manual_completion(&mut sub, false);
+        assert!(!sub.completed);
+        assert_eq!(sub.status, "active");
+        assert!(sub.last_check_summary.contains("恢复追更"));
     }
 }

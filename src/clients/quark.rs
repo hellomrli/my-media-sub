@@ -183,7 +183,7 @@ impl QuarkShareProbe {
             .post(&url)
             .query(&[("pr", "ucpro"), ("fr", "pc")])
             .json(&payload)
-            .send_observed("quark")
+            .send_observed_idempotent("quark", "请求夸克 token")
             .await
             .map_err(|e| AppError::Http(format!("请求夸克 token 失败: {}", e)))?;
         ensure_upstream_status(&resp, "请求夸克 token")?;
@@ -248,7 +248,7 @@ impl QuarkShareProbe {
                     ("_fetch_sub_dirs", "0"),
                     ("_sort", "file_type:asc,file_name:asc"),
                 ])
-                .send_observed("quark")
+                .send_observed_idempotent("quark", "请求夸克文件列表")
                 .await
                 .map_err(|e| AppError::Http(format!("请求夸克文件列表失败: {}", e)));
             let resp = match resp {

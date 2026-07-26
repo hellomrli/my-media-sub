@@ -197,7 +197,7 @@ impl QuarkSaveClient {
             .client
             .get(&url)
             .query(&all_params)
-            .send_observed("quark")
+            .send_observed_idempotent("quark", "夸克 GET 请求")
             .await
             .map_err(|e| AppError::Http(format!("夸克 GET 请求失败: {}", e)))?;
         ensure_upstream_status(&resp, "夸克 GET")?;
@@ -302,7 +302,7 @@ impl QuarkSaveClient {
                 ("sign", params.sign.as_str()),
                 ("vcode", params.vcode.as_str()),
             ])
-            .send_observed("quark")
+            .send_observed_idempotent("quark", "夸克移动端 GET 请求")
             .await
             .map_err(|e| AppError::Http(format!("夸克移动端 GET 请求失败: {}", e)))?;
         ensure_upstream_status(&response, "夸克移动端 GET")?;

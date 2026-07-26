@@ -49,7 +49,7 @@
             </div>
           </div>
           <template x-if="subscriptionViewMode === 'table'">
-          <div class="data-table">
+          <div class="data-table data-table--stack data-table--subs">
             <div class="data-table-scroll">
               <div class="data-table-head grid-cols-[minmax(300px,1.8fr)_88px_86px_150px_90px_130px_150px] px-3">
                 <div>订阅</div>
@@ -89,7 +89,7 @@
                   </div>
                   <div x-show="subscriptionActionMenuId === sub.id" class="border-b border-border bg-app/45 px-3 py-2">
                     <div class="flex flex-wrap justify-end gap-2">
-                      <template x-for="action in subscriptionMenuActions()" :key="action.id">
+                      <template x-for="action in subscriptionMenuActions(sub)" :key="action.id">
                         <button @click="runSubscriptionMenuAction(action.id, sub)" :class="action.danger ? 'btn-danger' : 'btn-secondary'" class="px-3 py-1 rounded text-xs transition-colors" x-text="action.label"></button>
                       </template>
                     </div>
@@ -137,7 +137,7 @@
                     <button @click="toggleSubscriptionActionMenu(sub.id)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">更多</button>
                   </div>
                   <div x-show="subscriptionActionMenuId === sub.id" class="grid grid-cols-2 gap-1 border-t border-border pt-2">
-                    <template x-for="action in subscriptionMenuActions()" :key="action.id">
+                    <template x-for="action in subscriptionMenuActions(sub)" :key="action.id">
                       <button @click="runSubscriptionMenuAction(action.id, sub)" :class="action.danger ? 'btn-danger' : 'btn-secondary'" class="px-2 py-1 rounded text-xs transition-colors" x-text="action.short"></button>
                     </template>
                   </div>
