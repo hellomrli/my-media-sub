@@ -53,17 +53,16 @@
           </span>
           <span class="nav-indicator"></span>
         </button>
-        <div class="sidebar-cloud-card">
-          <div class="sidebar-cloud-head">
+        <div class="automation-card">
+          <div class="automation-card-head">
             <span>夸克网盘</span>
-            <button @click="refreshQuarkHealth()" :disabled="quarkHealthLoading" title="检测夸克账号状态" aria-label="检测夸克账号状态">
+            <button @click="refreshQuarkHealth()" :disabled="quarkHealthLoading" class="automation-card-action" title="检测夸克账号状态" aria-label="检测夸克账号状态">
               <svg class="w-3 h-3" :class="quarkHealthLoading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5m11 11v-5h-5M5.1 9A8 8 0 0119 6.3M18.9 15A8 8 0 015 17.7"/></svg>
             </button>
           </div>
-          <div class="sidebar-cloud-status" :class="quarkHealthStatusClass()"><span class="sidebar-cloud-dot"></span><strong x-text="quarkHealthStatusLabel()"></strong></div>
-          <div class="sidebar-cloud-meta">
-            <span>转存 <strong :class="settings.quark_save_enabled ? 'text-success' : ''" x-text="settings.quark_save_enabled ? '开' : '关'"></strong></span>
-            <span>签到 <strong :class="quarkSigninTodayClass()" x-text="quarkSigninTodayLabel()"></strong></span>
+          <div class="automation-value" :class="quarkHealthStatusClass()" x-text="'账号' + quarkHealthStatusLabel()"></div>
+          <div class="automation-meta">
+            <span x-text="quarkSigninTodayLabel()"></span>
             <span>容量 <strong x-text="quarkCapacityLabel()"></strong></span>
           </div>
         </div>
@@ -76,6 +75,8 @@
           <div class="automation-meta">
             <span><strong x-text="subscriptions.length"></strong> 个订阅</span>
             <span><strong x-text="dashboardStats.runningJobs"></strong> 个任务</span>
+            <span><strong x-text="downloadCategoryTasks('downloading').length"></strong> 个下载</span>
+            <span class="automation-meta-speed" x-text="formatSpeed(downloadStats.speed)"></span>
           </div>
         </div>
       </div>

@@ -2283,23 +2283,6 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
 
 /* ─── P20 夸克状态常驻侧边栏 + 周视图改为纵向 ───────────────────────────── */
 
-.sidebar-cloud-card {
-  display: grid;
-  gap: 7px;
-  padding: 11px 12px;
-  border: 1px solid rgb(var(--c-border) / .7);
-  border-radius: 12px;
-  background: rgb(var(--c-surface-2) / .5);
-}
-.sidebar-cloud-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: rgb(var(--c-muted) / .72); font-size: 11px; letter-spacing: .06em; }
-.sidebar-cloud-head button { display: grid; width: 22px; height: 22px; place-items: center; border-radius: 7px; color: rgb(var(--c-muted) / .8); background: transparent; }
-.sidebar-cloud-head button:hover { color: var(--app-primary); background: rgb(var(--c-primary) / .12); }
-.sidebar-cloud-head button:disabled { opacity: .5; }
-.sidebar-cloud-status { display: flex; align-items: center; gap: 7px; color: rgb(var(--c-text) / .9); font-size: 13px; }
-.sidebar-cloud-status strong { font-weight: 650; }
-.sidebar-cloud-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
-.sidebar-cloud-meta { display: flex; flex-wrap: wrap; gap: 3px 10px; color: rgb(var(--c-muted) / .6); font-size: 11px; }
-.sidebar-cloud-meta strong { color: rgb(var(--c-text) / .82); font-weight: 600; }
 
 /* 周视图纵向：一行一天，日期固定在左侧，当天的排期在右侧横向铺开。
    原来的 7 列横排在窄容器里必须横向滚动，纵向后只随内容增高。 */
@@ -2360,3 +2343,47 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
 .calendar-day-items .calendar-item-title { display: flex; align-items: center; gap: 9px; text-align: left; }
 .calendar-day-items .calendar-thumbnail.is-week { flex: 0 0 auto; width: 42px; height: 58px; margin: 0; border-radius: 7px; }
 .calendar-day-items .calendar-item-badges { flex-wrap: wrap; }
+
+/* ─── P21 工作台单屏日历 + 侧边栏卡片统一 ─────────────────────────────── */
+
+/* 侧边栏卡片头部动作按钮（夸克检测）与新增的下载速度字段 */
+.automation-card-head .automation-card-action { display: grid; width: 22px; height: 22px; place-items: center; border-radius: 7px; color: rgb(var(--c-muted) / .8); background: transparent; letter-spacing: 0; text-transform: none; }
+.automation-card-head .automation-card-action:hover { color: var(--app-primary); background: rgb(var(--c-primary) / .12); }
+.automation-card-head .automation-card-action:disabled { opacity: .5; }
+.automation-meta { flex-wrap: wrap; row-gap: 4px; }
+.automation-meta-speed { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+/* automation-value 自带颜色，会盖掉前面的工具类；显式放行状态色 */
+.automation-value.text-success { color: var(--app-success); }
+.automation-value.text-danger { color: var(--app-danger); }
+
+/* 日历工具栏在工作台卡片里收成一行，省出竖向空间给七天 */
+.dash-panel-body.is-flush > .calendar-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 10px 14px; }
+.dash-panel-body.is-flush .calendar-toolbar-main { flex: 1 1 auto; }
+.dash-panel-body.is-flush .calendar-toolbar-filters { margin: 0; padding: 0; border: 0; }
+
+/* 七行等分：有无排期的行同高，整周恰好占满卡片剩余高度 */
+@media (min-width: 1024px) {
+  .dash-panel-body.is-flush > .calendar-week-shell { padding: 8px 12px 12px; }
+  .dashboard-page .calendar-week-grid { height: 100%; grid-template-rows: repeat(7, minmax(0, 1fr)); gap: 6px; }
+  .dashboard-page .calendar-day-column { min-height: 0; }
+  /* 行高恒定：条目不换行，同日过多时在行内横向滚动（极少发生） */
+  .dashboard-page .calendar-day-items { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; padding: 6px 8px; }
+}
+
+/* 紧凑横版条目卡：缩略图在左、剧名集数居中、状态与操作在右 */
+.calendar-item.is-row { display: flex; align-items: center; gap: 10px; flex: 0 1 350px; min-width: 240px; max-width: 400px; padding: 6px 10px; }
+.calendar-item.is-row .calendar-item-title { flex: 1 1 auto; min-width: 0; }
+.calendar-item.is-row .calendar-thumbnail.is-week { width: 34px; height: 46px; margin: 0; border-radius: 6px; }
+.calendar-item.is-row .calendar-item-title strong { display: block; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-item.is-row .calendar-item-title small { font-size: 11px; white-space: nowrap; }
+.calendar-item.is-row .calendar-item-side { display: grid; flex: 0 0 auto; gap: 4px; justify-items: end; }
+.calendar-item.is-row .calendar-item-badges, .calendar-item.is-row .calendar-item-actions { margin: 0; }
+@media (max-width: 1023px) {
+  .calendar-item.is-row { flex: 1 1 100%; max-width: none; }
+}
+
+/* 条目卡在等高行内垂直居中，且不超出行高 */
+@media (min-width: 1024px) {
+  .dashboard-page .calendar-day-items { align-items: center; }
+  .dashboard-page .calendar-item.is-row { max-height: 100%; }
+}

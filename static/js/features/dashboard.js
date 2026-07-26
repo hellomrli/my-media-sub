@@ -11,15 +11,17 @@
   /// panel 区平分剩余高度并各自内部滚动——这样无论用户怎么排都还是一屏。
   const CARD_CATALOG = Object.freeze([
     {id: 'command', name: '概览与操作', hint: '状态摘要与主操作', zone: 'compact', span: 12},
-    {id: 'kpis', name: '运行指标', hint: '订阅、任务与下载计数', zone: 'compact', span: 12},
     {id: 'calendar', name: '更新日历', hint: '播出排期与缺集状态', zone: 'panel', span: 12}
   ]);
 
   /// 旧布局映射。更新日历顶替了订阅看板；快捷入口、自动化执行、最近活动的内容
   /// 已被指标格与活动中心覆盖；夸克网盘状态自 v2.2.20 起常驻左侧导航栏。
+  /// 指标行的计数与「检查全部」重复：追更/完结在订阅页一目了然，失败任务与
+  /// 未读通知去了活动中心，下载数据自 v2.2.21 起常驻侧边栏「自动化节点」。
   const LEGACY_CARD_IDS = Object.freeze({
     hero: ['command'],
     library: ['calendar'],
+    kpis: [],
     operations: [],
     cloud: [],
     quick_actions: [],
@@ -138,45 +140,8 @@
         + this.dashboardStats.unreadNotifications;
     },
 
-    /// 仪表盘指标。异常项在计数不为 0 时才转为警示色，否则一屏都是红黄反而看不出重点。
-    dashboardTiles() {
-      const stats = this.dashboardStats;
-      return [
-        {id: 'active', label: '追更中', value: stats.activeSubs, hint: '持续追踪更新', tone: 'primary'},
-        {id: 'completed', label: '已完结', value: stats.completedSubs, hint: '已收齐全集', tone: 'success'},
-        {id: 'invalid', label: '失效订阅', value: stats.invalidSubs, hint: '需要换源', tone: stats.invalidSubs ? 'danger' : 'idle'},
-        {id: 'jobs', label: '后台任务', value: stats.runningJobs, hint: '排队与运行中', tone: stats.runningJobs ? 'cyan' : 'idle'},
-        {id: 'failed', label: '失败任务', value: stats.failedJobs, hint: '查看错误与重试', tone: stats.failedJobs ? 'danger' : 'idle'},
-        {id: 'unread', label: '未读通知', value: stats.unreadNotifications, hint: '运行消息', tone: stats.unreadNotifications ? 'warning' : 'idle'},
-        {id: 'download', label: '下载速度', value: this.formatSpeed(stats.downloadSpeed), hint: 'Aria2 实时速度', tone: stats.downloadSpeed ? 'violet' : 'idle'}
-      ];
-    },
 
-    openDashboardTile(id) {
-      if (id === 'active' || id === 'completed') {
-        this.setSubscriptionStatusTab(id);
-        this.selectTab('subscriptions');
-      } else if (id === 'invalid') {
-        this.openDashboardAttention('subscriptions');
-      } else if (id === 'failed') {
-        this.openDashboardAttention('jobs');
-      } else if (id === 'unread') {
-        this.openDashboardAttention('notifications');
-      } else if (id === 'jobs') {
-        this.selectTab('notifications');
-      } else if (id === 'download') {
-        this.selectTab('downloads');
-      }
-    },
 
-    /// 订阅看板只看追更中的：已完结的不需要再盯，失效的由「失效订阅」指标标红并跳转。
-    get dashboardWatchlist() {
-      const checkedAt = sub => Number(sub.last_checked_at || sub.updated_at || 0);
-      return this.subscriptions
-        .filter(sub => this.subscriptionStatusKey(sub) === 'active')
-        .sort((left, right) => checkedAt(right) - checkedAt(left))
-        .slice(0, 14);
-    },
 
     dashboardStatusSummary() {
       if (this.subscriptions.length === 0) {

@@ -615,17 +615,19 @@ fn default_tmdb_language() -> String {
     "zh-CN".to_string()
 }
 
-/// 工作台卡片 id。前四个之外的旧 id（hero/operations）仍被接受，
-/// 前端会把它们映射到新卡片，避免升级后用户已保存的布局丢失。
-pub const DASHBOARD_WIDGET_IDS: [&str; 9] = [
+/// 工作台卡片 id。前两个是现役卡片；其余是历史 id，仍被接受，
+/// 前端读取时会映射到现役卡片或静默丢弃，避免升级后用户已保存的布局失效。
+/// 注意保持包含 "calendar"：v2.2.19 曾因白名单缺它导致保存布局时把日历卡片过滤掉。
+pub const DASHBOARD_WIDGET_IDS: [&str; 10] = [
     "command",
-    "quick_actions",
+    "calendar",
+    // 历史 id
     "kpis",
     "library",
     "cloud",
+    "quick_actions",
     "automation",
     "activity",
-    // 兼容 v2.2.17 之前保存的布局
     "hero",
     "operations",
 ];
@@ -633,7 +635,7 @@ pub const DASHBOARD_WIDGET_IDS: [&str; 9] = [
 fn default_dashboard_widgets() -> Vec<String> {
     DASHBOARD_WIDGET_IDS
         .iter()
-        .take(7)
+        .take(2)
         .map(|id| (*id).to_string())
         .collect()
 }
