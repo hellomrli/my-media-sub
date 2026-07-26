@@ -139,6 +139,36 @@ test('Docker deployments expose manual image upgrade instructions', () => {
   assert.match(store.selectedUpdateDescription(), /Docker/);
 });
 
+test('managed Docker deployments can use persistent online updates', () => {
+  const store = updates.createStore();
+  store.updateInfo = {
+    runtime: 'docker',
+    online_update_supported: true,
+    update_available: true
+  };
+  store.updateReleases = [{
+    tag: 'v2.2.14',
+    asset: {size: 1},
+    is_current: false,
+    is_newer: true
+  }];
+  store.selectedUpdateTag = 'v2.2.14';
+
+  assert.equal(store.onlineUpdateSupported(), true);
+  assert.equal(store.canApplySelectedUpdate(), true);
+  assert.equal(store.updateRuntimeLabel(), 'Docker（可在线更新）');
+  assert.match(store.updateMethodDescription(), /runtime/);
+});
+
+test('disabled binary updates use manual instructions instead of Docker copy', () => {
+  const store = updates.createStore();
+  store.updateInfo = {runtime: 'binary', online_update_supported: false, update_available: true};
+
+  assert.equal(store.unsupportedUpdateTitle(), '手工升级');
+  assert.match(store.unsupportedUpdateMessage(), /static/);
+  assert.doesNotMatch(store.unsupportedUpdateMessage(), /Docker/);
+});
+
 test('activity merge sorts jobs and notifications and supports source filters', () => {
   const items = notifications.mergeActivityItems([
     {id: 'job-old', kind: 'manual_transfer', status: 'succeeded', updated_at: 10, title: '旧任务'},

@@ -65,7 +65,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Smoke test Docker data volume upgrade
+      - name: Smoke test Docker data and runtime volume upgrade
         if: github.event_name == 'push'
         shell: bash
         run: |

@@ -2,6 +2,7 @@
 .env
 *.env
 data/
+/runtime/
 settings.json
 !tests/fixtures/settings.json
 test_settings.json

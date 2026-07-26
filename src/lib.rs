@@ -7,6 +7,7 @@ pub mod jobs;
 pub mod models;
 pub mod observability;
 pub mod providers;
+pub mod restart;
 pub mod services;
 pub mod store;
 pub mod utils;

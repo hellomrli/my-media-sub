@@ -117,7 +117,16 @@
     },
 
     dockerUpdateMessage() {
-      return `当前运行在 Docker 容器中，请在宿主机执行：${this.dockerUpdateCommand()}`;
+      return `当前 Docker 容器未启用持久化运行目录在线更新，请在宿主机执行：${this.dockerUpdateCommand()}`;
+    },
+
+    unsupportedUpdateTitle() {
+      return this.updateInfo && this.updateInfo.runtime === 'docker' ? 'Docker 镜像升级' : '手工升级';
+    },
+
+    unsupportedUpdateMessage() {
+      if (this.updateInfo && this.updateInfo.runtime === 'docker') return this.dockerUpdateMessage();
+      return '当前运行环境已禁用在线更新，请手工替换二进制和完整 static 目录。';
     },
 
     selectedUpdateActionLabel() {
@@ -128,7 +137,7 @@
     },
 
     selectedUpdateDescription() {
-      if (!this.onlineUpdateSupported()) return this.dockerUpdateMessage();
+      if (!this.onlineUpdateSupported()) return this.unsupportedUpdateMessage();
       const item = this.selectedUpdateRelease();
       if (!item) return '请选择一个 Release 版本。';
       if (!item.asset) return '该版本没有 Linux x86_64 二进制包，不能在线切换。';
@@ -140,13 +149,14 @@
     canApplySelectedUpdate() {
       const item = this.selectedUpdateRelease();
       return Boolean(
-        this.onlineUpdateSupported() && item && item.asset && !item.is_current && !this.updateApplying
+        this.onlineUpdateSupported() && item && item.asset && !item.is_current
+          && !this.updateApplying && !this.updateRestartRequired()
       );
     },
 
     async applySelectedUpdate() {
       if (!this.onlineUpdateSupported()) {
-        this.showNotification('info', this.dockerUpdateMessage());
+        this.showNotification('info', this.unsupportedUpdateMessage());
         return;
       }
       const item = this.selectedUpdateRelease();
@@ -163,7 +173,11 @@
 
     async applyUpdate(targetTag = null) {
       if (!this.onlineUpdateSupported()) {
-        this.showNotification('info', this.dockerUpdateMessage());
+        this.showNotification('info', this.unsupportedUpdateMessage());
+        return;
+      }
+      if (this.updateRestartRequired()) {
+        this.showNotification('info', '已有升级等待重启，请先完成重启');
         return;
       }
       if (!targetTag && (!this.updateInfo || !this.updateInfo.update_available)) {
@@ -392,7 +406,20 @@
 
     updateRuntimeLabel() {
       if (!this.updateInfo) return '-';
-      return this.updateInfo.runtime === 'docker' ? 'Docker' : '二进制';
+      if (this.updateInfo.runtime === 'docker') {
+        return this.onlineUpdateSupported() ? 'Docker（可在线更新）' : 'Docker';
+      }
+      return '二进制';
+    },
+
+    updateMethodDescription() {
+      if (!this.onlineUpdateSupported()) {
+        return this.unsupportedUpdateMessage();
+      }
+      if (this.updateInfo && this.updateInfo.runtime === 'docker') {
+        return '升级包会经过 SHA256 校验，并原子替换持久化 runtime 卷中的二进制和 WebUI；随后服务会优雅停止后台任务并原进程重启。';
+      }
+      return '升级会原子替换当前二进制和 WebUI 静态资源；随后服务会优雅停止后台任务并原进程重启。';
     },
 
     assetSizeLabel(asset) {

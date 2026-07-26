@@ -72,6 +72,9 @@ jobs:
       - name: Smoke test release binary
         run: scripts/smoke-release.sh target/release/my-media-sub
 
+      - name: Smoke test Docker entrypoint runtime initialization
+        run: scripts/smoke-docker-entrypoint.sh target/release/my-media-sub static
+
       - name: Short stability soak
         env:
           SOAK_SECONDS: 10

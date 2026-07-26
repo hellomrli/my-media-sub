@@ -22,6 +22,7 @@ cleanup() {
 trap cleanup EXIT
 
 [[ -x "${BINARY}" ]] || { echo "release binary is not executable: ${BINARY}" >&2; exit 1; }
+"${BINARY}" --version | grep -E '^my-media-sub [0-9]+\.[0-9]+\.[0-9]+' >/dev/null
 for asset in index.html manifest.webmanifest service-worker.js openapi.json; do
   [[ -s "${STATIC_DIR}/${asset}" ]] || { echo "required static asset is missing: ${STATIC_DIR}/${asset}" >&2; exit 1; }
 done

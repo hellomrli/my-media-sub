@@ -1,6 +1,6 @@
 # My Media Sub 当前架构
 
-> 本文以 `main`（v2.2.10）为准，只描述当前仍在运行的结构与约束。阶段进度见 [`roadmap.md`](roadmap.md)，HTTP 细节见 [`api-contract.md`](api-contract.md)，自动化与 Telegram 的安全合同分别见 [`automation-api.md`](automation-api.md) 和 [`telegram-bot.md`](telegram-bot.md)。
+> 本文以当前 `main` 为准，只描述当前仍在运行的结构与约束。阶段进度见 [`roadmap.md`](roadmap.md)，HTTP 细节见 [`api-contract.md`](api-contract.md)，自动化与 Telegram 的安全合同分别见 [`automation-api.md`](automation-api.md) 和 [`telegram-bot.md`](telegram-bot.md)。
 
 ## 架构图
 
@@ -43,6 +43,7 @@ My Media Sub 是面向单实例管理员的自托管应用，不是多租户平�
 | 数据模型 | `src/models/*` | Subscription、Settings、Metadata、Calendar、AutomationEvent、Notification 和规则结构。 |
 | JSON Store | `src/store/*`、`src/jobs/store.rs` | schema 解码、内存索引、原子落盘、权限修复、损坏隔离和未来版本保护。 |
 | WebUI/PWA | `static/*` | Alpine.js 静态模块、响应式界面、PWA 壳层、SSE/轮询和 OpenAPI 页面。 |
+| Docker 运行载荷 | `/opt/my-media-sub` → `/app/runtime` | 镜像种子只读；实际二进制和完整 WebUI 位于持久化可写卷，支持校验、原子切换和在线重启。 |
 | 运维工具 | `src/utils/*`、`scripts/*` | 指标、时间/文件安全、契约检查、发布/升级/浏览器/持续运行 smoke。 |
 
 ## 请求与认证边界
@@ -133,6 +134,25 @@ Store 共同合同：
 - 恢复前预览逐文件路径、schema、大小和 SHA-256，执行恢复前再创建当前快照。
 
 达到规模阈值只会进入 `decision_required`；在明确迁移方案、可重复导入、计数/校验和验证和回滚合同完成前，不创建 SQLite 或长期双写。
+
+Docker 另有独立的运行载荷卷，不放入 `DATA_DIR`：
+
+```text
+/opt/my-media-sub/       # 镜像内只读种子
+  my-media-sub
+  static/
+  VERSION
+  PAYLOAD_ID
+
+/app/runtime/            # uid/gid 1000 可写并持久化
+  my-media-sub
+  static/
+  .image-version
+  .installed-version
+  *.bak-*
+```
+
+入口脚本首次启动时原子初始化运行载荷；相同应用载荷的镜像重建保留 WebUI 在线更新结果，二进制或 `static/` 内容指纹变化则用新镜像载荷刷新。在线更新必须把二进制和 `static/` 同时暂存并提交；重启请求进入主进程关闭链路，等待 HTTP 与 JobQueue 优雅收敛后再 `exec` 新二进制。基础镜像与系统库不属于应用在线更新范围。
 
 ## 前端与 PWA
 

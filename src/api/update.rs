@@ -7,20 +7,24 @@ use chrono::Utc;
 use ring::digest;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::LazyLock;
 use std::sync::Mutex;
-use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 
 use super::response::ApiResponse as Response;
 use crate::clients::http_pool;
 use crate::error::{AppError, Result};
+use crate::restart::RestartPlan;
 use crate::utils::constant_time_eq;
 
 const GITHUB_REPO: &str = "hellomrli/my-media-sub";
+const REQUIRED_STATIC_ASSETS: &[&str] = &[
+    "index.html",
+    "manifest.webmanifest",
+    "service-worker.js",
+    "openapi.json",
+];
 static UPDATE_PROGRESS: LazyLock<Mutex<UpdateProgressResponse>> =
     LazyLock::new(|| Mutex::new(UpdateProgressResponse::idle()));
 static PENDING_RESTART: LazyLock<Mutex<Option<RestartPlan>>> = LazyLock::new(|| Mutex::new(None));
@@ -72,10 +76,9 @@ pub struct UpdateCheckResponse {
     pub published_at: Option<String>,
     pub checked_at: String,
     pub runtime: String,
-    /// Whether this process can replace its own executable in place.
-    ///
-    /// Container images are immutable at runtime, so Docker deployments must
-    /// be upgraded by pulling and recreating the container on the host.
+    /// Whether this process can atomically replace its executable and WebUI.
+    /// Standard Docker images opt in by running from a writable persistent
+    /// runtime volume instead of directly from the immutable image layer.
     pub online_update_supported: bool,
     pub linux_x86_64_asset: Option<UpdateAsset>,
 }
@@ -143,13 +146,6 @@ impl UpdateProgressResponse {
     }
 }
 
-#[derive(Debug, Clone)]
-struct RestartPlan {
-    executable: PathBuf,
-    args: Vec<OsString>,
-    current_dir: Option<PathBuf>,
-}
-
 async fn check_update() -> Result<impl IntoResponse> {
     let release = fetch_latest_release().await?;
     let current_version = env!("CARGO_PKG_VERSION").to_string();
@@ -191,11 +187,11 @@ async fn list_releases() -> Result<impl IntoResponse> {
 async fn apply_update(request: Option<Json<UpdateApplyRequest>>) -> Result<impl IntoResponse> {
     let runtime = detect_runtime();
     if !online_update_supported(&runtime) {
-        return Err(AppError::Validation(
-            "当前运行在 Docker 容器中，不能在线替换二进制；请在宿主机执行：docker compose pull && docker compose up -d"
-                .to_string(),
-        ));
+        return Err(AppError::Validation(online_update_unavailable_message(
+            &runtime,
+        )));
     }
+    ensure_no_pending_restart()?;
 
     let target_tag = request.and_then(|Json(req)| req.tag).and_then(|tag| {
         let tag = tag.trim().to_string();
@@ -227,8 +223,11 @@ async fn restart_update() -> Result<impl IntoResponse> {
         .take()
         .ok_or_else(|| AppError::Validation("当前没有待重启的升级任务".to_string()))?;
 
+    if let Err(message) = crate::restart::request(plan.clone()) {
+        store_pending_restart(plan)?;
+        return Err(AppError::Validation(message));
+    }
     finish_update_progress("服务正在重启，请稍后刷新页面", "restarting");
-    schedule_restart(plan);
 
     Ok(Json(Response::ok(UpdateRestartResponse {
         success: true,
@@ -359,7 +358,8 @@ async fn apply_update_inner(target_tag: Option<String>) -> Result<UpdateApplyRes
         .ok_or_else(|| AppError::NotFound("Release 中未找到 SHA256 校验文件".to_string()))?;
     let current_exe = std::env::current_exe()
         .map_err(|e| AppError::Internal(format!("无法定位当前二进制: {}", e)))?;
-    let restart_plan = restart_plan(&current_exe);
+    let target_static_dir = crate::utils::static_dir();
+    let restart_plan = RestartPlan::for_executable(&current_exe);
     let backup_path = backup_path(&current_exe);
     let work_dir = std::env::temp_dir().join(format!(
         "my-media-sub-update-{}-{}",
@@ -370,27 +370,23 @@ async fn apply_update_inner(target_tag: Option<String>) -> Result<UpdateApplyRes
         .await
         .map_err(|e| AppError::Internal(format!("创建升级临时目录失败: {}", e)))?;
 
-    let archive_path = work_dir.join(&asset.name);
-    set_update_progress(8, "checksum", "正在下载校验文件");
-    let checksum_content = download_asset_bytes(&checksum_asset.browser_download_url).await?;
-    download_asset(&asset.browser_download_url, &archive_path, asset.size).await?;
-    set_update_progress(69, "checksum", "正在校验升级包 SHA256");
-    verify_sha256(&archive_path, &asset.name, &checksum_content).await?;
-    set_update_progress(70, "extracting", "正在解压升级包");
-    extract_archive(&archive_path, &work_dir).await?;
-    set_update_progress(82, "locating", "正在查找新版本二进制");
-    let new_binary = find_binary(&work_dir)
-        .ok_or_else(|| AppError::Internal("升级包中未找到 my-media-sub 二进制".to_string()))?;
-    set_update_progress(86, "assets", "正在更新静态资源");
-    if let Some(static_dir) = find_static_dir(&work_dir) {
-        let target_static_dir = static_target_dir(&restart_plan, &current_exe);
-        replace_static_dir(&static_dir, &target_static_dir).await?;
+    let install_result = download_and_install_release(
+        &asset,
+        &checksum_asset,
+        &work_dir,
+        &current_exe,
+        &target_static_dir,
+        &backup_path,
+    )
+    .await;
+    if install_result.is_ok() {
+        set_update_progress(97, "cleanup", "正在清理升级临时文件");
     }
-    set_update_progress(90, "replacing", "正在备份并替换当前二进制");
-    replace_binary(&new_binary, &current_exe, &backup_path).await?;
-
-    set_update_progress(97, "cleanup", "正在清理升级临时文件");
     let _ = tokio::fs::remove_dir_all(&work_dir).await;
+    install_result?;
+
+    record_runtime_version(&current_exe, &target_version).await;
+    prune_update_backups(&current_exe, &target_static_dir).await;
     store_pending_restart(restart_plan)?;
     finish_update_progress("升级完成，请点击按钮重启服务并刷新页面", "restart_required");
 
@@ -406,55 +402,62 @@ async fn apply_update_inner(target_tag: Option<String>) -> Result<UpdateApplyRes
     })
 }
 
+async fn download_and_install_release(
+    asset: &GithubAsset,
+    checksum_asset: &GithubAsset,
+    work_dir: &Path,
+    current_exe: &Path,
+    target_static_dir: &Path,
+    backup_path: &Path,
+) -> Result<()> {
+    let archive_path = work_dir.join(&asset.name);
+    set_update_progress(8, "checksum", "正在下载校验文件");
+    let checksum_content = download_asset_bytes(&checksum_asset.browser_download_url).await?;
+    download_asset(&asset.browser_download_url, &archive_path, asset.size).await?;
+    set_update_progress(69, "checksum", "正在校验升级包 SHA256");
+    verify_sha256(&archive_path, &asset.name, &checksum_content).await?;
+    set_update_progress(70, "extracting", "正在解压升级包");
+    extract_archive(&archive_path, work_dir).await?;
+    set_update_progress(82, "locating", "正在检查升级包内容");
+    let new_binary = find_binary(work_dir)
+        .ok_or_else(|| AppError::Internal("升级包中未找到 my-media-sub 二进制".to_string()))?;
+    let new_static_dir = find_static_dir(work_dir)
+        .ok_or_else(|| AppError::Internal("升级包中未找到完整 static 目录".to_string()))?;
+    set_update_progress(86, "assets", "正在暂存二进制和 WebUI 静态资源");
+    replace_update_payload(
+        &new_binary,
+        &new_static_dir,
+        current_exe,
+        target_static_dir,
+        backup_path,
+    )
+    .await?;
+    Ok(())
+}
+
 fn store_pending_restart(plan: RestartPlan) -> Result<()> {
     let mut pending = PENDING_RESTART
         .lock()
         .map_err(|_| AppError::Internal("保存重启计划失败".to_string()))?;
+    if pending.is_some() {
+        return Err(AppError::Validation(
+            "已有升级等待重启，请先完成重启".to_string(),
+        ));
+    }
     *pending = Some(plan);
     Ok(())
 }
 
-fn restart_plan(executable: &Path) -> RestartPlan {
-    RestartPlan {
-        executable: executable.to_path_buf(),
-        args: std::env::args_os().skip(1).collect(),
-        current_dir: std::env::current_dir().ok(),
+fn ensure_no_pending_restart() -> Result<()> {
+    let pending = PENDING_RESTART
+        .lock()
+        .map_err(|_| AppError::Internal("读取重启计划失败".to_string()))?;
+    if pending.is_some() {
+        return Err(AppError::Validation(
+            "已有升级等待重启，请先完成重启".to_string(),
+        ));
     }
-}
-
-fn schedule_restart(plan: RestartPlan) {
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(1500)).await;
-        restart_process(plan);
-    });
-}
-
-#[cfg(unix)]
-fn restart_process(plan: RestartPlan) {
-    use std::os::unix::process::CommandExt;
-
-    tracing::info!("升级完成，正在自动重启服务");
-    let mut command = Command::new(&plan.executable);
-    command.args(&plan.args);
-    if let Some(current_dir) = plan.current_dir {
-        command.current_dir(current_dir);
-    }
-    let error = command.exec();
-    tracing::error!("自动重启服务失败: {}", error);
-}
-
-#[cfg(not(unix))]
-fn restart_process(plan: RestartPlan) {
-    tracing::info!("升级完成，正在自动重启服务");
-    let mut command = Command::new(&plan.executable);
-    command.args(&plan.args);
-    if let Some(current_dir) = plan.current_dir {
-        command.current_dir(current_dir);
-    }
-    match command.spawn() {
-        Ok(_) => std::process::exit(0),
-        Err(error) => tracing::error!("自动重启服务失败: {}", error),
-    }
+    Ok(())
 }
 
 async fn fetch_latest_release() -> Result<GithubRelease> {
@@ -535,7 +538,85 @@ fn detect_runtime() -> String {
 }
 
 fn online_update_supported(runtime: &str) -> bool {
-    runtime == "binary"
+    online_update_supported_for(
+        runtime,
+        optional_env_flag("SELF_UPDATE_ENABLED"),
+        managed_docker_runtime_layout(),
+    )
+}
+
+fn online_update_supported_for(
+    runtime: &str,
+    configured_enabled: Option<bool>,
+    managed_runtime_layout: bool,
+) -> bool {
+    match runtime {
+        "binary" => configured_enabled.unwrap_or(true),
+        "docker" => configured_enabled.unwrap_or(false) && managed_runtime_layout,
+        _ => false,
+    }
+}
+
+fn optional_env_flag(key: &str) -> Option<bool> {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| match value.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => Some(true),
+            "0" | "false" | "no" | "off" => Some(false),
+            _ => None,
+        })
+}
+
+fn managed_runtime_dir() -> Option<PathBuf> {
+    std::env::var("APP_RUNTIME_DIR")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
+fn managed_docker_runtime_layout() -> bool {
+    let Some(runtime_dir) = managed_runtime_dir() else {
+        return false;
+    };
+    let Ok(executable) = std::env::current_exe() else {
+        return false;
+    };
+    path_is_within(&executable, &runtime_dir)
+        && path_is_within(&crate::utils::static_dir(), &runtime_dir)
+        && directory_is_writable(&runtime_dir)
+}
+
+fn path_is_within(path: &Path, directory: &Path) -> bool {
+    let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let directory = std::fs::canonicalize(directory).unwrap_or_else(|_| directory.to_path_buf());
+    path.starts_with(directory)
+}
+
+#[cfg(unix)]
+fn directory_is_writable(path: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+
+    let Ok(path) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
+        return false;
+    };
+    // Replacing entries requires both write and search permission on the
+    // containing directory. `access` evaluates the real uid/gid of the app.
+    unsafe { libc::access(path.as_ptr(), libc::W_OK | libc::X_OK) == 0 }
+}
+
+#[cfg(not(unix))]
+fn directory_is_writable(_path: &Path) -> bool {
+    true
+}
+
+fn online_update_unavailable_message(runtime: &str) -> String {
+    if runtime == "docker" {
+        "当前 Docker 容器未启用可写的持久化运行目录，不能在线替换程序；请升级到新版 Compose 配置，或在宿主机执行：docker compose pull && docker compose up -d"
+            .to_string()
+    } else {
+        "当前运行环境不支持在线替换程序，请手工升级二进制和完整 static 目录".to_string()
+    }
 }
 
 async fn download_asset(url: &str, path: &Path, expected_size: u64) -> Result<()> {
@@ -681,46 +762,177 @@ fn backup_path(current_exe: &Path) -> PathBuf {
         .and_then(|name| name.to_str())
         .unwrap_or("my-media-sub");
     current_exe.with_file_name(format!(
-        "{}.bak-{}",
+        "{}.bak-{}-{}",
         file_name,
-        Utc::now().format("%Y%m%d%H%M%S")
+        Utc::now().format("%Y%m%d%H%M%S"),
+        uuid::Uuid::new_v4()
     ))
 }
 
-async fn replace_binary(new_binary: &Path, current_exe: &Path, backup_path: &Path) -> Result<()> {
-    tokio::fs::copy(current_exe, backup_path)
-        .await
-        .map_err(|e| AppError::Internal(format!("备份当前二进制失败: {}", e)))?;
-    let metadata = tokio::fs::metadata(current_exe)
-        .await
-        .map_err(|e| AppError::Internal(format!("读取当前二进制权限失败: {}", e)))?;
-    let staging_path = current_exe.with_file_name(format!(
-        ".{}.new-{}",
-        current_exe
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("my-media-sub"),
-        uuid::Uuid::new_v4()
-    ));
-    tokio::fs::copy(new_binary, &staging_path)
-        .await
-        .map_err(|e| AppError::Internal(format!("写入新二进制失败: {}", e)))?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        tokio::fs::set_permissions(
-            &staging_path,
-            std::fs::Permissions::from_mode(metadata.permissions().mode()),
+async fn replace_update_payload(
+    new_binary: &Path,
+    new_static_dir: &Path,
+    current_exe: &Path,
+    target_static_dir: &Path,
+    backup_path: &Path,
+) -> Result<()> {
+    let new_binary = new_binary.to_path_buf();
+    let new_static_dir = new_static_dir.to_path_buf();
+    let current_exe = current_exe.to_path_buf();
+    let target_static_dir = target_static_dir.to_path_buf();
+    let backup_path = backup_path.to_path_buf();
+    set_update_progress(90, "replacing", "正在提交二进制和 WebUI 静态资源升级事务");
+    tokio::task::spawn_blocking(move || {
+        replace_update_payload_blocking(
+            &new_binary,
+            &new_static_dir,
+            &current_exe,
+            &target_static_dir,
+            &backup_path,
         )
-        .await
-        .map_err(|e| AppError::Internal(format!("设置新二进制权限失败: {}", e)))?;
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("安装升级文件任务失败: {}", e)))?
+}
+
+fn replace_update_payload_blocking(
+    new_binary: &Path,
+    new_static_dir: &Path,
+    current_exe: &Path,
+    target_static_dir: &Path,
+    backup_path: &Path,
+) -> Result<()> {
+    if !current_exe.is_file() {
+        return Err(AppError::Internal(format!(
+            "当前二进制不存在: {}",
+            current_exe.display()
+        )));
+    }
+    if !new_binary.is_file()
+        || std::fs::symlink_metadata(new_binary)
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(true)
+    {
+        return Err(AppError::Internal(
+            "升级包中的 my-media-sub 不是普通文件".to_string(),
+        ));
+    }
+    if !static_payload_is_complete(new_static_dir) {
+        return Err(AppError::Internal(
+            "升级包中的 static 目录不完整".to_string(),
+        ));
     }
 
-    tokio::fs::rename(&staging_path, current_exe)
-        .await
-        .map_err(|e| AppError::Internal(format!("替换当前二进制失败: {}", e)))?;
+    let binary_parent = current_exe
+        .parent()
+        .ok_or_else(|| AppError::Internal("无法定位二进制所在目录".to_string()))?;
+    let static_parent = target_static_dir
+        .parent()
+        .ok_or_else(|| AppError::Internal("无法定位静态资源所在目录".to_string()))?;
+    std::fs::create_dir_all(static_parent)
+        .map_err(|e| AppError::Internal(format!("创建静态资源父目录失败: {}", e)))?;
 
+    let token = uuid::Uuid::new_v4();
+    let binary_name = current_exe
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("my-media-sub");
+    let static_name = target_static_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("static");
+    let binary_stage = binary_parent.join(format!(".{binary_name}.new-{token}"));
+    let static_stage = static_parent.join(format!(".{static_name}.new-{token}"));
+    let static_backup = static_parent.join(format!(
+        "{static_name}.bak-{}-{token}",
+        Utc::now().format("%Y%m%d%H%M%S")
+    ));
+
+    let install_result = (|| -> Result<()> {
+        std::fs::copy(current_exe, backup_path)
+            .map_err(|e| AppError::Internal(format!("备份当前二进制失败: {}", e)))?;
+        let current_metadata = std::fs::metadata(current_exe)
+            .map_err(|e| AppError::Internal(format!("读取当前二进制权限失败: {}", e)))?;
+        std::fs::copy(new_binary, &binary_stage)
+            .map_err(|e| AppError::Internal(format!("暂存新二进制失败: {}", e)))?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(
+                &binary_stage,
+                std::fs::Permissions::from_mode(current_metadata.permissions().mode()),
+            )
+            .map_err(|e| AppError::Internal(format!("设置新二进制权限失败: {}", e)))?;
+        }
+
+        std::fs::File::open(&binary_stage)
+            .and_then(|file| file.sync_all())
+            .map_err(|e| AppError::Internal(format!("同步新二进制失败: {}", e)))?;
+        copy_dir_all(new_static_dir, &static_stage)?;
+
+        let had_static = target_static_dir.exists();
+        if had_static {
+            std::fs::rename(target_static_dir, &static_backup)
+                .map_err(|e| AppError::Internal(format!("备份静态资源失败: {}", e)))?;
+        }
+        if let Err(error) = std::fs::rename(&static_stage, target_static_dir) {
+            let rollback_error = if had_static {
+                std::fs::rename(&static_backup, target_static_dir).err()
+            } else {
+                None
+            };
+            return Err(AppError::Internal(match rollback_error {
+                Some(rollback_error) => {
+                    format!("切换静态资源失败: {error}；恢复旧静态资源也失败: {rollback_error}")
+                }
+                None => format!("切换静态资源失败: {error}"),
+            }));
+        }
+
+        if let Err(error) = std::fs::rename(&binary_stage, current_exe) {
+            let _ = std::fs::remove_dir_all(target_static_dir);
+            let rollback_error = if had_static {
+                std::fs::rename(&static_backup, target_static_dir).err()
+            } else {
+                None
+            };
+            return Err(AppError::Internal(match rollback_error {
+                Some(rollback_error) => {
+                    format!("替换当前二进制失败: {error}；恢复旧静态资源也失败: {rollback_error}")
+                }
+                None => format!("替换当前二进制失败: {error}"),
+            }));
+        }
+
+        if let Err(error) = sync_directory(binary_parent) {
+            tracing::warn!("{}", error);
+        }
+        if static_parent != binary_parent {
+            if let Err(error) = sync_directory(static_parent) {
+                tracing::warn!("{}", error);
+            }
+        }
+        Ok(())
+    })();
+
+    let _ = std::fs::remove_file(&binary_stage);
+    let _ = std::fs::remove_dir_all(&static_stage);
+    if install_result.is_err() {
+        let _ = std::fs::remove_file(backup_path);
+    }
+    install_result
+}
+
+fn sync_directory(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        std::fs::File::open(path)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|e| AppError::Internal(format!("同步升级目录失败: {}", e)))?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
     Ok(())
 }
 
@@ -745,15 +957,6 @@ fn find_binary(root: &Path) -> Option<PathBuf> {
     None
 }
 
-fn static_target_dir(restart_plan: &RestartPlan, current_exe: &Path) -> PathBuf {
-    restart_plan
-        .current_dir
-        .clone()
-        .or_else(|| current_exe.parent().map(Path::to_path_buf))
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("static")
-}
-
 fn find_static_dir(root: &Path) -> Option<PathBuf> {
     let mut stack = vec![root.to_path_buf()];
     while let Some(path) = stack.pop() {
@@ -768,7 +971,7 @@ fn find_static_dir(root: &Path) -> Option<PathBuf> {
                 .and_then(|name| name.to_str())
                 .map(|name| name == "static")
                 .unwrap_or(false)
-                && path.join("index.html").is_file()
+                && static_payload_is_complete(&path)
             {
                 return Some(path);
             }
@@ -778,44 +981,11 @@ fn find_static_dir(root: &Path) -> Option<PathBuf> {
     None
 }
 
-async fn replace_static_dir(new_static_dir: &Path, target_static_dir: &Path) -> Result<()> {
-    let new_static_dir = new_static_dir.to_path_buf();
-    let target_static_dir = target_static_dir.to_path_buf();
-    tokio::task::spawn_blocking(move || {
-        replace_static_dir_blocking(&new_static_dir, &target_static_dir)
-    })
-    .await
-    .map_err(|e| AppError::Internal(format!("更新静态资源任务失败: {}", e)))?
-}
-
-fn replace_static_dir_blocking(new_static_dir: &Path, target_static_dir: &Path) -> Result<()> {
-    if !new_static_dir.is_dir() {
-        return Err(AppError::Internal("升级包中的 static 不是目录".to_string()));
-    }
-
-    let backup_dir = target_static_dir.with_file_name(format!(
-        "{}.bak-{}",
-        target_static_dir
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("static"),
-        Utc::now().format("%Y%m%d%H%M%S")
-    ));
-
-    if target_static_dir.exists() {
-        std::fs::rename(target_static_dir, &backup_dir)
-            .map_err(|e| AppError::Internal(format!("备份静态资源失败: {}", e)))?;
-    }
-
-    if let Err(error) = copy_dir_all(new_static_dir, target_static_dir) {
-        let _ = std::fs::remove_dir_all(target_static_dir);
-        if backup_dir.exists() {
-            let _ = std::fs::rename(&backup_dir, target_static_dir);
-        }
-        return Err(error);
-    }
-
-    Ok(())
+fn static_payload_is_complete(path: &Path) -> bool {
+    path.is_dir()
+        && REQUIRED_STATIC_ASSETS
+            .iter()
+            .all(|asset| path.join(asset).is_file())
 }
 
 fn copy_dir_all(source: &Path, target: &Path) -> Result<()> {
@@ -826,16 +996,100 @@ fn copy_dir_all(source: &Path, target: &Path) -> Result<()> {
         .map_err(|e| AppError::Internal(format!("读取静态资源目录失败: {}", e)))?
     {
         let entry = entry.map_err(|e| AppError::Internal(format!("读取静态资源项失败: {}", e)))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|e| AppError::Internal(format!("读取静态资源类型失败: {}", e)))?;
+        if file_type.is_symlink() {
+            return Err(AppError::Validation(
+                "升级包中的 static 目录不能包含符号链接".to_string(),
+            ));
+        }
         let source_path = entry.path();
         let target_path = target.join(entry.file_name());
-        if source_path.is_dir() {
+        if file_type.is_dir() {
             copy_dir_all(&source_path, &target_path)?;
-        } else {
+        } else if file_type.is_file() {
             std::fs::copy(&source_path, &target_path)
                 .map_err(|e| AppError::Internal(format!("复制静态资源失败: {}", e)))?;
+        } else {
+            return Err(AppError::Validation(
+                "升级包中的 static 目录包含不支持的文件类型".to_string(),
+            ));
         }
     }
 
+    Ok(())
+}
+
+async fn record_runtime_version(current_exe: &Path, version: &str) {
+    let Some(runtime_dir) = managed_runtime_dir() else {
+        return;
+    };
+    if !path_is_within(current_exe, &runtime_dir) {
+        return;
+    }
+
+    let marker = runtime_dir.join(".installed-version");
+    let content = format!("{}\n", version);
+    let result = tokio::task::spawn_blocking(move || {
+        crate::utils::write_file_atomic(&marker, content.as_bytes(), 0o644)
+    })
+    .await;
+    match result {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::warn!("记录运行时版本失败: {}", error),
+        Err(error) => tracing::warn!("记录运行时版本任务失败: {}", error),
+    }
+}
+
+async fn prune_update_backups(current_exe: &Path, target_static_dir: &Path) {
+    let retention = std::env::var("SELF_UPDATE_BACKUP_RETENTION")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .unwrap_or(3)
+        .clamp(1, 20);
+    let current_exe = current_exe.to_path_buf();
+    let target_static_dir = target_static_dir.to_path_buf();
+    let result = tokio::task::spawn_blocking(move || {
+        prune_sibling_backups(&current_exe, retention)?;
+        prune_sibling_backups(&target_static_dir, retention)
+    })
+    .await;
+    match result {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::warn!("清理旧升级备份失败: {}", error),
+        Err(error) => tracing::warn!("清理旧升级备份任务失败: {}", error),
+    }
+}
+
+fn prune_sibling_backups(target: &Path, retention: usize) -> Result<()> {
+    let Some(parent) = target.parent() else {
+        return Ok(());
+    };
+    let name = target
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    let prefix = format!("{name}.bak-");
+    let mut backups = std::fs::read_dir(parent)
+        .map_err(|e| AppError::Internal(format!("读取升级备份目录失败: {}", e)))?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix))
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
+    backups.sort_by(|left, right| right.file_name().cmp(&left.file_name()));
+
+    for backup in backups.into_iter().skip(retention) {
+        let metadata = std::fs::symlink_metadata(&backup)
+            .map_err(|e| AppError::Internal(format!("读取升级备份失败: {}", e)))?;
+        if metadata.is_dir() {
+            std::fs::remove_dir_all(&backup)
+                .map_err(|e| AppError::Internal(format!("删除旧静态资源备份失败: {}", e)))?;
+        } else {
+            std::fs::remove_file(&backup)
+                .map_err(|e| AppError::Internal(format!("删除旧二进制备份失败: {}", e)))?;
+        }
+    }
     Ok(())
 }
 
@@ -1000,9 +1254,111 @@ mod tests {
     }
 
     #[test]
-    fn test_online_update_is_disabled_for_docker_runtime() {
-        assert!(!online_update_supported("docker"));
-        assert!(online_update_supported("binary"));
-        assert!(!online_update_supported("unknown"));
+    fn test_online_update_requires_managed_docker_runtime() {
+        assert!(online_update_supported_for("binary", None, false));
+        assert!(!online_update_supported_for("binary", Some(false), false));
+        assert!(!online_update_supported_for("docker", None, true));
+        assert!(!online_update_supported_for("docker", Some(false), true));
+        assert!(!online_update_supported_for("docker", Some(true), false));
+        assert!(online_update_supported_for("docker", Some(true), true));
+        assert!(!online_update_supported_for("unknown", Some(true), true));
+    }
+
+    #[test]
+    fn test_replace_update_payload_switches_binary_and_static_together() {
+        let root = std::env::temp_dir().join(format!(
+            "my-media-sub-update-payload-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let release = root.join("release");
+        let runtime = root.join("runtime");
+        let new_static = release.join("static");
+        let target_static = runtime.join("static");
+        std::fs::create_dir_all(&new_static).unwrap();
+        std::fs::create_dir_all(&target_static).unwrap();
+        std::fs::write(release.join("my-media-sub"), b"new-binary").unwrap();
+        for asset in REQUIRED_STATIC_ASSETS {
+            std::fs::write(new_static.join(asset), format!("new-{asset}")).unwrap();
+        }
+        std::fs::write(runtime.join("my-media-sub"), b"old-binary").unwrap();
+        std::fs::write(target_static.join("index.html"), b"old-static").unwrap();
+        let backup = runtime.join("my-media-sub.bak-test");
+
+        replace_update_payload_blocking(
+            &release.join("my-media-sub"),
+            &new_static,
+            &runtime.join("my-media-sub"),
+            &target_static,
+            &backup,
+        )
+        .unwrap();
+
+        assert_eq!(
+            std::fs::read(runtime.join("my-media-sub")).unwrap(),
+            b"new-binary"
+        );
+        assert_eq!(
+            std::fs::read(target_static.join("index.html")).unwrap(),
+            b"new-index.html"
+        );
+        assert_eq!(std::fs::read(backup).unwrap(), b"old-binary");
+        assert!(std::fs::read_dir(&runtime).unwrap().any(|entry| {
+            entry
+                .ok()
+                .and_then(|entry| entry.file_name().into_string().ok())
+                .is_some_and(|name| name.starts_with("static.bak-"))
+        }));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn test_static_payload_requires_release_shell_assets() {
+        let root = std::env::temp_dir().join(format!(
+            "my-media-sub-update-static-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+
+        for asset in REQUIRED_STATIC_ASSETS {
+            std::fs::write(root.join(asset), asset).unwrap();
+        }
+        assert!(static_payload_is_complete(&root));
+
+        std::fs::remove_file(root.join("openapi.json")).unwrap();
+        assert!(!static_payload_is_complete(&root));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn test_prune_sibling_backups_keeps_latest_named_entries() {
+        let root = std::env::temp_dir().join(format!(
+            "my-media-sub-update-backup-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let target = root.join("my-media-sub");
+        for suffix in ["20260101", "20260201", "20260301", "20260401"] {
+            std::fs::write(root.join(format!("my-media-sub.bak-{suffix}")), suffix).unwrap();
+        }
+
+        prune_sibling_backups(&target, 2).unwrap();
+
+        let mut remaining = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        remaining.sort();
+        assert_eq!(
+            remaining,
+            vec![
+                "my-media-sub.bak-20260301".to_string(),
+                "my-media-sub.bak-20260401".to_string()
+            ]
+        );
+
+        let _ = std::fs::remove_dir_all(root);
     }
 }
