@@ -91,11 +91,11 @@
         || (s.custom_categories || []).some(category => String(category.dir || category.quark_dir || '').trim())
       );
       return [
-        {id: 'auth', label: '管理账号', description: '已设置登录密码', configured: !!(s.app_password_configured || (s.app_password && !this.isMaskedSecret(s.app_password))), tab: 'connections'},
-        {id: 'quark', label: '夸克连接', description: this.quarkHealth.message || 'Cookie 尚未测试', configured: !!(s.quark_cookie_configured || s.quark_cookie), tab: 'connections'},
-        {id: 'storage', label: '媒体目录', description: saveDirectoryConfigured ? '至少一个保存目录可用' : '尚未配置保存目录', configured: saveDirectoryConfigured, tab: 'connections'},
-        {id: 'aria2', label: 'Aria2', description: s.aria2_rpc_url ? 'RPC 地址已配置' : '可选：同步下载', configured: !!s.aria2_rpc_url, optional: true, tab: 'connections'},
-        {id: 'metadata', label: 'TMDB 元数据', description: s.tmdb_api_key_configured || s.tmdb_api_key ? 'API Key 已配置' : '可选：海报与剧集信息', configured: !!(s.tmdb_api_key_configured || s.tmdb_api_key), optional: true, tab: 'connections'},
+        {id: 'auth', label: '管理账号', description: '已设置登录密码', configured: !!(s.app_password_configured || (s.app_password && !this.isMaskedSecret(s.app_password))), tab: 'advanced'},
+        {id: 'quark', label: '夸克连接', description: this.quarkHealth.message || 'Cookie 尚未测试', configured: !!(s.quark_cookie_configured || s.quark_cookie), tab: 'quark'},
+        {id: 'storage', label: '媒体目录', description: saveDirectoryConfigured ? '至少一个保存目录可用' : '尚未配置保存目录', configured: saveDirectoryConfigured, tab: 'quark'},
+        {id: 'aria2', label: 'Aria2', description: s.aria2_rpc_url ? 'RPC 地址已配置' : '可选：同步下载', configured: !!s.aria2_rpc_url, optional: true, tab: 'library'},
+        {id: 'metadata', label: 'TMDB 元数据', description: s.tmdb_api_key_configured || s.tmdb_api_key ? 'API Key 已配置' : '可选：海报与剧集信息', configured: !!(s.tmdb_api_key_configured || s.tmdb_api_key), optional: true, tab: 'library'},
         {id: 'automation', label: '订阅调度', description: s.subscription_scheduler_enabled ? '自动检查已启用' : '自动检查未启用', configured: !!s.subscription_scheduler_enabled, tab: 'automation'},
         {id: 'notification', label: '消息通知', description: this.configuredPushChannelCount ? `${this.configuredPushChannelCount} 个渠道可用` : '可选：尚未配置渠道', configured: this.configuredPushChannelCount > 0, optional: true, tab: 'notifications'}
       ];

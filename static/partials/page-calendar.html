@@ -1,16 +1,21 @@
         <!-- 更新日历 -->
         <div x-show="currentTab === 'calendar'" class="page-stack calendar-page">
-          <section class="calendar-toolbar app-panel">
+          <section class="calendar-toolbar app-panel is-compact">
             <div class="calendar-toolbar-main">
-              <div>
-                <span class="panel-eyebrow">MEDIA SCHEDULE</span>
+              <div class="calendar-range">
                 <h3 x-text="calendarRangeLabel()"></h3>
-                <p>上海时区 · 自然周从周一开始 · 检查计划不等于播出计划</p>
+                <p>上海时区 · 检查计划不等于播出计划</p>
               </div>
               <div class="calendar-nav-actions">
                 <button @click="shiftCalendar(-1)" class="icon-button" aria-label="上一周期">←</button>
                 <button @click="resetCalendarToday()" class="btn-secondary">今天</button>
                 <button @click="shiftCalendar(1)" class="icon-button" aria-label="下一周期">→</button>
+              </div>
+              <div class="calendar-inline-metrics">
+                <span><strong x-text="calendarSummary.total"></strong>项</span>
+                <span class="is-primary">今日 <strong x-text="calendarSummary.by_status.today || 0"></strong></span>
+                <span class="is-warning">待处理 <strong x-text="(calendarSummary.by_status.aired_undiscovered || 0) + (calendarSummary.by_status.discovered_pending_transfer || 0) + (calendarSummary.by_status.transferred_pending_download || 0)"></strong></span>
+                <span class="is-danger">缺集 <strong x-text="calendarSummary.by_status.completed_missing || 0"></strong></span>
               </div>
             </div>
             <div class="calendar-toolbar-filters">
@@ -30,13 +35,6 @@
               </select>
             </div>
           </section>
-
-          <div class="calendar-metrics">
-            <div class="stat-tile"><span>日历项目</span><strong x-text="calendarSummary.total"></strong><small x-text="calendarSummary.subscriptions + ' 个订阅'"></small></div>
-            <div class="stat-tile is-primary"><span>今日更新</span><strong x-text="calendarSummary.by_status.today || 0"></strong><small>按上海自然日</small></div>
-            <div class="stat-tile is-warning"><span>待处理</span><strong x-text="(calendarSummary.by_status.aired_undiscovered || 0) + (calendarSummary.by_status.discovered_pending_transfer || 0) + (calendarSummary.by_status.transferred_pending_download || 0)"></strong><small>发现、转存与下载</small></div>
-            <div class="stat-tile is-danger"><span>完结缺集</span><strong x-text="calendarSummary.by_status.completed_missing || 0"></strong><small>优先检查补集</small></div>
-          </div>
 
           <div x-show="calendarLoading" class="calendar-state app-panel"><span class="loading-spinner"></span><strong>正在整理媒体排期</strong><small>合并元数据、转存与下载状态</small></div>
           <div x-show="!calendarLoading && calendarError" class="calendar-state app-panel is-error"><strong>日历加载失败</strong><small x-text="calendarError"></small><button @click="loadCalendar()" class="btn-secondary">重试</button></div>

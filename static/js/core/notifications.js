@@ -6,7 +6,7 @@
   'use strict';
 
   const api = root.MediaSubApi || {};
-  const {apiFetch} = api;
+  const {apiData, apiFetch} = api;
 
   const TOAST_ICONS = Object.freeze({success: '✓', error: '✕', warning: '⚠', info: 'ℹ'});
 
@@ -48,8 +48,18 @@
    * filtering; this keeps one event from being rendered twice (once as a Job
    * and once as the notification emitted by that Job).
    */
+  /// 推送派发任务只是通知的投递动作，本身没有阅读价值，却因为每条通知都会产生一条
+  /// 而迅速淹没活动中心（线上实测占任务总数的 88%）。通知本体照常展示。
+  const HIDDEN_ACTIVITY_JOB_KINDS = Object.freeze(['push_dispatch']);
+
+  function isNoisyActivityJob(job) {
+    return HIDDEN_ACTIVITY_JOB_KINDS.includes(String((job && job.kind) || ''));
+  }
+
   function mergeActivityItems(jobs, notifications) {
-    const jobItems = (Array.isArray(jobs) ? jobs : []).map(job => ({
+    const jobItems = (Array.isArray(jobs) ? jobs : [])
+      .filter(job => !isNoisyActivityJob(job))
+      .map(job => ({
       id: `job:${job.id || 'missing'}`,
       source: 'job',
       kind: 'job',
@@ -327,6 +337,24 @@
       } catch (error) {
         console.error('清空失败:', error);
         this.showNotification('error', this.apiErrorMessage(error, '清空通知失败'));
+      }
+    },
+
+    /// 清除任务日志：只删已结束的记录，排队中和运行中的任务不受影响。
+    async clearJobLogs() {
+      if (this.requestDangerConfirmation && !await this.requestDangerConfirmation({
+        title: '清除任务日志',
+        message: '会删除全部已完成、失败和已取消的任务记录（含归档），排队中与运行中的任务保留。',
+        phrase: 'CLEAR'
+      })) return;
+      try {
+        const result = await apiData('/api/jobs/clear', {method: 'POST'});
+        const removed = (result && result.removed) || 0;
+        this.showNotification('success', `已清除 ${removed} 条任务日志`);
+        await this.loadActivity();
+      } catch (error) {
+        console.error('清除任务日志失败:', error);
+        this.showNotification('error', this.apiErrorMessage(error, '清除任务日志失败'));
       }
     },
 

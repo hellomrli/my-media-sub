@@ -103,6 +103,9 @@
       return categorizeDownloadTasks(this.downloads);
     },
 
+    downloadCategory: 'downloading',
+    downloadCategoryTouched: false,
+
     get downloadCategoryList() {
       return [
         {id: 'downloading', name: '正在下载', description: '当前正在传输或已暂停的任务'},
@@ -110,6 +113,22 @@
         {id: 'completed', name: '已完成', description: '最近完成的下载任务'},
         {id: 'failed', name: '下载失败', description: '失败或被移除，可直接重试'}
       ];
+    },
+
+    /// 当前分页；分类为空时不强行停留在空页，自动落到有任务的那一页。
+    get downloadActiveCategory() {
+      const list = this.downloadCategoryList;
+      const current = list.find(item => item.id === this.downloadCategory);
+      if (current && this.downloadCategoryTasks(current.id).length > 0) return current.id;
+      if (current && this.downloadCategoryTouched) return current.id;
+      const firstWithTasks = list.find(item => this.downloadCategoryTasks(item.id).length > 0);
+      return (firstWithTasks || list[0]).id;
+    },
+
+    selectDownloadCategory(id) {
+      if (!this.downloadCategoryList.some(item => item.id === id)) return;
+      this.downloadCategory = id;
+      this.downloadCategoryTouched = true;
     },
 
     downloadCategoryTasks(category) {

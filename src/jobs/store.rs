@@ -264,6 +264,28 @@ impl JobStore {
             .count()
     }
 
+    /// 清空已结束的任务记录（含归档），排队中和运行中的任务保留。
+    /// 活动中心里推送派发这类高频任务会迅速堆满历史，需要一个手动清理入口。
+    pub async fn clear_finished(&self) -> Result<usize> {
+        let _guard = self.save_lock.lock().await;
+        let current = self.jobs.read().await.clone();
+        let before = current.len();
+        let active = current
+            .into_iter()
+            .filter(|job| !is_terminal(job))
+            .collect::<Vec<_>>();
+        let removed_active = before.saturating_sub(active.len());
+        self.save_snapshot(&active).await?;
+        self.replace_memory(active).await;
+
+        let archived = self.read_archive().await?.len();
+        if archived > 0 {
+            write_versioned_json_atomic_async(&self.archive_path, &Vec::<Job>::new(), 0o600)
+                .await?;
+        }
+        Ok(removed_active + archived)
+    }
+
     pub async fn prune_archive(&self, retain: usize) -> Result<usize> {
         let _guard = self.save_lock.lock().await;
         let mut archive = self.read_archive().await?;

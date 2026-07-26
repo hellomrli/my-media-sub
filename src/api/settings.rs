@@ -14,6 +14,7 @@ use crate::models::{
         normalize_aria2_batch_submit_limit, normalize_check_interval_minutes,
         normalize_external_api_max_concurrency, normalize_job_class_max_concurrency,
         normalize_job_max_concurrency, normalize_subscription_check_max_concurrency,
+        DASHBOARD_WIDGET_IDS,
     },
     CustomCategory, RulePreset,
 };
@@ -150,10 +151,10 @@ fn settings_schema() -> SettingsSchemaResponse {
         setting_field!("quark_save_anime_dir", "动画目录", "path", "quark", "/动画"),
         setting_field!(
             "dashboard_widgets",
-            "首页组件",
+            "首页卡片",
             "array",
             "basic",
-            vec!["quick_actions", "hero", "kpis", "library", "operations"]
+            DASHBOARD_WIDGET_IDS.to_vec()
         ),
         setting_field!(
             "custom_categories",
@@ -1108,10 +1109,7 @@ async fn update_settings(
                         if let Ok(items) = serde_json::from_value::<Vec<String>>(value.clone()) {
                             settings.dashboard_widgets = items
                                 .into_iter()
-                                .filter(|item| {
-                                    ["quick_actions", "hero", "kpis", "library", "operations"]
-                                        .contains(&item.as_str())
-                                })
+                                .filter(|item| DASHBOARD_WIDGET_IDS.contains(&item.as_str()))
                                 .collect();
                         }
                     }

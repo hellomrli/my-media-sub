@@ -9,11 +9,15 @@ const {
 } = require('../static/js/core/router.js');
 
 const tabs = ['dashboard', 'calendar', 'search', 'drive', 'downloads', 'subscriptions', 'notifications', 'settings'];
-const settingsTabs = ['connections', 'automation', 'naming', 'notifications', 'maintenance'];
+const settingsTabs = ['quark', 'library', 'automation', 'naming', 'notifications', 'advanced', 'update'];
 
 test('router normalizes legacy settings aliases and rejects unknown tabs', () => {
   assert.equal(normalizeSettingsTab('rules'), 'naming');
-  assert.equal(normalizeSettingsTab('advanced'), 'maintenance');
+  // v2.2.18 拆分后 advanced 本身就是标签页；旧的 connections / maintenance 才需要映射
+  assert.equal(normalizeSettingsTab('advanced'), 'advanced');
+  assert.equal(normalizeSettingsTab('connections'), 'library');
+  assert.equal(normalizeSettingsTab('basic'), 'library');
+  assert.equal(normalizeSettingsTab('maintenance'), 'advanced');
   assert.deepEqual(normalizeRoute({tab: 'missing', settingsTab: 'push'}, tabs, settingsTabs), {
     appRoute: true,
     tab: 'dashboard',

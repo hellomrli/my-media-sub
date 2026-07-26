@@ -11,9 +11,9 @@
   <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%234f46e5%27/%3E%3Cpath d=%27M8 9h16v14H8zm4-4v22m8-22v22%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27/%3E%3C/svg%3E">
-  <script src="js/theme-init.js?v=2.2.17"></script>
-  <link rel="stylesheet" href="styles.css?v=2.2.17">
-  <script defer src="vendor/alpine.min.js?v=2.2.17"></script>
+  <script src="js/theme-init.js?v=2.2.18"></script>
+  <link rel="stylesheet" href="styles.css?v=2.2.18">
+  <script defer src="vendor/alpine.min.js?v=2.2.18"></script>
 </head>
 <body class="bg-app text-text/90 min-h-screen" x-data="app()" x-cloak>
 
@@ -120,6 +120,9 @@
             <button x-show="pwaInstallAvailable" @click="installPwa()" class="icon-button" aria-label="安装 MEDIA/SUB" title="安装到设备">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/></svg>
             </button>
+            <button x-show="currentTab === 'dashboard' && !dashboardEditing" @click="startDashboardEdit()" class="icon-button" aria-label="编辑工作台" title="编辑工作台卡片">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5h7v6H4zM13 5h7v4h-7zM13 11h7v8h-7zM4 13h7v6H4z"/></svg>
+            </button>
             <button @click="toggleTheme()" class="icon-button" :aria-label="themeToggleLabel()" :title="themeToggleLabel()">
               <svg x-show="theme === 'dark'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.4-6.4-1.4 1.4M7 17l-1.4 1.4m12.8 0L17 17M7 7 5.6 5.6M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
               <svg x-show="theme === 'light'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12.8A8.5 8.5 0 1111.2 3 6.5 6.5 0 0021 12.8z"/></svg>
@@ -143,170 +146,201 @@
       <div x-show="pwaUpdateReady" class="pwa-status-banner is-update" role="status"><span x-text="pwaApplyingUpdate ? '正在切换到新版本…' : '新版本静态资源已就绪'"></span><div><button @click="dismissPwaUpdate()" :disabled="pwaApplyingUpdate">稍后</button><button @click="applyPwaUpdate()" :disabled="pwaApplyingUpdate" x-text="pwaApplyingUpdate ? '更新中…' : '立即更新'"></button></div></div>
 
       <div class="app-content flex-1 overflow-y-auto px-4 sm:px-5 py-4 sm:py-5">
-        <!-- 工作台 -->
-        <div x-show="currentTab === 'dashboard'" class="page-stack dashboard-page">
-          <section x-show="dashboardWidgetEnabled('quick_actions')" class="pwa-quick-actions app-panel p-3" aria-label="快捷入口">
-            <div class="pwa-quick-heading"><span>快捷入口</span><button x-show="pwaInstallAvailable" @click="installPwa()">安装应用</button></div>
-            <div class="pwa-quick-grid">
-              <button @click="runPwaShortcut('calendar-today')"><span>今</span><strong>今日更新</strong></button>
-              <button @click="runPwaShortcut('calendar-missing')"><span>缺</span><strong>缺集</strong></button>
-              <button @click="runPwaShortcut('failed-jobs')"><span>!</span><strong>失败任务</strong></button>
-              <button @click="runPwaShortcut('check-all')"><span>↻</span><strong>检查全部</strong></button>
-              <button @click="runPwaShortcut('downloads')"><span>↓</span><strong>下载进度</strong></button>
-              <button @click="runPwaShortcut('quark-signin')"><span>✓</span><strong>夸克签到</strong></button>
+        <!-- 工作台：卡片化仪表盘，卡片顺序与可见性由 settings.dashboard_widgets 决定 -->
+        <div x-show="currentTab === 'dashboard'" class="dashboard-page" :class="dashboardEditing ? 'is-editing' : ''">
+
+          <div x-show="dashboardEditing" class="dashboard-editbar app-panel">
+            <div class="dashboard-editbar-copy">
+              <strong>编辑工作台</strong>
+              <span>用 ↑ ↓ 调整顺序，✕ 隐藏卡片；下方是已隐藏的卡片。</span>
             </div>
-          </section>
-          <section x-show="dashboardWidgetEnabled('hero')" class="dashboard-hero">
-            <div class="hero-copy">
-              <div class="hero-kicker"><span class="status-pulse"></span><span>运行概览</span><span>·</span><span x-text="dashboardDateLabel()"></span></div>
-              <h1>媒体自动化工作台</h1>
-              <p x-text="dashboardStatusSummary()"></p>
-              <div class="hero-actions">
-                <button @click="checkAllSubscriptions()" :disabled="checkingAllSubscriptions" class="btn-primary hero-primary-action">
-                  <svg class="w-4 h-4" :class="checkingAllSubscriptions ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5m11 11v-5h-5M5.1 9A8 8 0 0119 6.3M18.9 15A8 8 0 015 17.7"/></svg>
-                  <span x-text="checkingAllSubscriptions ? '检查中' : '检查全部订阅'"></span>
-                </button>
-                <button @click="selectTab('search')" class="hero-secondary-action">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5-5m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                  搜索资源
-                </button>
-              </div>
-              <div class="hero-facts">
-                <div><strong x-text="dashboardStats.activeSubs"></strong><span>追更中</span></div>
-                <div><strong x-text="dashboardStats.completedSubs"></strong><span>已完结</span></div>
-                <div><strong x-text="dashboardStats.runningJobs"></strong><span>运行中任务</span></div>
-              </div>
+            <div class="dashboard-editbar-tray">
+              <template x-for="card in dashboardHiddenCards()" :key="'hidden-' + card.id">
+                <button @click="toggleDashboardCard(card.id)" class="dashboard-chip" :title="card.hint">＋ <span x-text="card.name"></span></button>
+              </template>
+              <span x-show="dashboardHiddenCards().length === 0" class="dashboard-editbar-empty">所有卡片都已显示</span>
             </div>
-
-            <div class="hero-visual">
-              <div class="dashboard-attention-board">
-                <div class="attention-board-heading">
-                  <div><span>待处理事项</span><strong x-text="dashboardAttentionCount"></strong></div>
-                  <small x-text="dashboardAttentionCount ? '请优先处理异常状态' : '当前没有待处理异常'"></small>
-                </div>
-                <button @click="openDashboardAttention('subscriptions')" :class="dashboardStats.invalidSubs ? 'has-warning' : ''">
-                  <span>失效订阅</span><strong x-text="dashboardStats.invalidSubs"></strong><small>查看并换源</small>
-                </button>
-                <button @click="openDashboardAttention('jobs')" :class="dashboardStats.failedJobs ? 'has-warning' : ''">
-                  <span>失败任务</span><strong x-text="dashboardStats.failedJobs"></strong><small>查看错误与重试</small>
-                </button>
-                <button @click="openDashboardAttention('notifications')" :class="dashboardStats.unreadNotifications ? 'has-notice' : ''">
-                  <span>未读通知</span><strong x-text="dashboardStats.unreadNotifications"></strong><small>查看运行消息</small>
-                </button>
-              </div>
+            <div class="dashboard-editbar-actions">
+              <button @click="resetDashboardLayout()" class="btn-secondary">恢复默认</button>
+              <button @click="cancelDashboardEdit()" class="btn-secondary">取消</button>
+              <button @click="saveDashboardLayout()" class="btn-primary">保存布局</button>
             </div>
-          </section>
-
-          <section x-show="dashboardWidgetEnabled('kpis')" class="dashboard-kpi-grid">
-            <button @click="selectTab('subscriptions')" class="dashboard-kpi kpi-primary">
-              <span class="kpi-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 4h10a2 2 0 012 2v14l-7-3-7 3V6a2 2 0 012-2z"/></svg></span>
-              <span class="kpi-copy"><small>活跃订阅</small><strong x-text="dashboardStats.activeSubs"></strong><em>持续追踪更新</em></span>
-              <span class="kpi-arrow">↗</span>
-            </button>
-            <button @click="selectTab('notifications')" class="dashboard-kpi kpi-cyan">
-              <span class="kpi-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0019 5"/></svg></span>
-              <span class="kpi-copy"><small>后台任务</small><strong x-text="dashboardStats.runningJobs"></strong><em x-text="dashboardStats.failedJobs ? dashboardStats.failedJobs + ' 个需要关注' : '运行状态良好'"></em></span>
-              <span class="kpi-arrow">↗</span>
-            </button>
-            <button @click="selectTab('downloads')" class="dashboard-kpi kpi-success">
-              <span class="kpi-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 3v12m0 0l4-4m-4 4l-4-4M5 21h14"/></svg></span>
-              <span class="kpi-copy"><small>实时下载</small><strong class="kpi-speed" x-text="formatSpeed(dashboardStats.downloadSpeed)"></strong><em>Aria2 当前速度</em></span>
-              <span class="kpi-arrow">↗</span>
-            </button>
-            <button @click="selectTab('notifications')" class="dashboard-kpi kpi-violet">
-              <span class="kpi-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0a3 3 0 11-6 0"/></svg></span>
-              <span class="kpi-copy"><small>通知收件箱</small><strong x-text="dashboardStats.unreadNotifications"></strong><em>条未读消息</em></span>
-              <span class="kpi-arrow">↗</span>
-            </button>
-          </section>
-
-          <div x-show="dashboardWidgetEnabled('library') || dashboardWidgetEnabled('operations')" class="dashboard-main-grid">
-            <section class="media-shelf app-panel">
-              <div class="panel-heading">
-                <div><h3>最近检查的订阅</h3><p>按最近检查时间排列，可直接查看进度与状态</p></div>
-                <button @click="selectTab('subscriptions')" class="text-action">查看全部 <span>→</span></button>
-              </div>
-              <div class="media-card-grid">
-                <template x-for="sub in dashboardRecentSubscriptions.slice(0, 6)" :key="sub.id">
-                  <button @click="selectTab('subscriptions')" class="media-card">
-                    <div class="media-poster">
-                      <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
-                      <div x-show="!subscriptionPoster(sub)" class="media-poster-fallback">
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16v12H4zM8 4v16m8-16v16M4 10h4m8 0h4"/></svg>
-                        <span x-text="mediaTypeLabel(sub.media_type)"></span>
-                      </div>
-                      <span class="media-status" :class="subscriptionStatusKey(sub)" x-text="subscriptionStatusLabel(sub)"></span>
-                      <div class="media-poster-shade"></div>
-                      <div class="media-rating" x-text="subscriptionRatingLabel(sub)"></div>
-                    </div>
-                    <div class="media-card-body">
-                      <h4 x-text="subscriptionDisplayTitle(sub)"></h4>
-                      <div class="media-meta"><span x-text="sub.media_type === 'movie' ? mediaTypeLabel(sub.media_type) : subscriptionSeasonLabel(sub)"></span><span x-text="subscriptionProgressLabel(sub)"></span></div>
-                      <div class="progress-inline"><span :style="'width:' + subscriptionProgressPercent(sub) + '%'"></span></div>
-                    </div>
-                  </button>
-                </template>
-                <button x-show="dashboardRecentSubscriptions.length === 0" @click="selectTab('search')" class="media-card media-card-add">
-                  <span>＋</span><strong>添加订阅</strong><small>搜索资源并创建追更任务</small>
-                </button>
-              </div>
-            </section>
-
-            <aside class="operations-column">
-              <section class="app-panel operations-panel">
-                <div class="panel-heading compact">
-                  <div><h3>夸克网盘状态</h3></div>
-                  <button @click="refreshQuarkHealth()" :disabled="quarkHealthLoading" class="icon-button small" title="检测夸克状态">
-                    <svg class="w-4 h-4" :class="quarkHealthLoading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5m11 11v-5h-5M5.1 9A8 8 0 0119 6.3M18.9 15A8 8 0 015 17.7"/></svg>
-                  </button>
-                </div>
-                <div class="cloud-health-head">
-                  <div class="cloud-health-icon" :class="quarkHealthStatusClass()"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M7 18h10a4 4 0 10-.8-7.9A6 6 0 105.4 15 3 3 0 007 18z"/></svg></div>
-                  <div><strong :class="quarkHealthStatusClass()" x-text="quarkHealthStatusLabel()"></strong><span x-text="quarkHealth.message || '等待检测账号状态'"></span></div>
-                </div>
-                <div class="cloud-metrics">
-                  <div><span>自动转存</span><strong :class="settings.quark_save_enabled ? 'text-success' : 'text-muted'" x-text="settings.quark_save_enabled ? '开启' : '关闭'"></strong></div>
-                  <div><span>今日签到</span><strong :class="quarkSigninTodayClass()" x-text="quarkSigninTodayLabel()"></strong></div>
-                  <div><span>网盘容量</span><strong x-text="quarkCapacityLabel()"></strong></div>
-                </div>
-                <div class="health-note" :class="(quarkHealth.issues || []).length ? 'has-issue' : ''"><span></span><p x-text="quarkHealthIssueText()"></p></div>
-              </section>
-
-              <section class="app-panel activity-panel automation-health-panel">
-                <div class="panel-heading compact"><div><h3>自动化执行状态</h3></div><button @click="loadAutomationSummary()" class="text-action">刷新</button></div>
-                <div class="grid grid-cols-3 gap-2 text-center text-xs"><div class="app-panel-soft p-2"><strong class="block text-lg text-success" x-text="Math.round(Number(automationSummary.success_rate || 0)) + '%'">0%</strong><span>成功率</span></div><div class="app-panel-soft p-2"><strong class="block text-lg text-danger" x-text="(automationSummary.recent_failed || []).length">0</strong><span>最近失败</span></div><div class="app-panel-soft p-2"><strong class="block text-lg text-warning" x-text="(automationSummary.stuck || []).length">0</strong><span>卡住</span></div></div>
-                <div class="activity-list mt-3"><template x-for="(event, eventIndex) in (automationSummary.recent_failed || []).slice(0, 3)" :key="'dashboard-event-' + (event.id || 'missing') + '-' + eventIndex"><button @click="event.subscription_id && openSubscriptionDetail(event.subscription_id)" class="activity-item"><span class="activity-dot failed"></span><span class="activity-copy"><strong x-text="automationStageLabel(event.stage)"></strong><small x-text="event.error || event.message"></small></span><time x-text="formatTime(event.updated_at)"></time></button></template><div x-show="!(automationSummary.recent_failed || []).length" class="activity-empty">最近没有失败阶段</div></div>
-              </section>
-
-              <section class="app-panel activity-panel">
-                <div class="panel-heading compact"><div><h3>最近活动</h3><p>后台任务与系统通知已合并</p></div><button @click="selectTab('notifications')" class="text-action">活动中心 →</button></div>
-                <div class="activity-list">
-                  <template x-for="(item, itemIndex) in dashboardRecentActivity.slice(0, 6)" :key="(item.source === 'job' ? 'dashboard-job-' : 'dashboard-notification-') + (item.id || 'missing') + '-' + itemIndex">
-                    <button @click="openDashboardActivity(item)" class="activity-item">
-                      <span :class="item.source === 'job' ? 'activity-dot ' + item.status : 'inbox-level ' + item.level"></span>
-                      <span class="activity-copy"><strong x-text="item.source === 'job' ? (item.title || jobKindLabel(item.event)) : item.title"></strong><small x-text="item.message || activityEventLabel(item)"></small></span>
-                      <time x-text="activityTimeLabel(item)"></time>
-                    </button>
-                  </template>
-                  <template x-if="dashboardRecentActivity.length === 0"><div class="activity-empty">暂无活动</div></template>
-                </div>
-              </section>
-            </aside>
           </div>
+
+          <div class="dashboard-zone dashboard-zone-compact">
+            <template x-for="card in dashboardCards('compact')" :key="'compact-' + card.id">
+              <section class="dash-card" :class="'span-' + card.span" :data-card="card.id">
+                <div x-show="dashboardEditing" class="dash-card-edit">
+                  <span x-text="card.name"></span>
+                  <span class="dash-card-edit-actions">
+                    <button @click="moveDashboardCard(card.id, -1)" title="上移">↑</button>
+                    <button @click="moveDashboardCard(card.id, 1)" title="下移">↓</button>
+                    <button @click="toggleDashboardCard(card.id)" title="隐藏">✕</button>
+                  </span>
+                </div>
+
+                <template x-if="card.id === 'command'">
+                  <div class="dash-command">
+                    <div class="dash-command-copy">
+                      <div class="hero-kicker"><span class="status-pulse"></span><span x-text="dashboardDateLabel()"></span></div>
+                      <p x-text="dashboardStatusSummary()"></p>
+                    </div>
+                    <div class="dash-command-actions">
+                      <button @click="checkAllSubscriptions()" :disabled="checkingAllSubscriptions" class="btn-primary">
+                        <svg class="w-4 h-4" :class="checkingAllSubscriptions ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5m11 11v-5h-5M5.1 9A8 8 0 0119 6.3M18.9 15A8 8 0 015 17.7"/></svg>
+                        <span x-text="checkingAllSubscriptions ? '检查中' : '检查全部订阅'"></span>
+                      </button>
+                      <button @click="selectTab('search')" class="btn-secondary">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5-5m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        搜索资源
+                      </button>
+                    </div>
+                  </div>
+                </template>
+
+                <template x-if="card.id === 'quick_actions'">
+                  <div class="pwa-quick-grid" aria-label="快捷入口">
+                    <button @click="runPwaShortcut('calendar-today')"><span>今</span><strong>今日更新</strong></button>
+                    <button @click="runPwaShortcut('calendar-missing')"><span>缺</span><strong>缺集</strong></button>
+                    <button @click="runPwaShortcut('failed-jobs')"><span>!</span><strong>失败任务</strong></button>
+                    <button @click="runPwaShortcut('downloads')"><span>↓</span><strong>下载进度</strong></button>
+                    <button @click="runPwaShortcut('quark-signin')"><span>✓</span><strong>夸克签到</strong></button>
+                    <button x-show="pwaInstallAvailable" @click="installPwa()"><span>↥</span><strong>安装应用</strong></button>
+                  </div>
+                </template>
+
+                <template x-if="card.id === 'kpis'">
+                  <div class="dashboard-stat-row">
+                    <template x-for="tile in dashboardTiles()" :key="tile.id">
+                      <button @click="openDashboardTile(tile.id)" class="dashboard-stat" :class="'is-' + tile.tone" :title="tile.hint">
+                        <small x-text="tile.label"></small>
+                        <strong x-text="tile.value"></strong>
+                        <em x-text="tile.hint"></em>
+                      </button>
+                    </template>
+                  </div>
+                </template>
+              </section>
+            </template>
+          </div>
+
+          <div class="dashboard-zone dashboard-zone-panels">
+            <template x-for="card in dashboardCards('panel')" :key="'panel-' + card.id">
+              <section class="dash-card is-panel" :class="'span-' + card.span" :data-card="card.id">
+                <div x-show="dashboardEditing" class="dash-card-edit">
+                  <span x-text="card.name"></span>
+                  <span class="dash-card-edit-actions">
+                    <button @click="moveDashboardCard(card.id, -1)" title="上移">↑</button>
+                    <button @click="moveDashboardCard(card.id, 1)" title="下移">↓</button>
+                    <button @click="toggleDashboardCard(card.id)" title="隐藏">✕</button>
+                  </span>
+                </div>
+
+                <template x-if="card.id === 'library'">
+                  <div class="dash-panel-body">
+                    <div class="panel-heading compact">
+                      <div><h3>订阅看板</h3><p>追更中的订阅，按最近检查排序</p></div>
+                      <button @click="selectTab('subscriptions')" class="text-action">查看全部 <span>→</span></button>
+                    </div>
+                    <div class="watchlist">
+                      <template x-for="sub in dashboardWatchlist" :key="'watch-' + sub.id">
+                        <button @click="openSubscriptionDetail(sub)" class="watchlist-row">
+                          <span class="watchlist-title">
+                            <strong x-text="subscriptionDisplayTitle(sub)"></strong>
+                            <small x-text="sub.media_type === 'movie' ? mediaTypeLabel(sub.media_type) : subscriptionSeasonLabel(sub)"></small>
+                          </span>
+                          <span class="watchlist-progress">
+                            <span class="progress-inline"><span :style="'width:' + subscriptionProgressPercent(sub) + '%'"></span></span>
+                            <small x-text="subscriptionProgressLabel(sub)"></small>
+                          </span>
+                          <time x-text="formatTime(sub.last_checked_at)"></time>
+                        </button>
+                      </template>
+                      <div x-show="dashboardWatchlist.length === 0" class="activity-empty">没有追更中的订阅</div>
+                    </div>
+                  </div>
+                </template>
+
+                <template x-if="card.id === 'cloud'">
+                  <div class="dash-panel-body">
+                    <div class="panel-heading compact">
+                      <div><h3>夸克网盘</h3></div>
+                      <button @click="refreshQuarkHealth()" :disabled="quarkHealthLoading" class="icon-button small" title="检测夸克状态">
+                        <svg class="w-4 h-4" :class="quarkHealthLoading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5m11 11v-5h-5M5.1 9A8 8 0 0119 6.3M18.9 15A8 8 0 015 17.7"/></svg>
+                      </button>
+                    </div>
+                    <div class="cloud-health-head">
+                      <div class="cloud-health-icon" :class="quarkHealthStatusClass()"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M7 18h10a4 4 0 10-.8-7.9A6 6 0 105.4 15 3 3 0 007 18z"/></svg></div>
+                      <div><strong :class="quarkHealthStatusClass()" x-text="quarkHealthStatusLabel()"></strong><span x-text="quarkHealth.message || '等待检测账号状态'"></span></div>
+                    </div>
+                    <div class="cloud-metrics">
+                      <div><span>自动转存</span><strong :class="settings.quark_save_enabled ? 'text-success' : 'text-muted'" x-text="settings.quark_save_enabled ? '开启' : '关闭'"></strong></div>
+                      <div><span>今日签到</span><strong :class="quarkSigninTodayClass()" x-text="quarkSigninTodayLabel()"></strong></div>
+                      <div><span>网盘容量</span><strong x-text="quarkCapacityLabel()"></strong></div>
+                    </div>
+                    <div x-show="(quarkHealth.issues || []).length" class="health-note has-issue"><span></span><p x-text="quarkHealthIssueText()"></p></div>
+                  </div>
+                </template>
+
+                <template x-if="card.id === 'automation'">
+                  <div class="dash-panel-body">
+                    <div class="panel-heading compact"><div><h3>自动化执行</h3></div><button @click="loadAutomationSummary()" class="text-action">刷新</button></div>
+                    <div class="automation-figures">
+                      <div><strong class="text-success" x-text="Math.round(Number(automationSummary.success_rate || 0)) + '%'">0%</strong><span>成功率</span></div>
+                      <div><strong :class="(automationSummary.recent_failed || []).length ? 'text-danger' : 'text-muted'" x-text="(automationSummary.recent_failed || []).length">0</strong><span>最近失败</span></div>
+                      <div><strong :class="(automationSummary.stuck || []).length ? 'text-warning' : 'text-muted'" x-text="(automationSummary.stuck || []).length">0</strong><span>卡住</span></div>
+                    </div>
+                    <div x-show="(automationSummary.recent_failed || []).length" class="activity-list">
+                      <template x-for="(event, eventIndex) in (automationSummary.recent_failed || []).slice(0, 4)" :key="'dashboard-event-' + (event.id || 'missing') + '-' + eventIndex">
+                        <button @click="event.subscription_id && openSubscriptionDetail(event.subscription_id)" class="activity-item">
+                          <span class="activity-dot failed"></span>
+                          <span class="activity-copy"><strong x-text="automationStageLabel(event.stage)"></strong><small x-text="event.error || event.message"></small></span>
+                          <time x-text="formatTime(event.updated_at)"></time>
+                        </button>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+
+                <template x-if="card.id === 'activity'">
+                  <div class="dash-panel-body">
+                    <div class="panel-heading compact"><div><h3>最近活动</h3></div><button @click="selectTab('notifications')" class="text-action">活动中心 →</button></div>
+                    <div class="activity-list">
+                      <template x-for="(item, itemIndex) in dashboardRecentActivity" :key="(item.source === 'job' ? 'dashboard-job-' : 'dashboard-notification-') + (item.id || 'missing') + '-' + itemIndex">
+                        <button @click="openDashboardActivity(item)" class="activity-item">
+                          <span :class="item.source === 'job' ? 'activity-dot ' + item.status : 'inbox-level ' + item.level"></span>
+                          <span class="activity-copy"><strong x-text="item.source === 'job' ? (item.title || jobKindLabel(item.event)) : item.title"></strong><small x-text="item.message || activityEventLabel(item)"></small></span>
+                          <time x-text="activityTimeLabel(item)"></time>
+                        </button>
+                      </template>
+                      <div x-show="dashboardRecentActivity.length === 0" class="activity-empty">暂无活动</div>
+                    </div>
+                  </div>
+                </template>
+              </section>
+            </template>
+          </div>
+
+          <div x-show="dashboardLayout.length === 0" class="app-panel empty-state">所有卡片都已隐藏，点右上角「编辑工作台」重新添加。</div>
         </div>
         <!-- 更新日历 -->
         <div x-show="currentTab === 'calendar'" class="page-stack calendar-page">
-          <section class="calendar-toolbar app-panel">
+          <section class="calendar-toolbar app-panel is-compact">
             <div class="calendar-toolbar-main">
-              <div>
-                <span class="panel-eyebrow">MEDIA SCHEDULE</span>
+              <div class="calendar-range">
                 <h3 x-text="calendarRangeLabel()"></h3>
-                <p>上海时区 · 自然周从周一开始 · 检查计划不等于播出计划</p>
+                <p>上海时区 · 检查计划不等于播出计划</p>
               </div>
               <div class="calendar-nav-actions">
                 <button @click="shiftCalendar(-1)" class="icon-button" aria-label="上一周期">←</button>
                 <button @click="resetCalendarToday()" class="btn-secondary">今天</button>
                 <button @click="shiftCalendar(1)" class="icon-button" aria-label="下一周期">→</button>
+              </div>
+              <div class="calendar-inline-metrics">
+                <span><strong x-text="calendarSummary.total"></strong>项</span>
+                <span class="is-primary">今日 <strong x-text="calendarSummary.by_status.today || 0"></strong></span>
+                <span class="is-warning">待处理 <strong x-text="(calendarSummary.by_status.aired_undiscovered || 0) + (calendarSummary.by_status.discovered_pending_transfer || 0) + (calendarSummary.by_status.transferred_pending_download || 0)"></strong></span>
+                <span class="is-danger">缺集 <strong x-text="calendarSummary.by_status.completed_missing || 0"></strong></span>
               </div>
             </div>
             <div class="calendar-toolbar-filters">
@@ -326,13 +360,6 @@
               </select>
             </div>
           </section>
-
-          <div class="calendar-metrics">
-            <div class="stat-tile"><span>日历项目</span><strong x-text="calendarSummary.total"></strong><small x-text="calendarSummary.subscriptions + ' 个订阅'"></small></div>
-            <div class="stat-tile is-primary"><span>今日更新</span><strong x-text="calendarSummary.by_status.today || 0"></strong><small>按上海自然日</small></div>
-            <div class="stat-tile is-warning"><span>待处理</span><strong x-text="(calendarSummary.by_status.aired_undiscovered || 0) + (calendarSummary.by_status.discovered_pending_transfer || 0) + (calendarSummary.by_status.transferred_pending_download || 0)"></strong><small>发现、转存与下载</small></div>
-            <div class="stat-tile is-danger"><span>完结缺集</span><strong x-text="calendarSummary.by_status.completed_missing || 0"></strong><small>优先检查补集</small></div>
-          </div>
 
           <div x-show="calendarLoading" class="calendar-state app-panel"><span class="loading-spinner"></span><strong>正在整理媒体排期</strong><small>合并元数据、转存与下载状态</small></div>
           <div x-show="!calendarLoading && calendarError" class="calendar-state app-panel is-error"><strong>日历加载失败</strong><small x-text="calendarError"></small><button @click="loadCalendar()" class="btn-secondary">重试</button></div>
@@ -860,20 +887,15 @@
 
         <!-- 下载任务页面 -->
         <div x-show="currentTab === 'downloads'" class="page-stack">
-          <div class="metric-grid">
-            <div class="stat-tile p-4"><div class="text-xs text-muted/75">正在下载</div><div class="mt-2 text-2xl font-semibold text-primary" x-text="downloadCategoryTasks('downloading').length"></div></div>
-            <div class="stat-tile p-4"><div class="text-xs text-muted/75">队列中</div><div class="mt-2 text-2xl font-semibold text-warning" x-text="downloadCategoryTasks('queued').length"></div></div>
-            <div class="stat-tile p-4"><div class="text-xs text-muted/75">已完成</div><div class="mt-2 text-2xl font-semibold text-success" x-text="downloadCategoryTasks('completed').length"></div></div>
-            <div class="stat-tile p-4"><div class="text-xs text-muted/75">下载失败</div><div class="mt-2 text-2xl font-semibold text-danger" x-text="downloadCategoryTasks('failed').length"></div></div>
-            <div class="stat-tile p-4"><div class="text-xs text-muted/75">总速度</div><div class="mt-2 text-lg font-semibold text-success" x-text="formatSpeed(downloadStats.speed)"></div></div>
-            <div class="stat-tile p-4"><div class="text-xs text-muted/75">订阅关联</div><div class="mt-2 text-2xl font-semibold text-primary" x-text="downloadAutomationStats.linked"></div></div>
-          </div>
-
           <div class="app-panel list-surface">
             <div class="p-4 border-b border-border toolbar-panel">
               <div>
                 <h3 class="section-title">Aria2 下载任务</h3>
-                <p class="text-sm text-muted/75 mt-1" x-text="downloadsError || (downloadsUpdatedAt ? '更新时间 ' + new Date(downloadsUpdatedAt).toLocaleTimeString() : '等待刷新')"></p>
+                <p class="text-sm text-muted/75 mt-1">
+                  <span x-text="downloadsError || (downloadsUpdatedAt ? '更新时间 ' + new Date(downloadsUpdatedAt).toLocaleTimeString() : '等待刷新')"></span>
+                  <span class="text-muted/50"> · </span><span>总速度 <strong class="text-success" x-text="formatSpeed(downloadStats.speed)"></strong></span>
+                  <span class="text-muted/50"> · </span><span>订阅关联 <strong class="text-primary" x-text="downloadAutomationStats.linked"></strong></span>
+                </p>
               </div>
               <div class="control-row">
                 <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="downloadsAutoRefresh" @change="downloadsAutoRefresh ? startDownloadsPolling() : stopDownloadsPolling()" class="rounded" /><span>实时刷新</span></label>
@@ -883,13 +905,21 @@
               </div>
             </div>
 
-            <div class="p-4 space-y-4">
+            <div class="download-tabs" role="tablist" aria-label="下载任务分类">
+              <template x-for="category in downloadCategoryList" :key="'download-tab-' + category.id">
+                <button role="tab" :aria-selected="downloadActiveCategory === category.id"
+                        @click="selectDownloadCategory(category.id)"
+                        :class="downloadActiveCategory === category.id ? 'is-active' : ''"
+                        class="download-tab" :title="category.description">
+                  <span x-text="category.name"></span>
+                  <em :class="'is-' + category.id" x-text="downloadCategoryTasks(category.id).length"></em>
+                </button>
+              </template>
+            </div>
+
+            <div class="p-4">
               <template x-for="category in downloadCategoryList" :key="'download-category-' + category.id">
-                <section class="app-panel-soft overflow-hidden">
-                  <div class="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between px-4 py-3 border-b border-border">
-                    <div><h3 class="text-sm font-semibold text-text" x-text="category.name + '（' + downloadCategoryTasks(category.id).length + '）'"></h3><p class="text-xs text-muted/70 mt-1" x-text="category.description"></p></div>
-                    <span class="badge" :class="category.id === 'failed' ? 'badge-danger' : (category.id === 'completed' ? 'badge-success' : (category.id === 'queued' ? 'badge-warning' : 'badge-primary'))" x-text="category.name"></span>
-                  </div>
+                <section x-show="downloadActiveCategory === category.id" class="overflow-hidden">
                   <div class="data-table data-table--stack data-table--downloads">
                     <div class="data-table-scroll">
                       <div class="data-table-head grid-cols-[minmax(280px,1.7fr)_92px_150px_92px_92px_110px_220px] px-3">
@@ -1376,11 +1406,12 @@
             <div class="p-4 border-b border-border toolbar-panel">
               <div>
                 <h3 class="section-title">活动中心</h3>
-                <p class="text-sm text-muted/75 mt-1">后台任务和系统通知按时间合并展示；失败任务可直接重试，通知仍可单独标记已读。</p>
+                <p class="text-sm text-muted/75 mt-1">后台任务和系统通知按时间合并展示；推送派发任务不在此列出。失败任务可直接重试，通知仍可单独标记已读。</p>
               </div>
               <div class="control-row">
                 <button @click="markAllRead()" class="btn-secondary px-3 py-2 rounded-lg transition-colors text-sm">全部已读</button>
                 <button @click="clearNotifications()" class="btn-danger px-3 py-2 rounded-lg transition-colors text-sm">清空通知</button>
+                <button @click="clearJobLogs()" class="btn-danger px-3 py-2 rounded-lg transition-colors text-sm">清除日志</button>
                 <button @click="loadActivity()" class="btn-secondary px-3 py-2 rounded-lg transition-colors text-sm">刷新</button>
               </div>
             </div>
@@ -1521,20 +1552,7 @@
             <div class="settings-content min-w-0">
 
             <!-- 基础设置 -->
-            <div x-show="currentSettingsTab === 'connections'" class="p-4 sm:p-6 space-y-6">
-              <div class="app-panel-soft p-4 space-y-4">
-                <h3 class="section-title">账号设置</h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label class="field-label">用户名</label><input type="text" x-model="settings.app_username" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
-                  <div>
-                    <label class="field-label">密码</label>
-                    <div class="setting-input-action">
-                      <input type="text" x-model="settings.app_password" @focus="prepareSecretInput('app_password')" placeholder="留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
-                      <button type="button" @click="toggleSettingSecret('app_password')" :disabled="secretToggleDisabled('app_password')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('app_password')"></button>
-                    </div>
-                  </div>
-                </div>
-              </div>
+            <div x-show="currentSettingsTab === 'library'" class="settings-pane p-4 sm:p-5">
 
               <div class="app-panel-soft p-4 space-y-4">
                 <h3 class="section-title">Aria2 配置</h3>
@@ -1588,14 +1606,14 @@
                 </div>
               </div>
 
-              <div class="flex justify-end gap-3 pt-4 border-t border-border">
+              <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="testAria2()" class="btn-secondary px-4 py-2 rounded-lg">测试 Aria2</button>
                 <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
 
             <!-- 夸克网盘 -->
-            <div x-show="currentSettingsTab === 'connections'" class="p-4 sm:p-6 space-y-6">
+            <div x-show="currentSettingsTab === 'quark'" class="settings-pane p-4 sm:p-5">
               <div class="app-panel-soft p-4 space-y-4">
                 <h3 class="section-title">夸克配置</h3>
                 <div>
@@ -1710,14 +1728,14 @@
                 </div>
               </div>
 
-              <div class="flex justify-end gap-3 pt-4 border-t border-border">
+              <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="testQuark()" class="btn-secondary px-4 py-2 rounded-lg">测试连接</button>
                 <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
 
             <!-- 消息推送 -->
-            <div x-show="currentSettingsTab === 'notifications'" class="p-4 sm:p-6 space-y-6">
+            <div x-show="currentSettingsTab === 'notifications'" class="settings-pane p-4 sm:p-5">
               <div class="app-panel-soft p-4 space-y-4">
                 <h3 class="section-title">推送事件</h3>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1868,14 +1886,14 @@
                 </div>
               </div>
 
-              <div class="flex justify-end gap-3 pt-4 border-t border-border">
+              <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="testPush()" class="btn-secondary px-4 py-2 rounded-lg">测试推送</button>
                 <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
 
             <!-- 自动化 -->
-            <div x-show="currentSettingsTab === 'automation'" class="p-4 sm:p-6 space-y-6">
+            <div x-show="currentSettingsTab === 'automation'" class="settings-pane p-4 sm:p-5">
               <div class="app-panel-soft p-4 space-y-4">
                 <h3 class="section-title">订阅自动化</h3>
                 <div class="space-y-3">
@@ -1947,13 +1965,13 @@
                 </div>
               </div>
 
-              <div class="flex justify-end gap-3 pt-4 border-t border-border">
+              <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
 
             <!-- 规则中心 -->
-            <div x-show="currentSettingsTab === 'naming'" class="p-4 sm:p-6 space-y-6">
+            <div x-show="currentSettingsTab === 'naming'" class="settings-pane p-4 sm:p-5">
               <div class="app-panel-soft p-4 space-y-4">
                 <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div>
@@ -2073,13 +2091,26 @@
                 </div>
               </div>
 
-              <div class="flex justify-end gap-3 pt-4 border-t border-border">
+              <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
 
             <!-- 高级设置 -->
-            <div x-show="currentSettingsTab === 'maintenance'" class="p-4 sm:p-6 space-y-6">
+            <div x-show="currentSettingsTab === 'advanced'" class="settings-pane p-4 sm:p-5">
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">账号设置</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div><label class="field-label">用户名</label><input type="text" x-model="settings.app_username" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                  <div>
+                    <label class="field-label">密码</label>
+                    <div class="setting-input-action">
+                      <input type="text" x-model="settings.app_password" @focus="prepareSecretInput('app_password')" placeholder="留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                      <button type="button" @click="toggleSettingSecret('app_password')" :disabled="secretToggleDisabled('app_password')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('app_password')"></button>
+                    </div>
+                  </div>
+                </div>
+              </div>
               <div class="app-panel-soft p-4 space-y-4">
                 <h3 class="section-title">高级选项</h3>
                 <div>
@@ -2100,13 +2131,13 @@
                 </div>
               </div>
 
-              <div class="flex justify-end gap-3 pt-4 border-t border-border">
+              <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
 
             <!-- 在线更新 -->
-            <div x-show="currentSettingsTab === 'maintenance'" class="p-4 sm:p-6 space-y-6">
+            <div x-show="currentSettingsTab === 'update'" class="settings-pane p-4 sm:p-5">
               <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <div class="stat-tile p-4">
                   <div class="text-xs text-muted/75">当前版本</div>
@@ -2848,29 +2879,29 @@
     </div>
   </div>
   <!-- Alpine.js 应用逻辑 -->
-  <script src="js/core/api.js?v=2.2.17"></script>
-  <script src="js/core/formatters.js?v=2.2.17"></script>
-  <script src="js/core/ux.js?v=2.2.17"></script>
-  <script src="js/features/search-results.js?v=2.2.17"></script>
-  <script src="js/features/subscription-detail.js?v=2.2.17"></script>
-  <script src="js/features/calendar.js?v=2.2.17"></script>
-  <script src="js/features/source-switch.js?v=2.2.17"></script>
-  <script src="js/features/automation-events.js?v=2.2.17"></script>
-  <script src="js/core/polling.js?v=2.2.17"></script>
-  <script src="js/core/router.js?v=2.2.17"></script>
-  <script src="js/core/notifications.js?v=2.2.17"></script>
-  <script src="js/stores/downloads.js?v=2.2.17"></script>
-  <script src="js/stores/drive.js?v=2.2.17"></script>
-  <script src="js/stores/jobs.js?v=2.2.17"></script>
-  <script src="js/stores/subscriptions.js?v=2.2.17"></script>
-  <script src="js/features/updates.js?v=2.2.17"></script>
-  <script src="js/features/settings.js?v=2.2.17"></script>
-  <script src="js/features/diagnostics.js?v=2.2.17"></script>
-  <script src="js/features/pwa.js?v=2.2.17"></script>
-  <script src="js/features/dashboard.js?v=2.2.17"></script>
-  <script src="js/features/search-page.js?v=2.2.17"></script>
-  <script src="js/features/calendar-page.js?v=2.2.17"></script>
-  <script src="js/core/shell.js?v=2.2.17"></script>
-  <script src="app.js?v=2.2.17"></script>
+  <script src="js/core/api.js?v=2.2.18"></script>
+  <script src="js/core/formatters.js?v=2.2.18"></script>
+  <script src="js/core/ux.js?v=2.2.18"></script>
+  <script src="js/features/search-results.js?v=2.2.18"></script>
+  <script src="js/features/subscription-detail.js?v=2.2.18"></script>
+  <script src="js/features/calendar.js?v=2.2.18"></script>
+  <script src="js/features/source-switch.js?v=2.2.18"></script>
+  <script src="js/features/automation-events.js?v=2.2.18"></script>
+  <script src="js/core/polling.js?v=2.2.18"></script>
+  <script src="js/core/router.js?v=2.2.18"></script>
+  <script src="js/core/notifications.js?v=2.2.18"></script>
+  <script src="js/stores/downloads.js?v=2.2.18"></script>
+  <script src="js/stores/drive.js?v=2.2.18"></script>
+  <script src="js/stores/jobs.js?v=2.2.18"></script>
+  <script src="js/stores/subscriptions.js?v=2.2.18"></script>
+  <script src="js/features/updates.js?v=2.2.18"></script>
+  <script src="js/features/settings.js?v=2.2.18"></script>
+  <script src="js/features/diagnostics.js?v=2.2.18"></script>
+  <script src="js/features/pwa.js?v=2.2.18"></script>
+  <script src="js/features/dashboard.js?v=2.2.18"></script>
+  <script src="js/features/search-page.js?v=2.2.18"></script>
+  <script src="js/features/calendar-page.js?v=2.2.18"></script>
+  <script src="js/core/shell.js?v=2.2.18"></script>
+  <script src="app.js?v=2.2.18"></script>
 </body>
 </html>
