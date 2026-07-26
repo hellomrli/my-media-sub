@@ -15,6 +15,9 @@ use super::response::ApiResponse as Response;
 use crate::error::{AppError, Result};
 use crate::jobs::{Job, JobPriority, JobQueue, JobStore};
 
+/// SSE 转发缓冲：足够吸收任务事件突发，又不至于在客户端读得慢时无限堆积。
+const SSE_CHANNEL_CAPACITY: usize = 64;
+
 pub struct JobState {
     pub store: Arc<JobStore>,
     pub queue: Arc<JobQueue>,
@@ -101,18 +104,43 @@ async fn job_events(
 ) -> Result<Sse<impl tokio_stream::Stream<Item = std::result::Result<Event, Infallible>>>> {
     let snapshot = state.store.list().await;
     let snapshot_data = serde_json::to_string(&snapshot).unwrap_or_else(|_| "[]".to_string());
-    let snapshot_stream =
-        tokio_stream::once(Ok(Event::default().event("snapshot").data(snapshot_data)));
+    let mut updates = BroadcastStream::new(state.store.subscribe());
 
-    let updates = BroadcastStream::new(state.store.subscribe()).filter_map(|event| match event {
-        Ok(job) => {
-            let data = serde_json::to_string(&job).ok()?;
-            Some(Ok(Event::default().event("job").data(data)))
+    // 事件经由 channel 转发，而不是直接把广播流交给 Sse：这样关闭开始时可以主动
+    // 结束这条流。SSE 永远不会自己结束，而 axum 的优雅关闭要等所有在途连接收尾，
+    // 否则在线升级重启会被浏览器里开着的这条连接永久卡住。
+    let (sender, receiver) = tokio::sync::mpsc::channel(SSE_CHANNEL_CAPACITY);
+    tokio::spawn(async move {
+        if sender
+            .send(Ok(Event::default().event("snapshot").data(snapshot_data)))
+            .await
+            .is_err()
+        {
+            return;
         }
-        Err(_) => None,
+        loop {
+            tokio::select! {
+                biased;
+                _ = crate::shutdown::wait() => break,
+                event = updates.next() => match event {
+                    // 落后的订阅者会收到 Lagged，跳过继续跟进最新事件。
+                    Some(Err(_)) => continue,
+                    Some(Ok(job)) => {
+                        let Ok(data) = serde_json::to_string(&job) else { continue };
+                        if sender.send(Ok(Event::default().event("job").data(data))).await.is_err() {
+                            break;
+                        }
+                    }
+                    None => break,
+                },
+            }
+        }
     });
 
-    Ok(Sse::new(snapshot_stream.chain(updates)).keep_alive(KeepAlive::default()))
+    Ok(
+        Sse::new(tokio_stream::wrappers::ReceiverStream::new(receiver))
+            .keep_alive(KeepAlive::default()),
+    )
 }
 
 pub fn routes(store: Arc<JobStore>, queue: Arc<JobQueue>) -> Router {

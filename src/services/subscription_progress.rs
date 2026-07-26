@@ -83,15 +83,20 @@ pub fn reopen_completed_subscription_status(sub: &mut Subscription) -> bool {
 }
 
 /// Reconcile persisted completion flags after totals, rules, or metadata change.
-/// Automatic-transfer subscriptions complete from transferred evidence, notify-only
-/// subscriptions from discovered evidence, and download-synced subscriptions remain
-/// active until the download monitor records the target as completed.
+/// Automatic-transfer subscriptions complete from transferred evidence and notify-only
+/// subscriptions from discovered evidence.
+///
+/// 同步下载订阅同样按转存证据完结。此前它们被排除在外，完全依赖下载监视器把目标集的
+/// `sync_downloads` 记录标成已完成——而 Aria2 的任务历史是易失的（重启、结果条数上限、
+/// 手动清理都会丢），`completed_at` 常年填不上，订阅就永远停在追更中；没有任何下载记录
+/// 的订阅更是结构性地无法完结。追更是否结束取决于片源是否出齐并已转存，本地镜像下载
+/// 属于投递环节，不该成为完结的唯一凭据。下载监视器的判定保留为额外触发路径。
 pub fn reconcile_completed_subscription_status(sub: &mut Subscription) -> bool {
     backfill_total_episode_from_metadata(sub);
     if reopen_completed_subscription_status(sub) {
         return true;
     }
-    if sub.completed || sub.status == "completed" || sub.sync_download_enabled {
+    if sub.completed || sub.status == "completed" {
         // 历史数据里 completed 与 status 可能不一致，会让列表分组把已完结订阅算进追更中。
         if sub.completed && sub.status == "active" {
             sub.status = "completed".to_string();
@@ -293,16 +298,53 @@ mod tests {
     }
 
     #[test]
-    fn reconcile_uses_known_target_for_notify_only_but_waits_for_synced_downloads() {
+    fn reconcile_uses_known_target_for_notify_only() {
         let mut notify_only = subscription();
         notify_only.notify_only = true;
         notify_only.known_episodes.push(12);
         assert!(reconcile_completed_subscription_status(&mut notify_only));
         assert!(notify_only.completed);
+    }
 
+    /// 同步下载订阅曾被排除在完结判定外，完全依赖下载监视器给 `sync_downloads`
+    /// 标 `completed_at`。Aria2 的任务历史是易失的，这个标记常年填不上，
+    /// 于是片源已出齐、全部转存完毕的订阅永远停在追更中；连一条下载记录都没有的
+    /// 订阅更是无法完结。转存证据现在同样适用于它们。
+    #[test]
+    fn synced_download_subscription_completes_from_transferred_evidence() {
         let mut synced = subscription();
         synced.sync_download_enabled = true;
         synced.transferred_files = vec!["Show.S01E12.mkv".to_string()];
+
+        assert!(reconcile_completed_subscription_status(&mut synced));
+        assert!(synced.completed);
+        assert_eq!(synced.status, "completed");
+    }
+
+    #[test]
+    fn synced_download_subscription_without_download_records_still_completes() {
+        // 线上真实形态：转存已完成、sync_downloads 为空，此前永远无法完结。
+        let mut synced = subscription();
+        synced.sync_download_enabled = true;
+        synced.sync_downloads.clear();
+        synced.total_episode_number = Some(14);
+        synced.known_episodes = vec![13, 14];
+        synced.current_episode_number = 14;
+        synced.transferred_files = vec![
+            "My.Royal.Nemesis.S01E13.2026.1080p.NF.WEB-DL.x264.AAC.mkv".to_string(),
+            "My.Royal.Nemesis.S01E14.2026.1080p.NF.WEB-DL.x264.AAC.mkv".to_string(),
+        ];
+
+        assert!(reconcile_completed_subscription_status(&mut synced));
+        assert!(synced.completed);
+    }
+
+    #[test]
+    fn synced_download_subscription_stays_active_before_target_episode() {
+        let mut synced = subscription();
+        synced.sync_download_enabled = true;
+        synced.transferred_files = vec!["Show.S01E11.mkv".to_string()];
+
         assert!(!reconcile_completed_subscription_status(&mut synced));
         assert!(!synced.completed);
     }
