@@ -1984,3 +1984,251 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
       minmax(0, 2.6fr) minmax(104px, 1.1fr) minmax(120px, 1.3fr);
   }
 }
+
+/* ─── P19 工作台：卡片化仪表盘 ─────────────────────────────────────────────
+   页面本身不滚动：compact 区按内容高度排布，panel 区平分剩余高度，
+   长列表只在卡片内部滚动。卡片顺序与可见性来自 settings.dashboard_widgets。 */
+.dashboard-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 1800px;
+  margin: 0 auto;
+}
+@media (min-width: 1024px) {
+  /* 侧边栏出现后主区才有确定高度，这时才能安全地把工作台钉在一屏内 */
+  .dashboard-page { height: 100%; min-height: 0; }
+  .dashboard-zone-panels { flex: 1; min-height: 0; }
+}
+
+.dashboard-zone {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 12px;
+  align-content: start;
+}
+
+.dash-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  grid-column: span 12;
+  min-width: 0;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
+  background: rgb(var(--c-surface));
+}
+.dash-card.is-panel { min-height: 0; overflow: hidden; }
+.dash-card > .dash-command,
+.dash-card > .pwa-quick-grid { padding: 14px 16px; }
+/* 指标卡本身不再画框：格子自己就是卡片，套两层边框会显得很吵 */
+.dash-card[data-card="kpis"] { border: 0; background: transparent; }
+.dash-panel-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 15px 16px;
+}
+.dash-panel-body .panel-heading { flex: 0 0 auto; }
+.dash-card.is-panel .activity-list,
+.dash-card.is-panel .watchlist { flex: 1; min-height: 0; overflow-y: auto; }
+
+@media (min-width: 1024px) {
+  .dash-card.span-4 { grid-column: span 4; }
+  .dash-card.span-5 { grid-column: span 5; }
+  .dash-card.span-7 { grid-column: span 7; }
+  .dash-card.span-8 { grid-column: span 8; }
+}
+@media (min-width: 640px) and (max-width: 1023px) {
+  .dash-card.span-4,
+  .dash-card.span-5,
+  .dash-card.span-7,
+  .dash-card.span-8 { grid-column: span 6; }
+}
+
+/* 概览与操作 */
+.dash-command { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; }
+.dash-command-copy { min-width: 0; }
+.dash-command-copy p { margin-top: 5px; color: rgb(var(--c-text) / .82); font-size: 14px; }
+.dash-command-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.dash-command-actions button { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 0 14px; border-radius: 10px; font-size: 13px; white-space: nowrap; }
+
+/* 指标格 */
+.dashboard-stat-row { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; }
+.dashboard-stat {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  padding: 11px 13px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-tight);
+  background: rgb(var(--c-surface));
+  text-align: left;
+}
+.dashboard-stat:hover { border-color: rgb(var(--c-primary) / .45); background: rgb(var(--c-primary) / .06); }
+.dashboard-stat small { color: rgb(var(--c-muted) / .72); font-size: 11px; }
+.dashboard-stat strong { color: var(--app-text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 22px; line-height: 1.15; }
+.dashboard-stat em { overflow: hidden; color: rgb(var(--c-muted) / .5); font-size: 10px; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+.dashboard-stat.is-primary strong { color: var(--app-primary); }
+.dashboard-stat.is-success strong { color: rgb(var(--c-success)); }
+.dashboard-stat.is-cyan strong { color: rgb(var(--c-cyan)); }
+.dashboard-stat.is-violet strong { color: rgb(var(--c-violet)); }
+.dashboard-stat.is-warning strong { color: rgb(var(--c-warning)); }
+.dashboard-stat.is-warning { border-color: rgb(var(--c-warning) / .34); }
+.dashboard-stat.is-danger strong { color: rgb(var(--c-danger)); }
+.dashboard-stat.is-danger { border-color: rgb(var(--c-danger) / .34); background: rgb(var(--c-danger) / .05); }
+/* 计数为 0 的异常项保持静默，一屏都是红黄就看不出重点了 */
+.dashboard-stat.is-idle strong { color: rgb(var(--c-muted) / .62); }
+@media (max-width: 1439px) { .dashboard-stat-row { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 767px) { .dashboard-stat-row { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .dashboard-stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* 订阅看板：密度优先，一行一个订阅 */
+.watchlist { display: flex; flex-direction: column; }
+.watchlist-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(110px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 9px;
+  border-radius: 9px;
+  text-align: left;
+  background: transparent;
+}
+.watchlist-row:hover { background: rgb(var(--c-primary) / .07); }
+.watchlist-title { min-width: 0; }
+.watchlist-title strong { display: block; overflow: hidden; color: rgb(var(--c-text) / .9); font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.watchlist-title small { color: rgb(var(--c-muted) / .55); font-size: 11px; }
+.watchlist-progress { display: grid; gap: 5px; min-width: 0; }
+.watchlist-progress small { color: rgb(var(--c-muted) / .62); font-size: 11px; }
+.watchlist-row time { color: rgb(var(--c-muted) / .48); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; white-space: nowrap; }
+@media (max-width: 640px) {
+  .watchlist-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .watchlist-progress { grid-column: 1 / -1; }
+}
+
+/* 自动化执行 */
+.automation-figures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; text-align: center; }
+.automation-figures div { padding: 9px 6px; border: 1px solid rgb(var(--c-border) / .5); border-radius: 11px; background: rgb(var(--c-bg) / .45); }
+.automation-figures strong { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 18px; line-height: 1.15; }
+.automation-figures span { color: rgb(var(--c-muted) / .6); font-size: 11px; }
+
+/* 编辑态 */
+.dashboard-editbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 14px; border-color: rgb(var(--c-primary) / .45) !important; }
+.dashboard-editbar-copy strong { display: block; color: var(--app-text); font-size: 13px; }
+.dashboard-editbar-copy span { color: rgb(var(--c-muted) / .65); font-size: 11px; }
+.dashboard-editbar-tray { display: flex; flex: 1; flex-wrap: wrap; gap: 6px; min-width: 160px; }
+.dashboard-editbar-empty { color: rgb(var(--c-muted) / .55); font-size: 11px; }
+.dashboard-chip { padding: 5px 11px; border: 1px dashed rgb(var(--c-primary) / .5); border-radius: 999px; color: var(--app-primary); background: rgb(var(--c-primary) / .07); font-size: 12px; }
+.dashboard-chip:hover { background: rgb(var(--c-primary) / .14); }
+.dashboard-editbar-actions { display: flex; gap: 8px; }
+.dashboard-editbar-actions button { min-height: 34px; padding: 0 12px; border-radius: 9px; font-size: 12px; }
+.dashboard-page.is-editing .dash-card { outline: 1px dashed rgb(var(--c-primary) / .45); outline-offset: 2px; }
+.dash-card-edit { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border-bottom: 1px solid rgb(var(--c-border) / .6); border-radius: var(--app-radius) var(--app-radius) 0 0; background: rgb(var(--c-primary) / .08); color: rgb(var(--c-text) / .8); font-size: 11px; }
+.dash-card-edit-actions { display: flex; gap: 4px; }
+.dash-card-edit-actions button { display: grid; width: 24px; height: 24px; place-items: center; border: 1px solid var(--app-border); border-radius: 7px; background: rgb(var(--c-surface-2)); font-size: 12px; }
+.dash-card-edit-actions button:hover { border-color: rgb(var(--c-primary) / .5); color: var(--app-primary); }
+
+/* 面板区各行等分剩余高度，卡片跨度补齐 6 列 */
+@media (min-width: 1024px) {
+  .dashboard-zone-panels { grid-auto-rows: minmax(0, 1fr); }
+  .dash-card.span-6 { grid-column: span 6; }
+}
+@media (min-width: 640px) and (max-width: 1023px) {
+  .dash-card.span-6 { grid-column: span 6; }
+}
+/* 快捷入口在窄卡片里要能放下完整文字，不够就换行 */
+.dash-card > .pwa-quick-grid { grid-template-columns: repeat(auto-fit, minmax(88px, 1fr)); }
+
+/* 看板行在定高滚动容器里不能被压缩，否则各行会叠在一起 */
+.watchlist-row { flex: 0 0 auto; }
+.dash-card.is-panel .activity-item { flex: 0 0 auto; }
+/* 4 个汉字 + 图标放得下才不会出现「今日…」 */
+.dash-card > .pwa-quick-grid { grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); }
+
+/* 第一行放的是用户排在最前的卡片，按「越靠前越重要」多分一些高度 */
+@media (min-width: 1024px) {
+  .dashboard-zone-panels { grid-template-rows: 1.35fr 1fr; }
+}
+
+/* 下载任务分页：四类任务改为标签切换，不再堆在一页里 */
+.download-tabs { display: flex; gap: 4px; padding: 8px 12px 0; overflow-x: auto; border-bottom: 1px solid var(--app-border); scrollbar-width: none; }
+.download-tabs::-webkit-scrollbar { display: none; }
+.download-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+  color: rgb(var(--c-muted) / .78);
+  background: transparent;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.download-tab:hover { color: var(--app-text); background: rgb(var(--c-muted) / .07); }
+.download-tab.is-active { color: var(--app-text); border-color: var(--app-border); background: rgb(var(--c-surface)); font-weight: 600; }
+/* 选中页签与下方内容连成一体 */
+.download-tab.is-active::after { content: ""; position: absolute; }
+.download-tab em {
+  min-width: 22px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: rgb(var(--c-muted) / .85);
+  background: rgb(var(--c-muted) / .13);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-style: normal;
+  text-align: center;
+}
+.download-tab.is-active em.is-downloading { color: rgb(var(--c-primary)); background: rgb(var(--c-primary) / .15); }
+.download-tab.is-active em.is-queued { color: rgb(var(--c-warning)); background: rgb(var(--c-warning) / .15); }
+.download-tab.is-active em.is-completed { color: rgb(var(--c-success)); background: rgb(var(--c-success) / .15); }
+.download-tab.is-active em.is-failed { color: rgb(var(--c-danger)); background: rgb(var(--c-danger) / .15); }
+
+/* 更新日历压缩到一屏：工具栏收成一行，视图区填满剩余高度并内部滚动 */
+.calendar-toolbar.is-compact { padding: 12px 14px; }
+.calendar-toolbar.is-compact .calendar-toolbar-main { flex-wrap: wrap; gap: 10px 16px; }
+.calendar-range h3 { font-size: 17px; }
+.calendar-range p { margin-top: 2px; font-size: 12px; }
+.calendar-toolbar.is-compact .calendar-toolbar-filters { margin-top: 10px; padding-top: 10px; }
+.calendar-inline-metrics { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
+.calendar-inline-metrics span { padding: 4px 10px; border: 1px solid rgb(var(--c-border) / .7); border-radius: 999px; color: rgb(var(--c-muted) / .8); font-size: 12px; }
+.calendar-inline-metrics strong { color: var(--app-text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.calendar-inline-metrics .is-primary strong { color: var(--app-primary); }
+.calendar-inline-metrics .is-warning strong { color: rgb(var(--c-warning)); }
+.calendar-inline-metrics .is-danger strong { color: rgb(var(--c-danger)); }
+
+@media (min-width: 1024px) {
+  .calendar-page { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  .calendar-page > section:last-child,
+  .calendar-page > .calendar-list-shell { flex: 1; min-height: 0; overflow-y: auto; }
+  .calendar-week-shell { flex: 1; min-height: 0; overflow: auto; }
+  .calendar-day-column { min-height: 0; }
+}
+
+.calendar-view-switch button { min-width: 52px; padding: 0 12px; }
+
+/* 系统设置：每个标签页内部改成多列，区块并排而不是纵向堆叠，配合下面的
+   高度约束让常用设置页在一屏内看完。区块自身很高时才在窗格内滚动。 */
+.settings-pane {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 14px;
+  align-content: start;
+}
+.settings-pane > * { min-width: 0; }
+/* 需要整行的区块（表格、预览、渠道列表）标记为 is-wide */
+.settings-pane > .is-wide { grid-column: 1 / -1; }
+@media (min-width: 1024px) {
+  .settings-layout { display: flex; flex-direction: column; min-height: 0; }
+  .settings-content { flex: 1; min-height: 0; overflow-y: auto; }
+}
+/* 设置区块按内容高度排布，操作行独占一行且不被拉伸 */
+.settings-pane { align-items: start; }
+.settings-actions { align-self: end; }
+.settings-actions button { min-height: 40px; align-self: center; }

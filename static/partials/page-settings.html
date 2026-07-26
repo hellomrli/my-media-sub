@@ -34,20 +34,7 @@
             <div class="settings-content min-w-0">
 
             <!-- 基础设置 -->
-            <div x-show="currentSettingsTab === 'connections'" class="p-4 sm:p-6 space-y-6">
-              <div class="app-panel-soft p-4 space-y-4">
-                <h3 class="section-title">账号设置</h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label class="field-label">用户名</label><input type="text" x-model="settings.app_username" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
-                  <div>
-                    <label class="field-label">密码</label>
-                    <div class="setting-input-action">
-                      <input type="text" x-model="settings.app_password" @focus="prepareSecretInput('app_password')" placeholder="留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
-                      <button type="button" @click="toggleSettingSecret('app_password')" :disabled="secretToggleDisabled('app_password')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('app_password')"></button>
-                    </div>
-                  </div>
-                </div>
-              </div>
+            <div x-show="currentSettingsTab === 'library'" class="settings-pane p-4 sm:p-5">
 
               <div class="app-panel-soft p-4 space-y-4">
                 <h3 class="section-title">Aria2 配置</h3>
@@ -101,14 +88,14 @@
                 </div>
               </div>
 
-              <div class="flex justify-end gap-3 pt-4 border-t border-border">
+              <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="testAria2()" class="btn-secondary px-4 py-2 rounded-lg">测试 Aria2</button>
                 <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
 
             <!-- 夸克网盘 -->
-            <div x-show="currentSettingsTab === 'connections'" class="p-4 sm:p-6 space-y-6">
+            <div x-show="currentSettingsTab === 'quark'" class="settings-pane p-4 sm:p-5">
               <div class="app-panel-soft p-4 space-y-4">
                 <h3 class="section-title">夸克配置</h3>
                 <div>
@@ -223,14 +210,14 @@
                 </div>
               </div>
 
-              <div class="flex justify-end gap-3 pt-4 border-t border-border">
+              <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="testQuark()" class="btn-secondary px-4 py-2 rounded-lg">测试连接</button>
                 <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
 
             <!-- 消息推送 -->
-            <div x-show="currentSettingsTab === 'notifications'" class="p-4 sm:p-6 space-y-6">
+            <div x-show="currentSettingsTab === 'notifications'" class="settings-pane p-4 sm:p-5">
               <div class="app-panel-soft p-4 space-y-4">
                 <h3 class="section-title">推送事件</h3>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -381,14 +368,14 @@
                 </div>
               </div>
 
-              <div class="flex justify-end gap-3 pt-4 border-t border-border">
+              <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="testPush()" class="btn-secondary px-4 py-2 rounded-lg">测试推送</button>
                 <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
 
             <!-- 自动化 -->
-            <div x-show="currentSettingsTab === 'automation'" class="p-4 sm:p-6 space-y-6">
+            <div x-show="currentSettingsTab === 'automation'" class="settings-pane p-4 sm:p-5">
               <div class="app-panel-soft p-4 space-y-4">
                 <h3 class="section-title">订阅自动化</h3>
                 <div class="space-y-3">
@@ -460,13 +447,13 @@
                 </div>
               </div>
 
-              <div class="flex justify-end gap-3 pt-4 border-t border-border">
+              <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
 
             <!-- 规则中心 -->
-            <div x-show="currentSettingsTab === 'naming'" class="p-4 sm:p-6 space-y-6">
+            <div x-show="currentSettingsTab === 'naming'" class="settings-pane p-4 sm:p-5">
               <div class="app-panel-soft p-4 space-y-4">
                 <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div>
@@ -586,13 +573,26 @@
                 </div>
               </div>
 
-              <div class="flex justify-end gap-3 pt-4 border-t border-border">
+              <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
 
             <!-- 高级设置 -->
-            <div x-show="currentSettingsTab === 'maintenance'" class="p-4 sm:p-6 space-y-6">
+            <div x-show="currentSettingsTab === 'advanced'" class="settings-pane p-4 sm:p-5">
+              <div class="app-panel-soft p-4 space-y-4">
+                <h3 class="section-title">账号设置</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div><label class="field-label">用户名</label><input type="text" x-model="settings.app_username" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                  <div>
+                    <label class="field-label">密码</label>
+                    <div class="setting-input-action">
+                      <input type="text" x-model="settings.app_password" @focus="prepareSecretInput('app_password')" placeholder="留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                      <button type="button" @click="toggleSettingSecret('app_password')" :disabled="secretToggleDisabled('app_password')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('app_password')"></button>
+                    </div>
+                  </div>
+                </div>
+              </div>
               <div class="app-panel-soft p-4 space-y-4">
                 <h3 class="section-title">高级选项</h3>
                 <div>
@@ -613,13 +613,13 @@
                 </div>
               </div>
 
-              <div class="flex justify-end gap-3 pt-4 border-t border-border">
+              <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
 
             <!-- 在线更新 -->
-            <div x-show="currentSettingsTab === 'maintenance'" class="p-4 sm:p-6 space-y-6">
+            <div x-show="currentSettingsTab === 'update'" class="settings-pane p-4 sm:p-5">
               <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <div class="stat-tile p-4">
                   <div class="text-xs text-muted/75">当前版本</div>

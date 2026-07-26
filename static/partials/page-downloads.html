@@ -1,19 +1,14 @@
         <!-- 下载任务页面 -->
         <div x-show="currentTab === 'downloads'" class="page-stack">
-          <div class="metric-grid">
-            <div class="stat-tile p-4"><div class="text-xs text-muted/75">正在下载</div><div class="mt-2 text-2xl font-semibold text-primary" x-text="downloadCategoryTasks('downloading').length"></div></div>
-            <div class="stat-tile p-4"><div class="text-xs text-muted/75">队列中</div><div class="mt-2 text-2xl font-semibold text-warning" x-text="downloadCategoryTasks('queued').length"></div></div>
-            <div class="stat-tile p-4"><div class="text-xs text-muted/75">已完成</div><div class="mt-2 text-2xl font-semibold text-success" x-text="downloadCategoryTasks('completed').length"></div></div>
-            <div class="stat-tile p-4"><div class="text-xs text-muted/75">下载失败</div><div class="mt-2 text-2xl font-semibold text-danger" x-text="downloadCategoryTasks('failed').length"></div></div>
-            <div class="stat-tile p-4"><div class="text-xs text-muted/75">总速度</div><div class="mt-2 text-lg font-semibold text-success" x-text="formatSpeed(downloadStats.speed)"></div></div>
-            <div class="stat-tile p-4"><div class="text-xs text-muted/75">订阅关联</div><div class="mt-2 text-2xl font-semibold text-primary" x-text="downloadAutomationStats.linked"></div></div>
-          </div>
-
           <div class="app-panel list-surface">
             <div class="p-4 border-b border-border toolbar-panel">
               <div>
                 <h3 class="section-title">Aria2 下载任务</h3>
-                <p class="text-sm text-muted/75 mt-1" x-text="downloadsError || (downloadsUpdatedAt ? '更新时间 ' + new Date(downloadsUpdatedAt).toLocaleTimeString() : '等待刷新')"></p>
+                <p class="text-sm text-muted/75 mt-1">
+                  <span x-text="downloadsError || (downloadsUpdatedAt ? '更新时间 ' + new Date(downloadsUpdatedAt).toLocaleTimeString() : '等待刷新')"></span>
+                  <span class="text-muted/50"> · </span><span>总速度 <strong class="text-success" x-text="formatSpeed(downloadStats.speed)"></strong></span>
+                  <span class="text-muted/50"> · </span><span>订阅关联 <strong class="text-primary" x-text="downloadAutomationStats.linked"></strong></span>
+                </p>
               </div>
               <div class="control-row">
                 <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="downloadsAutoRefresh" @change="downloadsAutoRefresh ? startDownloadsPolling() : stopDownloadsPolling()" class="rounded" /><span>实时刷新</span></label>
@@ -23,13 +18,21 @@
               </div>
             </div>
 
-            <div class="p-4 space-y-4">
+            <div class="download-tabs" role="tablist" aria-label="下载任务分类">
+              <template x-for="category in downloadCategoryList" :key="'download-tab-' + category.id">
+                <button role="tab" :aria-selected="downloadActiveCategory === category.id"
+                        @click="selectDownloadCategory(category.id)"
+                        :class="downloadActiveCategory === category.id ? 'is-active' : ''"
+                        class="download-tab" :title="category.description">
+                  <span x-text="category.name"></span>
+                  <em :class="'is-' + category.id" x-text="downloadCategoryTasks(category.id).length"></em>
+                </button>
+              </template>
+            </div>
+
+            <div class="p-4">
               <template x-for="category in downloadCategoryList" :key="'download-category-' + category.id">
-                <section class="app-panel-soft overflow-hidden">
-                  <div class="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between px-4 py-3 border-b border-border">
-                    <div><h3 class="text-sm font-semibold text-text" x-text="category.name + '（' + downloadCategoryTasks(category.id).length + '）'"></h3><p class="text-xs text-muted/70 mt-1" x-text="category.description"></p></div>
-                    <span class="badge" :class="category.id === 'failed' ? 'badge-danger' : (category.id === 'completed' ? 'badge-success' : (category.id === 'queued' ? 'badge-warning' : 'badge-primary'))" x-text="category.name"></span>
-                  </div>
+                <section x-show="downloadActiveCategory === category.id" class="overflow-hidden">
                   <div class="data-table data-table--stack data-table--downloads">
                     <div class="data-table-scroll">
                       <div class="data-table-head grid-cols-[minmax(280px,1.7fr)_92px_150px_92px_92px_110px_220px] px-3">

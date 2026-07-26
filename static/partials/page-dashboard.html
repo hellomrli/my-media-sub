@@ -1,151 +1,177 @@
-        <!-- 工作台 -->
-        <div x-show="currentTab === 'dashboard'" class="page-stack dashboard-page">
-          <section x-show="dashboardWidgetEnabled('quick_actions')" class="pwa-quick-actions app-panel p-3" aria-label="快捷入口">
-            <div class="pwa-quick-heading"><span>快捷入口</span><button x-show="pwaInstallAvailable" @click="installPwa()">安装应用</button></div>
-            <div class="pwa-quick-grid">
-              <button @click="runPwaShortcut('calendar-today')"><span>今</span><strong>今日更新</strong></button>
-              <button @click="runPwaShortcut('calendar-missing')"><span>缺</span><strong>缺集</strong></button>
-              <button @click="runPwaShortcut('failed-jobs')"><span>!</span><strong>失败任务</strong></button>
-              <button @click="runPwaShortcut('check-all')"><span>↻</span><strong>检查全部</strong></button>
-              <button @click="runPwaShortcut('downloads')"><span>↓</span><strong>下载进度</strong></button>
-              <button @click="runPwaShortcut('quark-signin')"><span>✓</span><strong>夸克签到</strong></button>
+        <!-- 工作台：卡片化仪表盘，卡片顺序与可见性由 settings.dashboard_widgets 决定 -->
+        <div x-show="currentTab === 'dashboard'" class="dashboard-page" :class="dashboardEditing ? 'is-editing' : ''">
+
+          <div x-show="dashboardEditing" class="dashboard-editbar app-panel">
+            <div class="dashboard-editbar-copy">
+              <strong>编辑工作台</strong>
+              <span>用 ↑ ↓ 调整顺序，✕ 隐藏卡片；下方是已隐藏的卡片。</span>
             </div>
-          </section>
-          <section x-show="dashboardWidgetEnabled('hero')" class="dashboard-hero">
-            <div class="hero-copy">
-              <div class="hero-kicker"><span class="status-pulse"></span><span>运行概览</span><span>·</span><span x-text="dashboardDateLabel()"></span></div>
-              <h1>媒体自动化工作台</h1>
-              <p x-text="dashboardStatusSummary()"></p>
-              <div class="hero-actions">
-                <button @click="checkAllSubscriptions()" :disabled="checkingAllSubscriptions" class="btn-primary hero-primary-action">
-                  <svg class="w-4 h-4" :class="checkingAllSubscriptions ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5m11 11v-5h-5M5.1 9A8 8 0 0119 6.3M18.9 15A8 8 0 015 17.7"/></svg>
-                  <span x-text="checkingAllSubscriptions ? '检查中' : '检查全部订阅'"></span>
-                </button>
-                <button @click="selectTab('search')" class="hero-secondary-action">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5-5m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                  搜索资源
-                </button>
-              </div>
-              <div class="hero-facts">
-                <div><strong x-text="dashboardStats.activeSubs"></strong><span>追更中</span></div>
-                <div><strong x-text="dashboardStats.completedSubs"></strong><span>已完结</span></div>
-                <div><strong x-text="dashboardStats.runningJobs"></strong><span>运行中任务</span></div>
-              </div>
+            <div class="dashboard-editbar-tray">
+              <template x-for="card in dashboardHiddenCards()" :key="'hidden-' + card.id">
+                <button @click="toggleDashboardCard(card.id)" class="dashboard-chip" :title="card.hint">＋ <span x-text="card.name"></span></button>
+              </template>
+              <span x-show="dashboardHiddenCards().length === 0" class="dashboard-editbar-empty">所有卡片都已显示</span>
             </div>
-
-            <div class="hero-visual">
-              <div class="dashboard-attention-board">
-                <div class="attention-board-heading">
-                  <div><span>待处理事项</span><strong x-text="dashboardAttentionCount"></strong></div>
-                  <small x-text="dashboardAttentionCount ? '请优先处理异常状态' : '当前没有待处理异常'"></small>
-                </div>
-                <button @click="openDashboardAttention('subscriptions')" :class="dashboardStats.invalidSubs ? 'has-warning' : ''">
-                  <span>失效订阅</span><strong x-text="dashboardStats.invalidSubs"></strong><small>查看并换源</small>
-                </button>
-                <button @click="openDashboardAttention('jobs')" :class="dashboardStats.failedJobs ? 'has-warning' : ''">
-                  <span>失败任务</span><strong x-text="dashboardStats.failedJobs"></strong><small>查看错误与重试</small>
-                </button>
-                <button @click="openDashboardAttention('notifications')" :class="dashboardStats.unreadNotifications ? 'has-notice' : ''">
-                  <span>未读通知</span><strong x-text="dashboardStats.unreadNotifications"></strong><small>查看运行消息</small>
-                </button>
-              </div>
+            <div class="dashboard-editbar-actions">
+              <button @click="resetDashboardLayout()" class="btn-secondary">恢复默认</button>
+              <button @click="cancelDashboardEdit()" class="btn-secondary">取消</button>
+              <button @click="saveDashboardLayout()" class="btn-primary">保存布局</button>
             </div>
-          </section>
-
-          <section x-show="dashboardWidgetEnabled('kpis')" class="dashboard-kpi-grid">
-            <button @click="selectTab('subscriptions')" class="dashboard-kpi kpi-primary">
-              <span class="kpi-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 4h10a2 2 0 012 2v14l-7-3-7 3V6a2 2 0 012-2z"/></svg></span>
-              <span class="kpi-copy"><small>活跃订阅</small><strong x-text="dashboardStats.activeSubs"></strong><em>持续追踪更新</em></span>
-              <span class="kpi-arrow">↗</span>
-            </button>
-            <button @click="selectTab('notifications')" class="dashboard-kpi kpi-cyan">
-              <span class="kpi-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0019 5"/></svg></span>
-              <span class="kpi-copy"><small>后台任务</small><strong x-text="dashboardStats.runningJobs"></strong><em x-text="dashboardStats.failedJobs ? dashboardStats.failedJobs + ' 个需要关注' : '运行状态良好'"></em></span>
-              <span class="kpi-arrow">↗</span>
-            </button>
-            <button @click="selectTab('downloads')" class="dashboard-kpi kpi-success">
-              <span class="kpi-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 3v12m0 0l4-4m-4 4l-4-4M5 21h14"/></svg></span>
-              <span class="kpi-copy"><small>实时下载</small><strong class="kpi-speed" x-text="formatSpeed(dashboardStats.downloadSpeed)"></strong><em>Aria2 当前速度</em></span>
-              <span class="kpi-arrow">↗</span>
-            </button>
-            <button @click="selectTab('notifications')" class="dashboard-kpi kpi-violet">
-              <span class="kpi-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0a3 3 0 11-6 0"/></svg></span>
-              <span class="kpi-copy"><small>通知收件箱</small><strong x-text="dashboardStats.unreadNotifications"></strong><em>条未读消息</em></span>
-              <span class="kpi-arrow">↗</span>
-            </button>
-          </section>
-
-          <div x-show="dashboardWidgetEnabled('library') || dashboardWidgetEnabled('operations')" class="dashboard-main-grid">
-            <section class="media-shelf app-panel">
-              <div class="panel-heading">
-                <div><h3>最近检查的订阅</h3><p>按最近检查时间排列，可直接查看进度与状态</p></div>
-                <button @click="selectTab('subscriptions')" class="text-action">查看全部 <span>→</span></button>
-              </div>
-              <div class="media-card-grid">
-                <template x-for="sub in dashboardRecentSubscriptions.slice(0, 6)" :key="sub.id">
-                  <button @click="selectTab('subscriptions')" class="media-card">
-                    <div class="media-poster">
-                      <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
-                      <div x-show="!subscriptionPoster(sub)" class="media-poster-fallback">
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16v12H4zM8 4v16m8-16v16M4 10h4m8 0h4"/></svg>
-                        <span x-text="mediaTypeLabel(sub.media_type)"></span>
-                      </div>
-                      <span class="media-status" :class="subscriptionStatusKey(sub)" x-text="subscriptionStatusLabel(sub)"></span>
-                      <div class="media-poster-shade"></div>
-                      <div class="media-rating" x-text="subscriptionRatingLabel(sub)"></div>
-                    </div>
-                    <div class="media-card-body">
-                      <h4 x-text="subscriptionDisplayTitle(sub)"></h4>
-                      <div class="media-meta"><span x-text="sub.media_type === 'movie' ? mediaTypeLabel(sub.media_type) : subscriptionSeasonLabel(sub)"></span><span x-text="subscriptionProgressLabel(sub)"></span></div>
-                      <div class="progress-inline"><span :style="'width:' + subscriptionProgressPercent(sub) + '%'"></span></div>
-                    </div>
-                  </button>
-                </template>
-                <button x-show="dashboardRecentSubscriptions.length === 0" @click="selectTab('search')" class="media-card media-card-add">
-                  <span>＋</span><strong>添加订阅</strong><small>搜索资源并创建追更任务</small>
-                </button>
-              </div>
-            </section>
-
-            <aside class="operations-column">
-              <section class="app-panel operations-panel">
-                <div class="panel-heading compact">
-                  <div><h3>夸克网盘状态</h3></div>
-                  <button @click="refreshQuarkHealth()" :disabled="quarkHealthLoading" class="icon-button small" title="检测夸克状态">
-                    <svg class="w-4 h-4" :class="quarkHealthLoading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5m11 11v-5h-5M5.1 9A8 8 0 0119 6.3M18.9 15A8 8 0 015 17.7"/></svg>
-                  </button>
-                </div>
-                <div class="cloud-health-head">
-                  <div class="cloud-health-icon" :class="quarkHealthStatusClass()"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M7 18h10a4 4 0 10-.8-7.9A6 6 0 105.4 15 3 3 0 007 18z"/></svg></div>
-                  <div><strong :class="quarkHealthStatusClass()" x-text="quarkHealthStatusLabel()"></strong><span x-text="quarkHealth.message || '等待检测账号状态'"></span></div>
-                </div>
-                <div class="cloud-metrics">
-                  <div><span>自动转存</span><strong :class="settings.quark_save_enabled ? 'text-success' : 'text-muted'" x-text="settings.quark_save_enabled ? '开启' : '关闭'"></strong></div>
-                  <div><span>今日签到</span><strong :class="quarkSigninTodayClass()" x-text="quarkSigninTodayLabel()"></strong></div>
-                  <div><span>网盘容量</span><strong x-text="quarkCapacityLabel()"></strong></div>
-                </div>
-                <div class="health-note" :class="(quarkHealth.issues || []).length ? 'has-issue' : ''"><span></span><p x-text="quarkHealthIssueText()"></p></div>
-              </section>
-
-              <section class="app-panel activity-panel automation-health-panel">
-                <div class="panel-heading compact"><div><h3>自动化执行状态</h3></div><button @click="loadAutomationSummary()" class="text-action">刷新</button></div>
-                <div class="grid grid-cols-3 gap-2 text-center text-xs"><div class="app-panel-soft p-2"><strong class="block text-lg text-success" x-text="Math.round(Number(automationSummary.success_rate || 0)) + '%'">0%</strong><span>成功率</span></div><div class="app-panel-soft p-2"><strong class="block text-lg text-danger" x-text="(automationSummary.recent_failed || []).length">0</strong><span>最近失败</span></div><div class="app-panel-soft p-2"><strong class="block text-lg text-warning" x-text="(automationSummary.stuck || []).length">0</strong><span>卡住</span></div></div>
-                <div class="activity-list mt-3"><template x-for="(event, eventIndex) in (automationSummary.recent_failed || []).slice(0, 3)" :key="'dashboard-event-' + (event.id || 'missing') + '-' + eventIndex"><button @click="event.subscription_id && openSubscriptionDetail(event.subscription_id)" class="activity-item"><span class="activity-dot failed"></span><span class="activity-copy"><strong x-text="automationStageLabel(event.stage)"></strong><small x-text="event.error || event.message"></small></span><time x-text="formatTime(event.updated_at)"></time></button></template><div x-show="!(automationSummary.recent_failed || []).length" class="activity-empty">最近没有失败阶段</div></div>
-              </section>
-
-              <section class="app-panel activity-panel">
-                <div class="panel-heading compact"><div><h3>最近活动</h3><p>后台任务与系统通知已合并</p></div><button @click="selectTab('notifications')" class="text-action">活动中心 →</button></div>
-                <div class="activity-list">
-                  <template x-for="(item, itemIndex) in dashboardRecentActivity.slice(0, 6)" :key="(item.source === 'job' ? 'dashboard-job-' : 'dashboard-notification-') + (item.id || 'missing') + '-' + itemIndex">
-                    <button @click="openDashboardActivity(item)" class="activity-item">
-                      <span :class="item.source === 'job' ? 'activity-dot ' + item.status : 'inbox-level ' + item.level"></span>
-                      <span class="activity-copy"><strong x-text="item.source === 'job' ? (item.title || jobKindLabel(item.event)) : item.title"></strong><small x-text="item.message || activityEventLabel(item)"></small></span>
-                      <time x-text="activityTimeLabel(item)"></time>
-                    </button>
-                  </template>
-                  <template x-if="dashboardRecentActivity.length === 0"><div class="activity-empty">暂无活动</div></template>
-                </div>
-              </section>
-            </aside>
           </div>
+
+          <div class="dashboard-zone dashboard-zone-compact">
+            <template x-for="card in dashboardCards('compact')" :key="'compact-' + card.id">
+              <section class="dash-card" :class="'span-' + card.span" :data-card="card.id">
+                <div x-show="dashboardEditing" class="dash-card-edit">
+                  <span x-text="card.name"></span>
+                  <span class="dash-card-edit-actions">
+                    <button @click="moveDashboardCard(card.id, -1)" title="上移">↑</button>
+                    <button @click="moveDashboardCard(card.id, 1)" title="下移">↓</button>
+                    <button @click="toggleDashboardCard(card.id)" title="隐藏">✕</button>
+                  </span>
+                </div>
+
+                <template x-if="card.id === 'command'">
+                  <div class="dash-command">
+                    <div class="dash-command-copy">
+                      <div class="hero-kicker"><span class="status-pulse"></span><span x-text="dashboardDateLabel()"></span></div>
+                      <p x-text="dashboardStatusSummary()"></p>
+                    </div>
+                    <div class="dash-command-actions">
+                      <button @click="checkAllSubscriptions()" :disabled="checkingAllSubscriptions" class="btn-primary">
+                        <svg class="w-4 h-4" :class="checkingAllSubscriptions ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5m11 11v-5h-5M5.1 9A8 8 0 0119 6.3M18.9 15A8 8 0 015 17.7"/></svg>
+                        <span x-text="checkingAllSubscriptions ? '检查中' : '检查全部订阅'"></span>
+                      </button>
+                      <button @click="selectTab('search')" class="btn-secondary">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5-5m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        搜索资源
+                      </button>
+                    </div>
+                  </div>
+                </template>
+
+                <template x-if="card.id === 'quick_actions'">
+                  <div class="pwa-quick-grid" aria-label="快捷入口">
+                    <button @click="runPwaShortcut('calendar-today')"><span>今</span><strong>今日更新</strong></button>
+                    <button @click="runPwaShortcut('calendar-missing')"><span>缺</span><strong>缺集</strong></button>
+                    <button @click="runPwaShortcut('failed-jobs')"><span>!</span><strong>失败任务</strong></button>
+                    <button @click="runPwaShortcut('downloads')"><span>↓</span><strong>下载进度</strong></button>
+                    <button @click="runPwaShortcut('quark-signin')"><span>✓</span><strong>夸克签到</strong></button>
+                    <button x-show="pwaInstallAvailable" @click="installPwa()"><span>↥</span><strong>安装应用</strong></button>
+                  </div>
+                </template>
+
+                <template x-if="card.id === 'kpis'">
+                  <div class="dashboard-stat-row">
+                    <template x-for="tile in dashboardTiles()" :key="tile.id">
+                      <button @click="openDashboardTile(tile.id)" class="dashboard-stat" :class="'is-' + tile.tone" :title="tile.hint">
+                        <small x-text="tile.label"></small>
+                        <strong x-text="tile.value"></strong>
+                        <em x-text="tile.hint"></em>
+                      </button>
+                    </template>
+                  </div>
+                </template>
+              </section>
+            </template>
+          </div>
+
+          <div class="dashboard-zone dashboard-zone-panels">
+            <template x-for="card in dashboardCards('panel')" :key="'panel-' + card.id">
+              <section class="dash-card is-panel" :class="'span-' + card.span" :data-card="card.id">
+                <div x-show="dashboardEditing" class="dash-card-edit">
+                  <span x-text="card.name"></span>
+                  <span class="dash-card-edit-actions">
+                    <button @click="moveDashboardCard(card.id, -1)" title="上移">↑</button>
+                    <button @click="moveDashboardCard(card.id, 1)" title="下移">↓</button>
+                    <button @click="toggleDashboardCard(card.id)" title="隐藏">✕</button>
+                  </span>
+                </div>
+
+                <template x-if="card.id === 'library'">
+                  <div class="dash-panel-body">
+                    <div class="panel-heading compact">
+                      <div><h3>订阅看板</h3><p>追更中的订阅，按最近检查排序</p></div>
+                      <button @click="selectTab('subscriptions')" class="text-action">查看全部 <span>→</span></button>
+                    </div>
+                    <div class="watchlist">
+                      <template x-for="sub in dashboardWatchlist" :key="'watch-' + sub.id">
+                        <button @click="openSubscriptionDetail(sub)" class="watchlist-row">
+                          <span class="watchlist-title">
+                            <strong x-text="subscriptionDisplayTitle(sub)"></strong>
+                            <small x-text="sub.media_type === 'movie' ? mediaTypeLabel(sub.media_type) : subscriptionSeasonLabel(sub)"></small>
+                          </span>
+                          <span class="watchlist-progress">
+                            <span class="progress-inline"><span :style="'width:' + subscriptionProgressPercent(sub) + '%'"></span></span>
+                            <small x-text="subscriptionProgressLabel(sub)"></small>
+                          </span>
+                          <time x-text="formatTime(sub.last_checked_at)"></time>
+                        </button>
+                      </template>
+                      <div x-show="dashboardWatchlist.length === 0" class="activity-empty">没有追更中的订阅</div>
+                    </div>
+                  </div>
+                </template>
+
+                <template x-if="card.id === 'cloud'">
+                  <div class="dash-panel-body">
+                    <div class="panel-heading compact">
+                      <div><h3>夸克网盘</h3></div>
+                      <button @click="refreshQuarkHealth()" :disabled="quarkHealthLoading" class="icon-button small" title="检测夸克状态">
+                        <svg class="w-4 h-4" :class="quarkHealthLoading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5m11 11v-5h-5M5.1 9A8 8 0 0119 6.3M18.9 15A8 8 0 015 17.7"/></svg>
+                      </button>
+                    </div>
+                    <div class="cloud-health-head">
+                      <div class="cloud-health-icon" :class="quarkHealthStatusClass()"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M7 18h10a4 4 0 10-.8-7.9A6 6 0 105.4 15 3 3 0 007 18z"/></svg></div>
+                      <div><strong :class="quarkHealthStatusClass()" x-text="quarkHealthStatusLabel()"></strong><span x-text="quarkHealth.message || '等待检测账号状态'"></span></div>
+                    </div>
+                    <div class="cloud-metrics">
+                      <div><span>自动转存</span><strong :class="settings.quark_save_enabled ? 'text-success' : 'text-muted'" x-text="settings.quark_save_enabled ? '开启' : '关闭'"></strong></div>
+                      <div><span>今日签到</span><strong :class="quarkSigninTodayClass()" x-text="quarkSigninTodayLabel()"></strong></div>
+                      <div><span>网盘容量</span><strong x-text="quarkCapacityLabel()"></strong></div>
+                    </div>
+                    <div x-show="(quarkHealth.issues || []).length" class="health-note has-issue"><span></span><p x-text="quarkHealthIssueText()"></p></div>
+                  </div>
+                </template>
+
+                <template x-if="card.id === 'automation'">
+                  <div class="dash-panel-body">
+                    <div class="panel-heading compact"><div><h3>自动化执行</h3></div><button @click="loadAutomationSummary()" class="text-action">刷新</button></div>
+                    <div class="automation-figures">
+                      <div><strong class="text-success" x-text="Math.round(Number(automationSummary.success_rate || 0)) + '%'">0%</strong><span>成功率</span></div>
+                      <div><strong :class="(automationSummary.recent_failed || []).length ? 'text-danger' : 'text-muted'" x-text="(automationSummary.recent_failed || []).length">0</strong><span>最近失败</span></div>
+                      <div><strong :class="(automationSummary.stuck || []).length ? 'text-warning' : 'text-muted'" x-text="(automationSummary.stuck || []).length">0</strong><span>卡住</span></div>
+                    </div>
+                    <div x-show="(automationSummary.recent_failed || []).length" class="activity-list">
+                      <template x-for="(event, eventIndex) in (automationSummary.recent_failed || []).slice(0, 4)" :key="'dashboard-event-' + (event.id || 'missing') + '-' + eventIndex">
+                        <button @click="event.subscription_id && openSubscriptionDetail(event.subscription_id)" class="activity-item">
+                          <span class="activity-dot failed"></span>
+                          <span class="activity-copy"><strong x-text="automationStageLabel(event.stage)"></strong><small x-text="event.error || event.message"></small></span>
+                          <time x-text="formatTime(event.updated_at)"></time>
+                        </button>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+
+                <template x-if="card.id === 'activity'">
+                  <div class="dash-panel-body">
+                    <div class="panel-heading compact"><div><h3>最近活动</h3></div><button @click="selectTab('notifications')" class="text-action">活动中心 →</button></div>
+                    <div class="activity-list">
+                      <template x-for="(item, itemIndex) in dashboardRecentActivity" :key="(item.source === 'job' ? 'dashboard-job-' : 'dashboard-notification-') + (item.id || 'missing') + '-' + itemIndex">
+                        <button @click="openDashboardActivity(item)" class="activity-item">
+                          <span :class="item.source === 'job' ? 'activity-dot ' + item.status : 'inbox-level ' + item.level"></span>
+                          <span class="activity-copy"><strong x-text="item.source === 'job' ? (item.title || jobKindLabel(item.event)) : item.title"></strong><small x-text="item.message || activityEventLabel(item)"></small></span>
+                          <time x-text="activityTimeLabel(item)"></time>
+                        </button>
+                      </template>
+                      <div x-show="dashboardRecentActivity.length === 0" class="activity-empty">暂无活动</div>
+                    </div>
+                  </div>
+                </template>
+              </section>
+            </template>
+          </div>
+
+          <div x-show="dashboardLayout.length === 0" class="app-panel empty-state">所有卡片都已隐藏，点右上角「编辑工作台」重新添加。</div>
         </div>

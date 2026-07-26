@@ -143,12 +143,24 @@ async fn job_events(
     )
 }
 
+/// 清空已结束的任务记录。推送派发这类高频任务会迅速堆满活动中心，
+/// 需要一个手动清理入口；排队中与运行中的任务不受影响。
+async fn clear_finished_jobs(
+    State(state): State<Arc<JobState>>,
+) -> Result<Json<Response<serde_json::Value>>> {
+    let removed = state.store.clear_finished().await?;
+    Ok(Json(Response::ok(serde_json::json!({
+        "removed": removed,
+    }))))
+}
+
 pub fn routes(store: Arc<JobStore>, queue: Arc<JobQueue>) -> Router {
     let state = Arc::new(JobState { store, queue });
 
     Router::new()
         .route("/api/jobs", get(list_jobs))
         .route("/api/jobs/archive", get(list_archived_jobs))
+        .route("/api/jobs/clear", post(clear_finished_jobs))
         .route("/api/jobs/events", get(job_events))
         .route("/api/jobs/{id}", get(get_job))
         .route("/api/jobs/{id}/cancel", post(cancel_job))

@@ -5,11 +5,12 @@
 })(typeof globalThis !== 'undefined' ? globalThis : window, function (root) {
   'use strict';
 
+  // 老书签与 PWA 快捷方式要继续可用：v2.2.18 把「连接」拆成夸克/下载与元数据，
+  // 把「维护」拆成高级与安全/版本更新，这里保留旧 id 的映射。
   const SETTINGS_TAB_ALIASES = Object.freeze({
-    basic: 'connections',
-    quark: 'connections',
-    advanced: 'maintenance',
-    update: 'maintenance',
+    basic: 'library',
+    connections: 'library',
+    maintenance: 'advanced',
     push: 'notifications',
     rules: 'naming'
   });
@@ -86,12 +87,16 @@
       {id: 'settings', name: '系统设置', description: '配置系统参数', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>'}
     ],
 
+    // 按「接入 → 运行 → 维护」的实际使用顺序排列，每个标签页只放一类事，
+    // 避免此前「连接」一页塞进夸克、Aria2、TMDB、账号和目录五件事。
     settingsTabs: [
-      {id: 'connections', name: '连接', icon: '⌁'},
+      {id: 'quark', name: '夸克网盘', icon: '☁'},
+      {id: 'library', name: '下载与元数据', icon: '⌁'},
       {id: 'automation', name: '自动化', icon: '⏱'},
       {id: 'naming', name: '命名规则', icon: '✦'},
       {id: 'notifications', name: '通知', icon: '↗'},
-      {id: 'maintenance', name: '维护', icon: '⌘'}
+      {id: 'advanced', name: '高级与安全', icon: '⌘'},
+      {id: 'update', name: '版本更新', icon: '↑'}
     ],
 
     initNavigation() {

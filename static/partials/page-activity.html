@@ -65,11 +65,12 @@
             <div class="p-4 border-b border-border toolbar-panel">
               <div>
                 <h3 class="section-title">活动中心</h3>
-                <p class="text-sm text-muted/75 mt-1">后台任务和系统通知按时间合并展示；失败任务可直接重试，通知仍可单独标记已读。</p>
+                <p class="text-sm text-muted/75 mt-1">后台任务和系统通知按时间合并展示；推送派发任务不在此列出。失败任务可直接重试，通知仍可单独标记已读。</p>
               </div>
               <div class="control-row">
                 <button @click="markAllRead()" class="btn-secondary px-3 py-2 rounded-lg transition-colors text-sm">全部已读</button>
                 <button @click="clearNotifications()" class="btn-danger px-3 py-2 rounded-lg transition-colors text-sm">清空通知</button>
+                <button @click="clearJobLogs()" class="btn-danger px-3 py-2 rounded-lg transition-colors text-sm">清除日志</button>
                 <button @click="loadActivity()" class="btn-secondary px-3 py-2 rounded-lg transition-colors text-sm">刷新</button>
               </div>
             </div>

@@ -5,11 +5,110 @@
 })(typeof globalThis !== 'undefined' ? globalThis : window, function (root) {
   'use strict';
 
+  /// 工作台卡片目录。zone 决定卡片落在哪一区：compact 区按内容高度排布，
+  /// panel 区平分剩余高度并各自内部滚动——这样无论用户怎么排都还是一屏。
+  const CARD_CATALOG = Object.freeze([
+    {id: 'command', name: '概览与操作', hint: '状态摘要与主操作', zone: 'compact', span: 8},
+    {id: 'quick_actions', name: '快捷入口', hint: '常用页面跳转', zone: 'compact', span: 4},
+    {id: 'kpis', name: '运行指标', hint: '订阅、任务与下载计数', zone: 'compact', span: 12},
+    {id: 'library', name: '订阅看板', hint: '追更中的订阅进度', zone: 'panel', span: 7},
+    {id: 'cloud', name: '夸克网盘', hint: '账号与转存状态', zone: 'panel', span: 5},
+    {id: 'automation', name: '自动化执行', hint: '成功率与失败阶段', zone: 'panel', span: 6},
+    {id: 'activity', name: '最近活动', hint: '后台任务与通知', zone: 'panel', span: 6}
+  ]);
+
+  /// v2.2.17 之前的组件 id；旧配置要能无损映射到新卡片，否则升级后布局会丢。
+  const LEGACY_CARD_IDS = Object.freeze({
+    hero: ['command'],
+    operations: ['cloud', 'automation', 'activity']
+  });
+
+  const CARD_IDS = CARD_CATALOG.map(card => card.id);
+
+  function normalizeCardIds(list) {
+    if (!Array.isArray(list) || list.length === 0) return [...CARD_IDS];
+    const seen = new Set();
+    const result = [];
+    for (const raw of list) {
+      const ids = LEGACY_CARD_IDS[raw] || [raw];
+      for (const id of ids) {
+        if (!CARD_IDS.includes(id) || seen.has(id)) continue;
+        seen.add(id);
+        result.push(id);
+      }
+    }
+    return result;
+  }
+
   function createStore() {
     return {
+    dashboardEditing: false,
+    dashboardLayoutDraft: [],
+
     dashboardWidgetEnabled(id) {
-      const widgets = Array.isArray(this.settings.dashboard_widgets) ? this.settings.dashboard_widgets : [];
-      return widgets.length === 0 || widgets.includes(id);
+      return this.dashboardLayout.includes(id);
+    },
+
+    /// 当前生效的卡片顺序；编辑态下看草稿，所见即所得。
+    get dashboardLayout() {
+      const source = this.dashboardEditing
+        ? this.dashboardLayoutDraft
+        : (this.settings && this.settings.dashboard_widgets);
+      return normalizeCardIds(source);
+    },
+
+    dashboardCardCatalog() {
+      return CARD_CATALOG;
+    },
+
+    dashboardCards(zone) {
+      return this.dashboardLayout
+        .map(id => CARD_CATALOG.find(card => card.id === id))
+        .filter(card => card && card.zone === zone);
+    },
+
+    dashboardHiddenCards() {
+      const visible = this.dashboardLayout;
+      return CARD_CATALOG.filter(card => !visible.includes(card.id));
+    },
+
+    startDashboardEdit() {
+      this.dashboardLayoutDraft = normalizeCardIds(
+        this.settings && this.settings.dashboard_widgets
+      );
+      this.dashboardEditing = true;
+    },
+
+    cancelDashboardEdit() {
+      this.dashboardEditing = false;
+      this.dashboardLayoutDraft = [];
+    },
+
+    toggleDashboardCard(id) {
+      if (!CARD_IDS.includes(id)) return;
+      const draft = this.dashboardLayoutDraft.filter(item => item !== id);
+      if (draft.length === this.dashboardLayoutDraft.length) draft.push(id);
+      this.dashboardLayoutDraft = draft;
+    },
+
+    moveDashboardCard(id, delta) {
+      const draft = [...this.dashboardLayoutDraft];
+      const index = draft.indexOf(id);
+      const target = index + delta;
+      if (index < 0 || target < 0 || target >= draft.length) return;
+      [draft[index], draft[target]] = [draft[target], draft[index]];
+      this.dashboardLayoutDraft = draft;
+    },
+
+    resetDashboardLayout() {
+      this.dashboardLayoutDraft = [...CARD_IDS];
+    },
+
+    async saveDashboardLayout() {
+      this.settings.dashboard_widgets = [...this.dashboardLayoutDraft];
+      this.dashboardEditing = false;
+      this.dashboardLayoutDraft = [];
+      await this.saveSettings();
     },
 
     get dashboardStats() {
@@ -33,6 +132,46 @@
       return this.dashboardStats.invalidSubs
         + this.dashboardStats.failedJobs
         + this.dashboardStats.unreadNotifications;
+    },
+
+    /// 仪表盘指标。异常项在计数不为 0 时才转为警示色，否则一屏都是红黄反而看不出重点。
+    dashboardTiles() {
+      const stats = this.dashboardStats;
+      return [
+        {id: 'active', label: '追更中', value: stats.activeSubs, hint: '持续追踪更新', tone: 'primary'},
+        {id: 'completed', label: '已完结', value: stats.completedSubs, hint: '已收齐全集', tone: 'success'},
+        {id: 'invalid', label: '失效订阅', value: stats.invalidSubs, hint: '需要换源', tone: stats.invalidSubs ? 'danger' : 'idle'},
+        {id: 'jobs', label: '后台任务', value: stats.runningJobs, hint: '排队与运行中', tone: stats.runningJobs ? 'cyan' : 'idle'},
+        {id: 'failed', label: '失败任务', value: stats.failedJobs, hint: '查看错误与重试', tone: stats.failedJobs ? 'danger' : 'idle'},
+        {id: 'unread', label: '未读通知', value: stats.unreadNotifications, hint: '运行消息', tone: stats.unreadNotifications ? 'warning' : 'idle'},
+        {id: 'download', label: '下载速度', value: this.formatSpeed(stats.downloadSpeed), hint: 'Aria2 实时速度', tone: stats.downloadSpeed ? 'violet' : 'idle'}
+      ];
+    },
+
+    openDashboardTile(id) {
+      if (id === 'active' || id === 'completed') {
+        this.setSubscriptionStatusTab(id);
+        this.selectTab('subscriptions');
+      } else if (id === 'invalid') {
+        this.openDashboardAttention('subscriptions');
+      } else if (id === 'failed') {
+        this.openDashboardAttention('jobs');
+      } else if (id === 'unread') {
+        this.openDashboardAttention('notifications');
+      } else if (id === 'jobs') {
+        this.selectTab('notifications');
+      } else if (id === 'download') {
+        this.selectTab('downloads');
+      }
+    },
+
+    /// 订阅看板只看追更中的：已完结的不需要再盯，失效的由「失效订阅」指标标红并跳转。
+    get dashboardWatchlist() {
+      const checkedAt = sub => Number(sub.last_checked_at || sub.updated_at || 0);
+      return this.subscriptions
+        .filter(sub => this.subscriptionStatusKey(sub) === 'active')
+        .sort((left, right) => checkedAt(right) - checkedAt(left))
+        .slice(0, 14);
     },
 
     dashboardStatusSummary() {

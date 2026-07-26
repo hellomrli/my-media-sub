@@ -615,10 +615,26 @@ fn default_tmdb_language() -> String {
     "zh-CN".to_string()
 }
 
+/// 工作台卡片 id。前四个之外的旧 id（hero/operations）仍被接受，
+/// 前端会把它们映射到新卡片，避免升级后用户已保存的布局丢失。
+pub const DASHBOARD_WIDGET_IDS: [&str; 9] = [
+    "command",
+    "quick_actions",
+    "kpis",
+    "library",
+    "cloud",
+    "automation",
+    "activity",
+    // 兼容 v2.2.17 之前保存的布局
+    "hero",
+    "operations",
+];
+
 fn default_dashboard_widgets() -> Vec<String> {
-    ["quick_actions", "hero", "kpis", "library", "operations"]
-        .into_iter()
-        .map(str::to_string)
+    DASHBOARD_WIDGET_IDS
+        .iter()
+        .take(7)
+        .map(|id| (*id).to_string())
         .collect()
 }
 

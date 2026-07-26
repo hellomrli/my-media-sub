@@ -12,7 +12,8 @@ test('remote images recover after transient load failures', () => {
   assert.equal(html.includes("@error=\"$el.style.display='none'\""), false);
   assert.equal(html.includes('@error="$el.hidden = true"'), false);
   const recoverableImages = html.match(/@error="handleRemoteImageError\(\$event\)" @load="handleRemoteImageLoad\(\$event\)"/g) || [];
-  assert.ok(recoverableImages.length >= 12);
+  // 工作台海报墙在 v2.2.18 换成了密度更高的订阅看板，可恢复图片相应少了一处。
+  assert.ok(recoverableImages.length >= 11, `可恢复远程图片只剩 ${recoverableImages.length} 处`);
   assert.match(subscriptionsSource, /this\.subscriptions = data\.data \|\| \[\];[\s\S]*recoverRemoteImagesAfterDataRefresh\(\)/);
   assert.equal(html.includes(':src="item.thumbnail_url"'), false);
   assert.equal(html.includes(':src="item.poster_url"'), false);
