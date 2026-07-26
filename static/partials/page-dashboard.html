@@ -178,28 +178,6 @@
                   </div>
                 </template>
 
-                <template x-if="card.id === 'cloud'">
-                  <div class="dash-panel-body">
-                    <div class="panel-heading compact">
-                      <div><h3>夸克网盘</h3></div>
-                      <button @click="refreshQuarkHealth()" :disabled="quarkHealthLoading" class="icon-button small" title="检测夸克状态">
-                        <svg class="w-4 h-4" :class="quarkHealthLoading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5m11 11v-5h-5M5.1 9A8 8 0 0119 6.3M18.9 15A8 8 0 015 17.7"/></svg>
-                      </button>
-                    </div>
-                    <div class="cloud-health-head">
-                      <div class="cloud-health-icon" :class="quarkHealthStatusClass()"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M7 18h10a4 4 0 10-.8-7.9A6 6 0 105.4 15 3 3 0 007 18z"/></svg></div>
-                      <div><strong :class="quarkHealthStatusClass()" x-text="quarkHealthStatusLabel()"></strong><span x-text="quarkHealth.message || '等待检测账号状态'"></span></div>
-                    </div>
-                    <div class="cloud-metrics">
-                      <div><span>自动转存</span><strong :class="settings.quark_save_enabled ? 'text-success' : 'text-muted'" x-text="settings.quark_save_enabled ? '开启' : '关闭'"></strong></div>
-                      <div><span>今日签到</span><strong :class="quarkSigninTodayClass()" x-text="quarkSigninTodayLabel()"></strong></div>
-                      <div><span>网盘容量</span><strong x-text="quarkCapacityLabel()"></strong></div>
-                    </div>
-                    <div x-show="(quarkHealth.issues || []).length" class="health-note has-issue"><span></span><p x-text="quarkHealthIssueText()"></p></div>
-                  </div>
-                </template>
-
-
               </section>
             </template>
           </div>

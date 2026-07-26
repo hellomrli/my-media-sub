@@ -48,14 +48,18 @@ test('dashboard attention links set the relevant filter before navigation', () =
 test('dashboard cards keep legacy layouts working and stay ordered', () => {
   // v2.2.19：更新日历并入工作台顶替订阅看板；快捷入口/自动化/最近活动的内容
   // 已被指标格与活动中心覆盖，旧 id 映射后应当消失而不是变成未知卡片。
+  // v2.2.20 起夸克状态常驻侧边栏，cloud 卡片不再存在
   const app = state({settings: {dashboard_widgets: ['quick_actions', 'hero', 'kpis', 'library', 'operations']}});
-  assert.deepEqual(app.dashboardLayout, ['command', 'kpis', 'calendar', 'cloud']);
+  assert.deepEqual(app.dashboardLayout, ['command', 'kpis', 'calendar']);
   assert.deepEqual(app.dashboardCards('compact').map(card => card.id), ['command', 'kpis']);
-  assert.deepEqual(app.dashboardCards('panel').map(card => card.id), ['calendar', 'cloud']);
+  assert.deepEqual(app.dashboardCards('panel').map(card => card.id), ['calendar']);
   assert.equal(app.dashboardHiddenCards().length, 0);
 
+  const legacyCloud = state({settings: {dashboard_widgets: ['cloud', 'calendar']}});
+  assert.deepEqual(legacyCloud.dashboardLayout, ['calendar'], '已下线的 cloud 卡片静默丢弃');
+
   const empty = state({settings: {dashboard_widgets: []}});
-  assert.equal(empty.dashboardLayout.length, 4, '空配置视为全部显示');
+  assert.equal(empty.dashboardLayout.length, 3, '空配置视为全部显示');
 
   const unknown = state({settings: {dashboard_widgets: ['calendar', 'not-a-card', 'calendar']}});
   assert.deepEqual(unknown.dashboardLayout, ['calendar'], '未知与重复 id 会被丢弃');

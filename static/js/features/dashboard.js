@@ -12,16 +12,16 @@
   const CARD_CATALOG = Object.freeze([
     {id: 'command', name: '概览与操作', hint: '状态摘要与主操作', zone: 'compact', span: 12},
     {id: 'kpis', name: '运行指标', hint: '订阅、任务与下载计数', zone: 'compact', span: 12},
-    {id: 'calendar', name: '更新日历', hint: '播出排期与缺集状态', zone: 'panel', span: 8},
-    {id: 'cloud', name: '夸克网盘', hint: '账号、转存与签到', zone: 'panel', span: 4}
+    {id: 'calendar', name: '更新日历', hint: '播出排期与缺集状态', zone: 'panel', span: 12}
   ]);
 
-  /// 旧布局映射。v2.2.19 把更新日历并入工作台并顶替了订阅看板，
-  /// 快捷入口、自动化执行、最近活动的内容已被指标格和活动中心覆盖，不再单列卡片。
+  /// 旧布局映射。更新日历顶替了订阅看板；快捷入口、自动化执行、最近活动的内容
+  /// 已被指标格与活动中心覆盖；夸克网盘状态自 v2.2.20 起常驻左侧导航栏。
   const LEGACY_CARD_IDS = Object.freeze({
     hero: ['command'],
     library: ['calendar'],
-    operations: ['cloud'],
+    operations: [],
+    cloud: [],
     quick_actions: [],
     automation: [],
     activity: []
