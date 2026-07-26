@@ -51,6 +51,8 @@ test('page navigation stops page-bound pollers before applying the next page eff
   store.aria2Configured = () => false;
   store.stopDownloadsPolling = () => stopped.push('downloads');
   store.stopNotificationsPolling = () => stopped.push('notifications');
+  // 真实实现会起一个 30s 定时器，测试进程会因此永不退出；这里只记录调用。
+  store.startNotificationsPolling = () => stopped.push('notifications-start');
   store.stopSearchProgressTimer = () => stopped.push('search');
   store.stopUpdateProgressPolling = () => stopped.push('update');
   store.loadCalendar = () => stopped.push('calendar-load');
@@ -62,15 +64,19 @@ test('page navigation stops page-bound pollers before applying the next page eff
   store.loadUpdateReleases = () => {};
   store.loadUpdateProgress = async () => null;
 
+  // v2.2.19：更新日历并入工作台，calendar 现在会被路由到 dashboard；
+  // 工作台会加载日历数据并重启通知轮询（startNotificationsPolling 先停后起）。
   store.currentTab = 'search';
   store.selectTab('calendar', false);
-  assert.deepEqual(stopped, ['search', 'update', 'downloads', 'notifications', 'calendar-load']);
+  assert.equal(store.currentTab, 'dashboard');
+  assert.deepEqual(stopped, ['search', 'update', 'downloads', 'notifications-start', 'calendar-load']);
 
   stopped.length = 0;
   store.currentTab = 'settings';
   store.currentSettingsTab = 'maintenance';
   store.selectSettingsTab('connections', false);
   assert.deepEqual(stopped, ['search', 'update', 'downloads', 'notifications']);
+  store.destroy();
 });
 
 test('remote image failures retry with a cache-busting URL before falling back', () => {

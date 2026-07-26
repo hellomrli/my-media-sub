@@ -18,7 +18,9 @@
   const TAB_ALIASES = Object.freeze({
     // v2.2 and earlier exposed background jobs as a separate page. Keep old
     // bookmarks and PWA shortcuts working while rendering the unified center.
-    transferHistory: 'notifications'
+    transferHistory: 'notifications',
+    // v2.2.19 把更新日历并入工作台，日历不再是独立页面。
+    calendar: 'dashboard'
   });
 
   function normalizeTab(tabId) {
@@ -77,7 +79,6 @@
     currentSettingsTab: 'connections',
     tabs: [
       {id: 'dashboard', name: '工作台', description: '', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 13h8V3H3v10zm10 8h8V11h-8v10zM3 21h8v-6H3v6zm10-12h8V3h-8v6z"/></svg>'},
-      {id: 'calendar', name: '更新日历', description: '查看播出排期与缺集状态', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 2v4m8-4v4M3 10h18M5 4h14a2 2 0 012 2v14H3V6a2 2 0 012-2zm3 10h3m2 0h3m-8 3h3"/></svg>'},
       {id: 'search', name: '资源搜索', description: '搜索影视资源并添加订阅', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>'},
       {id: 'drive', name: '我的网盘', description: '管理夸克网盘文件', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>'},
       {id: 'downloads', name: '下载任务', description: '查看 Aria2 实时进度', icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4m0 0l4-4m-4 4V4"/></svg>'},
@@ -167,7 +168,7 @@
 
     runCurrentTabEffects(options = {}) {
       if (this.currentTab !== 'search') this.stopSearchProgressTimer();
-      if (this.currentTab !== 'settings' || this.currentSettingsTab !== 'maintenance') {
+      if (this.currentTab !== 'settings' || this.currentSettingsTab !== 'update') {
         this.stopUpdateProgressPolling();
       }
 
@@ -188,7 +189,6 @@
       if (this.currentTab === 'dashboard') {
         if (!options.initialDataLoaded) {
           this.loadNotifications();
-          this.loadAutomationSummary();
         }
         this.startNotificationsPolling();
       } else if (this.currentTab === 'notifications') {
@@ -205,7 +205,8 @@
         if (this.aria2Configured()) this.loadDownloads(true);
       }
 
-      if (this.currentTab === 'calendar' && !this.calendarLoading) {
+      // 更新日历已并入工作台：进入工作台就刷新排期，避免看到上次的旧数据。
+      if (this.currentTab === 'dashboard' && !this.calendarLoading) {
         this.loadCalendar();
       }
 

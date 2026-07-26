@@ -46,42 +46,40 @@ test('dashboard attention links set the relevant filter before navigation', () =
 });
 
 test('dashboard cards keep legacy layouts working and stay ordered', () => {
+  // v2.2.19：更新日历并入工作台顶替订阅看板；快捷入口/自动化/最近活动的内容
+  // 已被指标格与活动中心覆盖，旧 id 映射后应当消失而不是变成未知卡片。
   const app = state({settings: {dashboard_widgets: ['quick_actions', 'hero', 'kpis', 'library', 'operations']}});
-  // hero → command，operations → cloud/automation/activity，顺序保持用户原有习惯
-  assert.deepEqual(app.dashboardLayout, [
-    'quick_actions', 'command', 'kpis', 'library', 'cloud', 'automation', 'activity'
-  ]);
-  assert.deepEqual(app.dashboardCards('compact').map(card => card.id), ['quick_actions', 'command', 'kpis']);
-  assert.deepEqual(app.dashboardCards('panel').map(card => card.id), ['library', 'cloud', 'automation', 'activity']);
+  assert.deepEqual(app.dashboardLayout, ['command', 'kpis', 'calendar', 'cloud']);
+  assert.deepEqual(app.dashboardCards('compact').map(card => card.id), ['command', 'kpis']);
+  assert.deepEqual(app.dashboardCards('panel').map(card => card.id), ['calendar', 'cloud']);
   assert.equal(app.dashboardHiddenCards().length, 0);
 
   const empty = state({settings: {dashboard_widgets: []}});
-  assert.equal(empty.dashboardLayout.length, 7, '空配置视为全部显示');
+  assert.equal(empty.dashboardLayout.length, 4, '空配置视为全部显示');
 
-  const unknown = state({settings: {dashboard_widgets: ['library', 'not-a-card', 'library']}});
-  assert.deepEqual(unknown.dashboardLayout, ['library'], '未知与重复 id 会被丢弃');
+  const unknown = state({settings: {dashboard_widgets: ['calendar', 'not-a-card', 'calendar']}});
+  assert.deepEqual(unknown.dashboardLayout, ['calendar'], '未知与重复 id 会被丢弃');
 });
 
 test('dashboard edit mode reorders, hides and restores cards on a draft', () => {
-  const app = state({settings: {dashboard_widgets: ['command', 'kpis', 'library']}});
+  const app = state({settings: {dashboard_widgets: ['command', 'kpis', 'calendar']}});
   app.startDashboardEdit();
-  assert.deepEqual(app.dashboardLayoutDraft, ['command', 'kpis', 'library']);
+  assert.deepEqual(app.dashboardLayoutDraft, ['command', 'kpis', 'calendar']);
 
-  app.moveDashboardCard('library', -1);
-  assert.deepEqual(app.dashboardLayout, ['command', 'library', 'kpis'], '编辑态所见即所得');
+  app.moveDashboardCard('calendar', -1);
+  assert.deepEqual(app.dashboardLayout, ['command', 'calendar', 'kpis'], '编辑态所见即所得');
 
   app.toggleDashboardCard('kpis');
-  assert.deepEqual(app.dashboardLayout, ['command', 'library']);
+  assert.deepEqual(app.dashboardLayout, ['command', 'calendar']);
   assert.ok(app.dashboardHiddenCards().some(card => card.id === 'kpis'));
   app.toggleDashboardCard('kpis');
-  assert.deepEqual(app.dashboardLayout, ['command', 'library', 'kpis'], '再次点击恢复显示');
+  assert.deepEqual(app.dashboardLayout, ['command', 'calendar', 'kpis'], '再次点击恢复显示');
 
-  // 越界移动不应改变顺序
   app.moveDashboardCard('command', -1);
-  assert.deepEqual(app.dashboardLayout, ['command', 'library', 'kpis']);
+  assert.deepEqual(app.dashboardLayout, ['command', 'calendar', 'kpis'], '越界移动不改顺序');
 
   app.cancelDashboardEdit();
-  assert.deepEqual(app.dashboardLayout, ['command', 'kpis', 'library'], '取消后回到已保存布局');
+  assert.deepEqual(app.dashboardLayout, ['command', 'kpis', 'calendar'], '取消后回到已保存布局');
 });
 
 test('dashboard watchlist keeps only subscriptions still airing', () => {

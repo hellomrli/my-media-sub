@@ -1,8 +1,8 @@
 /* global MediaSubPwaPolicy */
-importScripts('/js/pwa-policy.js?v=2.2.18');
+importScripts('/js/pwa-policy.js?v=2.2.19');
 
-const ASSET_VERSION = '2.2.18';
-const CACHE_VERSION = 'v2.2.18-dashboard-cards-and-settings-1';
+const ASSET_VERSION = '2.2.19';
+const CACHE_VERSION = 'v2.2.19-calendar-dashboard-and-forms-1';
 const SHELL_CACHE = `media-sub-shell-${CACHE_VERSION}`;
 const STATIC_CACHE = `media-sub-static-${CACHE_VERSION}`;
 const CACHE_PREFIX = 'media-sub-';
