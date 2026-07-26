@@ -81,3 +81,20 @@ pub(super) fn continue_from_current_episode_default(value: Option<bool>) -> bool
 pub(super) fn reconcile_completion_status(sub: &mut Subscription) {
     reconcile_completed_subscription_status(sub);
 }
+
+/// 用户手动标记完结或重新追更。重新追更同时清掉失效标记，
+/// 让订阅立刻回到追更列表并参与下一轮检查。
+pub(super) fn apply_manual_completion(sub: &mut Subscription, completed: bool) {
+    if sub.completed == completed && sub.status == if completed { "completed" } else { "active" } {
+        return;
+    }
+    sub.completed = completed;
+    sub.status = if completed { "completed" } else { "active" }.to_string();
+    sub.invalid_since = None;
+    sub.last_error.clear();
+    sub.last_check_summary = if completed {
+        "已手动标记完结".to_string()
+    } else {
+        "已手动恢复追更，等待下次检查".to_string()
+    };
+}

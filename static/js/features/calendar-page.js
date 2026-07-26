@@ -9,12 +9,18 @@
   const {apiData} = api;
   const calendarTools = root.MediaSubCalendar || {};
 
+  /// 周视图是 7 列 × 145px 的网格，手机上只能横向滚动，默认改用列表视图。
+  function defaultCalendarView(scope) {
+    const width = scope && Number(scope.innerWidth);
+    return width > 0 && width < 768 ? 'list' : 'week';
+  }
+
   function createStore() {
     return {
     calendar: null,
     calendarLoading: false,
     calendarError: '',
-    calendarView: 'week',
+    calendarView: defaultCalendarView(root),
     calendarCursor: '',
     calendarStatusFilter: 'all',
     calendarMediaFilter: 'all',

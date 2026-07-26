@@ -1894,3 +1894,93 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
   .data-table-row button, .data-table-row input[type="checkbox"], .segmented-control button { min-height: 44px; }
   .dialog-panel { max-height: calc(100dvh - 16px) !important; padding: 16px !important; border-radius: 16px !important; }
 }
+
+/* P18 响应式适配：窄屏表格卡片化、触摸目标与溢出修正 */
+
+/* 数据表在侧边栏收起（<1024px）时改为卡片堆叠：这些表最小宽度接近 1000px，
+   横向滚动会把状态和操作列推出屏幕外。 */
+@media (max-width: 1023px) {
+  .data-table--stack .data-table-head { display: none; }
+  .data-table--stack .data-table-scroll { overflow-x: visible; }
+  .data-table--stack .data-table-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    min-width: 0;
+    padding-top: 11px;
+    padding-bottom: 11px;
+  }
+  /* 主信息列（标题/海报/勾选）独占首行，操作列独占末行 */
+  .data-table--stack .data-table-row > :first-child { flex: 1 0 100%; min-width: 0; }
+  .data-table--stack .data-table-row > :last-child { flex: 1 0 100%; justify-content: flex-start; }
+  /* 进度条需要整行宽度才有意义 */
+  .data-table--stack .data-table-row > *:has(.progress-inline) { flex: 1 0 100%; min-width: 0; }
+  .data-table--stack .data-table-row > *:has(.progress-inline) .progress-inline { max-width: 320px; }
+}
+
+/* 配置完成度圆环：11px 的标签放不进 64px 圆环，会压到环形边缘 */
+.settings-overview-score > div { width: 76px; height: 76px; }
+.settings-overview-score > div::before { inset: 8px; }
+.settings-overview-score strong { font-size: 16px; }
+.settings-overview-score span { font-size: 10px; line-height: 1.2; }
+
+/* 订阅详情底部操作条：原负外边距把整条推出容器左侧并溢出右边界 */
+@media (max-width: 640px) {
+  .subscription-detail-actions { margin-inline: 0; }
+  .subscription-detail-actions > * { flex: 1 1 132px; }
+}
+
+/* 触摸端最小点击区域：指针为粗（触摸）时放大细小控件 */
+@media (pointer: coarse) {
+  .text-action { min-height: 36px; }
+  .icon-button.small { width: 36px; height: 36px; min-height: 36px; }
+  input[type="checkbox"] { width: 18px; height: 18px; }
+}
+
+/* 底部安全区：iOS PWA 全屏时最后一行会被 home indicator 盖住 */
+@media (max-width: 1023px) {
+  .app-content { padding-bottom: calc(28px + env(safe-area-inset-bottom)) !important; }
+}
+
+/* 日历工具栏：窄屏下「今天」被挤成两行 */
+.calendar-nav-actions .btn-secondary { white-space: nowrap; }
+
+/* 筛选按钮组：窄屏改为换行，避免最后一个筛选被裁在屏幕外 */
+@media (max-width: 767px) {
+  .filter-chip-row { flex-wrap: wrap; overflow-x: visible; }
+}
+
+/* 日历条目操作按钮在触摸端太小 */
+@media (pointer: coarse) {
+  .calendar-item-actions button, .calendar-list-actions button { min-height: 34px; padding-inline: 12px; }
+}
+
+/* 桌面宽度下的表格列宽：原来的固定像素列合计接近 1000px，
+   1024–1400px（侧边栏占 256px）时会把「操作」列挤出可视区。改成可伸缩列。 */
+@media (min-width: 1024px) {
+  .data-table--subs .data-table-head,
+  .data-table--subs .data-table-row,
+  .data-table--downloads .data-table-head,
+  .data-table--downloads .data-table-row,
+  .data-table--activity .data-table-head,
+  .data-table--activity .data-table-row {
+    /* 列自身已有最小宽度，760px 的整体下限会在 1024px 挤出「操作」列 */
+    min-width: 0;
+  }
+  .data-table--subs .data-table-head,
+  .data-table--subs .data-table-row {
+    grid-template-columns: minmax(0, 2.4fr) minmax(68px, .7fr) minmax(68px, .7fr)
+      minmax(92px, 1.2fr) minmax(72px, .8fr) minmax(104px, 1.2fr) minmax(104px, 1.1fr);
+  }
+  .data-table--downloads .data-table-head,
+  .data-table--downloads .data-table-row {
+    grid-template-columns: minmax(0, 2.2fr) minmax(72px, .8fr) minmax(104px, 1.3fr)
+      minmax(72px, .8fr) minmax(72px, .8fr) minmax(72px, .8fr) minmax(150px, 1.6fr);
+  }
+  .data-table--activity .data-table-head,
+  .data-table--activity .data-table-row {
+    grid-template-columns: minmax(72px, .8fr) minmax(76px, .8fr) minmax(96px, 1fr)
+      minmax(0, 2.6fr) minmax(104px, 1.1fr) minmax(120px, 1.3fr);
+  }
+}

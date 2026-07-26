@@ -1,11 +1,38 @@
+use crate::models::metadata::episode_count_for_season;
 use crate::models::Subscription;
-use crate::services::episode::detect_episode;
+use crate::services::episode::{detect_episode, is_video_name};
 
 pub fn completion_target_episode(sub: &Subscription) -> Option<i32> {
     sub.rules
         .finish_after_episode
         .or(sub.total_episode_number)
         .filter(|episode| *episode > 0)
+}
+
+/// 把元数据里的季集数回填到 `total_episode_number`。
+///
+/// 订阅创建时往往还没刮削到元数据，之后补上的集数如果不落到订阅上，
+/// 完结判定就永远没有目标，剧集追完了也留在「追更中」。
+/// 多季订阅没有单一总集数，电影不按集数完结，两者都跳过。
+pub fn backfill_total_episode_from_metadata(sub: &mut Subscription) -> bool {
+    if sub.media_type == "movie" || sub.is_multi_season() || sub.total_episode_number.is_some() {
+        return false;
+    }
+    let Some(count) =
+        episode_count_for_season(sub.metadata.as_ref(), sub.season).filter(|count| *count > 0)
+    else {
+        return false;
+    };
+    sub.total_episode_number = Some(count);
+    true
+}
+
+/// 电影只有一个正片，拿到片源即可完结，不需要集数目标。
+fn movie_source_ready<'a>(
+    sub: &Subscription,
+    file_names: impl IntoIterator<Item = &'a String>,
+) -> bool {
+    sub.media_type == "movie" && file_names.into_iter().any(|name| is_video_name(name))
 }
 
 pub fn progress_max_episode(sub: &Subscription) -> i32 {
@@ -35,6 +62,11 @@ pub fn should_reopen_completed_subscription(sub: &Subscription) -> bool {
         return false;
     }
 
+    // 电影不按集数完结，重开只会让已经拿到片源的订阅反复回到追更中。
+    if sub.media_type == "movie" {
+        return false;
+    }
+
     completion_target_episode(sub).is_some() && !has_reached_target_episode(sub, &[])
 }
 
@@ -55,10 +87,15 @@ pub fn reopen_completed_subscription_status(sub: &mut Subscription) -> bool {
 /// subscriptions from discovered evidence, and download-synced subscriptions remain
 /// active until the download monitor records the target as completed.
 pub fn reconcile_completed_subscription_status(sub: &mut Subscription) -> bool {
+    backfill_total_episode_from_metadata(sub);
     if reopen_completed_subscription_status(sub) {
         return true;
     }
     if sub.completed || sub.status == "completed" || sub.sync_download_enabled {
+        // 历史数据里 completed 与 status 可能不一致，会让列表分组把已完结订阅算进追更中。
+        if sub.completed && sub.status == "active" {
+            sub.status = "completed".to_string();
+        }
         return false;
     }
 
@@ -95,6 +132,13 @@ pub fn should_mark_completed_from_known_episodes(sub: &Subscription, new_episode
         return false;
     }
 
+    if sub.media_type == "movie" {
+        return movie_source_ready(
+            sub,
+            sub.known_files.iter().chain(sub.transferred_files.iter()),
+        );
+    }
+
     has_reached_target_episode(sub, new_episodes)
 }
 
@@ -110,6 +154,10 @@ pub fn should_mark_completed_from_transferred_files(
 pub fn should_mark_completed_from_file_names(sub: &Subscription, file_names: &[String]) -> bool {
     if sub.completed {
         return false;
+    }
+
+    if sub.media_type == "movie" {
+        return movie_source_ready(sub, file_names.iter());
     }
 
     let Some(target_episode) = completion_target_episode(sub) else {
@@ -257,6 +305,127 @@ mod tests {
         synced.transferred_files = vec!["Show.S01E12.mkv".to_string()];
         assert!(!reconcile_completed_subscription_status(&mut synced));
         assert!(!synced.completed);
+    }
+
+    #[test]
+    fn movie_completes_once_the_feature_file_is_transferred() {
+        let mut sub = subscription();
+        sub.media_type = "movie".to_string();
+        sub.total_episode_number = None;
+        sub.known_episodes.clear();
+
+        assert!(!reconcile_completed_subscription_status(&mut sub));
+
+        sub.transferred_files = vec!["阿凡达.2009.2160p.mkv".to_string()];
+        assert!(reconcile_completed_subscription_status(&mut sub));
+        assert!(sub.completed);
+        assert_eq!(sub.status, "completed");
+        // 电影没有集数目标，不能因为「没到目标集」被反复重开。
+        assert!(!should_reopen_completed_subscription(&sub));
+    }
+
+    #[test]
+    fn notify_only_movie_completes_from_discovered_file() {
+        let mut sub = subscription();
+        sub.media_type = "movie".to_string();
+        sub.notify_only = true;
+        sub.total_episode_number = None;
+        sub.known_episodes.clear();
+        sub.known_files = vec!["电影说明.txt".to_string()];
+
+        assert!(!reconcile_completed_subscription_status(&mut sub));
+
+        sub.known_files.push("电影.1080p.mp4".to_string());
+        assert!(reconcile_completed_subscription_status(&mut sub));
+        assert!(sub.completed);
+    }
+
+    #[test]
+    fn metadata_episode_count_backfills_missing_completion_target() {
+        use crate::models::metadata::{MediaMetadata, MediaMetadataSeason, MetadataProvider};
+
+        let mut sub = subscription();
+        sub.total_episode_number = None;
+        sub.known_episodes = vec![1, 2, 12];
+        sub.transferred_files = vec!["Show.S01E12.mkv".to_string()];
+        assert_eq!(completion_target_episode(&sub), None);
+
+        sub.metadata = Some(MediaMetadata {
+            provider: MetadataProvider::Tmdb,
+            provider_id: "1".to_string(),
+            title: "Show".to_string(),
+            original_title: String::new(),
+            media_type: "series".to_string(),
+            overview: String::new(),
+            poster_url: None,
+            backdrop_url: None,
+            release_date: None,
+            vote_average: None,
+            number_of_episodes: Some(12),
+            number_of_seasons: Some(1),
+            seasons: vec![MediaMetadataSeason {
+                season_number: 1,
+                episode_count: Some(12),
+                name: "第 1 季".to_string(),
+                air_date: None,
+                poster_url: None,
+            }],
+            next_episode_to_air: None,
+            episodes: vec![],
+        });
+
+        assert!(reconcile_completed_subscription_status(&mut sub));
+        assert_eq!(sub.total_episode_number, Some(12));
+        assert!(sub.completed);
+        assert_eq!(sub.status, "completed");
+    }
+
+    #[test]
+    fn multi_season_subscription_keeps_no_backfilled_total() {
+        use crate::models::metadata::{MediaMetadata, MediaMetadataSeason, MetadataProvider};
+
+        let mut sub = subscription();
+        sub.total_episode_number = None;
+        sub.season_end = Some(3);
+        sub.metadata = Some(MediaMetadata {
+            provider: MetadataProvider::Tmdb,
+            provider_id: "1".to_string(),
+            title: "Show".to_string(),
+            original_title: String::new(),
+            media_type: "series".to_string(),
+            overview: String::new(),
+            poster_url: None,
+            backdrop_url: None,
+            release_date: None,
+            vote_average: None,
+            number_of_episodes: Some(36),
+            number_of_seasons: Some(3),
+            seasons: vec![MediaMetadataSeason {
+                season_number: 1,
+                episode_count: Some(12),
+                name: "第 1 季".to_string(),
+                air_date: None,
+                poster_url: None,
+            }],
+            next_episode_to_air: None,
+            episodes: vec![],
+        });
+
+        assert!(!backfill_total_episode_from_metadata(&mut sub));
+        assert_eq!(sub.total_episode_number, None);
+    }
+
+    #[test]
+    fn reconcile_repairs_completed_flag_without_matching_status() {
+        let mut sub = subscription();
+        sub.completed = true;
+        sub.status = "active".to_string();
+        sub.known_episodes = vec![12];
+        sub.current_episode_number = 12;
+
+        reconcile_completed_subscription_status(&mut sub);
+
+        assert_eq!(sub.status, "completed");
     }
 
     #[test]

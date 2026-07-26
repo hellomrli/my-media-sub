@@ -2382,13 +2382,15 @@
 
     async applySourceCandidate(candidate) {
       if (!this.sourceSwitchSubscriptionId || !candidate || !candidate.id) return;
-      let preview = this.sourceSwitchPreview && this.sourceSwitchPreview.candidate && this.sourceSwitchPreview.candidate.id === candidate.id
+      // 只复用探测成功的预览：探测失败可能只是上游瞬时抖动，重新探测比让按钮一直点不动更合理。
+      const cached = sourceSwitchTools.previewMatches(this.sourceSwitchPreview, candidate.id) && this.sourceSwitchPreview.probe_ok
         ? this.sourceSwitchPreview
-        : await this.previewSourceCandidate(candidate);
+        : null;
+      const preview = cached || await this.previewSourceCandidate(candidate);
       if (!preview || !preview.probe_ok) {
         this.sourceSwitchError = preview && preview.warnings && preview.warnings.length
           ? `候选探测失败：${preview.warnings.join('；')}`
-          : '请先完成候选预览，确认分享可访问';
+          : '候选分享无法访问，请稍后重试或换一个候选';
         this.showNotification('error', this.sourceSwitchError);
         return;
       }
@@ -2449,6 +2451,15 @@
       return sourceSwitchTools.episodeRange(candidate);
     },
 
+    sourceCandidateApplyState(candidate) {
+      return sourceSwitchTools.applyButtonState(
+        this.sourceSwitchPreview,
+        candidate && candidate.id,
+        this.sourceSwitchApplyingId,
+        this.sourceSwitchPreviewingId
+      );
+    },
+
     sourceSwitchHistoryLabel(item) {
       return sourceSwitchTools.historyLabel(item);
     },
@@ -2482,13 +2493,17 @@
     },
 
     // 表格与海报视图共用的"更多"菜单（label 用于表格，short 用于海报卡片）
-    subscriptionMenuActions() {
+    subscriptionMenuActions(sub) {
+      const completed = this.subscriptionStatusKey(sub) === 'completed';
       return [
         {id: 'edit', label: '编辑订阅', short: '编辑'},
         {id: 'rename', label: '修复命名', short: '修复'},
         {id: 'scrape', label: '自动刮削', short: '刮削'},
         {id: 'manual-scrape', label: '手动刮削', short: '手动'},
         {id: 'source-switch', label: '换源', short: '换源'},
+        completed
+          ? {id: 'reopen', label: '重新追更', short: '追更'}
+          : {id: 'complete', label: '标记完结', short: '完结'},
         {id: 'delete', label: '删除', short: '删除', danger: true}
       ];
     },
@@ -2501,7 +2516,26 @@
       else if (actionId === 'scrape') this.scrapeSubscriptionMetadata(sub.id);
       else if (actionId === 'manual-scrape') this.openManualMetadataScrape(sub);
       else if (actionId === 'source-switch') this.openSourceSwitchDialog(sub);
+      else if (actionId === 'complete') this.setSubscriptionCompleted(sub, true);
+      else if (actionId === 'reopen') this.setSubscriptionCompleted(sub, false);
       else if (actionId === 'delete') this.deleteSubscription(sub.id);
+    },
+
+    /// 手动纠正完结状态：自动判定依赖总集数和文件名解析，两者都可能缺失。
+    async setSubscriptionCompleted(sub, completed) {
+      if (!sub || !sub.id) return;
+      try {
+        await apiData(`/api/subscriptions/${sub.id}`, {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({completed})
+        });
+        this.showNotification('success', completed ? '已标记为完结' : '已恢复追更');
+        await this.loadSubscriptions();
+        if (this.selectedSubscriptionId === sub.id) await this.loadSubscriptionDetail(sub.id);
+      } catch (error) {
+        this.showNotification('error', this.apiErrorMessage(error, completed ? '标记完结失败' : '恢复追更失败'));
+      }
     },
 
     async deleteSubscription(id) {
