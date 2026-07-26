@@ -11,9 +11,9 @@
   <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%234f46e5%27/%3E%3Cpath d=%27M8 9h16v14H8zm4-4v22m8-22v22%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27/%3E%3C/svg%3E">
-  <script src="js/theme-init.js?v=2.2.19"></script>
-  <link rel="stylesheet" href="styles.css?v=2.2.19">
-  <script defer src="vendor/alpine.min.js?v=2.2.19"></script>
+  <script src="js/theme-init.js?v=2.2.20"></script>
+  <link rel="stylesheet" href="styles.css?v=2.2.20">
+  <script defer src="vendor/alpine.min.js?v=2.2.20"></script>
 </head>
 <body class="bg-app text-text/90 min-h-screen" x-data="app()" x-cloak>
 
@@ -80,6 +80,20 @@
           </span>
           <span class="nav-indicator"></span>
         </button>
+        <div class="sidebar-cloud-card">
+          <div class="sidebar-cloud-head">
+            <span>夸克网盘</span>
+            <button @click="refreshQuarkHealth()" :disabled="quarkHealthLoading" title="检测夸克账号状态" aria-label="检测夸克账号状态">
+              <svg class="w-3 h-3" :class="quarkHealthLoading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5m11 11v-5h-5M5.1 9A8 8 0 0119 6.3M18.9 15A8 8 0 015 17.7"/></svg>
+            </button>
+          </div>
+          <div class="sidebar-cloud-status" :class="quarkHealthStatusClass()"><span class="sidebar-cloud-dot"></span><strong x-text="quarkHealthStatusLabel()"></strong></div>
+          <div class="sidebar-cloud-meta">
+            <span>转存 <strong :class="settings.quark_save_enabled ? 'text-success' : ''" x-text="settings.quark_save_enabled ? '开' : '关'"></strong></span>
+            <span>签到 <strong :class="quarkSigninTodayClass()" x-text="quarkSigninTodayLabel()"></strong></span>
+            <span>容量 <strong x-text="quarkCapacityLabel()"></strong></span>
+          </div>
+        </div>
         <div class="automation-card">
           <div class="automation-card-head">
             <span>自动化节点</span>
@@ -325,28 +339,6 @@
               </section>
                   </div>
                 </template>
-
-                <template x-if="card.id === 'cloud'">
-                  <div class="dash-panel-body">
-                    <div class="panel-heading compact">
-                      <div><h3>夸克网盘</h3></div>
-                      <button @click="refreshQuarkHealth()" :disabled="quarkHealthLoading" class="icon-button small" title="检测夸克状态">
-                        <svg class="w-4 h-4" :class="quarkHealthLoading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5m11 11v-5h-5M5.1 9A8 8 0 0119 6.3M18.9 15A8 8 0 015 17.7"/></svg>
-                      </button>
-                    </div>
-                    <div class="cloud-health-head">
-                      <div class="cloud-health-icon" :class="quarkHealthStatusClass()"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M7 18h10a4 4 0 10-.8-7.9A6 6 0 105.4 15 3 3 0 007 18z"/></svg></div>
-                      <div><strong :class="quarkHealthStatusClass()" x-text="quarkHealthStatusLabel()"></strong><span x-text="quarkHealth.message || '等待检测账号状态'"></span></div>
-                    </div>
-                    <div class="cloud-metrics">
-                      <div><span>自动转存</span><strong :class="settings.quark_save_enabled ? 'text-success' : 'text-muted'" x-text="settings.quark_save_enabled ? '开启' : '关闭'"></strong></div>
-                      <div><span>今日签到</span><strong :class="quarkSigninTodayClass()" x-text="quarkSigninTodayLabel()"></strong></div>
-                      <div><span>网盘容量</span><strong x-text="quarkCapacityLabel()"></strong></div>
-                    </div>
-                    <div x-show="(quarkHealth.issues || []).length" class="health-note has-issue"><span></span><p x-text="quarkHealthIssueText()"></p></div>
-                  </div>
-                </template>
-
 
               </section>
             </template>
@@ -2812,29 +2804,29 @@
     </div>
   </div>
   <!-- Alpine.js 应用逻辑 -->
-  <script src="js/core/api.js?v=2.2.19"></script>
-  <script src="js/core/formatters.js?v=2.2.19"></script>
-  <script src="js/core/ux.js?v=2.2.19"></script>
-  <script src="js/features/search-results.js?v=2.2.19"></script>
-  <script src="js/features/subscription-detail.js?v=2.2.19"></script>
-  <script src="js/features/calendar.js?v=2.2.19"></script>
-  <script src="js/features/source-switch.js?v=2.2.19"></script>
-  <script src="js/features/automation-events.js?v=2.2.19"></script>
-  <script src="js/core/polling.js?v=2.2.19"></script>
-  <script src="js/core/router.js?v=2.2.19"></script>
-  <script src="js/core/notifications.js?v=2.2.19"></script>
-  <script src="js/stores/downloads.js?v=2.2.19"></script>
-  <script src="js/stores/drive.js?v=2.2.19"></script>
-  <script src="js/stores/jobs.js?v=2.2.19"></script>
-  <script src="js/stores/subscriptions.js?v=2.2.19"></script>
-  <script src="js/features/updates.js?v=2.2.19"></script>
-  <script src="js/features/settings.js?v=2.2.19"></script>
-  <script src="js/features/diagnostics.js?v=2.2.19"></script>
-  <script src="js/features/pwa.js?v=2.2.19"></script>
-  <script src="js/features/dashboard.js?v=2.2.19"></script>
-  <script src="js/features/search-page.js?v=2.2.19"></script>
-  <script src="js/features/calendar-page.js?v=2.2.19"></script>
-  <script src="js/core/shell.js?v=2.2.19"></script>
-  <script src="app.js?v=2.2.19"></script>
+  <script src="js/core/api.js?v=2.2.20"></script>
+  <script src="js/core/formatters.js?v=2.2.20"></script>
+  <script src="js/core/ux.js?v=2.2.20"></script>
+  <script src="js/features/search-results.js?v=2.2.20"></script>
+  <script src="js/features/subscription-detail.js?v=2.2.20"></script>
+  <script src="js/features/calendar.js?v=2.2.20"></script>
+  <script src="js/features/source-switch.js?v=2.2.20"></script>
+  <script src="js/features/automation-events.js?v=2.2.20"></script>
+  <script src="js/core/polling.js?v=2.2.20"></script>
+  <script src="js/core/router.js?v=2.2.20"></script>
+  <script src="js/core/notifications.js?v=2.2.20"></script>
+  <script src="js/stores/downloads.js?v=2.2.20"></script>
+  <script src="js/stores/drive.js?v=2.2.20"></script>
+  <script src="js/stores/jobs.js?v=2.2.20"></script>
+  <script src="js/stores/subscriptions.js?v=2.2.20"></script>
+  <script src="js/features/updates.js?v=2.2.20"></script>
+  <script src="js/features/settings.js?v=2.2.20"></script>
+  <script src="js/features/diagnostics.js?v=2.2.20"></script>
+  <script src="js/features/pwa.js?v=2.2.20"></script>
+  <script src="js/features/dashboard.js?v=2.2.20"></script>
+  <script src="js/features/search-page.js?v=2.2.20"></script>
+  <script src="js/features/calendar-page.js?v=2.2.20"></script>
+  <script src="js/core/shell.js?v=2.2.20"></script>
+  <script src="app.js?v=2.2.20"></script>
 </body>
 </html>
