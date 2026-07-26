@@ -26,8 +26,8 @@
 | 自动转存 | 业务级幂等（重试不重复转存）；电影/剧集/动画目录归类；规则过滤、模板重命名、批量修复命名 |
 | 分享失效 | 失效计数、候选评分、进度校验、冷却与自动换源，全程可回滚审计 |
 | 找资源 | PanSou 聚合搜索、夸克分享探测与质量评分、TMDB 元数据（海报、年份、评分、总集数） |
-| 看排期 | 上海时区周/月/列表日历；手动排期或元数据推断；逐集处理状态一目了然 |
-| 下到本地 | Aria2 幂等提交、批量分批、退避重试；可触发 Jellyfin / Emby / Plex / Webhook 刷新媒体库 |
+| 看排期 | 上海时区周/月/列表日历；按元数据推断排期；逐集处理状态一目了然 |
+| 下到本地 | Aria2 幂等提交、批量分批、退避重试 |
 | 心里有数 | 持久化任务队列、真实取消、心跳看门狗、优雅停机、SSE 实时状态、结构化自动化事件流水线 |
 | 消息触达 | 企业微信 / Telegram / Bark / Gotify / WxPusher / PushPlus / Server 酱；Browser Push；签名 Webhook；安静时段与摘要聚合 |
 | 手机遥控 | Telegram Bot：白名单、写操作二次确认、限流与审计 |
@@ -67,6 +67,8 @@ docker compose pull && docker compose up -d   # 更新基础镜像和系统库
 docker compose down          # 停止
 ```
 
+Compose 默认限制容器日志为 `10m × 3`（json-file 驱动）。日志只写 stdout，不设上限的话长期运行会在宿主机上无界增长。
+
 ### 方式二：Docker Run
 
 ```bash
@@ -82,19 +84,21 @@ docker run -d \
   ghcr.io/hellomrli/my-media-sub:latest
 ```
 
-生产环境请钉死版本标签。每个发布会同时打补丁与次版本标签（例如 `2.2.14` 与 `2.2`）：
+生产环境请钉死版本标签。每个发布会同时打补丁与次版本标签（例如 `2.2.15` 与 `2.2`）：
 
 ```bash
-docker pull ghcr.io/hellomrli/my-media-sub:2.2.14
-docker image inspect ghcr.io/hellomrli/my-media-sub:2.2.14 --format '{{.RepoDigests}}'
+docker pull ghcr.io/hellomrli/my-media-sub:2.2.15
+docker image inspect ghcr.io/hellomrli/my-media-sub:2.2.15 --format '{{.RepoDigests}}'
 ```
+
+`:latest` 只在 CI 全绿后才会更新——镜像发布工作流以 CI 成功为前置条件，并构建通过了 CI 的那个提交。
 
 ### 方式三：Linux 二进制
 
 从 [GitHub Releases](https://github.com/hellomrli/my-media-sub/releases) 下载并校验：
 
 ```bash
-VERSION=v2.2.14
+VERSION=v2.2.15
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz"
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
 sha256sum -c "my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
@@ -183,6 +187,18 @@ SERVER_PASSWORD='replace-with-a-strong-password' ./my-media-sub
 | 推送 | `WECOM_BOT_URL`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID`、`WXPUSHER_APP_TOKEN`、`WXPUSHER_UIDS`、`BARK_URL`、`GOTIFY_URL`、`GOTIFY_TOKEN`、`PUSHPLUS_TOKEN`、`SERVERCHAN_KEY` |
 | Telegram Bot | `TELEGRAM_BOT_MODE`、`TELEGRAM_BOT_ALLOWED_USER_IDS`、`TELEGRAM_BOT_ALLOWED_CHAT_IDS`、`TELEGRAM_BOT_PRIVATE_ONLY`、`TELEGRAM_BOT_WEBHOOK_PUBLIC_URL`、`TELEGRAM_BOT_WEBHOOK_PATH_SECRET`、`TELEGRAM_BOT_WEBHOOK_SECRET` |
 
+### 只能通过设置 API 配置的功能
+
+以下能力后端完整可用，但**目前没有 WebUI 入口**，需要直接 `POST /api/settings`：
+
+| 功能 | 设置项 | 说明 |
+|---|---|---|
+| 媒体库刷新 | `media_library_refresh_enabled`、`media_library_type`、`media_library_refresh_url`、`media_library_token` | 转存成功后回调 Jellyfin / Emby / Plex 或任意 Webhook 刷新媒体库。`media_library_type` 决定认证方式：`jellyfin`/`emby` 用 `X-Emby-Token`，`plex` 用查询参数，其余用 Bearer |
+| 手动排期 | 订阅对象的 `manual_schedule` | 覆盖元数据推断的播出排期，驱动更新日历。已设置的值会在 WebUI 中正常回填并保留 |
+| 反代信任 | `trust_proxy_headers` | 见「安全与部署建议」 |
+
+补齐这些界面入口在计划中。
+
 ---
 
 ## 安全与部署建议
@@ -229,7 +245,7 @@ Docker 的 `runtime/` 不属于业务数据备份，包含当前二进制、完�
 | 用途 | 入口 |
 |---|---|
 | 存活 | `GET /health` |
-| 指标 | `GET /api/metrics`（JSON）、`GET /metrics`（Prometheus） |
+| 指标 | `GET /metrics`（Prometheus）、`GET /api/metrics`（JSON） |
 | 日志过滤 | `GET\|PUT /api/observability/log-filter` |
 | 诊断 | `GET /api/diagnostics`、`GET /api/diagnostics/export` |
 | 备份 | `GET /api/backups/export`、`POST /api/backups/preview`、`GET\|POST /api/backups/verification`、`POST /api/backups/restore` |
@@ -246,34 +262,49 @@ Docker 的 `runtime/` 不属于业务数据备份，包含当前二进制、完�
 {"ok": false, "error": "validation_error", "message": "..."}
 ```
 
-完整契约见 [`docs/api-contract.md`](docs/api-contract.md)，以及运行中的 OpenAPI 页面 `/api-docs.html`。
+路由表与 `static/openapi.json` 由 `scripts/check-openapi.py` 双向强制同步：缺失、未注册和破坏性变更都会让 CI 失败，规范版本号也必须与 `Cargo.toml` 一致。完整契约见 [`docs/api-contract.md`](docs/api-contract.md)，以及运行中的 OpenAPI 页面 `/api-docs.html`。
 
 ---
 
 ## 从源码构建
 
-需要：Rust stable（edition 2021）、Node.js（前端测试与模板组装）。可选 Docker、Tailwind standalone CLI（改样式）、Graphviz（重绘架构图）。
+需要：Rust stable（edition 2021）、Node.js（前端测试、lint 与模板组装）。可选 Docker、Tailwind standalone CLI（改样式）、Graphviz（重绘架构图）。
 
 ```bash
 cp .env.example .env
 cargo run --release
+```
 
-# 与 CI 一致的检查
+与 CI 一致的完整检查：
+
+```bash
+# 前端：产物新鲜度 → 语法 → 测试 → lint
+node scripts/build-frontend.mjs --check
+find static -type f -name '*.js' -print0 | sort -z | xargs -0 -n1 node --check
+node --test tests/frontend_*.test.js
+npx --yes eslint@10.8.0 'static/**/*.js'
+
+# 契约
+python3 scripts/check-openapi.py
+
+# 后端
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features --locked -- -D warnings
 cargo test --all --locked
-node --test tests/frontend_*.test.js
-python3 scripts/check-openapi.py
 
 cargo build --release --locked
 docker build -t my-media-sub:dev .
 ```
 
+ESLint 的 `no-undef` 是这套原生 JS 的静态安全网：模块作用域里的裸标识符在 `'use strict'` 下要等用户点击才抛 `ReferenceError`，`node --check` 和单元测试都抓不到。
+
+冒烟脚本（`scripts/smoke-*.sh`）覆盖 release 二进制、Docker 入口、稳定性 soak、版本升级和真实浏览器 E2E。浏览器冒烟会断言 Alpine 真的完成了水合（`x-cloak` 全部被摘除、`x-show` 写入了行内样式），并把 console 的 `Uncaught` 与资源加载失败视为失败。
+
 前端产物由脚本生成，**不要手改** `static/index.html` / `static/styles.css`：
 
 ```bash
 node scripts/build-frontend.mjs          # index.html ← 模板 + partials
-node scripts/build-frontend.mjs --check  # 校验产物是否过期
+node scripts/build-frontend.mjs --check  # 校验产物是否过期（CI 会跑）
 TAILWIND_BIN=/path/to/tailwindcss scripts/build-css.sh
 ```
 
@@ -306,7 +337,8 @@ static/
 - [媒体日历](docs/media-calendar.md) · [资源质量与换源](docs/source-quality.md)
 - [HTTPS 与安全部署](docs/https-reverse-proxy.md) · [Docker 在线更新](docs/docker-online-update.md) · [PWA](docs/pwa.md)
 - [存储扩展与 SQLite 决策](docs/storage-scaling.md)
-- 当前版本：[v2.2.14 升级指南](docs/upgrade-v2.2.14.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
+- 代码评审：[工程质量](docs/code-review-2026-07-26.md) · [界面与功能设计](docs/frontend-design-review-2026-07-26.md)
+- 当前版本：[v2.2.15 升级指南](docs/upgrade-v2.2.15.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
 
 各版本升级步骤在 `docs/upgrade-v*.md`；变更历史统一写在 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -329,52 +361,32 @@ docker compose pull && docker compose up -d
 
 ## 版本说明
 
+### 2.2.15
+
+- 修复浏览器 Push 开关完全不可用：`features/pwa.js` 缺少 `MediaSubApi` 依赖声明，`apiData` 在模块作用域是未定义的裸标识符，开启与关闭两条路径都会抛 `ReferenceError` 并被 catch 成一句通用失败提示。
+- 新增 ESLint（`no-undef` + `no-unused-vars`，零 npm 依赖配置），CI 与发布流程各加一步；全量扫描确认无同类缺陷。
+- Docker 镜像发布以 CI 成功为前置条件：`main` 分支改为 `workflow_run` 触发，并统一检出通过了 CI 的那个提交打标，避免「CI 过的是 A、构建的是更新的 B」。
+- 浏览器 E2E 冒烟改为经 HTTP 渲染真实服务器，断言 Alpine 确实完成水合，console 的 `Uncaught` 与资源加载失败均视为失败。此前用 `file://` 渲染，相对路径资产全部 404、Alpine 从不启动，而断言的标记在原始 HTML 里就存在，测试长期静默通过。
+- CI 与发布新增前端产物新鲜度校验（`build-frontend.mjs --check`）和 OpenAPI 规范版本比对，改了 partial 忘记重建、或规范版本漂移都会让流水线失败。
+- 清理约 1130 行前后端死代码：4 个从未参与编译或零引用的 Rust 文件、3 个零使用依赖、2 个活动中心上线后就无法渲染的页面模板、214 行零引用 store 成员，以及死 CSS 规则。
+- 修正 `openapi.json` 中的幽灵路由：`GET /strm/quark/{fid}/{file_name}` 对外宣称存在，但其 handler 文件从未被 `mod` 声明、根本不参与编译。契约检查器因文本扫描把它当成了真实路由。
+- 补上 `src/services/episode.rs` 中一个缺 `#[test]` 标注、从未运行过的测试（覆盖父目录季号匹配），此前被模块级 `#![allow(dead_code)]` 掩盖。
+- Compose 增加容器日志轮转上限（`10m × 3`）。
+- 新增两份评审文档：工程质量与界面/功能设计。后者记录了三个「后端完整实现但无 UI 入口」的功能，见「只能通过设置 API 配置的功能」。
+- PWA 与 OpenAPI 版本升至 2.2.15；JSON Store schema 未变化，可直接从 v2.2.13 或 v2.2.14 升级并保留现有 `data/`。
+
 ### 2.2.14
 
 - Docker 新增独立 `runtime/` 持久化运行载荷，可在 WebUI 中校验并在线切换 Release；容器重启或应用载荷相同的镜像重建会保留更新结果，二进制或 WebUI 内容变化时镜像仍优先刷新。
 - 二进制和完整 WebUI 改为同一可回滚升级事务，缺少 `static/` 或任一步失败时不会留下前后端版本错配。
 - 在线重启接入 HTTP 与 JobQueue 优雅关闭链路；静态服务和更新器统一遵循 `STATIC_DIR`。
-- PWA 与 OpenAPI 版本升至 2.2.14；JSON Store schema 未变化，可直接从 v2.2.13 升级并保留现有 `data/`。
+- 该版本已提交但未发布 Release，内容随 v2.2.15 一并发出。
 
 ### 2.2.13
 
 - 修复 Docker 部署点击在线升级后返回「服务内部错误」的问题：容器运行时会明确提示使用宿主机执行 `docker compose pull && docker compose up -d`，不再尝试写入只读的镜像二进制目录。
 - 在线升级能力增加运行环境标识；普通 Linux 二进制部署仍保留原有的在线替换、静态资源更新和重启流程。
 - Docker 部署的更新按钮与指定版本切换会自动禁用，并在设置页展示可直接复制的镜像更新命令。
-- OpenAPI/前端缓存版本升至 2.2.13；JSON Store schema 未变化，可从 v2.2.12 直接升级。
-
-### 2.2.12
-
-- 后台日志与通知中心合并为「活动中心」：任务、通知按时间统一展示，支持来源、失败、未读筛选与搜索；失败任务可直接重试，旧 `transferHistory` 链接继续兼容。
-- 下载任务按「正在下载 / 队列中 / 已完成 / 下载失败」分区；失败或已移除的 Aria2 任务可复用原目录、输出名、请求头与下载地址重新入队，订阅下载关联会迁移到新 GID。
-- 订阅高级规则移除重复的样例文件文本区，仅保留按 Season 折叠的重命名预览。
-- Aria2 订阅目录自适应：明确填写 `Season N` 时保持该路径；未填写具体季目录时，按每个文件识别出的季号创建对应 `Season N`。
-- 魔法剧名识别扩展中文码率、语言、版本和常见画质后缀；例如 `凡人修仙传 4K 高码率` 会清洗为 `凡人修仙传`，并等待清洗完成后再查询 TMDB；后端创建订阅时再次权威清洗。
-- OpenAPI 补充 Aria2 任务重试接口；PWA 缓存代次升至 2.2.12。JSON Store schema 未变化，可从 v2.2.11 直接升级。
-
-### 2.2.11
-
-- 转存业务级幂等：执行前按已转存文件名与状态键过滤候选，任务重试/重放不再把已成功的季重复转存到网盘（`ep:` 集数键不含季号，仅单季订阅启用，避免多季误判）。
-- 消除三处「整条覆盖」写回（检查服务自动换源、API 手动换源与回滚、Telegram 换源）：改为在 Store update 闭包内基于最新记录做字段级修改，不再丢失并发的转存进度与用户编辑。
-- 批量检查加服务级互斥；批量写回不再把并发期间刚判定的完结/失效状态回退成追更中。已有批量在跑时再次触发返回 400「批量检查已在进行中」。
-- 电影订阅补转：known 但未转存的电影文件重新入选转存候选，转存链路失败一次后不再永久漏转。
-- 夸克分享探测：目录列表分页拉全（此前每目录只取前 100 项）；达到全局上限标记 `partial` 并提示截断；上限从 200 提升到 500。
-- JobStore 归档读写移入阻塞线程池并批量化触发；规则正则进程级缓存；`build_check_details` 每次检查只算一次。
-- 订阅列表界面去重：表格/海报视图共用数据驱动操作菜单，顶部三层面板合并，批量操作栏仅在有选中时出现。
-- 数据文件损坏隔离后显式告警：启动站内通知 + 诊断接口报告 `quarantined_backup_present`。
-- PWA 缓存代次升至 2.2.11；存储 schema 保持兼容，可从 v2.2.10 直接升级。
-
-### 2.2.10
-
-- 订阅「高级规则」界面整理：去掉重复 Tab、修正表单嵌套、合并默认规则与预设卡片、样例输入折叠，仅保留季度预览。
-- PWA 缓存代次升至 2.2.10；存储 schema 保持兼容，可从 v2.2.9 直接升级。
-
-### 2.2.9
-
-- 开启「启用自动转存」后，订阅检查发现新文件会自动转存；手动检查默认允许转存。
-- Aria2：转存后网盘枚举失败时回退用转存文件 ID 提交下载。
-- 魔法匹配去除标题前 emoji/装饰符号；重命名预览仅保留季度折叠列表。
-- PWA 缓存代次升至 2.2.9；存储 schema 保持兼容，可从 v2.2.8 直接升级。
 
 更早版本的详细说明见 [CHANGELOG.md](CHANGELOG.md)、[GitHub Releases](https://github.com/hellomrli/my-media-sub/releases) 与 `docs/upgrade-v*.md`。
 
@@ -382,4 +394,4 @@ docker compose pull && docker compose up -d
 
 ## License
 
-[MIT](LICENSE)
+MIT，见 [LICENSE](LICENSE)。
