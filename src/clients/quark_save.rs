@@ -689,7 +689,6 @@ impl QuarkSaveClient {
     // ── 文件操作 ──────────────────────────────────────────
 
     /// 删除文件
-    #[allow(dead_code)]
     pub async fn delete_items(&self, fids: &[String]) -> Result<()> {
         let payload = serde_json::json!({
             "action_type": 1,

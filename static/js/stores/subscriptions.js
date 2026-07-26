@@ -6,11 +6,9 @@
   'use strict';
 
   const api = root.MediaSubApi || {};
-  const {apiData, apiFetch, getApiErrorMessage} = api;
+  const {apiData, apiFetch} = api;
   const mediaFormatters = root.MediaSubFormatters || {};
-  const searchResultTools = root.MediaSubSearchResults || {};
   const subscriptionDetailTools = root.MediaSubSubscriptionDetail || {};
-  const calendarTools = root.MediaSubCalendar || {};
   const sourceSwitchTools = root.MediaSubSourceSwitch || {};
   const automationEventTools = root.MediaSubAutomationEvents || {};
   const ux = root.MediaSubUx || {};
@@ -208,10 +206,6 @@
       return presets.map(preset => this.normalizeRulePreset(preset));
     },
 
-    createSubscriptionFromSearch(result) {
-      this.openSubscriptionDialog(result, 'continuous');
-    },
-
     defaultExcludeKeywords() {
       return DEFAULT_EXCLUDE_KEYWORDS;
     },
@@ -268,11 +262,6 @@
       const parent = String(file && file.parent_path || '').replace(/^\/+|\/+$/g, '');
       const name = String(file && file.name || '').replace(/^\/+/, '');
       return parent ? `${parent}/${name}` : name;
-    },
-
-    clearStructuredPreviewFiles() {
-      this.newSubscription.preview_files = [];
-      this.newSubscription.preview_use_source_probe = false;
     },
 
     searchResultTitle(result) {
@@ -591,14 +580,6 @@
     subscriptionStartEpisodePayload() {
       if (this.newSubscription.media_type === 'movie') return 0;
       return this.normalizeStartEpisode(this.newSubscription.start_episode_number);
-    },
-
-    toggleManualScheduleWeekday(day) {
-      const value = Number(day);
-      const weekdays = new Set((this.newSubscription.manual_schedule_weekdays || []).map(Number));
-      if (weekdays.has(value)) weekdays.delete(value);
-      else weekdays.add(value);
-      this.newSubscription.manual_schedule_weekdays = Array.from(weekdays).sort((left, right) => left - right);
     },
 
     manualSchedulePayload() {
@@ -1025,12 +1006,6 @@
       return Math.max(0, Math.min(100, (current / total) * 100));
     },
 
-    subscriptionStartEpisodeLabel(sub) {
-      if (!sub || sub.media_type === 'movie') return '';
-      const episode = this.normalizeStartEpisode(sub.start_episode_number || 0);
-      return episode > 1 ? `从第 ${episode} 集开始` : '';
-    },
-
     lastCheckMetric(key) {
       return (this.lastCheckResult && this.lastCheckResult.details && this.lastCheckResult.details[key]) || 0;
     },
@@ -1042,13 +1017,6 @@
 
     checkActionLabel(action) {
       return {new: '新增', known: '已知', skip: '跳过'}[action] || action || '-';
-    },
-
-    checkActionClass(action) {
-      if (action === 'new') return 'text-success';
-      if (action === 'known') return 'text-primary';
-      if (action === 'skip') return 'text-warning';
-      return 'text-text/80';
     },
 
     subscriptionStatusKey(subOrStatus) {
@@ -1071,14 +1039,6 @@
       }
       const labels = {active: '追更中', completed: '已完结', invalid: '已失效'};
       return labels[this.subscriptionStatusKey(subOrStatus)] || '-';
-    },
-
-    subscriptionStatusClass(subOrStatus) {
-      const status = this.subscriptionStatusKey(subOrStatus);
-      if (status === 'active') return 'text-success';
-      if (status === 'completed') return 'text-warning';
-      if (status === 'invalid') return 'text-muted';
-      return 'text-text/80';
     },
 
     subscriptionStatusBadgeClass(subOrStatus) {
@@ -1242,11 +1202,6 @@
         'series': this.settings.aria2_series_dir || '',
         'anime': this.settings.aria2_anime_dir || ''
       }[type] || '';
-    },
-
-    subscriptionAria2Dir(sub) {
-      if (!sub) return '';
-      return sub.sync_download_dir || this.aria2DirForMediaType(sub.media_type);
     },
 
     resolvedSubscriptionAria2Dir() {
@@ -1570,24 +1525,6 @@
     },
 
     // 为订阅选择快速目录
-    async selectQuickDirForSub(dirType) {
-      const selected = this.configuredDirectoryByType(dirType);
-      if (!selected) return;
-
-      try {
-        const data = await apiData(`/api/drive/find-path?path=${encodeURIComponent(selected.path)}`);
-
-        if (data.found && data.fid) {
-          this.newSubscription.target_fid = data.fid;
-          this.newSubscription.target_path = selected.path;
-          this.showNotification('success', `已选择 ${selected.name}`);
-        }
-      } catch (error) {
-        console.error('查找目录失败:', error);
-        this.showNotification('error', this.apiErrorMessage(error, '查找目录失败'));
-      }
-    },
-
     // 浏览目标目录（复用转存目录浏览）
     async browseTargetDir() {
       this.transferTargetFid = this.newSubscription.target_fid || '0';
@@ -1804,26 +1741,6 @@
         console.error('保存订阅失败:', error);
         this.showNotification('error', this.apiErrorMessage(error, '保存订阅失败'));
       }
-    },
-
-    async transferToQuark(result) {
-      if (!this.settings.quark_cookie && !this.settings.quark_cookie_configured) {
-        this.showNotification('error', '请先在设置中配置夸克 Cookie');
-        return;
-      }
-
-      if (!result.url) {
-        this.showNotification('error', '缺少分享链接');
-        return;
-      }
-
-      // 打开目录选择对话框
-      this.transferTargetResult = result;
-      this.transferTargetFid = '0';
-      this.transferTargetPath = '根目录';
-      this.transferBrowseFidStack = [{fid: '0', name: '根目录'}];
-      this.showTransferModal = true;
-      await this.loadTransferBrowse('0');
     },
 
     async loadTransferBrowse(fid) {
@@ -2218,10 +2135,6 @@
       }
     },
 
-    async generateSubscriptionStrm() {
-      this.showNotification('info', 'STRM 模块已下线，请使用 Aria2 同步下载或网盘直链');
-    },
-
     async scrapeSubscriptionMetadata(id) {
       try {
         this.showNotification('info', '已提交元数据刮削任务');
@@ -2345,10 +2258,6 @@
       } finally {
         this.scrapingAllMetadata = false;
       }
-    },
-
-    selectedSourceSwitchSubscription() {
-      return this.subscriptions.find(sub => sub.id === this.sourceSwitchSubscriptionId) || null;
     },
 
     async openSourceSwitchDialog(sub) {

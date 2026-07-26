@@ -6,13 +6,8 @@
   'use strict';
 
   const api = root.MediaSubApi || {};
-  const {apiData, apiFetch, getApiErrorMessage} = api;
+  const {apiData} = api;
   const mediaFormatters = root.MediaSubFormatters || {};
-  const searchResultTools = root.MediaSubSearchResults || {};
-  const subscriptionDetailTools = root.MediaSubSubscriptionDetail || {};
-  const calendarTools = root.MediaSubCalendar || {};
-  const sourceSwitchTools = root.MediaSubSourceSwitch || {};
-  const automationEventTools = root.MediaSubAutomationEvents || {};
 
   function driveTimestamp(value) {
     return mediaFormatters.parseTimestamp(value);
@@ -403,14 +398,6 @@
     },
 
     // ===== 下载任务 =====
-    sortDriveItems() {
-      // 列表排序由 filteredDriveItems 统一派生。
-    },
-
-    filterDriveItems() {
-      // 由 computed 属性处理
-    },
-
     async batchDeleteDrive() {
       if (this.driveSelectedItems.length === 0) return;
       if (!await this.requestDangerConfirmation({title:'批量删除网盘项目', message:`将永久删除选中的 ${this.driveSelectedItems.length} 个项目。`, phrase:'DELETE'})) return;

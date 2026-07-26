@@ -2,7 +2,6 @@ pub mod automation_event;
 pub mod automation_token;
 pub mod notification;
 pub mod schema;
-pub mod session;
 pub mod settings;
 pub mod subscription;
 pub mod telegram_bot;

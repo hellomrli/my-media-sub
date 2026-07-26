@@ -281,7 +281,6 @@ input[type="checkbox"] {
   line-height: 1;
   white-space: nowrap;
 }
-.badge-info,
 .badge-primary {
   border-color: rgb(var(--c-primary) / 0.24);
   background: rgb(var(--c-primary) / 0.13);
@@ -1153,7 +1152,7 @@ body::before {
 .kpi-arrow { position: absolute; right: 13px; top: 13px; color: rgb(var(--kpi-color) / .48); font-size: 14px; }
 
 .dashboard-main-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
-.media-shelf, .operations-panel, .activity-panel, .inbox-panel { padding: 18px; }
+.media-shelf, .operations-panel, .activity-panel { padding: 18px; }
 .panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 17px; }
 .panel-heading.compact { align-items: center; margin-bottom: 14px; }
 .panel-eyebrow { display: block; margin-bottom: 5px; color: rgb(var(--c-primary) / .8); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; letter-spacing: .14em; }
@@ -1199,21 +1198,20 @@ body::before {
 .health-note { display: flex; align-items: center; gap: 8px; margin-top: 11px; color: rgb(var(--c-success) / .8); font-size: 11px; }
 .health-note > span { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
 .health-note.has-issue { color: rgb(var(--c-warning)); }
-.activity-list, .inbox-list { display: grid; }
+.activity-list { display: grid; }
 .activity-item { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; align-items: center; gap: 9px; min-height: 52px; padding: 9px 0; text-align: left; border-bottom: 1px solid rgb(var(--c-border) / .37); background: transparent; }
-.activity-item:last-child, .inbox-item:last-child { border-bottom: 0; }
-.activity-item:hover strong, .inbox-item:hover strong { color: var(--app-primary); }
+.activity-item:last-child { border-bottom: 0; }
+.activity-item:hover strong { color: var(--app-primary); }
 .activity-dot, .inbox-level { width: 6px; height: 6px; border-radius: 50%; background: rgb(var(--c-muted) / .4); }
 .activity-dot.running, .activity-dot.queued { background: var(--app-cyan); box-shadow: 0 0 8px rgb(var(--c-cyan) / .62); }
 .activity-dot.succeeded { background: var(--app-success); }
 .activity-dot.failed { background: var(--app-danger); }
 .activity-copy { min-width: 0; }
-.activity-copy strong, .activity-copy small, .inbox-item strong, .inbox-item small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.activity-copy strong, .inbox-item strong { color: rgb(var(--c-text) / .86); font-size: 12px; font-weight: 620; }
-.activity-copy small, .inbox-item small { margin-top: 4px; color: rgb(var(--c-muted) / .52); font-size: 11px; }
+.activity-copy strong, .activity-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-copy strong { color: rgb(var(--c-text) / .86); font-size: 12px; font-weight: 620; }
+.activity-copy small { margin-top: 4px; color: rgb(var(--c-muted) / .52); font-size: 11px; }
 .activity-item time { color: rgb(var(--c-muted) / .44); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
 .activity-empty { padding: 25px 0; color: rgb(var(--c-muted) / .48); text-align: center; font-size: 12px; }
-.inbox-item { display: grid; grid-template-columns: 7px minmax(0, 1fr); align-items: center; gap: 10px; min-height: 49px; padding: 9px 0; text-align: left; border-bottom: 1px solid rgb(var(--c-border) / .37); background: transparent; }
 .inbox-level.success { background: var(--app-success); }
 .inbox-level.warning { background: var(--app-warning); }
 .inbox-level.error { background: var(--app-danger); }
@@ -1722,7 +1720,7 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
   .kpi-copy strong { font-size: 19px; }
   .kpi-copy strong.kpi-speed { font-size: 15px; }
   .kpi-copy em { display: none; }
-  .media-shelf, .operations-panel, .activity-panel, .inbox-panel { padding: 14px; }
+  .media-shelf, .operations-panel, .activity-panel { padding: 14px; }
   .media-card-grid { display: flex; margin: 0 -2px; padding: 2px 2px 8px; overflow-x: auto; scroll-snap-type: x mandatory; }
   .media-card { min-width: 158px; scroll-snap-align: start; }
   .media-poster { height: 205px; }
@@ -1847,11 +1845,6 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
   .calendar-list-actions { grid-column: 1 / -1; justify-content: flex-start; }
 }
 
-.schedule-weekdays { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
-.schedule-weekdays button { min-height: 34px; border: 1px solid rgb(var(--c-border) / .72); border-radius: 8px; color: rgb(var(--c-muted) / .68); background: rgb(var(--c-surface-2) / .58); font-size: 12px; }
-.schedule-weekdays button:hover { color: rgb(var(--c-text)); border-color: rgb(var(--c-primary) / .3); }
-.schedule-weekdays button.is-active { color: rgb(var(--c-primary)); border-color: rgb(var(--c-primary) / .42); background: rgb(var(--c-primary) / .12); box-shadow: inset 0 0 0 1px rgb(var(--c-primary) / .08); }
-@media (max-width: 480px) { .schedule-weekdays { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 
 /* PWA install/update status and mobile quick actions */
 .pwa-status-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px; border-bottom: 1px solid rgb(var(--c-border) / .7); font-size: 12px; }

@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -739,6 +737,7 @@ mod tests {
         assert_eq!(resolve_file_season("178.mp4", "", 1, true), Some(1));
     }
 
+    #[test]
     fn test_matches_subscription_season_uses_parent_path_context() {
         assert!(matches_subscription_season("178重置版.mp4", "", 6));
         assert!(matches_subscription_season(

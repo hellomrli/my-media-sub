@@ -6,13 +6,7 @@
   'use strict';
 
   const api = root.MediaSubApi || {};
-  const {apiData, apiFetch, getApiErrorMessage} = api;
-  const mediaFormatters = root.MediaSubFormatters || {};
-  const searchResultTools = root.MediaSubSearchResults || {};
-  const subscriptionDetailTools = root.MediaSubSubscriptionDetail || {};
-  const calendarTools = root.MediaSubCalendar || {};
-  const sourceSwitchTools = root.MediaSubSourceSwitch || {};
-  const automationEventTools = root.MediaSubAutomationEvents || {};
+  const {apiFetch} = api;
 
   const TOAST_ICONS = Object.freeze({success: '✓', error: '✕', warning: '⚠', info: 'ℹ'});
 
@@ -94,7 +88,6 @@
     notifications: [],
     notificationsPoller: null,
     notificationFilter: 'all',
-    notificationVisibleLimit: 100,
     activityFilter: 'all',
     activityQuery: '',
     activityVisibleLimit: 100,
@@ -105,16 +98,8 @@
       {id: 'notifications', name: '系统通知'},
       {id: 'failed', name: '失败项'}
     ],
-    notificationFilters: [
-      {id: 'all', name: '全部'},
-      {id: 'unread', name: '未读'}
-    ],
     get unreadNotifications() {
       return this.notificationCenterNotifications.filter(n => !n.read).length;
-    },
-
-    get pushNotifications() {
-      return this.notificationCenterNotifications.filter(n => this.notificationHasPush(n));
     },
 
     get backgroundNotificationEvents() {
@@ -130,15 +115,6 @@
     get notificationCenterNotifications() {
       return this.notifications.filter(n => !this.backgroundNotificationEvents.includes(n.event));
     },
-
-    get systemNotifications() {
-      return this.notificationCenterNotifications;
-    },
-
-    get filteredNotifications() {
-      return filterNotificationItems(this.notificationCenterNotifications, this.notificationFilter);
-    },
-    get visibleNotifications() { return this.filteredNotifications.slice(0, this.notificationVisibleLimit); },
 
     get activityItems() {
       const jobs = Array.isArray(this.backgroundJobs) ? this.backgroundJobs : [];
@@ -192,7 +168,7 @@
 
     startNotificationsPolling() {
       this.stopNotificationsPolling();
-      if (!['dashboard', 'notifications', 'transferHistory'].includes(this.currentTab)) return;
+      if (!['dashboard', 'notifications'].includes(this.currentTab)) return;
       const refresh = typeof this.loadActivity === 'function'
         ? () => this.loadActivity()
         : () => this.loadNotifications();
@@ -202,11 +178,6 @@
     stopNotificationsPolling() {
       this.stopPolling('notifications');
       this.notificationsPoller = null;
-    },
-
-    notificationFilterCount(filterId) {
-      if (filterId === 'unread') return this.unreadNotifications;
-      return this.notificationCenterNotifications.length;
     },
 
     activityFilterCount(filterId) {
@@ -267,21 +238,6 @@
       }
     },
 
-    notificationLevelLabel(level) {
-      const labels = {info: '信息', success: '成功', warning: '警告', error: '错误'};
-      return labels[level] || level || '信息';
-    },
-
-    notificationLevelClass(level) {
-      const classes = {
-        info: 'bg-primary/20 text-primary',
-        success: 'bg-success/20 text-success',
-        warning: 'bg-warning/20 text-warning',
-        error: 'bg-danger/20 text-danger'
-      };
-      return classes[level] || classes.info;
-    },
-
     notificationLevelBadgeClass(level) {
       const classes = {
         info: 'badge badge-primary',
@@ -308,12 +264,6 @@
         metadata_scrape_completed: '元数据刮削'
       };
       return labels[event] || '系统通知';
-    },
-
-    notificationPushChannels(notif) {
-      const statuses = this.notificationPushChannelStatuses(notif);
-      if (statuses.length === 0) return '-';
-      return statuses.map(item => item.name).join('、');
     },
 
     notificationPushChannelStatuses(notif) {

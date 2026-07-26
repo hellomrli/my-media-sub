@@ -5,15 +5,6 @@
 })(typeof globalThis !== 'undefined' ? globalThis : window, function (root) {
   'use strict';
 
-  const api = root.MediaSubApi || {};
-  const {apiData, apiFetch, getApiErrorMessage} = api;
-  const mediaFormatters = root.MediaSubFormatters || {};
-  const searchResultTools = root.MediaSubSearchResults || {};
-  const subscriptionDetailTools = root.MediaSubSubscriptionDetail || {};
-  const calendarTools = root.MediaSubCalendar || {};
-  const sourceSwitchTools = root.MediaSubSourceSwitch || {};
-  const automationEventTools = root.MediaSubAutomationEvents || {};
-
   const SETTINGS_TAB_ALIASES = Object.freeze({
     basic: 'connections',
     quark: 'connections',
@@ -195,7 +186,7 @@
           this.loadAutomationSummary();
         }
         this.startNotificationsPolling();
-      } else if (this.currentTab === 'notifications' || this.currentTab === 'transferHistory') {
+      } else if (this.currentTab === 'notifications') {
         if (!options.initialDataLoaded) this.loadActivity();
         this.startNotificationsPolling();
       } else {

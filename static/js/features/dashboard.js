@@ -5,15 +5,6 @@
 })(typeof globalThis !== 'undefined' ? globalThis : window, function (root) {
   'use strict';
 
-  const api = root.MediaSubApi || {};
-  const {apiData, apiFetch, getApiErrorMessage} = api;
-  const mediaFormatters = root.MediaSubFormatters || {};
-  const searchResultTools = root.MediaSubSearchResults || {};
-  const subscriptionDetailTools = root.MediaSubSubscriptionDetail || {};
-  const calendarTools = root.MediaSubCalendar || {};
-  const sourceSwitchTools = root.MediaSubSourceSwitch || {};
-  const automationEventTools = root.MediaSubAutomationEvents || {};
-
   function createStore() {
     return {
     dashboardWidgetEnabled(id) {
@@ -81,16 +72,6 @@
       return [...this.subscriptions]
         .sort((a, b) => Number(b.last_checked_at || b.updated_at || 0) - Number(a.last_checked_at || a.updated_at || 0))
         .slice(0, 9);
-    },
-
-    get dashboardRecentJobs() {
-      return [...this.backgroundJobs]
-        .sort((a, b) => Number(b.updated_at || b.created_at || 0) - Number(a.updated_at || a.created_at || 0))
-        .slice(0, 6);
-    },
-
-    get dashboardRecentNotifications() {
-      return this.notificationCenterNotifications.slice(0, 6);
     },
 
     get dashboardRecentActivity() {
