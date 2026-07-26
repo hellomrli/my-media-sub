@@ -11,9 +11,9 @@
   <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%234f46e5%27/%3E%3Cpath d=%27M8 9h16v14H8zm4-4v22m8-22v22%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27/%3E%3C/svg%3E">
-  <script src="js/theme-init.js?v=2.2.21"></script>
-  <link rel="stylesheet" href="styles.css?v=2.2.21">
-  <script defer src="vendor/alpine.min.js?v=2.2.21"></script>
+  <script src="js/theme-init.js?v=2.2.22"></script>
+  <link rel="stylesheet" href="styles.css?v=2.2.22">
+  <script defer src="vendor/alpine.min.js?v=2.2.22"></script>
 </head>
 <body class="bg-app text-text/90 min-h-screen" x-data="app()" x-cloak>
 
@@ -102,6 +102,8 @@
           <div class="automation-meta">
             <span><strong x-text="subscriptions.length"></strong> 个订阅</span>
             <span><strong x-text="dashboardStats.runningJobs"></strong> 个任务</span>
+          </div>
+          <div class="automation-meta">
             <span><strong x-text="downloadCategoryTasks('downloading').length"></strong> 个下载</span>
             <span class="automation-meta-speed" x-text="formatSpeed(downloadStats.speed)"></span>
           </div>
@@ -235,7 +237,6 @@
                 <div class="calendar-toolbar-main">
                   <div class="calendar-range">
                     <h3 x-text="calendarRangeLabel()"></h3>
-                    <p>上海时区 · 检查计划不等于播出计划</p>
                   </div>
                   <div class="calendar-nav-actions">
                     <button @click="shiftCalendar(-1)" class="icon-button" aria-label="上一周期">←</button>
@@ -279,11 +280,7 @@
                       <div class="calendar-day-items">
                         <template x-for="(item, itemIndex) in day.items" :key="'calendar-week-' + (item.id || 'missing') + '-' + itemIndex">
                           <article :class="calendarItemClass(item)" class="calendar-item is-row">
-                            <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-item-title"><img x-show="item.thumbnail_url" :src="remoteImageUrl(item.thumbnail_url)" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" class="calendar-thumbnail is-week"><span><strong x-text="item.subscription_title"></strong><small x-text="(item.episode ? 'S' + item.season + ' · E' + item.episode : '上映 / 开播') + (item.scheduled_time ? ' · ' + item.scheduled_time : '')"></small></span></button>
-                            <div class="calendar-item-side">
-                              <div class="calendar-item-badges"><span x-text="calendarStatusLabel(item.primary_status)"></span></div>
-                              <div class="calendar-item-actions"><button @click="openSubscriptionDetail(item.subscription_id)">详情</button><button x-show="item.actions.can_check" @click="runCalendarAction(item, false)">检查</button><button x-show="item.actions.can_repair" @click="runCalendarAction(item, true)" class="is-repair">补集</button></div>
-                            </div>
+                            <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-item-title"><img x-show="item.thumbnail_url" :src="remoteImageUrl(item.thumbnail_url)" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" class="calendar-thumbnail is-week"><span><strong x-text="item.subscription_title"></strong><small x-show="item.scheduled_time" x-text="item.scheduled_time"></small></span><span class="calendar-item-episode" x-text="item.episode ? 'S' + item.season + ' · E' + item.episode : '上映 / 开播'"></span></button>
                           </article>
                         </template>
                         <div x-show="day.items.length === 0" class="calendar-day-empty">暂无排期</div>
@@ -294,7 +291,7 @@
               </section>
 
               <section x-show="!calendarLoading && !calendarError && calendarItems.length > 0 && calendarView === 'month'" class="calendar-month-shell">
-                <div class="calendar-weekday-row"><span>周一</span><span>周二</span><span>周三</span><span>周四</span><span>周五</span><span>周六</span><span>周日</span></div>
+                <div class="calendar-weekday-row"><span>周日</span><span>周一</span><span>周二</span><span>周三</span><span>周四</span><span>周五</span><span>周六</span></div>
                 <div class="calendar-month-grid">
                   <template x-for="day in calendarMonthCells" :key="day.key">
                     <div class="calendar-month-day" :class="{'is-outside': !day.inMonth, 'is-today': day.isToday}">
@@ -2794,29 +2791,29 @@
     </div>
   </div>
   <!-- Alpine.js 应用逻辑 -->
-  <script src="js/core/api.js?v=2.2.21"></script>
-  <script src="js/core/formatters.js?v=2.2.21"></script>
-  <script src="js/core/ux.js?v=2.2.21"></script>
-  <script src="js/features/search-results.js?v=2.2.21"></script>
-  <script src="js/features/subscription-detail.js?v=2.2.21"></script>
-  <script src="js/features/calendar.js?v=2.2.21"></script>
-  <script src="js/features/source-switch.js?v=2.2.21"></script>
-  <script src="js/features/automation-events.js?v=2.2.21"></script>
-  <script src="js/core/polling.js?v=2.2.21"></script>
-  <script src="js/core/router.js?v=2.2.21"></script>
-  <script src="js/core/notifications.js?v=2.2.21"></script>
-  <script src="js/stores/downloads.js?v=2.2.21"></script>
-  <script src="js/stores/drive.js?v=2.2.21"></script>
-  <script src="js/stores/jobs.js?v=2.2.21"></script>
-  <script src="js/stores/subscriptions.js?v=2.2.21"></script>
-  <script src="js/features/updates.js?v=2.2.21"></script>
-  <script src="js/features/settings.js?v=2.2.21"></script>
-  <script src="js/features/diagnostics.js?v=2.2.21"></script>
-  <script src="js/features/pwa.js?v=2.2.21"></script>
-  <script src="js/features/dashboard.js?v=2.2.21"></script>
-  <script src="js/features/search-page.js?v=2.2.21"></script>
-  <script src="js/features/calendar-page.js?v=2.2.21"></script>
-  <script src="js/core/shell.js?v=2.2.21"></script>
-  <script src="app.js?v=2.2.21"></script>
+  <script src="js/core/api.js?v=2.2.22"></script>
+  <script src="js/core/formatters.js?v=2.2.22"></script>
+  <script src="js/core/ux.js?v=2.2.22"></script>
+  <script src="js/features/search-results.js?v=2.2.22"></script>
+  <script src="js/features/subscription-detail.js?v=2.2.22"></script>
+  <script src="js/features/calendar.js?v=2.2.22"></script>
+  <script src="js/features/source-switch.js?v=2.2.22"></script>
+  <script src="js/features/automation-events.js?v=2.2.22"></script>
+  <script src="js/core/polling.js?v=2.2.22"></script>
+  <script src="js/core/router.js?v=2.2.22"></script>
+  <script src="js/core/notifications.js?v=2.2.22"></script>
+  <script src="js/stores/downloads.js?v=2.2.22"></script>
+  <script src="js/stores/drive.js?v=2.2.22"></script>
+  <script src="js/stores/jobs.js?v=2.2.22"></script>
+  <script src="js/stores/subscriptions.js?v=2.2.22"></script>
+  <script src="js/features/updates.js?v=2.2.22"></script>
+  <script src="js/features/settings.js?v=2.2.22"></script>
+  <script src="js/features/diagnostics.js?v=2.2.22"></script>
+  <script src="js/features/pwa.js?v=2.2.22"></script>
+  <script src="js/features/dashboard.js?v=2.2.22"></script>
+  <script src="js/features/search-page.js?v=2.2.22"></script>
+  <script src="js/features/calendar-page.js?v=2.2.22"></script>
+  <script src="js/core/shell.js?v=2.2.22"></script>
+  <script src="app.js?v=2.2.22"></script>
 </body>
 </html>

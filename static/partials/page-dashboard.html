@@ -72,7 +72,6 @@
                 <div class="calendar-toolbar-main">
                   <div class="calendar-range">
                     <h3 x-text="calendarRangeLabel()"></h3>
-                    <p>上海时区 · 检查计划不等于播出计划</p>
                   </div>
                   <div class="calendar-nav-actions">
                     <button @click="shiftCalendar(-1)" class="icon-button" aria-label="上一周期">←</button>
@@ -116,11 +115,7 @@
                       <div class="calendar-day-items">
                         <template x-for="(item, itemIndex) in day.items" :key="'calendar-week-' + (item.id || 'missing') + '-' + itemIndex">
                           <article :class="calendarItemClass(item)" class="calendar-item is-row">
-                            <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-item-title"><img x-show="item.thumbnail_url" :src="remoteImageUrl(item.thumbnail_url)" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" class="calendar-thumbnail is-week"><span><strong x-text="item.subscription_title"></strong><small x-text="(item.episode ? 'S' + item.season + ' · E' + item.episode : '上映 / 开播') + (item.scheduled_time ? ' · ' + item.scheduled_time : '')"></small></span></button>
-                            <div class="calendar-item-side">
-                              <div class="calendar-item-badges"><span x-text="calendarStatusLabel(item.primary_status)"></span></div>
-                              <div class="calendar-item-actions"><button @click="openSubscriptionDetail(item.subscription_id)">详情</button><button x-show="item.actions.can_check" @click="runCalendarAction(item, false)">检查</button><button x-show="item.actions.can_repair" @click="runCalendarAction(item, true)" class="is-repair">补集</button></div>
-                            </div>
+                            <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-item-title"><img x-show="item.thumbnail_url" :src="remoteImageUrl(item.thumbnail_url)" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" class="calendar-thumbnail is-week"><span><strong x-text="item.subscription_title"></strong><small x-show="item.scheduled_time" x-text="item.scheduled_time"></small></span><span class="calendar-item-episode" x-text="item.episode ? 'S' + item.season + ' · E' + item.episode : '上映 / 开播'"></span></button>
                           </article>
                         </template>
                         <div x-show="day.items.length === 0" class="calendar-day-empty">暂无排期</div>
@@ -131,7 +126,7 @@
               </section>
 
               <section x-show="!calendarLoading && !calendarError && calendarItems.length > 0 && calendarView === 'month'" class="calendar-month-shell">
-                <div class="calendar-weekday-row"><span>周一</span><span>周二</span><span>周三</span><span>周四</span><span>周五</span><span>周六</span><span>周日</span></div>
+                <div class="calendar-weekday-row"><span>周日</span><span>周一</span><span>周二</span><span>周三</span><span>周四</span><span>周五</span><span>周六</span></div>
                 <div class="calendar-month-grid">
                   <template x-for="day in calendarMonthCells" :key="day.key">
                     <div class="calendar-month-day" :class="{'is-outside': !day.inMonth, 'is-today': day.isToday}">

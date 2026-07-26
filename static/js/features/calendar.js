@@ -52,11 +52,11 @@
     return date;
   }
 
+  /// 周从周日开始（v2.2.22 起）：周日在最上一行，接下来是周一至周六。
   function startOfWeek(value) {
     const date = value instanceof Date ? new Date(value.getTime()) : parseDate(value);
     if (!date) return null;
-    const day = date.getUTCDay() || 7;
-    return addDays(date, 1 - day);
+    return addDays(date, -date.getUTCDay());
   }
 
   function endOfMonth(value) {
