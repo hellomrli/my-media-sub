@@ -35,8 +35,13 @@ jobs:
 
       - name: Check frontend JavaScript
         run: |
+          node scripts/build-frontend.mjs --check
           find static -type f -name '*.js' -print0 | sort -z | xargs -0 -n1 node --check
           node --test tests/frontend_*.test.js
+
+      - name: Lint frontend JavaScript
+        # no-undef 拦截模块作用域裸标识符（v2.2.14 浏览器 Push 失效的根因）。
+        run: npx --yes eslint@10.8.0 'static/**/*.js'
 
       - name: Check OpenAPI route and compatibility contract
         run: python3 scripts/check-openapi.py

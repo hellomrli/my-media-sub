@@ -5,6 +5,9 @@
 })(typeof globalThis !== 'undefined' ? globalThis : window, function (root) {
   'use strict';
 
+  const api = root.MediaSubApi || {};
+  const {apiData} = api;
+
   const SHORTCUTS = Object.freeze([
     {id: 'calendar-today', label: '今日更新', tab: 'calendar'},
     {id: 'calendar-missing', label: '缺集', tab: 'calendar'},
@@ -31,7 +34,6 @@
       pwaUpdateReloadTimer: null,
       browserPushEnabled: false,
       browserPushSupported: typeof PushManager !== 'undefined' && typeof Notification !== 'undefined',
-      pwaShortcuts: SHORTCUTS,
 
       initPwa() {
         if (typeof window === 'undefined') return;

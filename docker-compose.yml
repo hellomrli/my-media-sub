@@ -6,6 +6,12 @@ services:
     #   context: .
     container_name: my-media-sub
     restart: unless-stopped
+    # 日志只写 stdout，json-file 驱动默认无上限；长期运行必须设轮转。
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       - "56001:56001"
     volumes:

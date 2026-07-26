@@ -240,8 +240,21 @@ def surface(spec: dict) -> dict:
     }
 
 
+def cargo_version() -> str:
+    match = re.search(r'^version = "([^"]+)"', (ROOT / "Cargo.toml").read_text(), re.MULTILINE)
+    if not match:
+        raise ValueError("Cargo.toml has no package version")
+    return match.group(1)
+
+
 def check(spec: dict, routes: dict[str, set[str]], baseline: dict | None) -> list[str]:
     errors = []
+    expected_version = cargo_version()
+    spec_version = spec.get("info", {}).get("version")
+    if spec_version != expected_version:
+        errors.append(
+            f"info.version {spec_version!r} does not match Cargo.toml version {expected_version!r}"
+        )
     operations = spec_operations(spec)
     for path in sorted(set(routes) | set(operations)):
         missing = routes.get(path, set()) - operations.get(path, set())
@@ -292,6 +305,7 @@ def main() -> int:
     spec = json.loads(SPEC_PATH.read_text())
     routes = scan_routes()
     if args.update:
+        spec.setdefault("info", {})["version"] = cargo_version()
         update_spec(spec, routes)
         SPEC_PATH.write_text(json.dumps(spec, ensure_ascii=False, separators=(",", ":")) + "\n")
     if args.write_baseline:

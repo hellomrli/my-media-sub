@@ -1,9 +1,11 @@
 name: Docker Image
 
 on:
+  # main 分支镜像只在 CI 全绿后发布；直接 push 触发会让红色构建直达 :latest。
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
   push:
-    branches:
-      - main
     tags:
       - "v*"
   workflow_dispatch:
@@ -26,10 +28,31 @@ jobs:
   build-and-push:
     name: Build and push image
     runs-on: ubuntu-latest
+    # CI 也会因 pull_request 运行；只放行 main 分支 push 且结论为 success 的 CI。
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main')
 
     steps:
+      # workflow_run 场景下 GITHUB_SHA 是事件分发时 main 的最新提交，可能比通过 CI 的
+      # 提交更新；统一用通过了 CI 的 head_sha 检出与打标，避免发布未经测试的提交。
+      - name: Resolve build commit
+        id: commit
+        shell: bash
+        env:
+          HEAD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || '' }}
+        run: |
+          set -euo pipefail
+          SHA="${HEAD_SHA:-$GITHUB_SHA}"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "short=${SHA::7}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.commit.outputs.sha }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -51,7 +74,8 @@ jobs:
             type=ref,event=tag
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=sha-
+            type=raw,value=sha-${{ steps.commit.outputs.short }}
+            type=raw,value=main,enable=${{ github.event_name == 'workflow_run' }}
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push Docker image
@@ -66,10 +90,10 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Smoke test Docker data and runtime volume upgrade
-        if: github.event_name == 'push'
+        if: github.event_name != 'workflow_dispatch'
         shell: bash
         run: |
-          CURRENT_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA::7}"
+          CURRENT_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.commit.outputs.short }}"
           scripts/smoke-docker-upgrade.sh \
             "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:1.3.0" \
             "$CURRENT_IMAGE"
