@@ -458,10 +458,10 @@ impl SubscriptionCheckService {
             )]),
         )
         .await;
+        // 同步下载订阅同样按转存/发现证据判完结：下载监视器依赖 Aria2 的易失任务历史，
+        // completed_at 常年填不上，把完结权全交给它会让订阅永远停在追更中。
         let became_completed = if sub.notify_only {
             should_mark_completed_from_known_episodes(&sub, &new_episodes)
-        } else if sub.sync_download_enabled {
-            false
         } else if transfer_file_names.is_empty() || auto_transfer_enabled.is_some() {
             // When the provider reports no new files and the known snapshot
             // already contains the configured final episode, completion can

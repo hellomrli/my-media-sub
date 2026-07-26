@@ -9,5 +9,6 @@ pub mod observability;
 pub mod providers;
 pub mod restart;
 pub mod services;
+pub mod shutdown;
 pub mod store;
 pub mod utils;
