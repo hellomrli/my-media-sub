@@ -3,6 +3,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
+// pwa.js 在模块作用域一次性捕获 MediaSubApi，桩必须在 require 之前就位。
+let apiDataStub = async () => { throw new Error('apiData stub not configured'); };
+global.MediaSubApi = {apiData: (...args) => apiDataStub(...args)};
+
 const policy = require('../static/js/pwa-policy.js');
 const pwa = require('../static/js/features/pwa.js');
 
@@ -85,6 +89,80 @@ test('PWA update unwraps Alpine native registrations and requests activation', a
     global.Alpine = originalAlpine;
     global.window = originalWindow;
   }
+});
+
+function pushStoreHarness() {
+  const store = pwa.createStore();
+  const toasts = [];
+  store.showNotification = (type, message) => toasts.push({type, message});
+  store.apiErrorMessage = (error, fallback) => (error && error.message) || fallback;
+  store.browserPushSupported = true;
+  return {store, toasts};
+}
+
+test('toggleBrowserPush enables push through the captured MediaSubApi.apiData', async () => {
+  const calls = [];
+  apiDataStub = async (url, options) => {
+    calls.push({url, method: (options && options.method) || 'GET'});
+    return {public_key: 'QUJDRA'};
+  };
+  const {store, toasts} = pushStoreHarness();
+  const subscription = {
+    endpoint: 'https://push.example/endpoint-1',
+    toJSON() { return {keys: {p256dh: 'p256dh-key', auth: 'auth-key'}}; }
+  };
+  store.pwaRegistration = {
+    pushManager: {
+      async getSubscription() { return null; },
+      async subscribe(options) {
+        assert.equal(options.userVisibleOnly, true);
+        assert.ok(options.applicationServerKey instanceof Uint8Array);
+        return subscription;
+      }
+    }
+  };
+  const originalNotification = global.Notification;
+  global.Notification = {requestPermission: async () => 'granted'};
+  try {
+    await store.toggleBrowserPush();
+  } finally {
+    global.Notification = originalNotification;
+  }
+  assert.deepEqual(toasts, [{type: 'success', message: '浏览器 Push 已启用'}]);
+  assert.equal(store.browserPushEnabled, true);
+  assert.deepEqual(calls, [
+    {url: '/api/push/browser', method: 'GET'},
+    {url: '/api/push/browser', method: 'POST'}
+  ]);
+});
+
+test('toggleBrowserPush disables an existing subscription through the API', async () => {
+  const calls = [];
+  apiDataStub = async (url, options) => {
+    calls.push({url, method: (options && options.method) || 'GET', body: options && options.body});
+    return {};
+  };
+  let unsubscribed = false;
+  const {store, toasts} = pushStoreHarness();
+  store.pwaRegistration = {
+    pushManager: {
+      async getSubscription() {
+        return {
+          endpoint: 'https://push.example/endpoint-1',
+          async unsubscribe() { unsubscribed = true; return true; }
+        };
+      }
+    }
+  };
+  await store.toggleBrowserPush();
+  assert.equal(unsubscribed, true);
+  assert.equal(store.browserPushEnabled, false);
+  assert.deepEqual(toasts, [{type: 'success', message: '浏览器 Push 已关闭'}]);
+  assert.deepEqual(calls, [{
+    url: '/api/push/browser',
+    method: 'DELETE',
+    body: JSON.stringify({endpoint: 'https://push.example/endpoint-1'})
+  }]);
 });
 
 test('390px mobile contract and install hooks are present', () => {
