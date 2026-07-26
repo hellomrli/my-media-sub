@@ -6,13 +6,8 @@
   'use strict';
 
   const api = root.MediaSubApi || {};
-  const {apiData, apiFetch, getApiErrorMessage} = api;
+  const {apiFetch} = api;
   const mediaFormatters = root.MediaSubFormatters || {};
-  const searchResultTools = root.MediaSubSearchResults || {};
-  const subscriptionDetailTools = root.MediaSubSubscriptionDetail || {};
-  const calendarTools = root.MediaSubCalendar || {};
-  const sourceSwitchTools = root.MediaSubSourceSwitch || {};
-  const automationEventTools = root.MediaSubAutomationEvents || {};
 
   function normalizeUpdateProgress(progress) {
     if (!progress) return null;

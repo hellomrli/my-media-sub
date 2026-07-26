@@ -6,81 +6,19 @@
   'use strict';
 
   const api = root.MediaSubApi || {};
-  const {apiData, apiFetch, getApiErrorMessage} = api;
-  const mediaFormatters = root.MediaSubFormatters || {};
-  const searchResultTools = root.MediaSubSearchResults || {};
-  const subscriptionDetailTools = root.MediaSubSubscriptionDetail || {};
-  const calendarTools = root.MediaSubCalendar || {};
-  const sourceSwitchTools = root.MediaSubSourceSwitch || {};
-  const automationEventTools = root.MediaSubAutomationEvents || {};
+  const {apiFetch} = api;
 
   function createStore() {
     return {
     jobs: [],
     jobEvents: null,
-    backgroundJobFilterKind: 'all',
     backgroundJobFilterStatus: 'all',
-    backgroundJobQuery: '',
-    backgroundJobVisibleLimit: 80,
     selectedJob: null,
     showJobDetailDialog: false,
 
     // 网盘
-    get backgroundLogStats() {
-      const jobs = this.backgroundJobs;
-      const success = jobs.filter(job => job.status === 'succeeded').length;
-      const failed = jobs.filter(job => job.status === 'failed').length;
-      const canceled = jobs.filter(job => job.status === 'canceled').length;
-      const active = jobs.filter(job => ['queued', 'running'].includes(job.status)).length;
-      const saved = jobs.reduce((sum, job) => sum + Number((job.result || {}).saved_count || (job.result || {}).transferred_count || 0), 0);
-      return {total: jobs.length, active, success, failed, canceled, saved};
-    },
-
     get backgroundJobs() {
       return this.jobs.filter(job => ['manual_transfer', 'subscription_transfer', 'metadata_scrape', 'push_dispatch'].includes(job.kind));
-    },
-
-    get recentBackgroundJobs() {
-      return this.filteredBackgroundJobs.slice(0, this.backgroundJobVisibleLimit);
-    },
-
-    get filteredBackgroundJobs() {
-      const query = this.backgroundJobQuery.trim().toLowerCase();
-      return this.backgroundJobs.filter(job => {
-        if (this.backgroundJobFilterKind !== 'all' && job.kind !== this.backgroundJobFilterKind) return false;
-        if (this.backgroundJobFilterStatus !== 'all' && job.status !== this.backgroundJobFilterStatus) return false;
-        if (!query) return true;
-        return [
-          job.title,
-          job.message,
-          job.error,
-          job.kind,
-          job.status,
-          JSON.stringify(job.payload || {}),
-          JSON.stringify(job.result || {})
-        ].some(value => String(value || '').toLowerCase().includes(query));
-      });
-    },
-
-    get backgroundJobKinds() {
-      return [
-        {id: 'all', name: '全部类型'},
-        {id: 'manual_transfer', name: '手动转存'},
-        {id: 'subscription_transfer', name: '自动订阅'},
-        {id: 'metadata_scrape', name: '元数据刮削'},
-        {id: 'push_dispatch', name: '推送派发'}
-      ];
-    },
-
-    get backgroundJobStatuses() {
-      return [
-        {id: 'all', name: '全部状态'},
-        {id: 'queued', name: '排队中'},
-        {id: 'running', name: '执行中'},
-        {id: 'succeeded', name: '成功'},
-        {id: 'failed', name: '失败'},
-        {id: 'canceled', name: '已取消'}
-      ];
     },
 
     async loadJobs() {
@@ -148,13 +86,6 @@
         canceled: 'badge badge-muted'
       };
       return classes[status] || 'badge badge-muted';
-    },
-
-    resetBackgroundJobFilters() {
-      this.backgroundJobFilterKind = 'all';
-      this.backgroundJobFilterStatus = 'all';
-      this.backgroundJobQuery = '';
-      this.backgroundJobVisibleLimit = 80;
     },
 
     openJobDetail(job) {

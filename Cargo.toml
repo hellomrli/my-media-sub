@@ -9,7 +9,6 @@ license = "MIT"
 [dependencies]
 # Web framework
 axum = "0.8"
-tower = "0.5"
 tower-http = { version = "0.6", features = ["compression-br", "compression-gzip", "cors", "fs", "trace"] }
 
 # Async runtime
@@ -33,10 +32,6 @@ uuid = { version = "1.0", features = ["serde", "v4"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
-# Error handling
-anyhow = "1.0"
-thiserror = "2.0"
-
 # Regex
 regex = "1.0"
 md5 = "0.8.0"
@@ -50,7 +45,8 @@ web-push = "0.11"
 p256 = "0.13"
 
 [dev-dependencies]
-tokio-test = "0.4"
+# 仅 tests/api_integration.rs 的 ServiceExt::oneshot 使用。
+tower = "0.5"
 
 [profile.release]
 opt-level = 3

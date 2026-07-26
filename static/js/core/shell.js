@@ -6,13 +6,7 @@
   'use strict';
 
   const api = root.MediaSubApi || {};
-  const {apiData, apiFetch, getApiErrorMessage} = api;
-  const mediaFormatters = root.MediaSubFormatters || {};
-  const searchResultTools = root.MediaSubSearchResults || {};
-  const subscriptionDetailTools = root.MediaSubSubscriptionDetail || {};
-  const calendarTools = root.MediaSubCalendar || {};
-  const sourceSwitchTools = root.MediaSubSourceSwitch || {};
-  const automationEventTools = root.MediaSubAutomationEvents || {};
+  const {getApiErrorMessage} = api;
   const ux = root.MediaSubUx || {};
 
   function createStore() {
@@ -67,19 +61,16 @@
 
     restoreUiPreferences() {
       if (!ux.readPreference) return;
-      this.backgroundJobFilterKind = ux.readPreference('jobs.kind', 'all');
       this.backgroundJobFilterStatus = ux.readPreference('jobs.status', 'all');
       this.driveFilterType = ux.readPreference('drive.filter', 'all', ['all','folder','video','other']);
       this.driveViewMode = ux.readPreference('drive.view', 'list', ['list','grid']);
       this.notificationFilter = ux.readPreference('notifications.filter', 'all', ['all','unread']);
       this.activityFilter = ux.readPreference('activity.filter', 'all', ['all','unread','jobs','notifications','failed']);
       if (this.$watch) {
-        for (const [property,key] of [['backgroundJobFilterKind','jobs.kind'],['backgroundJobFilterStatus','jobs.status'],['driveFilterType','drive.filter'],['driveViewMode','drive.view'],['notificationFilter','notifications.filter'],['activityFilter','activity.filter']]) {
+        for (const [property,key] of [['backgroundJobFilterStatus','jobs.status'],['driveFilterType','drive.filter'],['driveViewMode','drive.view'],['notificationFilter','notifications.filter'],['activityFilter','activity.filter']]) {
           this.$watch(property, value => {
             ux.writePreference(key, value);
-            if (property.startsWith('backgroundJob')) this.backgroundJobVisibleLimit = 80;
             if (property.startsWith('drive')) this.driveVisibleLimit = 200;
-            if (property === 'notificationFilter') this.notificationVisibleLimit = 100;
             if (property === 'activityFilter') this.activityVisibleLimit = 100;
           });
         }
@@ -181,7 +172,7 @@
         await this.loadSubscriptions();
         if (this.selectedSubscriptionId) await this.loadSubscriptionDetail(this.selectedSubscriptionId);
       }
-      else if (this.currentTab === 'notifications' || this.currentTab === 'transferHistory') await this.loadActivity();
+      else if (this.currentTab === 'notifications') await this.loadActivity();
       else if (this.currentTab === 'diagnostics') await this.loadDiagnostics();
       else if (this.currentTab === 'settings') {
         if (this.currentSettingsTab === 'maintenance') {

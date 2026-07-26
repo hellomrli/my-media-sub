@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::models::{Subscription, TransferRules};
 use crate::services::episode::{
     detect_episode_with_override, episode_video_key, is_better_episode_duplicate_candidate,

@@ -153,7 +153,6 @@ impl SubscriptionScheduler {
     }
 
     /// 重新加载配置并重启
-    #[allow(dead_code)]
     pub async fn reload(&self) -> Result<()> {
         info!("重新加载订阅调度器配置");
         self.stop().await?;

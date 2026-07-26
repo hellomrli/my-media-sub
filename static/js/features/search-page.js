@@ -6,13 +6,8 @@
   'use strict';
 
   const api = root.MediaSubApi || {};
-  const {apiData, apiFetch, getApiErrorMessage} = api;
-  const mediaFormatters = root.MediaSubFormatters || {};
+  const {apiFetch} = api;
   const searchResultTools = root.MediaSubSearchResults || {};
-  const subscriptionDetailTools = root.MediaSubSubscriptionDetail || {};
-  const calendarTools = root.MediaSubCalendar || {};
-  const sourceSwitchTools = root.MediaSubSourceSwitch || {};
-  const automationEventTools = root.MediaSubAutomationEvents || {};
 
   function createStore() {
     return {
@@ -20,7 +15,6 @@
     searching: false,
     searchResults: [],
     searchHistory: [],
-    cloudTypes: ['夸克'],
     searchOptions: {probeFiles: true, filterBad: true},
     searchProgress: {value: 0, label: '', detail: ''},
     searchProgressTimer: null,

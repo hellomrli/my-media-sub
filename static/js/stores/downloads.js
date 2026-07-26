@@ -6,13 +6,8 @@
   'use strict';
 
   const api = root.MediaSubApi || {};
-  const {apiData, apiFetch, getApiErrorMessage} = api;
+  const {apiData} = api;
   const mediaFormatters = root.MediaSubFormatters || {};
-  const searchResultTools = root.MediaSubSearchResults || {};
-  const subscriptionDetailTools = root.MediaSubSubscriptionDetail || {};
-  const calendarTools = root.MediaSubCalendar || {};
-  const sourceSwitchTools = root.MediaSubSourceSwitch || {};
-  const automationEventTools = root.MediaSubAutomationEvents || {};
 
   function normalizeDownloadGroups(value) {
     const source = value && typeof value === 'object' ? value : {};
@@ -324,14 +319,6 @@
         removed: '已移除'
       };
       return labels[status] || status || '-';
-    },
-
-    downloadStatusClass(status) {
-      if (status === 'active') return 'bg-primary/20 text-primary';
-      if (status === 'waiting') return 'bg-warning/20 text-warning';
-      if (status === 'complete') return 'bg-success/20 text-success';
-      if (status === 'error') return 'bg-danger/20 text-danger';
-      return 'bg-muted/20 text-text/80';
     },
 
     downloadStatusBadgeClass(status) {
