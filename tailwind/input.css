@@ -2417,3 +2417,22 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
 .calendar-item-episode { font-size: 14px; }
 .calendar-inline-metrics span { font-size: 12px; }
 .calendar-toolbar-filters select { font-size: 12px; }
+
+/* ─── P23 缩略图随行高分档放大 ──────────────────────────────────────────
+   行高 = 视口高度按 7 行均分，因此用视口高度断点给缩略图分档，
+   避免百分比高度在 flex 链里解析不稳的问题（v2.2.22 试过一次，图会爆开）。 */
+@media (min-width: 1024px) {
+  .calendar-item.is-row { gap: 14px; padding: 8px 16px; }
+  .calendar-item.is-row .calendar-thumbnail.is-week { width: 46px; height: 61px; }
+  /* 短屏（≤950px 高）行更矮，压缩上下留白给海报让位 */
+}
+@media (min-width: 1024px) and (max-height: 950px) {
+  .calendar-item.is-row { padding-top: 4px; padding-bottom: 4px; }
+}
+@media (min-width: 1024px) and (min-height: 1010px) {
+  .calendar-item.is-row { flex-basis: 480px; max-width: 560px; }
+  .calendar-item.is-row .calendar-thumbnail.is-week { width: 54px; height: 72px; }
+}
+@media (min-width: 1024px) and (min-height: 1250px) {
+  .calendar-item.is-row .calendar-thumbnail.is-week { width: 64px; height: 85px; }
+}

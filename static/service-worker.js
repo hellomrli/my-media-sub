@@ -1,8 +1,8 @@
 /* global MediaSubPwaPolicy */
-importScripts('/js/pwa-policy.js?v=2.2.22');
+importScripts('/js/pwa-policy.js?v=2.2.23');
 
-const ASSET_VERSION = '2.2.22';
-const CACHE_VERSION = 'v2.2.22-calendar-polish-and-soft-light-1';
+const ASSET_VERSION = '2.2.23';
+const CACHE_VERSION = 'v2.2.23-scaled-thumbnails-1';
 const SHELL_CACHE = `media-sub-shell-${CACHE_VERSION}`;
 const STATIC_CACHE = `media-sub-static-${CACHE_VERSION}`;
 const CACHE_PREFIX = 'media-sub-';
