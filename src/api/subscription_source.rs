@@ -250,7 +250,7 @@ pub async fn apply_source_switch(
     })))
 }
 
-/// 手动触发换源搜索
+/// 手动触发换源搜索，并自动探测前5个高分候选的有效性
 pub async fn trigger_source_search(
     State(ctx): State<Arc<AppContext>>,
     Path(subscription_id): Path<String>,
@@ -262,7 +262,31 @@ pub async fn trigger_source_search(
         .await
         .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?;
     let service = source_switch_service(&settings.pansou_api_url, &settings.quark_cookie);
-    let candidates = service.search_source_candidates(&sub).await?;
+    let mut candidates = service.search_source_candidates(&sub).await?;
+
+    // 自动探测前5个候选的有效性
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let probe_count = candidates.len().min(5);
+    for i in 0..probe_count {
+        if let Some(candidate) = candidates.get(i).cloned() {
+            match service
+                .probe_and_score_candidate(&candidate, &settings.quark_cookie, now_ms)
+                .await
+            {
+                Ok(scored) => {
+                    candidates[i] = scored;
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        "自动探测候选 {} 失败: {}",
+                        crate::utils::redact_url(&candidate.url),
+                        error
+                    );
+                }
+            }
+        }
+    }
+
     let updated_candidates = candidates.clone();
     ctx.subscription_store
         .update(&sub.id, |subscription| {
