@@ -8,6 +8,9 @@ use base64::{engine::general_purpose, Engine};
 use my_media_sub::{api::create_app, app::AppContext, config::Config};
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
+use tokio::sync::oneshot;
 use tower::ServiceExt;
 
 // ─── 测试辅助函数 ───────────────────────────────────────────────────────────
@@ -79,6 +82,68 @@ fn assert_json_content_type(headers: &HeaderMap) {
         .get(header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| value.starts_with("application/json")));
+}
+
+/// 按顺序处理一组请求的本地 JSON-RPC 服务器，并把收到的 payload 交给测试断言。
+async fn mock_json_rpc_sequence(
+    results: Vec<serde_json::Value>,
+) -> (String, oneshot::Receiver<Vec<serde_json::Value>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let (payload_tx, payload_rx) = oneshot::channel();
+    tokio::spawn(async move {
+        let mut payloads = Vec::with_capacity(results.len());
+        for result in results {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let (header_end, content_length) = loop {
+                let mut chunk = [0u8; 4096];
+                let read = socket.read(&mut chunk).await.unwrap();
+                assert!(read > 0, "JSON-RPC 请求在 body 完整前结束");
+                request.extend_from_slice(&chunk[..read]);
+
+                let Some(header_end) = request
+                    .windows(4)
+                    .position(|window| window == b"\r\n\r\n")
+                    .map(|position| position + 4)
+                else {
+                    continue;
+                };
+                let headers = std::str::from_utf8(&request[..header_end]).unwrap();
+                let content_length = headers
+                    .lines()
+                    .filter_map(|line| line.split_once(':'))
+                    .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                    .and_then(|(_, value)| value.trim().parse::<usize>().ok())
+                    .expect("JSON-RPC 请求缺少 Content-Length");
+                if request.len() >= header_end + content_length {
+                    break (header_end, content_length);
+                }
+            };
+
+            let payload = serde_json::from_slice::<serde_json::Value>(
+                &request[header_end..header_end + content_length],
+            )
+            .unwrap();
+            payloads.push(payload);
+
+            let body = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "my-media-sub",
+                "result": result,
+            })
+            .to_string();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+            socket.flush().await.unwrap();
+        }
+        let _ = payload_tx.send(payloads);
+    });
+    (format!("http://{address}/jsonrpc"), payload_rx)
 }
 
 // ─── /health ──────────────────────────────────────────────────────────────
@@ -197,6 +262,135 @@ async fn api_success_responses_use_the_shared_envelope() {
     assert_eq!(drive["ok"], true);
     assert!(drive["data"]["list"].is_array());
 
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn aria2_purge_route_calls_the_destructive_rpc_method() {
+    let (ctx, dir) = test_context().await;
+    let (rpc_url, payload_rx) =
+        mock_json_rpc_sequence(vec![serde_json::json!([]), serde_json::json!("OK")]).await;
+    ctx.settings_store
+        .update(|settings| {
+            settings.aria2_rpc_url = rpc_url;
+            settings.aria2_secret = "rpc-secret".to_string();
+        })
+        .await
+        .unwrap();
+    let app = create_app(ctx);
+
+    let (status, headers, body) = json_response(
+        &app,
+        auth_post("/api/drive/aria2/tasks/purge-all", serde_json::json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_json_content_type(&headers);
+    assert_eq!(body["ok"], true);
+    assert_eq!(body["data"]["success"], true);
+    assert_eq!(body["data"]["message"], "已清空 0 条已停止的下载记录");
+
+    let payloads = tokio::time::timeout(std::time::Duration::from_secs(1), payload_rx)
+        .await
+        .expect("Aria2 mock 未在期限内收到 RPC 请求")
+        .unwrap();
+    assert_eq!(payloads[0]["method"], "aria2.tellStopped");
+    assert_eq!(payloads[0]["params"][1], -1);
+    assert_eq!(payloads[0]["params"][2], 1_000);
+    assert_eq!(payloads[1]["method"], "aria2.purgeDownloadResult");
+    assert_eq!(
+        payloads[1]["params"],
+        serde_json::json!(["token:rpc-secret"])
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn aria2_tasks_return_the_latest_thousand_stopped_results() {
+    let (ctx, dir) = test_context().await;
+    let (rpc_url, payload_rx) = mock_json_rpc_sequence(vec![
+        serde_json::json!([]),
+        serde_json::json!([]),
+        serde_json::json!([{"gid":"latest","status":"error"}]),
+    ])
+    .await;
+    ctx.settings_store
+        .update(|settings| {
+            settings.aria2_rpc_url = rpc_url;
+            settings.aria2_secret = "rpc-secret".to_string();
+        })
+        .await
+        .unwrap();
+    let app = create_app(ctx);
+
+    let body = json_body(&app, auth_get("/api/drive/aria2/tasks?stopped_limit=50000")).await;
+    assert_eq!(body["data"]["stopped"][0]["gid"], "latest");
+
+    let payloads = tokio::time::timeout(std::time::Duration::from_secs(1), payload_rx)
+        .await
+        .expect("Aria2 mock 未在期限内收到任务列表 RPC 请求")
+        .unwrap();
+    assert_eq!(payloads[0]["method"], "aria2.tellActive");
+    assert_eq!(payloads[1]["method"], "aria2.tellWaiting");
+    assert_eq!(payloads[2]["method"], "aria2.tellStopped");
+    assert_eq!(payloads[2]["params"][1], -1);
+    assert_eq!(payloads[2]["params"][2], 1_000);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn aria2_fast_poll_skips_the_stopped_results_rpc() {
+    let (ctx, dir) = test_context().await;
+    let (rpc_url, payload_rx) =
+        mock_json_rpc_sequence(vec![serde_json::json!([]), serde_json::json!([])]).await;
+    ctx.settings_store
+        .update(|settings| settings.aria2_rpc_url = rpc_url)
+        .await
+        .unwrap();
+    let app = create_app(ctx);
+
+    let body = json_body(&app, auth_get("/api/drive/aria2/tasks?stopped_limit=0")).await;
+    assert_eq!(body["data"]["stopped"], serde_json::json!([]));
+
+    let payloads = tokio::time::timeout(std::time::Duration::from_secs(1), payload_rx)
+        .await
+        .expect("Aria2 mock 未在期限内收到快速轮询 RPC 请求")
+        .unwrap();
+    assert_eq!(payloads.len(), 2);
+    assert_eq!(payloads[0]["method"], "aria2.tellActive");
+    assert_eq!(payloads[1]["method"], "aria2.tellWaiting");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn aria2_single_task_route_queries_only_the_disappeared_gid() {
+    let (ctx, dir) = test_context().await;
+    let (rpc_url, payload_rx) = mock_json_rpc_sequence(vec![serde_json::json!({
+        "gid": "settled-1",
+        "status": "error",
+        "errorMessage": "network failed"
+    })])
+    .await;
+    ctx.settings_store
+        .update(|settings| {
+            settings.aria2_rpc_url = rpc_url;
+            settings.aria2_secret = "rpc-secret".to_string();
+        })
+        .await
+        .unwrap();
+    let app = create_app(ctx);
+
+    let body = json_body(&app, auth_get("/api/drive/aria2/tasks/settled-1")).await;
+    assert_eq!(body["data"]["gid"], "settled-1");
+    assert_eq!(body["data"]["status"], "error");
+
+    let payloads = tokio::time::timeout(std::time::Duration::from_secs(1), payload_rx)
+        .await
+        .expect("Aria2 mock 未在期限内收到单任务 RPC 请求")
+        .unwrap();
+    assert_eq!(payloads.len(), 1);
+    assert_eq!(payloads[0]["method"], "aria2.tellStatus");
+    assert_eq!(payloads[0]["params"][1], "settled-1");
     let _ = std::fs::remove_dir_all(dir);
 }
 

@@ -1,5 +1,5 @@
 use super::response::{json_ok, ApiResponse as Response};
-use crate::clients::aria2::{Aria2Task, Aria2Version};
+use crate::clients::aria2::{Aria2Task, Aria2Version, MAX_STOPPED_LIMIT};
 use crate::clients::{Aria2Client, NormalizedItem, QuarkSaveClient, QuarkSigninResult};
 use crate::error::{AppError, Result};
 use crate::models::{Notification, Settings, Subscription};
@@ -34,9 +34,9 @@ mod browse;
 
 use actions::{delete_items, mkdir, quark_signin, rename_item, test_quark};
 use aria2::{
-    browse_aria2_dir, default_stopped_limit, delete_aria2_task, list_aria2_tasks,
-    pause_all_aria2_tasks, pause_aria2_task, resume_aria2_task, retry_aria2_task, send_to_aria2,
-    stop_all_aria2_tasks, stop_aria2_task, test_aria2,
+    browse_aria2_dir, default_stopped_limit, delete_aria2_task, get_aria2_task, list_aria2_tasks,
+    pause_all_aria2_tasks, pause_aria2_task, purge_aria2_tasks, resume_aria2_task,
+    retry_aria2_task, send_to_aria2, stop_all_aria2_tasks, stop_aria2_task, test_aria2,
 };
 use automation::aria2_automation_contexts;
 use browse::{clear_drive_cache, find_path, list_drive};
@@ -315,6 +315,8 @@ pub fn routes(
             "/api/drive/aria2/tasks/stop-all",
             post(stop_all_aria2_tasks),
         )
+        .route("/api/drive/aria2/tasks/purge-all", post(purge_aria2_tasks))
+        .route("/api/drive/aria2/tasks/{gid}", get(get_aria2_task))
         .route("/api/drive/aria2/tasks/{gid}/pause", post(pause_aria2_task))
         .route(
             "/api/drive/aria2/tasks/{gid}/resume",

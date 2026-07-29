@@ -338,7 +338,7 @@ static/
 - [HTTPS 与安全部署](docs/https-reverse-proxy.md) · [Docker 在线更新](docs/docker-online-update.md) · [PWA](docs/pwa.md)
 - [存储扩展与 SQLite 决策](docs/storage-scaling.md)
 - 代码评审：[工程质量](docs/code-review-2026-07-26.md) · [界面与功能设计](docs/frontend-design-review-2026-07-26.md)
-- 当前版本：[v2.2.15 升级指南](docs/upgrade-v2.2.15.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
+- 当前版本：[v2.2.24 升级指南](docs/upgrade-v2.2.24.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
 
 各版本升级步骤在 `docs/upgrade-v*.md`；变更历史统一写在 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -360,6 +360,13 @@ docker compose pull && docker compose up -d
 ---
 
 ## 版本说明
+
+### 2.2.24
+
+- Aria2 已停止任务改为读取最近 1000 条，修复完成记录卡在旧 50 条、最新下载长期不显示的问题。
+- 下载页仅在存在活动或排队任务时进行快速轮询；快速轮询不再拉取停止历史，任务离开运行队列时只查询一次最终状态并追加记录，空闲后立即停止。
+- 新增清空已停止记录，并在清空前处理尚未落盘的完成状态；完成与失败历史按每批 100 条渲染，避免千条记录同时创建 DOM。
+- 修复 PWA 更新监听器未纳入页面生命周期清理、重复初始化时可能累积的问题。
 
 ### 2.2.23
 

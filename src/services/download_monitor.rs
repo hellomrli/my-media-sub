@@ -22,6 +22,7 @@ use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 use crate::utils::unix_now;
 
 const MONITOR_INTERVAL: Duration = Duration::from_secs(15);
+/// 后台只扫描最近的完成记录，避免每 15 秒重复拉取完整的 1000 条 WebUI 历史。
 const STOPPED_LIMIT: u64 = 50;
 /// 内存去重键上限（每个下载最多 2 个键，约等于最近 1000 个下载）。
 /// 超出后按插入顺序淘汰最旧的键，防止长期运行时无界增长。
@@ -116,7 +117,9 @@ impl DownloadMonitorService {
         }
 
         let aria2 = aria2_client(&settings)?;
-        let tasks = aria2.list_tasks(stopped_limit.clamp(1, 50)).await?;
+        let tasks = aria2
+            .list_tasks(stopped_limit.clamp(1, STOPPED_LIMIT))
+            .await?;
         self.notify_completed_downloads(&tasks.stopped).await;
         Ok(())
     }

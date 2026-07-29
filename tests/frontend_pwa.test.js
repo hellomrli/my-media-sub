@@ -50,6 +50,7 @@ test('manifest contains install icons and all six required shortcuts', () => {
 
 test('service worker has version cleanup, offline shell and safe update flow', () => {
   const source = fs.readFileSync(path.join(root, 'static/service-worker.js'), 'utf8');
+  const pwaSource = fs.readFileSync(path.join(root, 'static/js/features/pwa.js'), 'utf8');
   const cargo = fs.readFileSync(path.join(root, 'Cargo.toml'), 'utf8');
   const version = cargo.match(/^version = "([^"]+)"/m)[1];
   assert.match(source, new RegExp(`CACHE_VERSION\\s*=\\s*'v${version.replaceAll('.', '\\.')}-`));
@@ -60,6 +61,10 @@ test('service worker has version cleanup, offline shell and safe update flow', (
   assert.match(source, /SKIP_WAITING/);
   assert.match(source, /'\/app\.js'/);
   assert.match(source, /asset === '\/' \? shellCache : staticCache/);
+  assert.match(pwaSource, /listenLifecycle\('pwa-updatefound', registration, 'updatefound'/);
+  assert.match(pwaSource, /listenLifecycle\('pwa-worker-statechange', worker, 'statechange'/);
+  assert.doesNotMatch(pwaSource, /registration\.addEventListener\('updatefound'/);
+  assert.doesNotMatch(pwaSource, /worker\.addEventListener\('statechange'/);
 });
 
 test('shortcut parser only accepts declared actions', () => {

@@ -58,7 +58,9 @@ pub(super) async fn list_aria2_tasks(
     Query(req): Query<Aria2TasksRequest>,
 ) -> Result<Json<Response<Aria2TasksResponse>>> {
     let aria2 = aria2_client(&state.settings_store.get().await)?;
-    let tasks = aria2.list_tasks(req.stopped_limit.clamp(1, 50)).await?;
+    let tasks = aria2
+        .list_tasks(req.stopped_limit.min(MAX_STOPPED_LIMIT))
+        .await?;
     state
         .download_monitor
         .notify_completed_downloads(&tasks.stopped)
@@ -76,6 +78,27 @@ pub(super) async fn list_aria2_tasks(
         waiting: enrich_aria2_tasks(tasks.waiting, &contexts),
         stopped: enrich_aria2_tasks(tasks.stopped, &contexts),
     }))
+}
+
+/// 查询单个 Aria2 任务；页面仅在任务离开活动队列时调用一次。
+pub(super) async fn get_aria2_task(
+    State(state): State<Arc<DriveState>>,
+    AxumPath(gid): AxumPath<String>,
+) -> Result<Json<Response<Aria2TaskView>>> {
+    let aria2 = aria2_client(&state.settings_store.get().await)?;
+    let task = aria2.task_status(&gid).await?;
+    state
+        .download_monitor
+        .notify_completed_downloads(std::slice::from_ref(&task))
+        .await;
+
+    let (subscriptions, notifications) = tokio::join!(
+        state.subscription_store.list(),
+        state.notification_store.list(true),
+    );
+    let contexts = aria2_automation_contexts(&notifications, &subscriptions);
+    let automation = contexts.get(&task.gid).cloned();
+    Ok(json_ok(Aria2TaskView { task, automation }))
 }
 
 pub(super) fn enrich_aria2_tasks(
@@ -257,6 +280,28 @@ pub(super) async fn stop_all_aria2_tasks(
     }))
 }
 
+/// 清空 Aria2 中已停止（完成 / 出错 / 已移除）的任务记录。
+pub(super) async fn purge_aria2_tasks(
+    State(state): State<Arc<DriveState>>,
+) -> Result<Json<Response<Aria2TaskActionResponse>>> {
+    let aria2 = aria2_client(&state.settings_store.get().await)?;
+    // 清空前先让下载监视器落盘尚未处理的完成状态，避免刚完成的任务
+    // 在 15 秒后台轮询到达前被清掉，导致完成通知和订阅记录永久丢失。
+    let stopped = aria2.list_stopped_tasks(MAX_STOPPED_LIMIT).await?;
+    state
+        .download_monitor
+        .notify_completed_downloads(&stopped)
+        .await;
+    let affected_count = stopped.len();
+    aria2.purge_download_result().await?;
+    Ok(json_ok(Aria2TaskActionResponse {
+        success: true,
+        message: format!("已清空 {} 条已停止的下载记录", affected_count),
+        gid: None,
+        affected_count,
+    }))
+}
+
 /// 测试 Aria2 RPC 连接
 pub(super) async fn test_aria2(
     State(state): State<Arc<DriveState>>,
@@ -400,5 +445,5 @@ pub(super) fn remap_subscription_download_gid(
 }
 
 pub(super) fn default_stopped_limit() -> u64 {
-    50
+    MAX_STOPPED_LIMIT
 }
