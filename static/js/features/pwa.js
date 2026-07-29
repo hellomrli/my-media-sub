@@ -67,13 +67,14 @@
           }
         });
         navigator.serviceWorker.register('/service-worker.js', {scope: '/'}).then(registration => {
+          if (this.lifecycleDestroyed) return;
           this.pwaRegistration = registration;
           this.refreshBrowserPushStatus();
           if (registration.waiting && navigator.serviceWorker.controller) this.pwaUpdateReady = true;
-          registration.addEventListener('updatefound', () => {
+          this.listenLifecycle('pwa-updatefound', registration, 'updatefound', () => {
             const worker = registration.installing;
             if (!worker) return;
-            worker.addEventListener('statechange', () => {
+            this.listenLifecycle('pwa-worker-statechange', worker, 'statechange', () => {
               if (worker.state === 'installed' && navigator.serviceWorker.controller) {
                 this.pwaUpdateReady = true;
               }

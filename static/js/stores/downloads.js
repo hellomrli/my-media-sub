@@ -8,6 +8,8 @@
   const api = root.MediaSubApi || {};
   const {apiData} = api;
   const mediaFormatters = root.MediaSubFormatters || {};
+  const FULL_STOPPED_LIMIT = 1000;
+  const POLL_STOPPED_LIMIT = 0;
 
   function normalizeDownloadGroups(value) {
     const source = value && typeof value === 'object' ? value : {};
@@ -39,6 +41,29 @@
       seen.add(gid);
       return true;
     });
+  }
+
+  function mergeStoppedTasks(current, incoming, limit = FULL_STOPPED_LIMIT) {
+    const merged = [];
+    const seen = new Set();
+    for (const task of [...(incoming || []), ...(current || [])]) {
+      const gid = String((task && task.gid) || '').trim();
+      if (gid && seen.has(gid)) continue;
+      if (gid) seen.add(gid);
+      merged.push(task);
+      if (merged.length >= limit) break;
+    }
+    return merged;
+  }
+
+  function mergeDownloadGroups(current, incoming) {
+    const previous = normalizeDownloadGroups(current);
+    const next = normalizeDownloadGroups(incoming);
+    return {
+      active: next.active,
+      waiting: next.waiting,
+      stopped: mergeStoppedTasks(previous.stopped, next.stopped)
+    };
   }
 
   function categorizeDownloadTasks(value) {
@@ -89,8 +114,10 @@
     downloadsRefreshing: false,
     downloadsError: '',
     downloadsUpdatedAt: null,
+    downloadsHistoryLoadedAt: 0,
     downloadsAutoRefresh: true,
     downloadsPoller: null,
+    downloadsFullRefreshPending: false,
     downloadsBulkAction: '',
     downloadTaskActions: {},
 
@@ -105,6 +132,7 @@
 
     downloadCategory: 'downloading',
     downloadCategoryTouched: false,
+    downloadVisibleLimit: 100,
 
     get downloadCategoryList() {
       return [
@@ -135,6 +163,17 @@
       return (this.categorizedDownloads && this.categorizedDownloads[category]) || [];
     },
 
+    visibleDownloadCategoryTasks(category) {
+      const tasks = this.downloadCategoryTasks(category);
+      return ['completed', 'failed'].includes(category)
+        ? tasks.slice(0, this.downloadVisibleLimit)
+        : tasks;
+    },
+
+    hasMoreDownloadCategoryTasks(category) {
+      return this.downloadCategoryTasks(category).length > this.visibleDownloadCategoryTasks(category).length;
+    },
+
     get downloadAutomationStats() {
       const tasks = this.allDownloadTasks;
       const linked = tasks.filter(task => task.automation);
@@ -154,22 +193,80 @@
       return Boolean(String((this.settings && this.settings.aria2_rpc_url) || '').trim());
     },
 
-    async loadDownloads(silent = false) {
+    async loadSettledDownloadTask(gid) {
+      try {
+        return await apiData(`/api/drive/aria2/tasks/${encodeURIComponent(gid)}`);
+      } catch (error) {
+        // 保留旧任务到下一轮再次确认；瞬时 RPC 失败不应把任务从界面静默丢掉。
+        console.warn(`确认 Aria2 任务最终状态失败 ${gid}:`, error);
+        return null;
+      }
+    },
+
+    async loadDownloads(silent = false, options = {}) {
       if (!this.aria2Configured()) {
+        if (typeof this.stopPolling === 'function') this.stopDownloadsPolling();
+        else this.downloadsPoller = null;
         this.downloads = {active: [], waiting: [], stopped: []};
         this.downloadsError = '';
         this.downloadsLoading = false;
         this.downloadsRefreshing = false;
+        this.downloadsHistoryLoadedAt = 0;
+        this.downloadsFullRefreshPending = false;
         return;
       }
-      if (this.downloadsLoading || this.downloadsRefreshing) return;
+      const fullHistory = options.fullHistory === true
+        || !silent
+        || !this.downloadsHistoryLoadedAt;
+      if (this.downloadsLoading || this.downloadsRefreshing) {
+        if (fullHistory) this.downloadsFullRefreshPending = true;
+        return;
+      }
       this.downloadsLoading = !silent;
       this.downloadsRefreshing = silent;
       try {
-        const data = await apiData('/api/drive/aria2/tasks?stopped_limit=50');
-        this.downloads = normalizeDownloadGroups(data);
+        const now = Date.now();
+        const stoppedLimit = fullHistory ? FULL_STOPPED_LIMIT : POLL_STOPPED_LIMIT;
+        const data = await apiData(`/api/drive/aria2/tasks?stopped_limit=${stoppedLimit}`);
+        const previous = normalizeDownloadGroups(this.downloads);
+        const next = normalizeDownloadGroups(data);
+        if (fullHistory) {
+          this.downloads = next;
+        } else {
+          const nextRunningGids = new Set([...next.active, ...next.waiting]
+            .map(task => String((task && task.gid) || '').trim())
+            .filter(Boolean));
+          const disappearedGids = new Set();
+          const disappeared = [...previous.active, ...previous.waiting]
+            .filter(task => {
+              const gid = String((task && task.gid) || '').trim();
+              if (!gid || nextRunningGids.has(gid) || disappearedGids.has(gid)) return false;
+              disappearedGids.add(gid);
+              return true;
+            });
+          const settled = await Promise.all(disappeared.map(async previousTask => ({
+            previousTask,
+            task: await this.loadSettledDownloadTask(previousTask.gid)
+          })));
+
+          for (const result of settled) {
+            const task = result.task;
+            if (!task) {
+              const group = result.previousTask.status === 'waiting' || result.previousTask.status === 'paused'
+                ? next.waiting
+                : next.active;
+              group.push(result.previousTask);
+              continue;
+            }
+            if (['complete', 'error', 'removed'].includes(task.status)) next.stopped.push(task);
+            else if (task.status === 'active') next.active.push(task);
+            else next.waiting.push(task);
+          }
+          this.downloads = mergeDownloadGroups(previous, next);
+        }
+        if (fullHistory) this.downloadsHistoryLoadedAt = now;
         this.downloadsError = '';
-        this.downloadsUpdatedAt = Date.now();
+        this.downloadsUpdatedAt = now;
         this.syncDownloadsPolling();
       } catch (error) {
         console.error('加载 Aria2 任务失败:', error);
@@ -177,15 +274,21 @@
       } finally {
         this.downloadsLoading = false;
         this.downloadsRefreshing = false;
+        if (this.downloadsFullRefreshPending) {
+          this.downloadsFullRefreshPending = false;
+          await this.loadDownloads(true, {fullHistory: true});
+        }
       }
     },
 
     async controlAllDownloads(action) {
       const labels = {
         pause: '暂停全部下载任务',
-        stop: '停止全部下载任务'
+        stop: '停止全部下载任务',
+        purge: '清空已停止的下载记录'
       };
       if (action === 'stop' && !await this.requestDangerConfirmation({title:'停止全部下载', message:'全部活动和排队中的 Aria2 下载任务将停止。'})) return;
+      if (action === 'purge' && !await this.requestDangerConfirmation({title:'清空已停止记录', message:'将删除 Aria2 中已完成、已出错和已移除的任务记录，清空后无法重试这些任务。', phrase:'CLEAR'})) return;
       this.downloadsBulkAction = action;
       try {
         const data = await apiData(`/api/drive/aria2/tasks/${action}-all`, {method: 'POST'});
@@ -194,7 +297,7 @@
           return;
         }
         this.showNotification('success', data.message || `${labels[action] || '操作'}成功`);
-        await this.loadDownloads(true);
+        await this.loadDownloads(true, {fullHistory: true});
       } catch (error) {
         this.showNotification('error', this.apiErrorMessage(error, `${labels[action] || '操作'}失败`));
       } finally {
@@ -221,7 +324,7 @@
           return;
         }
         this.showNotification('success', data.message || `${labels[action] || '操作'}成功`);
-        await this.loadDownloads(true);
+        await this.loadDownloads(true, {fullHistory: true});
       } catch (error) {
         this.showNotification('error', this.apiErrorMessage(error, `${labels[action] || '操作'}失败`));
       } finally {
@@ -243,7 +346,7 @@
           return;
         }
         this.showNotification('success', data.message || '已重新加入下载队列');
-        await this.loadDownloads(true);
+        await this.loadDownloads(true, {fullHistory: true});
       } catch (error) {
         this.showNotification('error', this.apiErrorMessage(error, '重试下载失败'));
       } finally {
@@ -288,8 +391,15 @@
         .some(task => ['active', 'waiting', 'paused'].includes(task.status));
     },
 
+    hasStoppedDownloadTasks() {
+      return (this.downloads.stopped || []).length > 0;
+    },
+
     syncDownloadsPolling() {
-      if (this.currentTab !== 'downloads' && this.currentTab !== 'dashboard') return;
+      if (this.currentTab !== 'downloads' && this.currentTab !== 'dashboard') {
+        this.stopDownloadsPolling();
+        return;
+      }
       if (hasPollableDownloadTasks(this.downloads)) this.startDownloadsPolling();
       else this.stopDownloadsPolling();
     },
@@ -372,5 +482,17 @@
     };
   }
 
-  return {normalizeDownloadGroups, hasPollableDownloadTasks, flattenDownloadTasks, categorizeDownloadTasks, summarizeActiveDownloads, downloadTaskCapabilities, createStore};
+  return {
+    FULL_STOPPED_LIMIT,
+    POLL_STOPPED_LIMIT,
+    normalizeDownloadGroups,
+    mergeStoppedTasks,
+    mergeDownloadGroups,
+    hasPollableDownloadTasks,
+    flattenDownloadTasks,
+    categorizeDownloadTasks,
+    summarizeActiveDownloads,
+    downloadTaskCapabilities,
+    createStore
+  };
 });

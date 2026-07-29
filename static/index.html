@@ -11,9 +11,9 @@
   <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%234f46e5%27/%3E%3Cpath d=%27M8 9h16v14H8zm4-4v22m8-22v22%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27/%3E%3C/svg%3E">
-  <script src="js/theme-init.js?v=2.2.23"></script>
-  <link rel="stylesheet" href="styles.css?v=2.2.23">
-  <script defer src="vendor/alpine.min.js?v=2.2.23"></script>
+  <script src="js/theme-init.js?v=2.2.24"></script>
+  <link rel="stylesheet" href="styles.css?v=2.2.24">
+  <script defer src="vendor/alpine.min.js?v=2.2.24"></script>
 </head>
 <body class="bg-app text-text/90 min-h-screen" x-data="app()" x-cloak>
 
@@ -813,6 +813,7 @@
                 <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="downloadsAutoRefresh" @change="downloadsAutoRefresh ? startDownloadsPolling() : stopDownloadsPolling()" class="rounded" /><span>实时刷新</span></label>
                 <button @click="controlAllDownloads('pause')" :disabled="downloadsBulkAction || !hasRunningDownloadTasks()" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"><span x-show="downloadsBulkAction !== 'pause'">全部暂停</span><span x-show="downloadsBulkAction === 'pause'">暂停中</span></button>
                 <button @click="controlAllDownloads('stop')" :disabled="downloadsBulkAction || !hasRunningDownloadTasks()" class="btn-danger px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"><span x-show="downloadsBulkAction !== 'stop'">全部停止</span><span x-show="downloadsBulkAction === 'stop'">停止中</span></button>
+                <button @click="controlAllDownloads('purge')" :disabled="downloadsBulkAction || !hasStoppedDownloadTasks()" class="btn-danger px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"><span x-show="downloadsBulkAction !== 'purge'">清空记录</span><span x-show="downloadsBulkAction === 'purge'">清空中</span></button>
                 <button @click="loadDownloads()" :disabled="downloadsLoading" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"><span x-show="!downloadsLoading">刷新</span><span x-show="downloadsLoading">刷新中</span></button>
               </div>
             </div>
@@ -837,7 +838,7 @@
                       <div class="data-table-head grid-cols-[minmax(280px,1.7fr)_92px_150px_92px_92px_110px_220px] px-3">
                         <div>任务</div><div>状态</div><div>进度</div><div>速度</div><div>剩余</div><div>连接</div><div class="text-right">操作</div>
                       </div>
-                      <template x-for="(task, taskIndex) in downloadCategoryTasks(category.id)" :key="'download-task-' + category.id + '-' + (task.gid || 'missing') + '-' + taskIndex">
+                      <template x-for="(task, taskIndex) in visibleDownloadCategoryTasks(category.id)" :key="'download-task-' + category.id + '-' + (task.gid || 'missing') + '-' + taskIndex">
                         <div>
                           <div class="data-table-row grid-cols-[minmax(280px,1.7fr)_92px_150px_92px_92px_110px_220px] px-3">
                             <div class="min-w-0">
@@ -872,6 +873,7 @@
                       </template>
                     </div>
                     <div x-show="downloadCategoryTasks(category.id).length === 0" class="empty-state py-6"><span x-text="category.id === 'failed' ? '暂无失败下载' : '暂无' + category.name + '任务'"></span></div>
+                    <div x-show="hasMoreDownloadCategoryTasks(category.id)" class="p-3 text-center"><button @click="downloadVisibleLimit += 100" class="btn-secondary px-5 py-2">加载更多记录</button></div>
                   </div>
                 </section>
               </template>
@@ -2791,29 +2793,29 @@
     </div>
   </div>
   <!-- Alpine.js 应用逻辑 -->
-  <script src="js/core/api.js?v=2.2.23"></script>
-  <script src="js/core/formatters.js?v=2.2.23"></script>
-  <script src="js/core/ux.js?v=2.2.23"></script>
-  <script src="js/features/search-results.js?v=2.2.23"></script>
-  <script src="js/features/subscription-detail.js?v=2.2.23"></script>
-  <script src="js/features/calendar.js?v=2.2.23"></script>
-  <script src="js/features/source-switch.js?v=2.2.23"></script>
-  <script src="js/features/automation-events.js?v=2.2.23"></script>
-  <script src="js/core/polling.js?v=2.2.23"></script>
-  <script src="js/core/router.js?v=2.2.23"></script>
-  <script src="js/core/notifications.js?v=2.2.23"></script>
-  <script src="js/stores/downloads.js?v=2.2.23"></script>
-  <script src="js/stores/drive.js?v=2.2.23"></script>
-  <script src="js/stores/jobs.js?v=2.2.23"></script>
-  <script src="js/stores/subscriptions.js?v=2.2.23"></script>
-  <script src="js/features/updates.js?v=2.2.23"></script>
-  <script src="js/features/settings.js?v=2.2.23"></script>
-  <script src="js/features/diagnostics.js?v=2.2.23"></script>
-  <script src="js/features/pwa.js?v=2.2.23"></script>
-  <script src="js/features/dashboard.js?v=2.2.23"></script>
-  <script src="js/features/search-page.js?v=2.2.23"></script>
-  <script src="js/features/calendar-page.js?v=2.2.23"></script>
-  <script src="js/core/shell.js?v=2.2.23"></script>
-  <script src="app.js?v=2.2.23"></script>
+  <script src="js/core/api.js?v=2.2.24"></script>
+  <script src="js/core/formatters.js?v=2.2.24"></script>
+  <script src="js/core/ux.js?v=2.2.24"></script>
+  <script src="js/features/search-results.js?v=2.2.24"></script>
+  <script src="js/features/subscription-detail.js?v=2.2.24"></script>
+  <script src="js/features/calendar.js?v=2.2.24"></script>
+  <script src="js/features/source-switch.js?v=2.2.24"></script>
+  <script src="js/features/automation-events.js?v=2.2.24"></script>
+  <script src="js/core/polling.js?v=2.2.24"></script>
+  <script src="js/core/router.js?v=2.2.24"></script>
+  <script src="js/core/notifications.js?v=2.2.24"></script>
+  <script src="js/stores/downloads.js?v=2.2.24"></script>
+  <script src="js/stores/drive.js?v=2.2.24"></script>
+  <script src="js/stores/jobs.js?v=2.2.24"></script>
+  <script src="js/stores/subscriptions.js?v=2.2.24"></script>
+  <script src="js/features/updates.js?v=2.2.24"></script>
+  <script src="js/features/settings.js?v=2.2.24"></script>
+  <script src="js/features/diagnostics.js?v=2.2.24"></script>
+  <script src="js/features/pwa.js?v=2.2.24"></script>
+  <script src="js/features/dashboard.js?v=2.2.24"></script>
+  <script src="js/features/search-page.js?v=2.2.24"></script>
+  <script src="js/features/calendar-page.js?v=2.2.24"></script>
+  <script src="js/core/shell.js?v=2.2.24"></script>
+  <script src="app.js?v=2.2.24"></script>
 </body>
 </html>

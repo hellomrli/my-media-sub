@@ -6,6 +6,12 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
+/// WebUI 单次向 Aria2 请求已停止任务的上限。
+///
+/// Aria2 的 `max-download-result` 默认保留 1000 条；这里与默认保留窗口一致，
+/// 同时在客户端统一 clamp，避免任意大的 RPC 响应拖垮页面。
+pub const MAX_STOPPED_LIMIT: u64 = 1_000;
+
 pub struct Aria2Client {
     rpc_url: String,
     secret: String,
@@ -221,18 +227,47 @@ impl Aria2Client {
                 vec![json!(0), json!(100), keys.clone()],
             )
             .await?;
-        let stopped: Vec<RawAria2Task> = self
-            .call_rpc(
-                "aria2.tellStopped",
-                vec![json!(0), json!(stopped_limit), keys],
-            )
-            .await?;
+        let stopped = if stopped_limit == 0 {
+            Vec::new()
+        } else {
+            self.list_stopped_tasks(stopped_limit).await?
+        };
 
         Ok(Aria2TaskList {
             active: active.into_iter().map(Into::into).collect(),
             waiting: waiting.into_iter().map(Into::into).collect(),
-            stopped: stopped.into_iter().map(Into::into).collect(),
+            stopped,
         })
+    }
+
+    /// 返回最近停止的任务，新完成的任务排在前面。
+    pub async fn list_stopped_tasks(&self, stopped_limit: u64) -> Result<Vec<Aria2Task>> {
+        if self.rpc_url.trim().is_empty() {
+            return Err(AppError::Validation("未配置 Aria2 RPC URL".to_string()));
+        }
+
+        let stopped: Vec<RawAria2Task> = self
+            .call_rpc("aria2.tellStopped", stopped_task_rpc_params(stopped_limit))
+            .await?;
+        Ok(stopped.into_iter().map(Into::into).collect())
+    }
+
+    /// 查询单个任务的当前或最终状态，用于任务离开活动队列时只补查一次。
+    pub async fn task_status(&self, gid: &str) -> Result<Aria2Task> {
+        if self.rpc_url.trim().is_empty() {
+            return Err(AppError::Validation("未配置 Aria2 RPC URL".to_string()));
+        }
+        let gid = gid.trim();
+        if gid.is_empty() {
+            return Err(AppError::Validation("Aria2 任务 GID 为空".to_string()));
+        }
+        let raw: RawAria2Task = self
+            .call_rpc(
+                "aria2.tellStatus",
+                vec![json!(gid), json!(task_status_keys())],
+            )
+            .await?;
+        Ok(raw.into())
     }
 
     pub async fn get_version(&self) -> Result<Aria2Version> {
@@ -265,6 +300,17 @@ impl Aria2Client {
         }
 
         self.call_rpc("aria2.pauseAll", Vec::new()).await
+    }
+
+    /// 清空 Aria2 的已停止任务记录（已完成、错误、已移除）。
+    ///
+    /// Aria2 的下载结果只存在于内存，purge 之后无法恢复；调用方需要先向用户确认。
+    pub async fn purge_download_result(&self) -> Result<String> {
+        if self.rpc_url.trim().is_empty() {
+            return Err(AppError::Validation("未配置 Aria2 RPC URL".to_string()));
+        }
+
+        self.call_rpc("aria2.purgeDownloadResult", Vec::new()).await
     }
 
     async fn call_gid_rpc(&self, method: &str, gid: &str) -> Result<String> {
@@ -395,6 +441,15 @@ fn task_status_keys() -> Vec<&'static str> {
         "errorCode",
         "errorMessage",
         "files",
+    ]
+}
+
+fn stopped_task_rpc_params(stopped_limit: u64) -> Vec<Value> {
+    vec![
+        // -1 从最近停止的任务开始，并让响应按新到旧排列。
+        json!(-1),
+        json!(stopped_limit.clamp(1, MAX_STOPPED_LIMIT)),
+        json!(task_status_keys()),
     ]
 }
 
@@ -598,6 +653,17 @@ mod tests {
         assert_eq!(payload["method"], json!("aria2.tellActive"));
         assert_eq!(payload["params"][0], json!("token:secret"));
         assert_eq!(payload["params"][1][0], json!("gid"));
+    }
+
+    #[test]
+    fn stopped_tasks_request_the_latest_thousand_and_clamp_larger_limits() {
+        let default = stopped_task_rpc_params(MAX_STOPPED_LIMIT);
+        assert_eq!(default[0], json!(-1));
+        assert_eq!(default[1], json!(1_000));
+
+        let clamped = stopped_task_rpc_params(50_000);
+        assert_eq!(clamped[0], json!(-1));
+        assert_eq!(clamped[1], json!(1_000));
     }
 
     #[test]
