@@ -19,6 +19,7 @@ use crate::services::subscription_progress::{
     completion_target_episode, should_mark_completed_from_file_names,
 };
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
+use crate::utils::format_bytes;
 use crate::utils::unix_now;
 
 const MONITOR_INTERVAL: Duration = Duration::from_secs(15);
@@ -400,7 +401,7 @@ fn aria2_client(settings: &Settings) -> Result<Aria2Client> {
     ))
 }
 
-fn download_completed_title_message(task: &Aria2Task) -> (String, String) {
+pub(crate) fn download_completed_title_message(task: &Aria2Task) -> (String, String) {
     let file_name = if task.file_name.trim().is_empty() {
         task.gid.as_str()
     } else {
@@ -461,7 +462,7 @@ fn sync_download_matches_by_file(
     record_dir.is_empty() || task_dir.is_empty() || record_dir == task_dir
 }
 
-fn completed_download_already_recorded(
+pub(crate) fn completed_download_already_recorded(
     history: &[Notification],
     pushed_downloads: &HashSet<(String, String)>,
     task: &Aria2Task,
@@ -499,7 +500,10 @@ fn notification_matches_completed_download(
     same_file && same_dir && same_size
 }
 
-fn subscription_id_for_download_gid(history: &[Notification], gid: &str) -> Option<String> {
+pub(crate) fn subscription_id_for_download_gid(
+    history: &[Notification],
+    gid: &str,
+) -> Option<String> {
     history
         .iter()
         .filter(|notification| notification.event == "subscription_transferred")
@@ -530,7 +534,7 @@ fn download_completed_gids(history: &[Notification], current_gid: &str) -> HashS
     gids
 }
 
-fn completed_subscription_download_files(
+pub(crate) fn completed_subscription_download_files(
     history: &[Notification],
     subscription_id: &str,
     completed_gids: &HashSet<String>,
@@ -560,22 +564,6 @@ fn completed_subscription_download_files(
     files.sort();
     files.dedup();
     files
-}
-
-fn format_bytes(bytes: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    let mut size = bytes as f64;
-    let mut unit = 0usize;
-    while size >= 1024.0 && unit < UNITS.len() - 1 {
-        size /= 1024.0;
-        unit += 1;
-    }
-
-    if unit == 0 {
-        format!("{} {}", bytes, UNITS[unit])
-    } else {
-        format!("{:.2} {}", size, UNITS[unit])
-    }
 }
 
 fn now_ts() -> i64 {

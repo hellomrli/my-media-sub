@@ -10,11 +10,7 @@ use std::sync::Arc;
 
 use super::response::ApiResponse as Response;
 use crate::error::{AppError, Result};
-use crate::utils::metrics::{Metrics, MetricsSnapshot};
-
-async fn get_metrics(State(metrics): State<Arc<Metrics>>) -> Json<Response<MetricsSnapshot>> {
-    Json(Response::success(metrics.snapshot()))
-}
+use crate::utils::metrics::Metrics;
 
 async fn prometheus_metrics(State(metrics): State<Arc<Metrics>>) -> HttpResponse {
     let mut response = metrics.prometheus().into_response();
@@ -57,7 +53,6 @@ async fn update_log_filter(
 
 pub fn routes(metrics: Arc<Metrics>) -> Router {
     Router::new()
-        .route("/api/metrics", get(get_metrics))
         .route("/metrics", get(prometheus_metrics))
         .route(
             "/api/observability/log-filter",

@@ -321,7 +321,7 @@
     startUpdateProgressPolling() {
       this.stopUpdateProgressPolling();
       this.loadUpdateProgress();
-      this.updateProgressTimer = this.startPolling('update-progress', () => this.loadUpdateProgress(), 800);
+      this.updateProgressTimer = this.startPolling('update-progress', () => this.loadUpdateProgress(), 800, {pauseWhenHidden: false});
     },
 
     stopUpdateProgressPolling() {

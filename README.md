@@ -193,11 +193,9 @@ SERVER_PASSWORD='replace-with-a-strong-password' ./my-media-sub
 
 | 功能 | 设置项 | 说明 |
 |---|---|---|
-| 媒体库刷新 | `media_library_refresh_enabled`、`media_library_type`、`media_library_refresh_url`、`media_library_token` | 转存成功后回调 Jellyfin / Emby / Plex 或任意 Webhook 刷新媒体库。`media_library_type` 决定认证方式：`jellyfin`/`emby` 用 `X-Emby-Token`，`plex` 用查询参数，其余用 Bearer |
-| 手动排期 | 订阅对象的 `manual_schedule` | 覆盖元数据推断的播出排期，驱动更新日历。已设置的值会在 WebUI 中正常回填并保留 |
 | 反代信任 | `trust_proxy_headers` | 见「安全与部署建议」 |
 
-补齐这些界面入口在计划中。
+这是部署级设置，按部署环境一次配好即可，不计划提供界面入口。
 
 ---
 

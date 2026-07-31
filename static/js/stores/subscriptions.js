@@ -44,13 +44,6 @@
       sync_download_dir: '',
       strm_enabled: false,
       metadata: null,
-      manual_schedule_enabled: false,
-      manual_schedule_start_date: '',
-      manual_schedule_weekdays: [],
-      manual_schedule_air_time: '',
-      manual_schedule_interval_weeks: 1,
-      manual_schedule_first_episode: 1,
-      manual_schedule_total_episodes: '',
       include_keywords_text: '',
       exclude_keywords_text: DEFAULT_EXCLUDE_KEYWORDS,
       match_regex: '',
@@ -418,16 +411,6 @@
         sync_download_dir: sub.sync_download_dir || '',
         strm_enabled: !!sub.strm_enabled,
         metadata: sub.metadata || null,
-        // 保留已有手动排期，避免编辑其它字段保存时被清空
-        manual_schedule_enabled: !!(sub.manual_schedule && sub.manual_schedule.start_date),
-        manual_schedule_start_date: (sub.manual_schedule && sub.manual_schedule.start_date) || '',
-        manual_schedule_weekdays: (sub.manual_schedule && Array.isArray(sub.manual_schedule.weekdays))
-          ? sub.manual_schedule.weekdays.map(Number)
-          : [],
-        manual_schedule_air_time: (sub.manual_schedule && sub.manual_schedule.air_time) || '',
-        manual_schedule_interval_weeks: (sub.manual_schedule && sub.manual_schedule.interval_weeks) || 1,
-        manual_schedule_first_episode: (sub.manual_schedule && sub.manual_schedule.first_episode_number) || 1,
-        manual_schedule_total_episodes: (sub.manual_schedule && sub.manual_schedule.total_episodes) || '',
         check_interval_minutes: Number(rules.check_interval_minutes || (this.settings && this.settings.subscription_check_interval_minutes) || 60),
         include_keywords_text: (rules.include_keywords || []).join(', '),
         exclude_keywords_text: (rules.exclude_keywords || []).join(', ') || this.defaultExcludeKeywords(),
@@ -580,26 +563,6 @@
     subscriptionStartEpisodePayload() {
       if (this.newSubscription.media_type === 'movie') return 0;
       return this.normalizeStartEpisode(this.newSubscription.start_episode_number);
-    },
-
-    manualSchedulePayload() {
-      if (!this.newSubscription.manual_schedule_enabled) return null;
-      const total = this.normalizeStartEpisode(this.newSubscription.manual_schedule_total_episodes);
-      return {
-        start_date: String(this.newSubscription.manual_schedule_start_date || '').trim(),
-        weekdays: (this.newSubscription.manual_schedule_weekdays || []).map(Number).filter(day => day >= 1 && day <= 7),
-        air_time: String(this.newSubscription.manual_schedule_air_time || '').trim(),
-        interval_weeks: Math.max(1, Number(this.newSubscription.manual_schedule_interval_weeks || 1)),
-        first_episode_number: Math.max(1, this.normalizeStartEpisode(this.newSubscription.manual_schedule_first_episode) || 1),
-        total_episodes: total > 0 ? total : null
-      };
-    },
-
-    // 编辑时：仅在确有排期数据时才发送 manual_schedule，避免 PUT null 清空已有排期
-    shouldSendManualSchedule() {
-      if (!this.subscriptionEditingId) return true;
-      return !!this.newSubscription.manual_schedule_enabled
-        && !!String(this.newSubscription.manual_schedule_start_date || '').trim();
     },
 
     subscriptionSourceChanged() {
@@ -1602,12 +1565,6 @@
         return;
       }
 
-      if (this.newSubscription.manual_schedule_enabled && !this.newSubscription.manual_schedule_start_date) {
-        this.showNotification('error', '启用手动排期后必须填写开播日期');
-        this.subscriptionDialogTab = 'content';
-        return;
-      }
-
       if (this.subscriptionEditingId) {
         await this.updateSubscription();
         return;
@@ -1673,7 +1630,6 @@
             sync_download_enabled: !!this.newSubscription.sync_download_enabled,
             sync_download_dir: this.newSubscription.sync_download_dir,
             metadata: this.newSubscription.metadata,
-            manual_schedule: this.manualSchedulePayload(),
             rule_preset_id: this.newSubscription.rule_preset_id || '',
             rules
           })
@@ -1720,9 +1676,6 @@
           target_dir: rules.target_dir,
           rename_template: rules.rename_template
         };
-        if (this.shouldSendManualSchedule()) {
-          payload.manual_schedule = this.manualSchedulePayload();
-        }
         const response = await apiFetch(`/api/subscriptions/${this.subscriptionEditingId}`, {
           method: 'PUT',
           headers: {'Content-Type': 'application/json'},

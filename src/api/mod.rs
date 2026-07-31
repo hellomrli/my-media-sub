@@ -184,11 +184,8 @@ async fn basic_auth(State(state): State<AuthState>, req: Request<Body>, next: Ne
         .and_then(|v| v.strip_prefix("Bearer "))
     {
         let Some(scope) = required_token_scope(req.method(), req.uri().path()) else {
-            return json_error_response(
-                StatusCode::FORBIDDEN,
-                "insufficient_scope",
-                "自动化 Token 无权访问该管理接口",
-            );
+            state.record_failure(rate_key, now);
+            return unauthorized_response();
         };
         return if state.token_store.authenticate(token, scope).await {
             next.run(req).await
@@ -270,7 +267,6 @@ pub(crate) fn required_token_scope(method: &Method, path: &str) -> Option<&'stat
         })
     } else if path.starts_with("/api/diagnostics")
         || path.starts_with("/api/telegram/audits")
-        || path == "/api/metrics"
         || path == "/metrics"
     {
         Some("diagnostics:read")

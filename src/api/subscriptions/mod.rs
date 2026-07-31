@@ -12,11 +12,10 @@ use super::response::ApiResponse as Response;
 use crate::error::{AppError, Result};
 use crate::jobs::{JobQueue, JobStore, MetadataScrapePayload};
 use crate::models::{
-    episode_count_for_season, merge_refreshed_metadata, MediaMetadata, MediaScheduleOverride,
-    Settings, Subscription, TransferRules,
+    episode_count_for_season, merge_refreshed_metadata, MediaMetadata, Settings, Subscription,
+    TransferRules,
 };
 use crate::providers::validate_cloud_type;
-use crate::services::media_calendar::validate_manual_schedule;
 use crate::services::subscription_check::CheckDetails;
 use crate::services::subscription_progress::reconcile_completed_subscription_status;
 use crate::services::subscription_status::{build_subscription_detail, SubscriptionDetail};
@@ -97,8 +96,6 @@ pub struct CreateSubscriptionRequest {
     #[serde(default)]
     pub metadata: Option<MediaMetadata>,
     #[serde(default)]
-    pub manual_schedule: Option<MediaScheduleOverride>,
-    #[serde(default)]
     pub rules: Option<TransferRules>,
     #[serde(default)]
     pub rule_preset_id: String,
@@ -153,12 +150,6 @@ pub struct UpdateSubscriptionRequest {
         skip_serializing_if = "Option::is_none"
     )]
     pub metadata: Option<Option<MediaMetadata>>,
-    #[serde(
-        default,
-        deserialize_with = "deserialize_present_option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub manual_schedule: Option<Option<MediaScheduleOverride>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rules: Option<TransferRules>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -378,7 +369,6 @@ fn preview_subscription(req: &RenamePreviewRequest, base: Option<&Subscription>)
         source_group: base.map(|sub| sub.source_group.clone()).unwrap_or_default(),
         tags: base.map(|sub| sub.tags.clone()).unwrap_or_default(),
         metadata: base.and_then(|sub| sub.metadata.clone()),
-        manual_schedule: base.and_then(|sub| sub.manual_schedule.clone()),
         cloud_type: base
             .map(|sub| sub.cloud_type.clone())
             .unwrap_or_else(|| "quark".to_string()),

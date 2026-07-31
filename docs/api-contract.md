@@ -161,8 +161,7 @@
 
 ## P18 可观测性与只读诊断接口
 
-- `GET /api/metrics`：返回 JSON 指标快照，包括 HTTP、外部依赖、慢操作与 Store I/O。
-- `GET /metrics`：返回 Prometheus 0.0.4 文本格式；与管理 API 一样受 Basic Auth 保护。
+- `GET /metrics`：返回 Prometheus 0.0.4 文本格式；与管理 API 一样受 Basic Auth 保护。JSON 形态的指标快照见 `GET /api/diagnostics` 的 `metrics`。
 - `GET|PUT /api/observability/log-filter`：读取或热更新 tracing `EnvFilter`；PUT 请求为 `{ "filter": "info,my_media_sub=debug" }`，无需重启。
 - `GET /api/diagnostics` 的 `environment` 返回 DATA_DIR 容量/权限提示、上海时区偏移、已配置外部服务 DNS 结果及五类 JSON Store 只读一致性检查。
 - `recommendations` 仅提供分级建议，不创建文件、不修改权限、不修复数据，也不回显 Cookie、Token、密码或完整外部 URL。
@@ -173,7 +172,6 @@
 - `storage_decision` 返回当前规模、显式 SQLite 门槛、建议和迁移合同。
 - `GET /api/storage/cleanup`：只读返回各 Store 当前记录、独立保留上限、预计处理数、文件大小、增长预警和 SQLite 阈值决策。
 - `POST /api/storage/cleanup` 要求 `confirmation: "CLEANUP DATA"`；执行前创建并验证 `pre-cleanup` 备份，再应用订阅历史、通知、活跃/归档 Job 和自动化事件的独立保留策略。
-- `POST /api/storage/compact` 保留兼容入口并要求 `confirmation: "COMPACT JSON"`，内部执行相同的备份优先生命周期清理。
 - `GET /api/storage/decision`：返回当前 JSON/SQLite 门控状态；任一记录阈值未达到时 `migration_phase=not_started`，达到后仅变为 `decision_required`，始终报告 `dual_write_active=false`。
 
 ## P10 扩展接口

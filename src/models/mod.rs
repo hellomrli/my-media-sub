@@ -14,7 +14,7 @@ pub use automation_event::{AutomationEvent, AutomationStage, AutomationStatus};
 
 pub use calendar::{
     CalendarConfidence, CalendarQuickActions, CalendarScheduleSource, CalendarStatus,
-    MediaCalendar, MediaCalendarItem, MediaCalendarSummary, MediaScheduleOverride,
+    MediaCalendar, MediaCalendarItem, MediaCalendarSummary,
 };
 
 pub use rules::TransferRules;

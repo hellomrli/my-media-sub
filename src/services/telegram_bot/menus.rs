@@ -392,7 +392,6 @@ impl TelegramBotService {
             source_group: String::new(),
             tags: vec![],
             metadata: None,
-            manual_schedule: None,
             cloud_type: "quark".to_string(),
             url: hit.url.clone(),
             password: hit.password.clone(),

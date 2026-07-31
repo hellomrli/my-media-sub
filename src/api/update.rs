@@ -17,6 +17,7 @@ use crate::clients::http_pool;
 use crate::error::{AppError, Result};
 use crate::restart::RestartPlan;
 use crate::utils::constant_time_eq;
+use crate::utils::format_bytes;
 
 const GITHUB_REPO: &str = "hellomrli/my-media-sub";
 const REQUIRED_STATIC_ASSETS: &[&str] = &[
@@ -321,17 +322,6 @@ fn fail_update_progress(message: impl Into<String>) {
         progress.error = Some(message);
         progress.updated_at = Utc::now().to_rfc3339();
     }
-}
-
-fn format_bytes(bytes: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    let mut size = bytes as f64;
-    let mut unit = 0usize;
-    while size >= 1024.0 && unit < UNITS.len() - 1 {
-        size /= 1024.0;
-        unit += 1;
-    }
-    format!("{:.2} {}", size, UNITS[unit])
 }
 
 async fn apply_update_inner(target_tag: Option<String>) -> Result<UpdateApplyResponse> {
@@ -1262,6 +1252,31 @@ mod tests {
         assert!(!online_update_supported_for("docker", Some(true), false));
         assert!(online_update_supported_for("docker", Some(true), true));
         assert!(!online_update_supported_for("unknown", Some(true), true));
+    }
+
+    /// 同一进程内不得并发跑两次升级：第二次 apply 必须被拦在下载之前，
+    /// 否则两个任务会同时改写同一个二进制和 static 目录。
+    #[test]
+    fn concurrent_update_attempts_are_rejected_and_progress_recovers() {
+        // 这些断言操作进程级的 UPDATE_PROGRESS 单例，结束前必须复位。
+        assert!(try_begin_update_progress("第一次升级").is_ok());
+        let running = current_update_progress();
+        assert!(running.running);
+        assert_eq!(running.stage, "starting");
+
+        let rejected = try_begin_update_progress("第二次升级").unwrap_err();
+        assert!(matches!(rejected, AppError::Validation(_)));
+        assert!(rejected.to_string().contains("已有升级任务正在执行"));
+
+        // 失败后必须回到非 running，否则后续升级会被永久拒绝。
+        fail_update_progress("模拟失败".to_string());
+        let failed = current_update_progress();
+        assert!(!failed.running);
+        assert_eq!(failed.error.as_deref(), Some("模拟失败"));
+
+        assert!(try_begin_update_progress("失败后重试").is_ok());
+        finish_update_progress("已复位", "idle");
+        assert!(!current_update_progress().running);
     }
 
     #[test]

@@ -3,7 +3,6 @@ pub mod backup;
 pub mod download_monitor;
 pub mod episode;
 pub mod media_calendar;
-pub mod media_library;
 pub mod metadata;
 pub mod notification;
 pub mod post_transfer;

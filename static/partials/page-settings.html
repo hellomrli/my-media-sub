@@ -17,7 +17,6 @@
             <div class="settings-overview-actions">
               <button @click="testQuark()" :disabled="quarkHealthLoading" class="btn-secondary">测试夸克</button>
               <button @click="testAria2()" :disabled="!settings.aria2_rpc_url" class="btn-secondary disabled:opacity-40">测试 Aria2</button>
-              <button @click="saveSettings()" class="btn-primary">保存全部设置</button>
             </div>
           </section>
 
@@ -90,7 +89,6 @@
 
               <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="testAria2()" class="btn-secondary px-4 py-2 rounded-lg">测试 Aria2</button>
-                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
 
@@ -212,7 +210,6 @@
 
               <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="testQuark()" class="btn-secondary px-4 py-2 rounded-lg">测试连接</button>
-                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
 
@@ -370,7 +367,6 @@
 
               <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="testPush()" class="btn-secondary px-4 py-2 rounded-lg">测试推送</button>
-                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
 
@@ -447,9 +443,6 @@
                 </div>
               </div>
 
-              <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
-                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
-              </div>
             </div>
 
             <!-- 规则中心 -->
@@ -573,9 +566,6 @@
                 </div>
               </div>
 
-              <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
-                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
-              </div>
             </div>
 
             <!-- 高级设置 -->
@@ -606,16 +596,8 @@
                   </div>
                   <p class="text-xs text-muted/75 mt-2">保存后新的资源搜索会使用该地址；留空时使用内置默认服务。</p>
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.check_links" class="rounded" />默认检测链接有效性</label>
-                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.probe_quark_files" class="rounded" />默认嗅探文件列表</label>
-                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.filter_bad_links" class="rounded" />默认过滤失效链接</label>
-                </div>
               </div>
 
-              <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
-                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
-              </div>
             </div>
 
             <!-- 在线更新 -->
@@ -733,5 +715,12 @@
               </div>
             </div>
             </div>
+          </div>
+
+          <!-- 唯一的保存入口：设置整体是一次 POST，分区保存从来就不存在。
+               吸底常驻，避免长面板滚下去后够不到。 -->
+          <div class="settings-save-bar">
+            <span class="settings-save-hint">所有分区共用一次保存</span>
+            <button @click="saveSettings()" class="btn-primary">保存全部设置</button>
           </div>
         </div>

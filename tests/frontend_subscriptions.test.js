@@ -31,10 +31,9 @@ test('subscription wizard defaults to automatic scheduling and omits the schedul
   state.subscriptionMode = 'continuous';
   assert.deepEqual(state.subscriptionWizardSteps.map(step => step.id), ['content', 'rename', 'download']);
   assert.deepEqual(state.subscriptionWizardSteps.map(step => step.name), ['订阅内容', '高级规则', '下载']);
-  assert.equal(state.manualSchedulePayload(), null);
 });
 
-test('edit preserves existing manual schedule and omits null payload when disabled without schedule', () => {
+test('edit ignores the retired manual_schedule field on existing subscriptions', () => {
   const state = store();
   state.settings = {subscription_check_interval_minutes: 60};
   state.previewSubscriptionRename = async () => {};
@@ -57,15 +56,12 @@ test('edit preserves existing manual schedule and omits null payload when disabl
       total_episodes: 12
     }
   });
-  assert.equal(state.newSubscription.manual_schedule_enabled, true);
-  assert.equal(state.newSubscription.manual_schedule_start_date, '2026-01-01');
-  assert.deepEqual(state.manualSchedulePayload().weekdays, [1, 4]);
-  assert.equal(state.shouldSendManualSchedule(), true);
-
-  // 关闭排期开关后不再发送字段，避免 PUT null 清空服务端排期
-  state.newSubscription.manual_schedule_enabled = false;
-  assert.equal(state.shouldSendManualSchedule(), false);
-  assert.equal(state.manualSchedulePayload(), null);
+  // 手动排期已整体下线：回填时既不读取该字段，也不再往表单里塞任何排期状态。
+  assert.equal(state.newSubscription.title, 'Show');
+  assert.equal(
+    Object.keys(state.newSubscription).some(key => key.startsWith('manual_schedule')),
+    false
+  );
 });
 
 test('parseSeasonSpec supports ranges and multi-season target dirs skip Season suffix', () => {

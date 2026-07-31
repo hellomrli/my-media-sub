@@ -80,8 +80,8 @@
                       <div class="progress-inline"><span :style="'width:' + subscriptionProgressPercent(sub) + '%'"></span></div>
                       <div class="text-xs text-muted/75 tabular-nums" x-text="sub.media_type !== 'movie' ? subscriptionProgressLabel(sub) : '-'"></div>
                     </div>
-                    <div><span class="badge badge-muted" x-text="subscriptionRatingLabel(sub)"></span></div>
-                    <div class="text-xs text-muted/75" x-text="formatTime(sub.last_checked_at)"></div>
+                    <div><span class="text-xs text-muted/75 lg:hidden">评分 </span><span class="badge badge-muted" x-text="subscriptionRatingLabel(sub)"></span></div>
+                    <div class="text-xs text-muted/75"><span class="lg:hidden">最后检查 </span><span x-text="formatTime(sub.last_checked_at)"></span></div>
                     <div class="flex flex-wrap justify-end gap-1">
                       <button @click="checkSubscription(sub.id)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">检查</button>
                       <button @click="toggleSubscriptionActionMenu(sub.id)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">更多</button>

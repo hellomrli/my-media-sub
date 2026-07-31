@@ -18,11 +18,6 @@
     return TOAST_ICONS[normalizeNotificationType(type)];
   }
 
-  function filterNotificationItems(items, filter = 'all') {
-    const list = Array.isArray(items) ? items : [];
-    return filter === 'unread' ? list.filter(item => !item.read) : list;
-  }
-
   function activityTimestamp(item) {
     const value = item && (item.timestamp ?? item.updated_at ?? item.created_at);
     if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -179,9 +174,14 @@
     startNotificationsPolling() {
       this.stopNotificationsPolling();
       if (!['dashboard', 'notifications'].includes(this.currentTab)) return;
-      const refresh = typeof this.loadActivity === 'function'
-        ? () => this.loadActivity()
-        : () => this.loadNotifications();
+      // SSE 正常推送时任务列表已经是最新的，轮询只补通知（通知没有 SSE 通道）；
+      // SSE 断线时回落到任务 + 通知的全量刷新。
+      const refresh = () => {
+        if (this.jobEventsHealthy) return this.loadNotifications();
+        return typeof this.loadActivity === 'function'
+          ? this.loadActivity()
+          : this.loadNotifications();
+      };
       this.notificationsPoller = this.startPolling('notifications', refresh, 30000);
     },
 
@@ -395,5 +395,5 @@
     };
   }
 
-  return {TOAST_ICONS, normalizeNotificationType, toastIcon, filterNotificationItems, activityTimestamp, mergeActivityItems, createStore};
+  return {TOAST_ICONS, normalizeNotificationType, toastIcon, activityTimestamp, mergeActivityItems, createStore};
 });

@@ -7,8 +7,6 @@
 
   /// 工作台卡片目录。zone 决定卡片落在哪一区：compact 区按内容高度排布，
   /// panel 区平分剩余高度并各自内部滚动——这样无论用户怎么排都还是一屏。
-  /// 工作台卡片目录。zone 决定卡片落在哪一区：compact 区按内容高度排布，
-  /// panel 区平分剩余高度并各自内部滚动——这样无论用户怎么排都还是一屏。
   const CARD_CATALOG = Object.freeze([
     {id: 'command', name: '概览与操作', hint: '状态摘要与主操作', zone: 'compact', span: 12},
     {id: 'calendar', name: '更新日历', hint: '播出排期与缺集状态', zone: 'panel', span: 12}

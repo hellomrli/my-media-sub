@@ -16,7 +16,7 @@
       <nav class="sidebar-nav flex-1 overflow-y-auto">
         <div class="nav-group">
           <div class="nav-group-label">媒体中心</div>
-          <template x-for="tab in tabs.filter(item => ['dashboard', 'calendar', 'search', 'subscriptions', 'drive', 'downloads'].includes(item.id))" :key="tab.id">
+          <template x-for="tab in tabs.filter(item => ['dashboard', 'search', 'subscriptions', 'drive', 'downloads'].includes(item.id))" :key="tab.id">
             <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : ''" class="nav-button">
               <span x-html="tab.icon" class="nav-icon"></span>
               <span class="min-w-0 flex-1 text-left">
@@ -123,12 +123,17 @@
           </div>
         </div>
         <nav class="mobile-tab-grid mt-3 lg:hidden flex gap-2 overflow-x-auto pb-1">
-          <template x-for="tab in tabs" :key="tab.id">
+          <template x-for="tab in tabs.filter(item => item.id !== 'settings')" :key="tab.id">
             <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : ''" class="nav-button flex min-w-[4.75rem] flex-none flex-col items-center justify-center gap-1 px-2 py-2 rounded-lg">
               <span x-html="tab.icon" class="w-4 h-4"></span>
               <span x-text="tab.name" class="text-xs leading-4 text-center"></span>
             </button>
           </template>
+          <!-- 设置与内容标签分层：桌面端在侧栏 footer，移动端用分隔线隔在末尾 -->
+          <button @click="selectTab('settings')" :class="currentTab === 'settings' ? 'is-active' : ''" class="nav-button mobile-tab-settings flex min-w-[4.75rem] flex-none flex-col items-center justify-center gap-1 px-2 py-2 rounded-lg">
+            <span x-html="tabs.find(tab => tab.id === 'settings')?.icon" class="w-4 h-4"></span>
+            <span class="text-xs leading-4 text-center">系统设置</span>
+          </button>
         </nav>
       </header>
 

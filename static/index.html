@@ -43,7 +43,7 @@
       <nav class="sidebar-nav flex-1 overflow-y-auto">
         <div class="nav-group">
           <div class="nav-group-label">媒体中心</div>
-          <template x-for="tab in tabs.filter(item => ['dashboard', 'calendar', 'search', 'subscriptions', 'drive', 'downloads'].includes(item.id))" :key="tab.id">
+          <template x-for="tab in tabs.filter(item => ['dashboard', 'search', 'subscriptions', 'drive', 'downloads'].includes(item.id))" :key="tab.id">
             <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : ''" class="nav-button">
               <span x-html="tab.icon" class="nav-icon"></span>
               <span class="min-w-0 flex-1 text-left">
@@ -150,12 +150,17 @@
           </div>
         </div>
         <nav class="mobile-tab-grid mt-3 lg:hidden flex gap-2 overflow-x-auto pb-1">
-          <template x-for="tab in tabs" :key="tab.id">
+          <template x-for="tab in tabs.filter(item => item.id !== 'settings')" :key="tab.id">
             <button @click="selectTab(tab.id)" :class="currentTab === tab.id ? 'is-active' : ''" class="nav-button flex min-w-[4.75rem] flex-none flex-col items-center justify-center gap-1 px-2 py-2 rounded-lg">
               <span x-html="tab.icon" class="w-4 h-4"></span>
               <span x-text="tab.name" class="text-xs leading-4 text-center"></span>
             </button>
           </template>
+          <!-- 设置与内容标签分层：桌面端在侧栏 footer，移动端用分隔线隔在末尾 -->
+          <button @click="selectTab('settings')" :class="currentTab === 'settings' ? 'is-active' : ''" class="nav-button mobile-tab-settings flex min-w-[4.75rem] flex-none flex-col items-center justify-center gap-1 px-2 py-2 rounded-lg">
+            <span x-html="tabs.find(tab => tab.id === 'settings')?.icon" class="w-4 h-4"></span>
+            <span class="text-xs leading-4 text-center">系统设置</span>
+          </button>
         </nav>
       </header>
 
@@ -270,7 +275,7 @@
 
               <div x-show="calendarLoading" class="calendar-state"><span class="loading-spinner"></span><strong>正在整理媒体排期</strong><small>合并元数据、转存与下载状态</small></div>
               <div x-show="!calendarLoading && calendarError" class="calendar-state is-error"><strong>日历加载失败</strong><small x-text="calendarError"></small><button @click="loadCalendar()" class="btn-secondary">重试</button></div>
-              <div x-show="!calendarLoading && !calendarError && calendarItems.length === 0" class="calendar-state"><strong>当前范围没有日历项目</strong><small>可以切换日期范围、清除筛选，或为订阅补充元数据与手动排期。</small><button @click="calendarStatusFilter = 'all'; calendarMediaFilter = 'all'; loadCalendar()" class="btn-secondary">清除筛选</button></div>
+              <div x-show="!calendarLoading && !calendarError && calendarItems.length === 0" class="calendar-state"><strong>当前范围没有日历项目</strong><small>可以切换日期范围、清除筛选，或为订阅补充元数据。</small><button @click="calendarStatusFilter = 'all'; calendarMediaFilter = 'all'; loadCalendar()" class="btn-secondary">清除筛选</button></div>
 
               <section x-show="!calendarLoading && !calendarError && calendarItems.length > 0 && calendarView === 'week'" class="calendar-week-shell">
                 <div class="calendar-week-grid">
@@ -849,8 +854,8 @@
                             </div>
                             <div><span :class="downloadStatusBadgeClass(task.status)" x-text="downloadStatusLabel(task.status)"></span></div>
                             <div class="space-y-1"><div class="progress-inline"><span :style="downloadProgressStyle(task)"></span></div><div class="text-xs text-muted/75 tabular-nums" x-text="formatDownloadSize(task.completed_length) + ' / ' + formatDownloadSize(task.total_length)"></div></div>
-                            <div class="text-xs text-muted/80" x-text="formatSpeed(task.download_speed)"></div>
-                            <div class="text-xs text-muted/80" x-text="formatDuration(task.eta_seconds)"></div>
+                            <div class="text-xs text-muted/80"><span class="text-muted/75 lg:hidden">速度 </span><span x-text="formatSpeed(task.download_speed)"></span></div>
+                            <div class="text-xs text-muted/80"><span class="text-muted/75 lg:hidden">剩余 </span><span x-text="formatDuration(task.eta_seconds)"></span></div>
                             <div class="text-xs text-muted/80" x-text="task.connections + ' 连接'"></div>
                             <div class="flex flex-wrap justify-end gap-1">
                               <button x-show="canPauseDownloadTask(task)" @click="controlDownloadTask(task, 'pause')" :disabled="downloadTaskActionLoading(task)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">暂停</button>
@@ -963,8 +968,8 @@
                       <div class="progress-inline"><span :style="'width:' + subscriptionProgressPercent(sub) + '%'"></span></div>
                       <div class="text-xs text-muted/75 tabular-nums" x-text="sub.media_type !== 'movie' ? subscriptionProgressLabel(sub) : '-'"></div>
                     </div>
-                    <div><span class="badge badge-muted" x-text="subscriptionRatingLabel(sub)"></span></div>
-                    <div class="text-xs text-muted/75" x-text="formatTime(sub.last_checked_at)"></div>
+                    <div><span class="text-xs text-muted/75 lg:hidden">评分 </span><span class="badge badge-muted" x-text="subscriptionRatingLabel(sub)"></span></div>
+                    <div class="text-xs text-muted/75"><span class="lg:hidden">最后检查 </span><span x-text="formatTime(sub.last_checked_at)"></span></div>
                     <div class="flex flex-wrap justify-end gap-1">
                       <button @click="checkSubscription(sub.id)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">检查</button>
                       <button @click="toggleSubscriptionActionMenu(sub.id)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">更多</button>
@@ -1309,7 +1314,7 @@
                     <div class="min-w-0"><div class="truncate text-text/85" x-text="item.name"></div><div x-show="item.parent_path" class="truncate text-xs text-muted/75" x-text="item.parent_path"></div></div>
                     <div class="text-xs text-muted/80" x-text="item.episode ? '第 ' + item.episode + ' 集' : '-' "></div>
                     <div><span class="badge" :class="item.action === 'new' ? 'badge-success' : (item.action === 'skip' ? 'badge-warning' : 'badge-primary')" x-text="checkActionLabel(item.action)"></span></div>
-                    <div class="truncate text-xs text-muted/80" x-text="item.reason || '-' "></div>
+                    <div class="truncate text-xs text-muted/80"><span class="lg:hidden">原因 </span><span x-text="item.reason || '-' "></span></div>
                   </div>
                 </template>
               </div>
@@ -1356,7 +1361,7 @@
                         <div class="truncate text-xs text-muted/75" x-text="item.message || activityTimeLabel(item)"></div>
                         <div x-show="item.source === 'job' && ((item.raw.attempt || 1) > 1 || item.raw.error_class)" class="truncate text-[10px] text-warning/80" x-text="'第 ' + (item.raw.attempt || 1) + ' 次 · ' + jobErrorClassLabel(item.raw.error_class)"></div>
                       </div>
-                      <div class="text-xs text-muted/75" x-text="activityTimeLabel(item)"></div>
+                      <div class="text-xs text-muted/75"><span class="lg:hidden">时间 </span><span x-text="activityTimeLabel(item)"></span></div>
                       <div class="flex flex-wrap justify-end gap-1">
                         <button x-show="item.source === 'job'" @click="openActivityItem(item)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">详情</button>
                         <select x-show="item.source === 'job' && item.raw.status === 'queued'" :value="item.raw.priority || 'normal'" @change="setJobPriority(item.raw, $event.target.value)" class="app-select px-1 py-1 text-xs" aria-label="任务优先级">
@@ -1449,7 +1454,6 @@
             <div class="settings-overview-actions">
               <button @click="testQuark()" :disabled="quarkHealthLoading" class="btn-secondary">测试夸克</button>
               <button @click="testAria2()" :disabled="!settings.aria2_rpc_url" class="btn-secondary disabled:opacity-40">测试 Aria2</button>
-              <button @click="saveSettings()" class="btn-primary">保存全部设置</button>
             </div>
           </section>
 
@@ -1522,7 +1526,6 @@
 
               <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="testAria2()" class="btn-secondary px-4 py-2 rounded-lg">测试 Aria2</button>
-                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
 
@@ -1644,7 +1647,6 @@
 
               <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="testQuark()" class="btn-secondary px-4 py-2 rounded-lg">测试连接</button>
-                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
 
@@ -1802,7 +1804,6 @@
 
               <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="testPush()" class="btn-secondary px-4 py-2 rounded-lg">测试推送</button>
-                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
               </div>
             </div>
 
@@ -1879,9 +1880,6 @@
                 </div>
               </div>
 
-              <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
-                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
-              </div>
             </div>
 
             <!-- 规则中心 -->
@@ -2005,9 +2003,6 @@
                 </div>
               </div>
 
-              <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
-                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
-              </div>
             </div>
 
             <!-- 高级设置 -->
@@ -2038,16 +2033,8 @@
                   </div>
                   <p class="text-xs text-muted/75 mt-2">保存后新的资源搜索会使用该地址；留空时使用内置默认服务。</p>
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.check_links" class="rounded" />默认检测链接有效性</label>
-                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.probe_quark_files" class="rounded" />默认嗅探文件列表</label>
-                  <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.filter_bad_links" class="rounded" />默认过滤失效链接</label>
-                </div>
               </div>
 
-              <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
-                <button @click="saveSettings()" class="btn-primary px-6 py-3 rounded-lg font-medium transition-colors">保存设置</button>
-              </div>
             </div>
 
             <!-- 在线更新 -->
@@ -2165,6 +2152,13 @@
               </div>
             </div>
             </div>
+          </div>
+
+          <!-- 唯一的保存入口：设置整体是一次 POST，分区保存从来就不存在。
+               吸底常驻，避免长面板滚下去后够不到。 -->
+          <div class="settings-save-bar">
+            <span class="settings-save-hint">所有分区共用一次保存</span>
+            <button @click="saveSettings()" class="btn-primary">保存全部设置</button>
           </div>
         </div>
       </div>

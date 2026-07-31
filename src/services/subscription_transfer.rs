@@ -435,16 +435,21 @@ impl SubscriptionTransferService {
             .await;
 
         // 13. 运行独立后处理模块。模块只能读取快照，失败不会回滚已完成的转存。
-        let module_outcomes = self
-            .post_transfer_registry
-            .run_all(PostTransferContext {
-                settings: Arc::new(settings.clone()),
-                subscription: Arc::new(sub.clone()),
-                target_dir: target_dir.clone(),
-                files: Arc::new(transferred_files.clone()),
-                reason: "subscription_transfer_completed",
-            })
-            .await;
+        // 注册表为空时直接跳过：构造上下文要克隆设置、订阅和整个转存文件列表，
+        // 没有模块可跑时这些克隆纯属浪费。
+        let module_outcomes = if self.post_transfer_registry.is_empty() {
+            Vec::new()
+        } else {
+            self.post_transfer_registry
+                .run_all(PostTransferContext {
+                    settings: Arc::new(settings.clone()),
+                    subscription: Arc::new(sub.clone()),
+                    target_dir: target_dir.clone(),
+                    files: Arc::new(transferred_files.clone()),
+                    reason: "subscription_transfer_completed",
+                })
+                .await
+        };
         for outcome in &module_outcomes {
             match outcome.status {
                 PostTransferStatus::Succeeded => info!(

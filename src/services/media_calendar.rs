@@ -1,12 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveDate, NaiveTime, TimeZone, Weekday};
+use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveDate, NaiveTime, TimeZone};
 
 use crate::jobs::Job;
 use crate::models::{
     AutomationEvent, CalendarConfidence, CalendarQuickActions, CalendarScheduleSource,
-    CalendarStatus, MediaCalendar, MediaCalendarItem, MediaCalendarSummary, MediaScheduleOverride,
-    Notification, Settings, Subscription,
+    CalendarStatus, MediaCalendar, MediaCalendarItem, MediaCalendarSummary, Notification, Settings,
+    Subscription,
 };
 use crate::services::subscription_status::{build_subscription_detail, EpisodeStatusItem};
 
@@ -42,37 +42,6 @@ pub fn natural_week(date: NaiveDate) -> (NaiveDate, NaiveDate) {
     (start, start + Duration::days(6))
 }
 
-pub fn validate_manual_schedule(schedule: &MediaScheduleOverride) -> Result<(), String> {
-    let start_date = NaiveDate::parse_from_str(schedule.start_date.trim(), "%Y-%m-%d")
-        .map_err(|_| "手动排期开播日期必须使用 YYYY-MM-DD 格式".to_string())?;
-    if schedule.interval_weeks == 0 || schedule.interval_weeks > 52 {
-        return Err("手动排期周期周数必须在 1 到 52 之间".to_string());
-    }
-    if schedule.first_episode_number <= 0 {
-        return Err("手动排期首集编号必须大于 0".to_string());
-    }
-    if let Some(total) = schedule.total_episodes {
-        if total < schedule.first_episode_number {
-            return Err("手动排期总集数不能小于首集编号".to_string());
-        }
-    }
-    if schedule.weekdays.iter().any(|day| !(1..=7).contains(day)) {
-        return Err("手动排期星期必须使用 1（周一）到 7（周日）".to_string());
-    }
-    let unique = schedule.weekdays.iter().copied().collect::<BTreeSet<_>>();
-    if unique.len() != schedule.weekdays.len() {
-        return Err("手动排期星期不能重复".to_string());
-    }
-    if !schedule.air_time.trim().is_empty() {
-        NaiveTime::parse_from_str(schedule.air_time.trim(), "%H:%M")
-            .map_err(|_| "手动排期播出时间必须使用 HH:MM 格式".to_string())?;
-    }
-
-    // 空 weekdays 是合法简写，等价于 start_date 的星期。
-    let _ = start_date;
-    Ok(())
-}
-
 pub fn build_media_calendar(
     subscriptions: Vec<Subscription>,
     settings: &Settings,
@@ -96,7 +65,7 @@ pub fn build_media_calendar(
             .iter()
             .map(|item| (item.episode, item))
             .collect::<BTreeMap<_, _>>();
-        let candidates = schedule_candidates(&subscription, query.from, query.to);
+        let candidates = metadata_schedule_candidates(&subscription, query.from, query.to);
 
         match candidates {
             Some(candidates) => {
@@ -175,78 +144,6 @@ fn subscription_matches(subscription: &Subscription, query: &MediaCalendarQuery)
         }
     }
     true
-}
-
-fn schedule_candidates(
-    subscription: &Subscription,
-    from: NaiveDate,
-    to: NaiveDate,
-) -> Option<Vec<ScheduleCandidate>> {
-    if let Some(manual) = subscription.manual_schedule.as_ref() {
-        return manual_schedule_candidates(subscription, manual, from, to);
-    }
-
-    metadata_schedule_candidates(subscription, from, to)
-}
-
-fn manual_schedule_candidates(
-    subscription: &Subscription,
-    schedule: &MediaScheduleOverride,
-    from: NaiveDate,
-    to: NaiveDate,
-) -> Option<Vec<ScheduleCandidate>> {
-    if validate_manual_schedule(schedule).is_err() {
-        return None;
-    }
-    let start = NaiveDate::parse_from_str(schedule.start_date.trim(), "%Y-%m-%d").ok()?;
-    let time = if schedule.air_time.trim().is_empty() {
-        None
-    } else {
-        NaiveTime::parse_from_str(schedule.air_time.trim(), "%H:%M").ok()
-    };
-    let weekdays = if schedule.weekdays.is_empty() {
-        vec![weekday_number(start.weekday())]
-    } else {
-        schedule.weekdays.clone()
-    };
-    let anchor_week_start = natural_week(start).0;
-    let total = schedule
-        .total_episodes
-        .or(subscription.total_episode_number)
-        .or_else(|| {
-            subscription
-                .metadata
-                .as_ref()
-                .and_then(|metadata| metadata.number_of_episodes)
-        });
-    let mut episode = schedule.first_episode_number;
-    let mut date = start;
-    let mut candidates = Vec::new();
-
-    while date <= to {
-        let weeks_since_anchor = (date - anchor_week_start).num_days() / 7;
-        let active_week =
-            weeks_since_anchor >= 0 && weeks_since_anchor % i64::from(schedule.interval_weeks) == 0;
-        if active_week && weekdays.contains(&weekday_number(date.weekday())) {
-            if total.is_some_and(|total| episode > total) {
-                break;
-            }
-            if date >= from {
-                candidates.push(ScheduleCandidate {
-                    episode: Some(episode),
-                    episode_title: String::new(),
-                    date,
-                    time,
-                    source: CalendarScheduleSource::Manual,
-                    confidence: CalendarConfidence::High,
-                });
-            }
-            episode += 1;
-        }
-        date += Duration::days(1);
-    }
-
-    Some(candidates)
 }
 
 fn metadata_schedule_candidates(
@@ -567,10 +464,6 @@ fn parse_date(value: Option<&str>) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(value?.trim(), "%Y-%m-%d").ok()
 }
 
-fn weekday_number(weekday: Weekday) -> u8 {
-    weekday.number_from_monday() as u8
-}
-
 #[cfg(test)]
 mod tests {
     use chrono::NaiveDate;
@@ -621,33 +514,8 @@ mod tests {
     }
 
     #[test]
-    fn validates_manual_schedule_fields() {
-        let valid = MediaScheduleOverride {
-            start_date: "2026-07-06".to_string(),
-            weekdays: vec![1, 4],
-            air_time: "20:30".to_string(),
-            interval_weeks: 1,
-            first_episode_number: 1,
-            total_episodes: Some(12),
-        };
-        assert!(validate_manual_schedule(&valid).is_ok());
-
-        let mut invalid = valid;
-        invalid.weekdays = vec![1, 1];
-        assert!(validate_manual_schedule(&invalid).is_err());
-    }
-
-    #[test]
-    fn manual_schedule_overrides_metadata_and_supports_multiple_weekdays() {
+    fn falls_back_from_episode_still_to_poster_without_mutating_metadata() {
         let mut sub = subscription();
-        sub.manual_schedule = Some(MediaScheduleOverride {
-            start_date: "2026-07-06".to_string(),
-            weekdays: vec![1, 4],
-            air_time: "20:30".to_string(),
-            interval_weeks: 1,
-            first_episode_number: 1,
-            total_episodes: Some(4),
-        });
         sub.metadata = Some(MediaMetadata {
             provider: MetadataProvider::Tmdb,
             provider_id: "1".to_string(),
@@ -659,18 +527,28 @@ mod tests {
             backdrop_url: None,
             release_date: None,
             vote_average: None,
-            number_of_episodes: Some(4),
+            number_of_episodes: Some(2),
             number_of_seasons: Some(1),
             seasons: vec![],
             next_episode_to_air: None,
-            episodes: vec![MediaMetadataEpisode {
-                season_number: 1,
-                episode_number: 1,
-                name: "wrong source".to_string(),
-                overview: String::new(),
-                air_date: Some("2026-07-07".to_string()),
-                still_url: Some("https://example.test/episode-1.jpg".to_string()),
-            }],
+            episodes: vec![
+                MediaMetadataEpisode {
+                    season_number: 1,
+                    episode_number: 1,
+                    name: String::new(),
+                    overview: String::new(),
+                    air_date: Some("2026-07-06".to_string()),
+                    still_url: Some("https://example.test/episode-1.jpg".to_string()),
+                },
+                MediaMetadataEpisode {
+                    season_number: 1,
+                    episode_number: 2,
+                    name: String::new(),
+                    overview: String::new(),
+                    air_date: Some("2026-07-09".to_string()),
+                    still_url: None,
+                },
+            ],
         });
         let original_metadata = serde_json::to_value(sub.metadata.as_ref().unwrap()).unwrap();
 
@@ -682,23 +560,8 @@ mod tests {
             &[],
             &query("2026-07-06", "2026-07-19", "2026-07-06"),
         );
-        let dates = calendar
-            .items
-            .iter()
-            .map(|item| item.scheduled_date.as_deref().unwrap())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            dates,
-            vec!["2026-07-06", "2026-07-09", "2026-07-13", "2026-07-16"]
-        );
-        assert!(calendar
-            .items
-            .iter()
-            .all(|item| item.schedule_source == CalendarScheduleSource::Manual));
-        assert_eq!(
-            calendar.items[0].scheduled_at.as_deref(),
-            Some("2026-07-06T20:30:00+08:00")
-        );
+
+        // 有剧照的集用剧照，没有的回退到剧集海报。
         assert_eq!(
             calendar.items[0].thumbnail_url.as_deref(),
             Some("https://example.test/episode-1.jpg")
@@ -707,6 +570,7 @@ mod tests {
             calendar.items[1].thumbnail_url.as_deref(),
             Some("https://example.test/poster.jpg")
         );
+        // 构建日历是只读的，不得改写原始元数据。
         assert_eq!(
             serde_json::to_value(sub.metadata.as_ref().unwrap()).unwrap(),
             original_metadata

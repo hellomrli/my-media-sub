@@ -2,7 +2,7 @@
 importScripts('/js/pwa-policy.js?v=2.2.24');
 
 const ASSET_VERSION = '2.2.24';
-const CACHE_VERSION = 'v2.2.24-source-switch-probe-and-open-link-1';
+const CACHE_VERSION = 'v2.2.24-drop-dead-features-and-ia-fixes-1';
 const SHELL_CACHE = `media-sub-shell-${CACHE_VERSION}`;
 const STATIC_CACHE = `media-sub-static-${CACHE_VERSION}`;
 const CACHE_PREFIX = 'media-sub-';
