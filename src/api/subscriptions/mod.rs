@@ -401,7 +401,7 @@ fn preview_subscription(req: &RenamePreviewRequest, base: Option<&Subscription>)
         sync_downloads: base
             .map(|sub| sub.sync_downloads.clone())
             .unwrap_or_default(),
-        strm_enabled: base.map(|sub| sub.strm_enabled).unwrap_or(false),
+        strm_enabled: false,
         enabled: true,
         completed: false,
         rules,

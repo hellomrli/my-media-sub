@@ -42,7 +42,11 @@
     },
 
     get calendarSummary() {
-      return (this.calendar && this.calendar.summary) || {total: 0, subscriptions: 0, by_status: {}, by_media_type: {}};
+      return (this.calendar && this.calendar.summary) || {total: 0, subscriptions: 0, source_alerts: 0, by_status: {}, by_media_type: {}};
+    },
+
+    get calendarSourceAlerts() {
+      return (this.calendar && Array.isArray(this.calendar.source_alerts)) ? this.calendar.source_alerts : [];
     },
 
     get calendarRange() {
@@ -106,8 +110,28 @@
       return calendarTools.confidenceLabel(confidence);
     },
 
+    calendarTransferProgressLabel(item, compact = false) {
+      return calendarTools.transferProgressLabel(item, compact);
+    },
+
+    calendarSourceAlertLabel(alert) {
+      return calendarTools.sourceAlertLabel(alert);
+    },
+
     calendarItemClass(item) {
-      return `calendar-item is-${(item && item.primary_status) || 'scheduled'}`;
+      const sourceAlert = item && item.source_change_recommended ? ' has-source-alert' : '';
+      return `calendar-item is-${(item && item.primary_status) || 'scheduled'}${sourceAlert}`;
+    },
+
+    async openCalendarSourceSwitch(alert) {
+      if (!alert || !alert.subscription_id) return;
+      const subscription = (this.subscriptions || []).find(item => item.id === alert.subscription_id) || {
+        id: alert.subscription_id,
+        title: alert.subscription_title,
+        media_type: alert.media_type,
+        source_candidates: []
+      };
+      await this.openSourceSwitchDialog(subscription);
     },
 
     setCalendarView(view) {

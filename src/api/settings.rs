@@ -24,6 +24,14 @@ use crate::store::{
     SettingsStore,
 };
 
+const RETIRED_STRM_SETTING_KEYS: &[&str] = &[
+    "strm_enabled",
+    "strm_output_dir",
+    "strm_public_base_url",
+    "strm_access_token",
+    "strm_token_in_url",
+];
+
 /// 设置路由状态
 pub struct SettingsState {
     pub store: Arc<SettingsStore>,
@@ -162,29 +170,6 @@ fn settings_schema() -> SettingsSchemaResponse {
             "custom_categories",
             "quark",
             Vec::<serde_json::Value>::new()
-        ),
-        setting_field!("strm_enabled", "启用 STRM", "boolean", "quark", false),
-        setting_field!("strm_output_dir", "STRM 输出目录", "path", "quark", ""),
-        setting_field!(
-            "strm_public_base_url",
-            "HTTPStrm 访问地址",
-            "url",
-            "quark",
-            ""
-        ),
-        setting_field!(
-            "strm_access_token",
-            "HTTPStrm Token",
-            "password",
-            "quark",
-            ""
-        ),
-        setting_field!(
-            "strm_token_in_url",
-            "Token 写入 STRM URL",
-            "boolean",
-            "quark",
-            false
         ),
         setting_field!(
             "browser_push_vapid_private_key",
@@ -539,9 +524,17 @@ fn settings_schema() -> SettingsSchemaResponse {
 
     SettingsSchemaResponse {
         fields,
-        secret_keys: SECRET_KEYS.to_vec(),
+        secret_keys: active_secret_keys(),
         supported_cloud_types: SUPPORTED_CLOUD_TYPES.to_vec(),
     }
+}
+
+fn active_secret_keys() -> Vec<&'static str> {
+    SECRET_KEYS
+        .iter()
+        .copied()
+        .filter(|key| !RETIRED_STRM_SETTING_KEYS.contains(key))
+        .collect()
 }
 
 async fn get_settings_schema() -> Json<Response<SettingsSchemaResponse>> {
@@ -582,9 +575,34 @@ fn public_settings(settings: crate::models::Settings) -> Result<serde_json::Valu
             "supported_cloud_types".to_string(),
             serde_json::json!(SUPPORTED_CLOUD_TYPES),
         );
+        hide_retired_strm_settings(obj);
     }
 
     Ok(value)
+}
+
+fn hide_retired_strm_settings(obj: &mut serde_json::Map<String, serde_json::Value>) {
+    obj.insert("strm_enabled".to_string(), serde_json::Value::Bool(false));
+    obj.insert(
+        "strm_output_dir".to_string(),
+        serde_json::Value::String(String::new()),
+    );
+    obj.insert(
+        "strm_public_base_url".to_string(),
+        serde_json::Value::String(String::new()),
+    );
+    obj.insert(
+        "strm_access_token".to_string(),
+        serde_json::Value::String(String::new()),
+    );
+    obj.insert(
+        "strm_access_token_configured".to_string(),
+        serde_json::Value::Bool(false),
+    );
+    obj.insert(
+        "strm_token_in_url".to_string(),
+        serde_json::Value::Bool(false),
+    );
 }
 
 fn mask_secret(value: &str) -> String {
@@ -631,7 +649,7 @@ async fn get_setting_secret(
     State(state): State<Arc<SettingsState>>,
     Path(key): Path<String>,
 ) -> Result<Json<Response<SecretFieldResponse>>> {
-    if !SECRET_KEYS.contains(&key.as_str()) {
+    if !SECRET_KEYS.contains(&key.as_str()) || RETIRED_STRM_SETTING_KEYS.contains(&key.as_str()) {
         return Err(crate::error::AppError::NotFound(
             "设置字段不存在".to_string(),
         ));
@@ -905,29 +923,19 @@ async fn update_settings(
                         }
                     }
                     "strm_enabled" => {
-                        if let Some(b) = value.as_bool() {
-                            settings.strm_enabled = b;
-                        }
+                        settings.strm_enabled = false;
                     }
                     "strm_output_dir" => {
-                        if let Some(s) = string_value(&value) {
-                            settings.strm_output_dir = s;
-                        }
+                        // STRM 暂时下线：保留旧配置文件字段，但不再接受前端更新。
                     }
                     "strm_public_base_url" => {
-                        if let Some(s) = string_value(&value) {
-                            settings.strm_public_base_url = s;
-                        }
+                        // STRM 暂时下线：保留旧配置文件字段，但不再接受前端更新。
                     }
                     "strm_access_token" => {
-                        if let Some(s) = non_mask_secret(&value) {
-                            settings.strm_access_token = s;
-                        }
+                        // STRM 暂时下线：保留旧配置文件字段，但不再接受前端更新。
                     }
                     "strm_token_in_url" => {
-                        if let Some(b) = value.as_bool() {
-                            settings.strm_token_in_url = b;
-                        }
+                        settings.strm_token_in_url = false;
                     }
                     "wecom_bot_url" => {
                         if let Some(s) = non_mask_secret(&value) {
@@ -1147,6 +1155,8 @@ async fn update_settings(
                     _ => {} // 忽略未知字段
                 }
             }
+            settings.strm_enabled = false;
+            settings.strm_token_in_url = false;
         })
         .await?;
 
@@ -1209,9 +1219,24 @@ mod tests {
         }
 
         for key in SECRET_KEYS {
+            if RETIRED_STRM_SETTING_KEYS.contains(key) {
+                continue;
+            }
             assert!(
                 schema.fields.iter().any(|field| field.key == *key),
                 "secret key {} missing from schema",
+                key
+            );
+        }
+        for key in RETIRED_STRM_SETTING_KEYS {
+            assert!(
+                schema.fields.iter().all(|field| field.key != *key),
+                "retired STRM setting {} should not be exposed in schema",
+                key
+            );
+            assert!(
+                !schema.secret_keys.contains(key),
+                "retired STRM secret {} should not be exposed in schema",
                 key
             );
         }

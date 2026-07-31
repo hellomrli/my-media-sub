@@ -6,6 +6,8 @@ use crate::models::{Settings, Subscription};
 use crate::providers::DriveItem;
 use crate::utils::write_file_atomic;
 
+const STRM_RETIRED_MESSAGE: &str = "STRM 功能已暂时下线";
+
 #[derive(Debug, Clone)]
 pub struct StrmGeneratedFile {
     pub fid: String,
@@ -23,7 +25,7 @@ pub struct StrmGenerationResult {
 }
 
 pub fn strm_generation_enabled(settings: &Settings, sub: &Subscription) -> bool {
-    settings.strm_enabled && sub.strm_enabled
+    crate::services::STRM_MODULE_ENABLED && settings.strm_enabled && sub.strm_enabled
 }
 
 /// 异步生成 STRM 文件：把阻塞的文件系统操作放到 `spawn_blocking`，避免阻塞 tokio executor 线程。
@@ -109,6 +111,10 @@ fn subscription_strm_output_dir(settings: &Settings, target_dir: &str) -> Result
 }
 
 pub fn httpstrm_url(settings: &Settings, fid: &str, name: &str) -> Result<String> {
+    if !crate::services::STRM_MODULE_ENABLED {
+        return Err(AppError::Validation(STRM_RETIRED_MESSAGE.to_string()));
+    }
+
     let base = settings.strm_public_base_url.trim().trim_end_matches('/');
     if base.is_empty() {
         return Err(AppError::Validation(
@@ -258,6 +264,10 @@ pub fn audit_subscription_strm(
     sub: &Subscription,
     target_dir: &str,
 ) -> Result<StrmAuditReport> {
+    if !crate::services::STRM_MODULE_ENABLED {
+        return Err(AppError::Validation(STRM_RETIRED_MESSAGE.to_string()));
+    }
+
     let output_dir = subscription_strm_output_dir(settings, target_dir)?;
     let expected = sub
         .transferred_files
@@ -343,7 +353,7 @@ mod tests {
     }
 
     #[test]
-    fn httpstrm_url_encodes_path_and_query() {
+    fn httpstrm_url_reports_retired_feature() {
         let settings = Settings {
             strm_public_base_url: "https://media.example.com/".to_string(),
             strm_access_token: "token with space".to_string(),
@@ -351,29 +361,14 @@ mod tests {
             ..Default::default()
         };
 
-        let url = httpstrm_url(&settings, "fid/1", "庆余年 S01E01.mkv").unwrap();
-
-        assert_eq!(
-            url,
-            "https://media.example.com/strm/quark/fid%2F1/%E5%BA%86%E4%BD%99%E5%B9%B4%20S01E01.mkv?token=token%20with%20space"
-        );
+        let error = httpstrm_url(&settings, "fid/1", "庆余年 S01E01.mkv")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("STRM 功能已暂时下线"));
     }
 
     #[test]
-    fn httpstrm_url_omits_query_token_by_default() {
-        let settings = Settings {
-            strm_public_base_url: "https://media.example.com/".to_string(),
-            strm_access_token: "token".to_string(),
-            ..Default::default()
-        };
-
-        let url = httpstrm_url(&settings, "fid1", "video.mkv").unwrap();
-
-        assert_eq!(url, "https://media.example.com/strm/quark/fid1/video.mkv");
-    }
-
-    #[test]
-    fn generate_subscription_strm_files_mirrors_target_dir() {
+    fn generate_subscription_strm_files_is_disabled() {
         let root = std::env::temp_dir().join(format!("my-media-sub-strm-{}", uuid::Uuid::new_v4()));
         let settings = Settings {
             strm_enabled: true,
@@ -392,18 +387,17 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.generated_count, 1);
-        assert!(result
-            .output_dir
-            .ends_with("连续剧/庆余年（2024）/Season 1"));
-        let content = std::fs::read_to_string(&result.files[0].strm_path).unwrap();
-        assert!(content.starts_with("http://127.0.0.1:56001/strm/quark/fid1/"));
+        assert_eq!(result.generated_count, 0);
+        assert_eq!(result.skipped_count, 1);
+        assert!(result.output_dir.as_os_str().is_empty());
+        assert!(result.files.is_empty());
+        assert!(!root.exists());
 
         let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
-    fn audit_reports_missing_orphan_invalid_and_duplicate_targets() {
+    fn audit_subscription_strm_reports_retired_feature() {
         let root =
             std::env::temp_dir().join(format!("my-media-sub-strm-audit-{}", uuid::Uuid::new_v4()));
         let settings = Settings {
@@ -413,23 +407,11 @@ mod tests {
             strm_access_token: "token".to_string(),
             ..Default::default()
         };
-        let mut sub = subscription();
-        sub.transferred_files = vec!["Show.S01E01.mkv".to_string(), "Show.S01E02.mkv".to_string()];
-        let dir = subscription_strm_output_dir(&settings, "/Series/Show").unwrap();
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("Show.S01E01.strm"), "http://same").unwrap();
-        std::fs::write(dir.join("orphan.strm"), "http://same").unwrap();
-        std::fs::write(dir.join("invalid.strm"), "not-a-url").unwrap();
-        let report = audit_subscription_strm(&settings, &sub, "/Series/Show").unwrap();
-        assert_eq!(report.missing, vec!["Show.S01E02.strm"]);
-        assert_eq!(report.invalid, vec!["invalid.strm"]);
-        assert!(!report.orphaned.is_empty());
-        assert_eq!(report.duplicate_targets.len(), 1);
-        assert!(matches!(
-            report.duplicate_targets[0].as_str(),
-            "orphan.strm" | "Show.S01E01.strm"
-        ));
-        assert!(!report.healthy);
+        let sub = subscription();
+        let error = audit_subscription_strm(&settings, &sub, "/Series/Show")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("STRM 功能已暂时下线"));
         let _ = std::fs::remove_dir_all(root);
     }
 }

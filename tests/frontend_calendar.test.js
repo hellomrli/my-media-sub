@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const calendar = require('../static/js/features/calendar.js');
+const calendarPage = require('../static/js/features/calendar-page.js');
 
 test('week range uses Sunday through Saturday across year boundary', () => {
   // 2027-01-01 是周五，所在周从 2026-12-27（周日）到 2027-01-02（周六）
@@ -39,4 +40,37 @@ test('labels expose stable Chinese presentation', () => {
   assert.equal(calendar.statusLabel('completed_missing'), '完结缺集');
   assert.equal(calendar.sourceLabel('inferred_cadence'), '周期推断');
   assert.equal(calendar.confidenceLabel('low'), '推断');
+});
+
+test('calendar progress and stale-source reminders use the highest persisted episodes', () => {
+  assert.equal(calendar.transferProgressLabel({media_type: 'series', latest_transferred_episode: 6}), '最高已转存 E6');
+  assert.equal(calendar.transferProgressLabel({media_type: 'series', latest_transferred_episode: 6}, true), '已存 E6');
+  assert.equal(calendar.transferProgressLabel({media_type: 'series'}), '尚未转存');
+  assert.equal(calendar.transferProgressLabel({media_type: 'movie', transferred: true}), '已转存');
+  assert.equal(calendar.sourceAlertLabel({latest_aired_episode: 8, latest_discovered_episode: 6, overdue_days: 10}), 'E8 已播 10 天，当前来源最高 E6');
+});
+
+test('calendar stale-source action opens the existing source switch workflow', async () => {
+  const fullSubscription = {id: 'sub-1', title: '完整订阅', source_candidates: [{id: 'candidate-1'}]};
+  const opened = [];
+  const store = Object.assign(calendarPage.createStore(), {
+    subscriptions: [fullSubscription],
+    openSourceSwitchDialog: async subscription => opened.push(subscription)
+  });
+
+  await store.openCalendarSourceSwitch({subscription_id: 'sub-1', subscription_title: '日历标题'});
+  assert.equal(opened[0], fullSubscription);
+
+  store.subscriptions = [];
+  await store.openCalendarSourceSwitch({
+    subscription_id: 'sub-2',
+    subscription_title: '备用标题',
+    media_type: 'series'
+  });
+  assert.deepEqual(opened[1], {
+    id: 'sub-2',
+    title: '备用标题',
+    media_type: 'series',
+    source_candidates: []
+  });
 });

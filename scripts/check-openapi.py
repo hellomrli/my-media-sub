@@ -147,8 +147,6 @@ def generic_operation(path: str, method: str) -> dict:
         ]
     if path == "/health":
         operation["security"] = []
-    elif path.startswith("/strm/"):
-        operation["security"] = [{"strmToken": []}]
     return operation
 
 
@@ -156,10 +154,9 @@ def ensure_components(spec: dict) -> None:
     components = spec.setdefault("components", {})
     schemes = components.setdefault("securitySchemes", {})
     schemes.setdefault("basicAuth", {"type": "http", "scheme": "basic"})
-    schemes.setdefault(
-        "strmToken",
-        {"type": "apiKey", "in": "query", "name": "token", "description": "STRM access token"},
-    )
+    # STRM is temporarily retired; do not keep an orphaned auth scheme in the
+    # generated management API spec.
+    schemes.pop("strmToken", None)
     schemas = components.setdefault("schemas", {})
     schemas["Error"] = {
         "type": "object",
@@ -231,8 +228,6 @@ def update_spec(spec: dict, routes: dict[str, set[str]]) -> None:
             responses.setdefault("500", {"$ref": "#/components/responses/InternalError"})
             if path == "/health":
                 operation["security"] = []
-            elif path.startswith("/strm/"):
-                operation["security"] = [{"strmToken": []}]
     spec["paths"] = {path: paths[path] for path in sorted(paths)}
 
 

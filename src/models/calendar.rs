@@ -56,6 +56,23 @@ pub struct CalendarQuickActions {
     pub detail_url: String,
     pub can_check: bool,
     pub can_repair: bool,
+    pub can_switch_source: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CalendarSourceAlert {
+    pub subscription_id: String,
+    pub subscription_title: String,
+    pub media_type: String,
+    pub season: i32,
+    pub latest_aired_episode: i32,
+    pub latest_aired_date: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_discovered_episode: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_transferred_episode: Option<i32>,
+    pub overdue_days: i64,
+    pub actions: CalendarQuickActions,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,6 +104,13 @@ pub struct MediaCalendarItem {
     pub strm_ready: bool,
     pub missing: bool,
     pub subscription_completed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_discovered_episode: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_transferred_episode: Option<i32>,
+    pub source_change_recommended: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_overdue_days: Option<i64>,
     pub actions: CalendarQuickActions,
 }
 
@@ -94,6 +118,7 @@ pub struct MediaCalendarItem {
 pub struct MediaCalendarSummary {
     pub total: usize,
     pub subscriptions: usize,
+    pub source_alerts: usize,
     pub by_status: BTreeMap<String, usize>,
     pub by_media_type: BTreeMap<String, usize>,
 }
@@ -107,5 +132,6 @@ pub struct MediaCalendar {
     pub week_start: String,
     pub week_end: String,
     pub summary: MediaCalendarSummary,
+    pub source_alerts: Vec<CalendarSourceAlert>,
     pub items: Vec<MediaCalendarItem>,
 }

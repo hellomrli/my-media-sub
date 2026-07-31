@@ -152,8 +152,8 @@ mod tests {
     #[test]
     fn defaults_to_current_natural_week() {
         let query = parse_query(CalendarQueryParams::default(), date("2027-01-01")).unwrap();
-        assert_eq!(query.from.to_string(), "2026-12-28");
-        assert_eq!(query.to.to_string(), "2027-01-03");
+        assert_eq!(query.from.to_string(), "2026-12-27");
+        assert_eq!(query.to.to_string(), "2027-01-02");
     }
 
     #[test]

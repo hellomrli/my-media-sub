@@ -160,6 +160,25 @@
     return CONFIDENCE_LABELS[confidence] || confidence || '未知';
   }
 
+  function transferProgressLabel(item, compact = false) {
+    const mediaType = String((item && item.media_type) || '').toLowerCase();
+    const episode = Number(item && item.latest_transferred_episode);
+    if (mediaType === 'movie') return item && item.transferred ? '已转存' : '尚未转存';
+    if (Number.isInteger(episode) && episode > 0) {
+      return compact ? `已存 E${episode}` : `最高已转存 E${episode}`;
+    }
+    return '尚未转存';
+  }
+
+  function sourceAlertLabel(alert) {
+    if (!alert) return '';
+    const aired = Number(alert.latest_aired_episode);
+    const discovered = Number(alert.latest_discovered_episode);
+    const overdue = Math.max(0, Number(alert.overdue_days) || 0);
+    const sourceProgress = Number.isInteger(discovered) && discovered > 0 ? `E${discovered}` : '尚无剧集';
+    return `E${aired} 已播 ${overdue} 天，当前来源最高 ${sourceProgress}`;
+  }
+
   return Object.freeze({
     addDays,
     confidenceLabel,
@@ -171,8 +190,10 @@
     rangeLabel,
     shiftCursor,
     sourceLabel,
+    sourceAlertLabel,
     startOfWeek,
     statusLabel,
+    transferProgressLabel,
     viewRange,
     weekDays
   });

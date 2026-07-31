@@ -648,6 +648,10 @@ impl SubscriptionTransferService {
         &self,
         subscription_id: &str,
     ) -> Result<crate::services::strm::StrmAuditReport> {
+        if !crate::services::STRM_MODULE_ENABLED {
+            return Err(AppError::Validation("STRM 功能已暂时下线".to_string()));
+        }
+
         let sub = self
             .subscription_store
             .get(subscription_id)
@@ -666,6 +670,10 @@ impl SubscriptionTransferService {
         &self,
         subscription_id: &str,
     ) -> Result<StrmGenerationResult> {
+        if !crate::services::STRM_MODULE_ENABLED {
+            return Err(AppError::Validation("STRM 功能已暂时下线".to_string()));
+        }
+
         let sub = self
             .subscription_store
             .get(subscription_id)

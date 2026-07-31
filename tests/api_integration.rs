@@ -646,7 +646,8 @@ async fn create_subscription_returns_201_and_can_be_fetched() {
         "title": "API Test Series",
         "url": "https://pan.quark.cn/s/api-test-001",
         "media_type": "series",
-        "season": 1
+        "season": 1,
+        "strm_enabled": true
     });
 
     let resp = app
@@ -664,12 +665,14 @@ async fn create_subscription_returns_201_and_can_be_fetched() {
         .as_str()
         .expect("created sub should have id");
     assert!(!id.is_empty());
+    assert_eq!(created["data"]["strm_enabled"], false);
 
     // 用 GET 能取回
     let list = json_body(&app, auth_get("/api/subscriptions")).await;
     let items = list["data"].as_array().unwrap();
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["id"].as_str().unwrap(), id);
+    assert_eq!(items[0]["strm_enabled"], false);
 
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -911,6 +914,8 @@ async fn subscription_status_returns_episode_aggregation() {
     assert_eq!(body["data"]["summary"]["expected_count"], 6);
     assert_eq!(body["data"]["summary"]["discovered_count"], 3);
     assert_eq!(body["data"]["summary"]["transferred_count"], 1);
+    assert_eq!(body["data"]["summary"]["latest_discovered_episode"], 4);
+    assert_eq!(body["data"]["summary"]["latest_transferred_episode"], 1);
     assert_eq!(
         body["data"]["missing_episodes"],
         serde_json::json!([3, 5, 6])
@@ -924,7 +929,7 @@ async fn subscription_status_returns_episode_aggregation() {
 #[tokio::test]
 async fn calendar_returns_metadata_schedule_with_summary_and_actions() {
     let (ctx, dir) = test_context().await;
-    let app = create_app(ctx);
+    let app = create_app(ctx.clone());
 
     let payload = serde_json::json!({
         "title": "Calendar Test Series",
@@ -951,6 +956,21 @@ async fn calendar_returns_metadata_schedule_with_summary_and_actions() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
+    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    let created: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let id = created["data"]["id"].as_str().unwrap().to_string();
+    ctx.subscription_store
+        .update(&id, |subscription| {
+            subscription.known_episodes = vec![1, 2];
+            subscription.transferred_file_keys = vec!["ep:1".to_string()];
+            // Alert tests set this explicitly. Keeping it zero here makes the
+            // API shape test independent from the wall-clock date.
+            subscription.last_checked_at = 0;
+        })
+        .await
+        .unwrap();
 
     let (status, headers, body) = json_response(
         &app,
@@ -963,10 +983,16 @@ async fn calendar_returns_metadata_schedule_with_summary_and_actions() {
     assert_eq!(body["data"]["timezone"], "Asia/Shanghai");
     assert_eq!(body["data"]["summary"]["total"], 4);
     assert_eq!(body["data"]["summary"]["subscriptions"], 1);
+    assert_eq!(body["data"]["summary"]["source_alerts"], 0);
+    assert!(body["data"]["source_alerts"].as_array().unwrap().is_empty());
     let items = body["data"]["items"].as_array().unwrap();
     assert_eq!(items[0]["scheduled_date"], "2026-07-06");
     assert_eq!(items[0]["schedule_source"], "metadata_episode");
+    assert_eq!(items[0]["latest_discovered_episode"], 2);
+    assert_eq!(items[0]["latest_transferred_episode"], 1);
+    assert_eq!(items[0]["source_change_recommended"], false);
     assert_eq!(items[0]["actions"]["can_check"], true);
+    assert_eq!(items[0]["actions"]["can_switch_source"], true);
     assert!(items[0]["actions"]["detail_url"]
         .as_str()
         .unwrap()

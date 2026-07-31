@@ -59,7 +59,6 @@
 | 接口 | 类型 | 原因 |
 |---|---|---|
 | `GET /health` | 裸 JSON `{status, version}` | 免鉴权健康检查，供容器和探针使用 |
-| `GET /strm/quark/{fid}/{file_name}` | 媒体流或文本错误 | 直接代理媒体内容，依赖 STRM Token |
 | `GET /api/jobs/events` | `text/event-stream` | Job SSE 实时事件流 |
 | `DELETE /api/subscriptions/{id}` | `204 No Content` | 删除成功无需响应体 |
 | `POST /api/notifications/{id}/read` | `204 No Content` | 状态操作成功无需响应体 |
