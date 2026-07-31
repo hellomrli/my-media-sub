@@ -159,34 +159,6 @@ impl SubscriptionScheduler {
         self.start().await?;
         Ok(())
     }
-
-    /// 手动触发一次检查
-    #[allow(dead_code)]
-    pub async fn trigger_manual_check(&self) -> Result<()> {
-        info!("手动触发订阅检查");
-
-        let settings = self.settings_store.get().await;
-        let cookie = settings.quark_cookie.clone();
-
-        if cookie.is_empty() {
-            return Err(crate::error::AppError::Validation(
-                "未配置夸克 Cookie".to_string(),
-            ));
-        }
-
-        let results = self.check_service.check_all_subscriptions(&cookie).await?;
-
-        let total = results.len();
-        let updated: Vec<_> = results.iter().filter(|r| !r.new_files.is_empty()).collect();
-
-        info!(
-            "手动检查完成，共 {} 个订阅，{} 个有更新",
-            total,
-            updated.len()
-        );
-
-        Ok(())
-    }
 }
 
 fn normalize_interval_minutes(minutes: i32) -> u64 {

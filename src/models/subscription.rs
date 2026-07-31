@@ -2,28 +2,6 @@ use super::rules::TransferRules;
 use super::{MediaMetadata, SourceQuality};
 use serde::{Deserialize, Serialize};
 
-/// 订阅状态
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum SubscriptionStatus {
-    Active,
-    Completed,
-    Invalid,
-}
-
-/// 媒体类型
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum MediaType {
-    Movie,
-    Series,
-    Anime,
-    #[serde(untagged)]
-    Custom(String), // custom_* 格式
-}
-
 /// 检查历史记录
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckHistoryItem {

@@ -28,23 +28,6 @@ test('dashboard summary reports actionable state instead of promotional copy', (
   assert.match(attention.dashboardStatusSummary(), /4 项状态需要处理/);
 });
 
-test('dashboard attention links set the relevant filter before navigation', () => {
-  const calls = [];
-  const app = state({
-    setSubscriptionStatusTab: value => calls.push(['subscription', value]),
-    selectTab: value => calls.push(['tab', value])
-  });
-  app.openDashboardAttention('subscriptions');
-  app.openDashboardAttention('jobs');
-  app.openDashboardAttention('notifications');
-  assert.deepEqual(calls, [
-    ['subscription', 'invalid'], ['tab', 'subscriptions'],
-    ['tab', 'notifications'], ['tab', 'notifications']
-  ]);
-  assert.equal(app.backgroundJobFilterStatus, 'failed');
-  assert.equal(app.notificationFilter, 'unread');
-});
-
 test('dashboard cards keep legacy layouts working and stay ordered', () => {
   // v2.2.21：指标行移除（kpis 映射为空），现役卡片只剩概览与日历；
   // 旧 id hero→command、library→calendar，其余静默丢弃。

@@ -174,7 +174,7 @@ test('390px mobile contract and install hooks are present', () => {
   const css = fs.readFileSync(path.join(root, 'tailwind/input.css'), 'utf8');
   const html = fs.readFileSync(path.join(root, 'static/index.html'), 'utf8');
   assert.match(css, /@media \(max-width: 390px\)/);
-  assert.match(css, /\.pwa-quick-grid/);
+  assert.match(css, /\.pwa-status-banner/);
   assert.match(html, /width=device-width, initial-scale=1\.0/);
   assert.match(html, /manifest\.webmanifest/);
   assert.match(html, /pwaInstallAvailable/);

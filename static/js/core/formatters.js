@@ -73,15 +73,10 @@
     return `${secs}s`;
   }
 
-  function formatPercent(value, decimals = 1) {
-    return `${Math.max(0, Math.min(100, numeric(value))).toFixed(decimals)}%`;
-  }
-
   return Object.freeze({
     formatBytes,
     formatDateTime,
     formatDuration,
-    formatPercent,
     formatSpeed,
     parseTimestamp
   });

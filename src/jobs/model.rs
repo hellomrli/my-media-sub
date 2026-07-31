@@ -111,8 +111,13 @@ impl JobKind {
         }
     }
 
+    /// 是否允许失败后自动重试。
+    ///
+    /// 手动转存与订阅自动转储都对外部云盘产生副作用且不幂等：自动重试/崩溃恢复
+    /// 可能把同一批文件重复转存（成功落盘与远端转存成功之间不是原子的）。
+    /// 这两类任务失败后保留终态，由用户在确认结果后手动重试。
     pub(crate) fn supports_automatic_retry(&self) -> bool {
-        !matches!(self, Self::ManualTransfer)
+        !matches!(self, Self::ManualTransfer | Self::SubscriptionTransfer)
     }
 }
 
@@ -211,5 +216,14 @@ mod tests {
             JobPriority::Normal
         );
         assert_eq!(JobKind::MetadataScrape.default_priority(), JobPriority::Low);
+    }
+
+    #[test]
+    fn transfer_jobs_are_not_automatically_retried() {
+        // 转储不幂等：自动重试/重启恢复可能重复转存同一批文件，必须保留终态由人工确认。
+        assert!(!JobKind::ManualTransfer.supports_automatic_retry());
+        assert!(!JobKind::SubscriptionTransfer.supports_automatic_retry());
+        assert!(JobKind::MetadataScrape.supports_automatic_retry());
+        assert!(JobKind::PushDispatch.supports_automatic_retry());
     }
 }

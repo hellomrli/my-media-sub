@@ -114,10 +114,10 @@ pub fn quarantine_corrupt_file(path: &Path) {
     };
     let quarantine = path.with_file_name(format!("{}.corrupt-{}", file_name, unix_now()));
     if let Err(error) = fs::rename(path, &quarantine) {
-        tracing::warn!("隔离损坏文件 {} 失败: {}", path.display(), error);
+        tracing::error!("隔离损坏文件 {} 失败: {}", path.display(), error);
     } else {
-        tracing::warn!(
-            "已将损坏文件 {} 移动到 {}",
+        tracing::error!(
+            "已隔离损坏文件 {} 到 {}（原始字节已保留，恢复备份后可还原）",
             path.display(),
             quarantine.display()
         );
@@ -172,6 +172,26 @@ fn unique_tmp_path(path: &Path) -> PathBuf {
         std::process::id(),
         uuid::Uuid::new_v4()
     ))
+}
+
+/// 清理崩溃残留的原子写入临时文件。`write_file_atomic` 在临时文件与 rename
+/// 之间进程崩溃时会把 `.{name}.{pid}.{uuid}.tmp` 留在数据目录（含敏感数据），
+/// 启动时统一扫描清理。
+pub fn cleanup_stale_tmp_files(directory: &Path) {
+    let Ok(entries) = fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with('.') && name.ends_with(".tmp") {
+            let path = entry.path();
+            if path.is_file() {
+                let _ = fs::remove_file(&path);
+                tracing::warn!("已清理崩溃残留的临时文件: {}", path.display());
+            }
+        }
+    }
 }
 
 #[cfg(unix)]

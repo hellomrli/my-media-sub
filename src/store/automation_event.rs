@@ -64,7 +64,7 @@ impl AutomationEventStore {
                 )))
             }
             Err(error) => {
-                tracing::warn!("自动化事件 JSON 损坏，已隔离并使用空事件: {}", error);
+                tracing::error!("自动化事件 JSON 损坏，已隔离并使用空事件: {}", error);
                 quarantine_corrupt_file(&self.path);
                 self.replace_memory(Vec::new()).await;
                 Ok(())

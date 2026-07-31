@@ -26,11 +26,26 @@
     });
     await Promise.all(runners); return results;
   }
-  function timeline(events, limit = 100) {
-    return [...(events || [])].sort((a,b) => Number(a.updated_at || a.created_at || 0) - Number(b.updated_at || b.created_at || 0)).slice(-limit);
-  }
   function safeJson(value) {
     try { return JSON.stringify(value, null, 2); } catch (_) { return '{}'; }
   }
-  return Object.freeze({readPreference, runPool, safeJson, timeline, visibleWindow, writePreference});
+  function safeExternalUrl(value) {
+    if (typeof value !== 'string') return null;
+    try {
+      const base = root.location && root.location.href;
+      const url = new URL(value, base);
+      if (url.protocol === 'https:' || url.protocol === 'http:') return url.href;
+    } catch (_) {}
+    return null;
+  }
+  function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, (ch) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[ch]);
+  }
+  const api = Object.freeze({escapeHtml, readPreference, runPool, safeExternalUrl, safeJson, visibleWindow, writePreference});
+  // Alpine 模板表达式在 `new Function` 全局作用域内求值，裸函数名可直接调用。
+  root.safeExternalUrl = safeExternalUrl;
+  root.escapeHtml = escapeHtml;
+  return api;
 });

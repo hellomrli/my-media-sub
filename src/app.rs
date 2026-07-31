@@ -43,6 +43,8 @@ pub struct AppContext {
 
 impl AppContext {
     pub async fn new(config: &Config) -> Result<Arc<Self>> {
+        crate::utils::cleanup_stale_tmp_files(&config.data_dir);
+
         let subscription_store = Arc::new(SubscriptionStore::new(
             config.data_dir.join("subscriptions.json"),
         ));

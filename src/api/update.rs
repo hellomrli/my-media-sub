@@ -726,24 +726,157 @@ async fn extract_archive(archive_path: &Path, output_dir: &Path) -> Result<()> {
     let archive_path = archive_path.to_path_buf();
     let output_dir = output_dir.to_path_buf();
     tokio::task::spawn_blocking(move || {
+        verify_archive_members(&archive_path)?;
         let output = std::process::Command::new("tar")
             .arg("-xzf")
             .arg(&archive_path)
             .arg("-C")
             .arg(&output_dir)
+            // 升级包由发行流水线以非 root 构建，不保留属主/权限位可避免本地
+            // 覆盖时把升级包里的 uid/可执行位原样写进运行目录。
+            .arg("--no-same-owner")
+            .arg("--no-same-permissions")
             .output()
             .map_err(|e| AppError::Internal(format!("执行 tar 解压失败: {}", e)))?;
-        if output.status.success() {
-            Ok(())
-        } else {
-            Err(AppError::Internal(format!(
+        if !output.status.success() {
+            return Err(AppError::Internal(format!(
                 "解压升级包失败: {}",
                 String::from_utf8_lossy(&output.stderr)
-            )))
+            )));
         }
+        ensure_extracted_inside(&output_dir)
     })
     .await
     .map_err(|e| AppError::Internal(format!("解压任务失败: {}", e)))?
+}
+
+/// 解压前校验归档成员：成员名必须为相对路径、不含 `..` 组件且非空，链接
+/// 目标不得为绝对路径或包含 `..`。校验通过前不执行任何解压，防止恶意
+/// 升级包把文件写出 work_dir。
+fn verify_archive_members(archive_path: &Path) -> Result<()> {
+    let list = std::process::Command::new("tar")
+        .arg("-tvzf")
+        .arg(archive_path)
+        .output()
+        .map_err(|e| AppError::Internal(format!("列出升级包内容失败: {}", e)))?;
+    if !list.status.success() {
+        return Err(AppError::Internal(format!(
+            "列出升级包内容失败: {}",
+            String::from_utf8_lossy(&list.stderr)
+        )));
+    }
+    let listing = String::from_utf8_lossy(&list.stdout);
+    let mut member_count = 0usize;
+    for line in listing.lines() {
+        // GNU tar 冗长列表格式：`permissions owner/group size date name [-> target]`。
+        // 符号链接行含 ` -> `，需额外校验链接目标不逃逸。
+        let (name, target) = parse_tar_listing_line(line);
+        if !is_safe_member_path(name) {
+            return Err(AppError::Validation(format!(
+                "升级包包含不安全路径: {:?}",
+                line
+            )));
+        }
+        if let Some(target) = target {
+            if !is_safe_member_path(target) {
+                return Err(AppError::Validation(format!(
+                    "升级包包含逃逸链接目标: {:?}",
+                    line
+                )));
+            }
+        }
+        member_count += 1;
+    }
+    if member_count == 0 {
+        return Err(AppError::Validation("升级包为空".to_string()));
+    }
+    Ok(())
+}
+
+/// 从 tar 冗长列表行解析成员名与可选的符号链接目标。
+fn parse_tar_listing_line(line: &str) -> (&str, Option<&str>) {
+    // GNU tar 冗长列表：`权限 owner/group 大小 日期 时间 name [-> target]`。
+    // 字段间空白数量不定（size 前有大量填充空格），因此按「空白分隔字段计数」
+    // 跳过前 5 个不含空格的字段，剩余部分从第 6 个字段起是成员名（可含空格）。
+    let rest = line.trim_start();
+    let mut field_count = 0usize;
+    let mut in_field = false;
+    let mut name_start = rest.len();
+    for (index, ch) in rest.char_indices() {
+        if ch.is_whitespace() {
+            if in_field {
+                field_count += 1;
+                in_field = false;
+                if field_count == 5 {
+                    name_start = index;
+                    break;
+                }
+            }
+        } else {
+            in_field = true;
+        }
+    }
+    let name_with_target = rest[name_start..].trim_start();
+    match name_with_target.split_once(" -> ") {
+        Some((name, target)) => (name.trim(), Some(target.trim())),
+        None => (name_with_target.trim(), None),
+    }
+}
+
+/// 安全成员路径：相对路径、无 `..`/`.` 组件、无 NUL、不以 `/` 开头。
+fn is_safe_member_path(path: &str) -> bool {
+    // 目录成员名以 `/` 结尾，先剥掉再做逐组件校验。
+    let path = path.trim_end_matches('/');
+    if path.is_empty() || path.starts_with('/') || path.contains('\0') {
+        return false;
+    }
+    path.split('/')
+        .all(|component| !component.is_empty() && component != ".." && component != ".")
+}
+
+/// 解压完成后兜底校验：work_dir 下每个真实路径（含通过符号链接到达的）必须
+/// 位于输出目录内；发现越界项则删除并报错，阻断符号链接绕过。
+fn ensure_extracted_inside(output_dir: &Path) -> Result<()> {
+    let output_dir = output_dir
+        .canonicalize()
+        .map_err(|e| AppError::Internal(format!("解析解压目录失败: {}", e)))?;
+    let mut stack = vec![output_dir.clone()];
+    let mut offenders = Vec::new();
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let canonical = match path.canonicalize() {
+                Ok(canonical) => canonical,
+                Err(_) => {
+                    offenders.push(path);
+                    continue;
+                }
+            };
+            if !canonical.starts_with(&output_dir) {
+                offenders.push(path);
+                continue;
+            }
+            if path.is_dir() {
+                stack.push(path);
+            }
+        }
+    }
+    if !offenders.is_empty() {
+        let joined = offenders
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = std::fs::remove_dir_all(&output_dir);
+        return Err(AppError::Validation(format!(
+            "升级包解压结果越界，已回滚: {}",
+            joined
+        )));
+    }
+    Ok(())
 }
 
 fn backup_path(current_exe: &Path) -> PathBuf {
@@ -1373,6 +1506,89 @@ mod tests {
                 "my-media-sub.bak-20260401".to_string()
             ]
         );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn test_safe_member_path_rejects_escape_and_absolute() {
+        assert!(is_safe_member_path("my-media-sub/my-media-sub"));
+        assert!(is_safe_member_path("my-media-sub/static/js/app.js"));
+        assert!(!is_safe_member_path("../escape"));
+        assert!(!is_safe_member_path("a/../../b"));
+        assert!(!is_safe_member_path("/absolute/path"));
+        assert!(!is_safe_member_path(""));
+        assert!(!is_safe_member_path("a/\0/b"));
+        assert!(!is_safe_member_path("./dot"));
+    }
+
+    #[test]
+    fn test_parse_tar_listing_line_extracts_name_and_link_target() {
+        let (name, target) =
+            parse_tar_listing_line("-rw-r--r-- user/group 123 2023-01-01 12:00 a/b.txt");
+        assert_eq!(name, "a/b.txt");
+        assert!(target.is_none());
+
+        let (name, target) = parse_tar_listing_line(
+            "lrwxrwxrwx user/group 0 2023-01-01 12:00 a/link -> /etc/passwd",
+        );
+        assert_eq!(name, "a/link");
+        assert_eq!(target, Some("/etc/passwd"));
+    }
+
+    /// 集成测试：构造含绝对链接目标的符号链接成员归档，verify_archive_members 必须拒绝。
+    #[test]
+    fn test_verify_archive_members_rejects_absolute_symlink_target() {
+        let root = std::env::temp_dir().join(format!(
+            "my-media-sub-update-member-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+
+        let link_dir = root.join("link-src");
+        std::fs::create_dir_all(&link_dir).unwrap();
+        std::os::unix::fs::symlink("/etc/passwd", link_dir.join("abs_link")).unwrap();
+        let archive = root.join("abs.tar.gz");
+        let status = std::process::Command::new("tar")
+            .arg("-czf")
+            .arg(&archive)
+            .arg("-C")
+            .arg(&link_dir)
+            .arg(".")
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert!(
+            verify_archive_members(&archive).is_err(),
+            "含绝对链接目标的归档必须被拒绝"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn test_verify_archive_members_accepts_normal_payload() {
+        let root = std::env::temp_dir().join(format!(
+            "my-media-sub-update-member-ok-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let payload = root.join("payload.tar.gz");
+        let dir = root.join("payload");
+        std::fs::create_dir_all(dir.join("static")).unwrap();
+        std::fs::write(dir.join("my-media-sub"), b"bin").unwrap();
+        std::fs::write(dir.join("static/index.html"), b"html").unwrap();
+
+        let status = std::process::Command::new("tar")
+            .arg("-czf")
+            .arg(&payload)
+            .arg("-C")
+            .arg(&root)
+            .arg("payload")
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert!(verify_archive_members(&payload).is_ok());
 
         let _ = std::fs::remove_dir_all(root);
     }

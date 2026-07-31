@@ -49,20 +49,12 @@
     dashboardEditing: false,
     dashboardLayoutDraft: [],
 
-    dashboardWidgetEnabled(id) {
-      return this.dashboardLayout.includes(id);
-    },
-
     /// 当前生效的卡片顺序；编辑态下看草稿，所见即所得。
     get dashboardLayout() {
       const source = this.dashboardEditing
         ? this.dashboardLayoutDraft
         : (this.settings && this.settings.dashboard_widgets);
       return normalizeCardIds(source);
-    },
-
-    dashboardCardCatalog() {
-      return CARD_CATALOG;
     },
 
     dashboardCards(zone) {
@@ -138,9 +130,6 @@
         + this.dashboardStats.unreadNotifications;
     },
 
-
-
-
     dashboardStatusSummary() {
       if (this.subscriptions.length === 0) {
         return '当前还没有订阅。可以先搜索资源并创建订阅。';
@@ -151,45 +140,12 @@
       return `共 ${this.subscriptions.length} 个订阅，${this.dashboardAttentionCount} 项状态需要处理。`;
     },
 
-    openDashboardAttention(kind) {
-      if (kind === 'subscriptions') {
-        this.setSubscriptionStatusTab('invalid');
-        this.selectTab('subscriptions');
-      } else if (kind === 'jobs') {
-        this.backgroundJobFilterStatus = 'failed';
-        this.activityFilter = 'failed';
-        this.selectTab('notifications');
-      } else if (kind === 'notifications') {
-        this.notificationFilter = 'unread';
-        this.activityFilter = 'unread';
-        this.selectTab('notifications');
-      }
-    },
-
     dashboardDateLabel() {
       return new Intl.DateTimeFormat('zh-CN', {
         month: 'long',
         day: 'numeric',
         weekday: 'long'
       }).format(new Date());
-    },
-
-    get dashboardRecentSubscriptions() {
-      return [...this.subscriptions]
-        .sort((a, b) => Number(b.last_checked_at || b.updated_at || 0) - Number(a.last_checked_at || a.updated_at || 0))
-        .slice(0, 9);
-    },
-
-    get dashboardRecentActivity() {
-      return (this.activityItems || []).slice(0, 6);
-    },
-
-    openDashboardActivity(item) {
-      if (!item) return;
-      this.selectTab('notifications');
-      if (item.source === 'job' && typeof this.openJobDetail === 'function') {
-        this.openJobDetail(item.raw);
-      }
     },
 
     };

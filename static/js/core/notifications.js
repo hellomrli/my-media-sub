@@ -92,6 +92,8 @@
     return {
     notifications: [],
     notificationsPoller: null,
+    /// 请求序号：轮询、SSE 联动、标记已读并发时丢弃过期响应，避免旧数据覆盖新数据。
+    notificationsRequestId: 0,
     notificationFilter: 'all',
     activityFilter: 'all',
     activityQuery: '',
@@ -162,11 +164,14 @@
     },
 
     async loadNotifications() {
+      const requestId = ++this.notificationsRequestId;
       try {
         const response = await apiFetch('/api/notifications');
         const data = await response.json();
+        if (requestId !== this.notificationsRequestId) return;
         this.notifications = data.data || [];
       } catch (error) {
+        if (requestId !== this.notificationsRequestId) return;
         console.error('加载通知失败:', error);
       }
     },

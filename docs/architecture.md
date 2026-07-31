@@ -4,7 +4,7 @@
 
 ## 架构图
 
-![My Media Sub 当前架构](architecture.png)
+> 下图仍是 v1.13.1 时代的产物，尚未从当前代码重新生成（STRM 已于 v2.2.0 停用），仅作结构参考。
 
 - [SVG](architecture.svg)
 - [Graphviz 源文件](architecture.dot)
@@ -13,7 +13,6 @@
 
 ```bash
 dot -Tsvg docs/architecture.dot -o docs/architecture.svg
-dot -Tpng -Gdpi=160 docs/architecture.dot -o docs/architecture.png
 ```
 
 ## 设计边界

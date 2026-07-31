@@ -223,18 +223,45 @@
       if (this.jobEvents || typeof EventSource === 'undefined') return;
 
       const source = new EventSource('/api/jobs/events');
+      // 快照是周期性全量，job 事件是增量。job 处理器是 async 的，可能在 await
+      // 联动刷新时被快照打断；若快照直接整体替换 this.jobs，会把刚 upsert 的
+      // 任务冲掉（或让旧快照“复活”已成功/失败的任务）。因此在途期间快照被
+      // 暂存，待处理完后应用，并重新叠加在途期间 upsert 的最新任务。
+      let snapshotPending = null;
+      let jobHandlersInFlight = 0;
+      const upsertedDuringPending = new Map();
+
+      const applySnapshot = (jobs) => {
+        const list = Array.isArray(jobs) ? jobs.slice() : [];
+        for (const job of upsertedDuringPending.values()) {
+          const index = list.findIndex(item => item.id === job.id);
+          if (index >= 0) list.splice(index, 1, job);
+          else list.unshift(job);
+        }
+        this.jobs = list;
+      };
+
       source.addEventListener('snapshot', (event) => {
         this.jobEventsHealthy = true;
+        let jobs;
         try {
-          this.jobs = JSON.parse(event.data || '[]');
+          jobs = JSON.parse(event.data || '[]');
         } catch (error) {
           console.error('解析任务快照失败:', error);
+          return;
         }
+        if (jobHandlersInFlight > 0) {
+          snapshotPending = jobs;
+          return;
+        }
+        applySnapshot(jobs);
       });
       source.addEventListener('job', async (event) => {
         this.jobEventsHealthy = true;
+        jobHandlersInFlight += 1;
         try {
           const job = JSON.parse(event.data);
+          upsertedDuringPending.set(job.id, job);
           this.upsertJob(job);
           if (['succeeded', 'failed', 'canceled'].includes(job.status)) {
             await this.loadNotifications();
@@ -244,6 +271,16 @@
           }
         } catch (error) {
           console.error('解析任务事件失败:', error);
+        } finally {
+          jobHandlersInFlight -= 1;
+          if (jobHandlersInFlight === 0) {
+            if (snapshotPending) {
+              const pending = snapshotPending;
+              snapshotPending = null;
+              applySnapshot(pending);
+            }
+            upsertedDuringPending.clear();
+          }
         }
       });
       source.onerror = () => {

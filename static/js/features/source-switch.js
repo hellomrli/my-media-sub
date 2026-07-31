@@ -41,15 +41,9 @@
     return item.automatic ? '自动换源' : '手动换源';
   }
 
-  function canApplyPreview(preview, candidateId) {
-    return !!(preview && preview.can_apply && preview.candidate && preview.candidate.id === candidateId);
-  }
-
   function previewMatches(preview, candidateId) {
     return !!(preview && preview.candidate && preview.candidate.id === candidateId);
-  }
-
-  /// 应用按钮状态：没有预览时也必须可点，点击会先探测再应用。
+  }  /// 应用按钮状态：没有预览时也必须可点，点击会先探测再应用。
   /// 唯一的硬门槛是季度不匹配（强制也不可越过），其余风险交给强制确认与后端校验。
   function applyButtonState(preview, candidateId, applyingId, previewingId) {
     const applying = !!candidateId && applyingId === candidateId;
@@ -70,7 +64,6 @@
 
   return Object.freeze({
     applyButtonState,
-    canApplyPreview,
     episodeRange,
     historyLabel,
     previewMatches,

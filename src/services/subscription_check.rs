@@ -23,7 +23,6 @@ use crate::services::subscription_progress::{
     should_mark_completed_from_transferred_files, should_reopen_completed_subscription,
 };
 use crate::services::transfer_rule::transfer_state_key;
-use crate::services::SubscriptionTransferService;
 use crate::store::{AutomationEventStore, NotificationStore, SettingsStore, SubscriptionStore};
 use crate::utils::{metrics::global_metrics, unix_now};
 
@@ -37,7 +36,6 @@ pub struct SubscriptionCheckService {
     notification_store: Arc<NotificationStore>,
     automation_event_store: Option<Arc<AutomationEventStore>>,
     job_queue: Option<Arc<JobQueue>>,
-    transfer_service: Option<Arc<SubscriptionTransferService>>,
     subscription_locks: Arc<tokio::sync::Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>>,
     share_locks: Arc<tokio::sync::Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>>,
     /// 批量检查互斥：API、Telegram 与定时调度并发触发时只允许一个批量在跑，
@@ -59,7 +57,6 @@ impl SubscriptionCheckService {
             notification_store,
             automation_event_store: None,
             job_queue: None,
-            transfer_service: None,
             subscription_locks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             share_locks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             batch_check_lock: Arc::new(tokio::sync::Mutex::new(())),
@@ -75,7 +72,6 @@ impl SubscriptionCheckService {
             notification_store: self.notification_store.clone(),
             automation_event_store: self.automation_event_store.clone(),
             job_queue: self.job_queue.clone(),
-            transfer_service: self.transfer_service.clone(),
             subscription_locks: self.subscription_locks.clone(),
             share_locks: self.share_locks.clone(),
             batch_check_lock: self.batch_check_lock.clone(),
@@ -103,16 +99,6 @@ impl SubscriptionCheckService {
     /// 设置后台任务队列，用于异步自动转存。
     pub fn with_job_queue(mut self, job_queue: Arc<JobQueue>) -> Self {
         self.job_queue = Some(job_queue);
-        self
-    }
-
-    /// 设置转存服务（保留为同步回退路径）。
-    #[allow(dead_code)]
-    pub fn with_transfer_service(
-        mut self,
-        transfer_service: Arc<SubscriptionTransferService>,
-    ) -> Self {
-        self.transfer_service = Some(transfer_service);
         self
     }
 
@@ -504,7 +490,7 @@ impl SubscriptionCheckService {
             self.send_completed_notification(&sub).await;
         }
 
-        // 6. 自动转存：优先提交后台任务，保留同步转存作为回退路径。
+        // 6. 自动转存：提交后台任务执行。
         if !transfer_file_names.is_empty() {
             if let Some(reason) = auto_transfer_enabled {
                 info!("跳过订阅自动转存: {} ({})", sub.title, reason);
@@ -520,42 +506,6 @@ impl SubscriptionCheckService {
                 {
                     Ok(job) => info!("已创建订阅自动转存任务: {}", job.id),
                     Err(e) => warn!("创建订阅自动转存任务失败: {}", e),
-                }
-            } else if let Some(transfer_service) = &self.transfer_service {
-                match transfer_service
-                    .auto_transfer_new_files_with_options(
-                        &sub.id,
-                        &transfer_file_names,
-                        force_transfer,
-                    )
-                    .await
-                {
-                    Ok(result) => {
-                        if !result.skipped {
-                            info!("自动转存成功: {}", result.reason);
-                            if let (Some(title), Some(message)) =
-                                (result.push_title, result.push_message)
-                            {
-                                dispatch_push_event_for_notification(
-                                    self.settings_store.clone(),
-                                    self.notification_store.clone(),
-                                    None,
-                                    PushDispatchRequest {
-                                        notification_id: result.push_notification_id,
-                                        subscription_id: Some(sub.id.clone()),
-                                        event: PushEvent::TransferSaved,
-                                        title,
-                                        message,
-                                        level: PushLevel::Success,
-                                    },
-                                )
-                                .await;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        warn!("自动转存失败: {}", e);
-                    }
                 }
             }
         }

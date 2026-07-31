@@ -5,7 +5,6 @@ const {
   formatBytes,
   formatDateTime,
   formatDuration,
-  formatPercent,
   formatSpeed,
   parseTimestamp
 } = require('../static/js/core/formatters.js');
@@ -25,10 +24,8 @@ test('bytes and speeds use consistent binary units', () => {
   assert.equal(formatSpeed(0), '0 B/s');
 });
 
-test('durations and percentages stay bounded and concise', () => {
+test('durations stay bounded and concise', () => {
   assert.equal(formatDuration(65), '1m 5s');
   assert.equal(formatDuration(3660), '1h 1m');
   assert.equal(formatDuration(0), '-');
-  assert.equal(formatPercent(120), '100.0%');
-  assert.equal(formatPercent(-3), '0.0%');
 });

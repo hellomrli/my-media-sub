@@ -92,8 +92,6 @@
     subscriptionAutomationPipeline: null,
     subscriptionAutomationLoading: false,
     subscriptionAutomationError: '',
-    automationSummary: {total: 0, by_status: {}, by_stage: {}, recent_failed: [], stuck: [], retry_hotspots: {}, success_rate: 0},
-    automationSummaryLoading: false,
     automationRetryingId: '',
     subscriptionEpisodeFilter: 'all',
     subscriptionActivityLimit: 20,
@@ -1871,17 +1869,6 @@
       }
     },
 
-    async loadAutomationSummary() {
-      this.automationSummaryLoading = true;
-      try {
-        this.automationSummary = await apiData('/api/automation/summary', {cache: 'no-store'});
-      } catch (error) {
-        console.error('加载自动化摘要失败:', error);
-      } finally {
-        this.automationSummaryLoading = false;
-      }
-    },
-
     async loadSubscriptionAutomation(id = this.selectedSubscriptionId, requestId = this.subscriptionDetailRequestId) {
       if (!id) return;
       this.subscriptionAutomationLoading = true;
@@ -1915,7 +1902,7 @@
       try {
         const result = await apiData(`/api/automation/events/${encodeURIComponent(event.id)}/retry`, {method: 'POST'});
         this.showNotification('success', result.message || '已创建重试');
-        await Promise.all([this.loadSubscriptionAutomation(), this.loadAutomationSummary(), this.loadJobs()]);
+        await Promise.all([this.loadSubscriptionAutomation(), this.loadJobs()]);
       } catch (error) {
         this.showNotification('error', this.apiErrorMessage(error, '阶段重试失败'));
       } finally {

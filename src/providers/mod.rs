@@ -4,9 +4,11 @@
 //! cloud vendor client. Provider-specific extensions (for example Quark sign-in)
 //! intentionally stay outside this trait.
 
+#[cfg(test)]
 mod mock;
 mod quark;
 
+#[cfg(test)]
 pub use mock::MockCloudDriveProvider;
 pub use quark::QuarkCloudDriveProvider;
 

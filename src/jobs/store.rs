@@ -70,7 +70,7 @@ impl JobStore {
                 )));
             }
             Err(error) => {
-                tracing::warn!("解析任务 JSON 失败，已隔离损坏文件并使用空任务: {}", error);
+                tracing::error!("解析任务 JSON 失败，已隔离损坏文件并使用空任务: {}", error);
                 quarantine_corrupt_file(&self.path);
                 self.replace_memory(Vec::new()).await;
             }

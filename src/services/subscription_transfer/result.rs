@@ -1,5 +1,4 @@
 /// 转存结果
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct TransferResult {
     pub subscription_id: String,
