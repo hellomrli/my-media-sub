@@ -6,7 +6,7 @@
 
 ```bash
 # 1. 运行版本更新脚本
-bash scripts/bump-version.sh 2.2.27
+bash scripts/bump-version.sh 2.2.28
 
 # 2. 编辑生成的模板，填写更新内容
 # - README.md 的 ### 2.2.26 部分
