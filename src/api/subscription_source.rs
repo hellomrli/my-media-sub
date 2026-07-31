@@ -13,7 +13,7 @@ use super::response::ApiResponse as Response;
 use crate::app::AppContext;
 use crate::clients::quark::QuarkShareProbe;
 use crate::error::{AppError, Result};
-use crate::models::subscription::{ProbeResult, SourceCandidate, SourceSwitchHistoryItem};
+use crate::models::subscription::{SourceCandidate, SourceSwitchHistoryItem};
 use crate::services::notification::add_notification;
 use crate::services::subscription_source_switch::{
     SourceSwitchPreview, SourceSwitchRollbackResult, SubscriptionSourceSwitchService,
@@ -35,42 +35,6 @@ pub async fn get_source_candidates(
 #[derive(Debug, Deserialize)]
 pub struct CandidateRequest {
     candidate_id: String,
-}
-
-/// 探测候选项并持久化权威评分。为兼容旧调用，响应仍返回 ProbeResult。
-pub async fn probe_candidate(
-    State(ctx): State<Arc<AppContext>>,
-    Path(subscription_id): Path<String>,
-    Json(req): Json<CandidateRequest>,
-) -> Result<Json<Response<ProbeResult>>> {
-    let settings = ctx.settings_store.get().await;
-    let sub = ctx
-        .subscription_store
-        .get(&subscription_id)
-        .await
-        .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?;
-    let candidate = sub
-        .source_candidates
-        .iter()
-        .find(|candidate| candidate.id == req.candidate_id)
-        .cloned()
-        .ok_or_else(|| AppError::NotFound("候选项不存在".to_string()))?;
-    let service = source_switch_service(&settings.pansou_api_url, &settings.quark_cookie);
-    let scored = service
-        .probe_and_score_candidate(
-            &candidate,
-            &settings.quark_cookie,
-            chrono::Utc::now().timestamp_millis(),
-        )
-        .await?;
-    let probe = scored.probe_info.clone().unwrap_or(ProbeResult {
-        ok: false,
-        state: "failed".to_string(),
-        message: "候选探测没有返回结果".to_string(),
-        files: vec![],
-    });
-    persist_scored_candidate(&ctx, &subscription_id, scored).await?;
-    Ok(Json(Response::ok(probe)))
 }
 
 /// 探测候选并返回应用前差异、安全条件和自动应用判定。
@@ -357,10 +321,6 @@ pub fn routes(ctx: Arc<AppContext>) -> axum::Router {
         .route(
             "/api/subscriptions/{id}/source-candidates",
             get(get_source_candidates),
-        )
-        .route(
-            "/api/subscriptions/{id}/source-candidates/probe",
-            post(probe_candidate),
         )
         .route(
             "/api/subscriptions/{id}/source-candidates/preview",

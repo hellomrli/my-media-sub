@@ -777,7 +777,6 @@ mod tests {
             source_group: String::new(),
             tags: vec![],
             metadata: None,
-            manual_schedule: None,
             cloud_type: "quark".to_string(),
             url: "https://pan.quark.cn/s/test".to_string(),
             password: String::new(),

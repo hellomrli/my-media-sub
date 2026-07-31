@@ -337,18 +337,7 @@ fn member_type_label(value: &str) -> &str {
 }
 
 fn format_bytes(size: i64) -> String {
-    let units = ["B", "KB", "MB", "GB", "TB"];
-    let mut size = size.max(0) as f64;
-    let mut unit = 0;
-    while size >= 1024.0 && unit < units.len() - 1 {
-        size /= 1024.0;
-        unit += 1;
-    }
-    if unit == 0 {
-        format!("{} {}", size as i64, units[unit])
-    } else {
-        format!("{:.2} {}", size, units[unit])
-    }
+    crate::utils::format_bytes(size.max(0) as u64)
 }
 
 #[cfg(test)]

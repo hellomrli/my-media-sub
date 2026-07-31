@@ -48,10 +48,14 @@ pub struct PostTransferRegistry {
 }
 
 impl PostTransferRegistry {
+    /// 当前没有内置模块：媒体库刷新已下线，STRM 仍停在 `STRM_MODULE_ENABLED = false`。
+    /// 保留这个构造函数作为将来挂载模块的唯一入口。
     pub fn with_defaults() -> Self {
-        Self {
-            modules: vec![Arc::new(MediaLibraryRefreshModule)],
-        }
+        Self { modules: vec![] }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.modules.is_empty()
     }
 
     #[cfg(test)]
@@ -68,44 +72,6 @@ impl PostTransferRegistry {
             outcomes.push(outcome);
         }
         outcomes
-    }
-}
-
-struct MediaLibraryRefreshModule;
-
-impl PostTransferModule for MediaLibraryRefreshModule {
-    fn id(&self) -> &'static str {
-        "media_library_refresh"
-    }
-
-    fn run<'a>(&'a self, context: PostTransferContext) -> PostTransferFuture<'a> {
-        Box::pin(async move {
-            match crate::services::media_library::refresh_media_library(
-                &context.settings,
-                &context.subscription,
-                context.reason,
-            )
-            .await
-            {
-                None => PostTransferOutcome {
-                    module: self.id(),
-                    status: PostTransferStatus::Skipped,
-                    message: "媒体库刷新未启用".to_string(),
-                },
-                Some(report) if report.success => PostTransferOutcome {
-                    module: self.id(),
-                    status: PostTransferStatus::Succeeded,
-                    message: format!("{} 刷新成功", report.provider),
-                },
-                Some(report) => PostTransferOutcome {
-                    module: self.id(),
-                    status: PostTransferStatus::Failed,
-                    message: report
-                        .error
-                        .unwrap_or_else(|| format!("{} 刷新失败", report.provider)),
-                },
-            }
-        })
     }
 }
 

@@ -105,7 +105,7 @@
 
               <div x-show="calendarLoading" class="calendar-state"><span class="loading-spinner"></span><strong>正在整理媒体排期</strong><small>合并元数据、转存与下载状态</small></div>
               <div x-show="!calendarLoading && calendarError" class="calendar-state is-error"><strong>日历加载失败</strong><small x-text="calendarError"></small><button @click="loadCalendar()" class="btn-secondary">重试</button></div>
-              <div x-show="!calendarLoading && !calendarError && calendarItems.length === 0" class="calendar-state"><strong>当前范围没有日历项目</strong><small>可以切换日期范围、清除筛选，或为订阅补充元数据与手动排期。</small><button @click="calendarStatusFilter = 'all'; calendarMediaFilter = 'all'; loadCalendar()" class="btn-secondary">清除筛选</button></div>
+              <div x-show="!calendarLoading && !calendarError && calendarItems.length === 0" class="calendar-state"><strong>当前范围没有日历项目</strong><small>可以切换日期范围、清除筛选，或为订阅补充元数据。</small><button @click="calendarStatusFilter = 'all'; calendarMediaFilter = 'all'; loadCalendar()" class="btn-secondary">清除筛选</button></div>
 
               <section x-show="!calendarLoading && !calendarError && calendarItems.length > 0 && calendarView === 'week'" class="calendar-week-shell">
                 <div class="calendar-week-grid">

@@ -33,11 +33,10 @@
 
 按订阅维度使用以下优先级；高优先级存在时不混用低优先级日期：
 
-1. **手动排期 `manual_schedule`**：高可信度。用于覆盖元数据，但不修改或删除原始 `MediaMetadata`。
-2. **`MediaMetadata.episodes[].air_date`**：高可信度；按当前订阅季度筛选。
-3. **`MediaMetadata.next_episode_to_air.air_date`**：高可信度；与逐集元数据重复时去重。
-4. **`MediaMetadata.release_date`**：中可信度；电影表示上映日，剧集在没有逐集排期时视为第 1 集日期。
-5. **由至少两个已知逐集日期推断的稳定周期**：低可信度；只向后补齐到总集数，周期必须可整除且在 1–28 天之间。
+1. **`MediaMetadata.episodes[].air_date`**：高可信度；按当前订阅季度筛选。
+2. **`MediaMetadata.next_episode_to_air.air_date`**：高可信度；与逐集元数据重复时去重。
+3. **`MediaMetadata.release_date`**：中可信度；电影表示上映日，剧集在没有逐集排期时视为第 1 集日期。
+4. **由至少两个已知逐集日期推断的稳定周期**：低可信度；只向后补齐到总集数，周期必须可整除且在 1–28 天之间。
 6. **无排期**：未知可信度，生成单个 `unknown_schedule` 项。
 
 手动排期字段：

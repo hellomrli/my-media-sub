@@ -66,6 +66,8 @@
 
 这是本次评估影响最大的一条：功能是好的，代价只是没人知道它存在。
 
+> **2026-07-29 结论：整体移除。** 与其补 UI，不如先砍掉——`services/media_library.rs`、4 个设置项、`post_transfer.rs` 的挂载模块、README 的说明行全部删除。`PostTransferModule` trait 与注册表保留为扩展点，将来要接媒体库/索引通知时重新实现即可。旧 `settings.json` 里的 4 个键由 serde 忽略，不再回写（`settings.rs` 有专门的兼容性测试守护）。
+
 ### 2.2 手动排期（manual_schedule）—— 零 UI
 
 后端 `src/services/media_calendar.rs:185-198` 用它驱动更新日历的排期推算，有独立的 `validate_manual_schedule`。前端 `stores/subscriptions.js` 有 7 个对应字段、`manualSchedulePayload()` 和 `shouldSendManualSchedule()`，创建和编辑订阅时都会提交。
@@ -74,11 +76,17 @@
 
 现状不会丢数据（已有值会正常回填并回传），但用户无法新建或修改排期。
 
+> **2026-07-30 结论：整体删除，不补 UI。** 判定为不需要的功能。`models/subscription.rs` 的字段、`models/calendar.rs` 的 `MediaScheduleOverride` 与 `CalendarScheduleSource::Manual`、`media_calendar.rs` 的 `validate_manual_schedule`/`manual_schedule_candidates`、`api/subscriptions` 的创建/更新契约（含 `Option<Option<_>>` 的 null-vs-缺失语义）、前端 store 的 7 字段与 payload 构造全部移除。日历改为只从元数据与推断周期取排期。
+>
+> 这是**破坏性 API 变更**：已通过 `POST /api/settings` 之外的订阅接口设过排期的用户，排期会失效并回落到元数据推断。历史 `subscriptions.json` 里的 `manual_schedule` 由 serde 忽略、不再回写（`models/subscription.rs` 有兼容性测试守护）。`docs/upgrade-v1.3.0.md` 与 CHANGELOG 作为历史记录保留原样。
+
 ### 2.3 两个不起作用的开关
 
 `settings.probe_quark_files`（默认嗅探文件列表）和 `settings.filter_bad_links`（默认过滤失效链接）在 `page-settings.html:611-612` 有 checkbox，能保存、能持久化，但 **Rust 侧除了 setter 之外没有任何读取点**。勾选它们不改变任何行为。
 
 要么接上，要么连同 UI 一起移除——现状是最坏的：用户以为自己配置了什么。
+
+> **2026-07-29 结论：连同 UI 一起移除。** `check_links` 也一并删除（同样只有 setter）。`07121da` 之后热门候选已自动嗅探，这三个"默认值"再无归属。注意 `api/search.rs` 的 `SearchRequest.check_links` / `filter_bad` 是**每次请求的参数**，与被删的设置项无关，保留。
 
 ### 2.4 `trust_proxy_headers` 无 UI（可接受）
 
@@ -188,6 +196,8 @@ SSE 连接正常时轮询是纯冗余。合理的做法是把轮询降级为 SSE
 ### 6.2 12 个孤儿端点（约 351 行）
 
 见 3.2。其中 `storage/compact`、`api/metrics`、`source-candidates/probe` 三条是明确的重复入口，删除风险最低。其余 9 条建议先确认没有外部脚本在调。
+
+> **2026-07-29 结论：三条重复入口已删。** `storage/compact`（与 `cleanup` 同一个 `execute_cleanup`）、`api/metrics`（载荷已被 `/api/diagnostics` 内嵌，Prometheus 的 `/metrics` 保留）、`source-candidates/probe`（`preview` 的前半段）连同 handler、`api/mod.rs` 的 scope 白名单、`openapi.json`、`api-contract.md`/`source-quality.md`/`storage-scaling.md` 一并移除。其余 9 条仍未处理。
 
 ### 6.3 `api/drive/automation.rs:120-253`
 

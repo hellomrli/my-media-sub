@@ -207,6 +207,25 @@ fn sync_parent_dir(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// 人类可读的字节数。收敛自此前散落的 4 份实现（下载监控、夸克签到、
+/// 在线更新、drive 测试副本），其中 `api/update.rs` 那份对不足 1KB 也用
+/// 两位小数（`512.00 B`），这里统一取整数字节的写法。
+pub fn format_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut size = bytes as f64;
+    let mut unit = 0usize;
+    while size >= 1024.0 && unit < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit += 1;
+    }
+
+    if unit == 0 {
+        format!("{} {}", bytes, UNITS[unit])
+    } else {
+        format!("{:.2} {}", size, UNITS[unit])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -267,5 +286,21 @@ mod tests {
         assert!(!value.contains("token=secret"));
         assert!(!value.contains("k=v"));
         assert!(value.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn format_bytes_uses_integers_below_one_kib_and_two_decimals_above() {
+        assert_eq!(format_bytes(0), "0 B");
+        assert_eq!(format_bytes(512), "512 B");
+        assert_eq!(format_bytes(1023), "1023 B");
+        assert_eq!(format_bytes(1024), "1.00 KB");
+        assert_eq!(format_bytes(1536), "1.50 KB");
+        assert_eq!(format_bytes(1024 * 1024), "1.00 MB");
+        assert_eq!(format_bytes(3 * 1024 * 1024 * 1024), "3.00 GB");
+        // 超出 TB 后不再进位，避免出现没有单位可用的情况
+        assert_eq!(
+            format_bytes(2048_u64 * 1024 * 1024 * 1024 * 1024),
+            "2048.00 TB"
+        );
     }
 }

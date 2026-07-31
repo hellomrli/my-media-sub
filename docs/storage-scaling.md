@@ -15,7 +15,7 @@
 | Job | 最近 500 条 |
 | 自动化事件 | 普通 30 天、失败 90 天，最多 5,000 条 |
 
-订阅和 Job 使用 ID → 数组位置内存索引；自动化事件按订阅、correlation ID 和 Job ID 建立索引。`POST /api/storage/compact` 会重新应用所有保留策略，并将全部 Store 改写为紧凑 JSON。
+订阅和 Job 使用 ID → 数组位置内存索引；自动化事件按订阅、correlation ID 和 Job ID 建立索引。`POST /api/storage/cleanup` 会重新应用所有保留策略，并将全部 Store 改写为紧凑 JSON。
 
 ## 2026-07-11 性能基线
 

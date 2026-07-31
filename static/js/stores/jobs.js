@@ -12,6 +12,9 @@
     return {
     jobs: [],
     jobEvents: null,
+    /// SSE 是否在正常推送。为 true 时活动轮询不再重复拉整个任务列表，
+    /// 只补通知——通知没有 SSE 通道。断线后回落到全量轮询。
+    jobEventsHealthy: false,
     backgroundJobFilterStatus: 'all',
     selectedJob: null,
     showJobDetailDialog: false,
@@ -221,6 +224,7 @@
 
       const source = new EventSource('/api/jobs/events');
       source.addEventListener('snapshot', (event) => {
+        this.jobEventsHealthy = true;
         try {
           this.jobs = JSON.parse(event.data || '[]');
         } catch (error) {
@@ -228,6 +232,7 @@
         }
       });
       source.addEventListener('job', async (event) => {
+        this.jobEventsHealthy = true;
         try {
           const job = JSON.parse(event.data);
           this.upsertJob(job);
@@ -242,6 +247,8 @@
         }
       });
       source.onerror = () => {
+        // 标记不健康，让活动轮询接管全量刷新直到 SSE 自行重连成功。
+        this.jobEventsHealthy = false;
         console.warn('任务事件连接异常，浏览器会自动重连');
       };
       this.jobEvents = this.ownLifecycle('jobs-event-source', source, eventSource => eventSource.close());

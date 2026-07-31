@@ -38,9 +38,6 @@ pub(super) async fn create_subscription(
     State(state): State<Arc<SubscriptionState>>,
     Json(req): Json<CreateSubscriptionRequest>,
 ) -> Result<impl IntoResponse> {
-    if let Some(schedule) = req.manual_schedule.as_ref() {
-        validate_manual_schedule(schedule).map_err(AppError::Validation)?;
-    }
     let settings = state.settings_store.get().await;
     let rules = create_rules(&req, &settings);
     let rule_preset_id = req.rule_preset_id.trim().to_string();
@@ -94,7 +91,6 @@ pub(super) async fn create_subscription(
         source_group: String::new(),
         tags: normalize_tags(req.tags),
         metadata: req.metadata,
-        manual_schedule: req.manual_schedule,
         cloud_type,
         url: req.url,
         password: req.password,
@@ -143,9 +139,6 @@ pub(super) async fn update_subscription(
     Path(id): Path<String>,
     Json(req): Json<UpdateSubscriptionRequest>,
 ) -> Result<impl IntoResponse> {
-    if let Some(Some(schedule)) = req.manual_schedule.as_ref() {
-        validate_manual_schedule(schedule).map_err(AppError::Validation)?;
-    }
     let has_explicit_total_episode_number = req.total_episode_number.is_some();
     let keep_progress_on_source_change = req.keep_progress_on_source_change.unwrap_or(true);
     let continue_from_current_episode =
@@ -248,9 +241,6 @@ pub(super) async fn update_subscription(
             if let Some(metadata) = req.metadata {
                 sub.metadata = metadata
                     .map(|refreshed| merge_refreshed_metadata(sub.metadata.as_ref(), refreshed));
-            }
-            if let Some(manual_schedule) = req.manual_schedule {
-                sub.manual_schedule = manual_schedule;
             }
             if let Some(rules) = req.rules {
                 sub.rules = rules;

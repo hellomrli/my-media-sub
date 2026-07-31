@@ -18,7 +18,6 @@
   });
 
   const SOURCE_LABELS = Object.freeze({
-    manual: '手动排期',
     metadata_episode: '逐集元数据',
     metadata_next_episode: '下一集元数据',
     metadata_release_date: '发布日期',

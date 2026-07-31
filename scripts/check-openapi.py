@@ -21,10 +21,19 @@ HTTP_METHODS = ("get", "post", "put", "patch", "delete", "head", "options")
 EXCLUDED_ROUTES = {("/api/{*path}", "any")}
 # STRM is intentionally retired in v2.2.0 and will return as an independent
 # module. Keep the historical baseline for all other operations.
+#
+# The three routes below were duplicate entry points removed after v2.2.24:
+# /api/metrics duplicated the snapshot already embedded in /api/diagnostics
+# (Prometheus /metrics stays); /api/storage/compact called the same
+# execute_cleanup as /api/storage/cleanup with a different confirmation
+# phrase; source-candidates/probe was the first half of .../preview.
 INTENTIONALLY_REMOVED_ROUTES = {
     ("/api/subscriptions/{id}/strm", "post"),
     ("/api/subscriptions/{id}/strm/audit", "get"),
     ("/strm/quark/{fid}/{file_name}", "get"),
+    ("/api/metrics", "get"),
+    ("/api/storage/compact", "post"),
+    ("/api/subscriptions/{id}/source-candidates/probe", "post"),
 }
 
 

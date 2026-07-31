@@ -50,8 +50,8 @@
                             </div>
                             <div><span :class="downloadStatusBadgeClass(task.status)" x-text="downloadStatusLabel(task.status)"></span></div>
                             <div class="space-y-1"><div class="progress-inline"><span :style="downloadProgressStyle(task)"></span></div><div class="text-xs text-muted/75 tabular-nums" x-text="formatDownloadSize(task.completed_length) + ' / ' + formatDownloadSize(task.total_length)"></div></div>
-                            <div class="text-xs text-muted/80" x-text="formatSpeed(task.download_speed)"></div>
-                            <div class="text-xs text-muted/80" x-text="formatDuration(task.eta_seconds)"></div>
+                            <div class="text-xs text-muted/80"><span class="text-muted/75 lg:hidden">速度 </span><span x-text="formatSpeed(task.download_speed)"></span></div>
+                            <div class="text-xs text-muted/80"><span class="text-muted/75 lg:hidden">剩余 </span><span x-text="formatDuration(task.eta_seconds)"></span></div>
                             <div class="text-xs text-muted/80" x-text="task.connections + ' 连接'"></div>
                             <div class="flex flex-wrap justify-end gap-1">
                               <button x-show="canPauseDownloadTask(task)" @click="controlDownloadTask(task, 'pause')" :disabled="downloadTaskActionLoading(task)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">暂停</button>

@@ -58,7 +58,6 @@ mod tests {
                 next_episode_to_air: None,
                 episodes: vec![],
             }),
-            manual_schedule: None,
             cloud_type: "quark".to_string(),
             url: "https://pan.quark.cn/s/test".to_string(),
             password: String::new(),

@@ -3,8 +3,6 @@ use crate::clients::aria2::{Aria2Task, Aria2Version, MAX_STOPPED_LIMIT};
 use crate::clients::{Aria2Client, NormalizedItem, QuarkSaveClient, QuarkSigninResult};
 use crate::error::{AppError, Result};
 use crate::models::{Notification, Settings, Subscription};
-#[cfg(test)]
-use crate::services::push::PushEvent;
 use crate::services::quark_signin::signin_message;
 use crate::services::{DownloadMonitorService, QuarkSigninService};
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
@@ -43,11 +41,15 @@ use browse::{clear_drive_cache, find_path, list_drive};
 
 #[cfg(test)]
 use aria2::{normalize_fids, remap_subscription_download_gid};
+// 这些断言以前打的是 automation.rs 里逐字节复制的副本，等于在测副本。
+// 现在直接测 download_monitor.rs 的真实实现。
 #[cfg(test)]
-use automation::{
+use crate::services::download_monitor::{
     completed_download_already_recorded, completed_subscription_download_files,
-    download_completed_title_message, format_bytes, subscription_id_for_download_gid,
+    download_completed_title_message, subscription_id_for_download_gid,
 };
+#[cfg(test)]
+use crate::utils::format_bytes;
 
 /// 网盘状态
 pub struct DriveState {

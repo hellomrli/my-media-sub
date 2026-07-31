@@ -1,8 +1,4 @@
-use axum::{
-    extract::State,
-    routing::{get, post},
-    Json, Router,
-};
+use axum::{extract::State, routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, LazyLock};
 use tokio::sync::Mutex;
@@ -55,18 +51,6 @@ async fn cleanup_storage(
     if request.confirmation != "CLEANUP DATA" {
         return Err(AppError::Validation(
             "清理确认文本必须为 CLEANUP DATA".to_string(),
-        ));
-    }
-    execute_cleanup(&context).await
-}
-
-async fn compact_storage(
-    State(context): State<Arc<AppContext>>,
-    Json(request): Json<StorageCompactRequest>,
-) -> Result<Json<ApiResponse<StorageCompactResult>>> {
-    if request.confirmation != "COMPACT JSON" {
-        return Err(AppError::Validation(
-            "整理确认文本必须为 COMPACT JSON".to_string(),
         ));
     }
     execute_cleanup(&context).await
@@ -215,7 +199,6 @@ async fn build_preview(context: &AppContext) -> Result<StorageCleanupPreview> {
 
 pub fn routes(context: Arc<AppContext>) -> Router {
     Router::new()
-        .route("/api/storage/compact", post(compact_storage))
         .route(
             "/api/storage/cleanup",
             get(cleanup_preview).post(cleanup_storage),

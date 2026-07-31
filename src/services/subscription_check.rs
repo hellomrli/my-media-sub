@@ -1331,7 +1331,6 @@ mod due_check_tests {
             source_group: String::new(),
             tags: vec![],
             metadata: None,
-            manual_schedule: None,
             cloud_type: "quark".into(),
             url: "u".into(),
             password: String::new(),

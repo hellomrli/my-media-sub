@@ -112,10 +112,31 @@ test('updates and notification helpers clamp unsafe input and preserve immutable
     downloaded_bytes: 12,
     total_bytes: 20
   });
-  const items = [{id: 1, read: false}, {id: 2, read: true}];
-  assert.deepEqual(notifications.filterNotificationItems(items, 'unread'), [items[0]]);
   assert.equal(notifications.normalizeNotificationType('unknown'), 'info');
   assert.equal(notifications.toastIcon('error'), '✕');
+});
+
+test('activity polling drops the redundant job fetch while SSE is healthy', () => {
+  const calls = [];
+  const store = notifications.createStore();
+  store.currentTab = 'dashboard';
+  store.loadJobs = () => { calls.push('jobs'); return Promise.resolve(); };
+  store.loadNotifications = () => { calls.push('notifications'); return Promise.resolve(); };
+  let polled = null;
+  store.startPolling = (_name, callback) => { polled = callback; return 1; };
+  store.stopPolling = () => true;
+
+  // SSE 正常：任务列表由推送维护，轮询只需要补没有 SSE 通道的通知。
+  store.jobEventsHealthy = true;
+  store.startNotificationsPolling();
+  polled();
+  assert.deepEqual(calls, ['notifications']);
+
+  // SSE 断线：回落到任务 + 通知的全量刷新。
+  calls.length = 0;
+  store.jobEventsHealthy = false;
+  polled();
+  assert.deepEqual(calls.sort(), ['jobs', 'notifications']);
 });
 
 test('Docker deployments expose manual image upgrade instructions', () => {

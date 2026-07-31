@@ -26,18 +26,6 @@ pub struct Settings {
     #[serde(default = "default_cloud_types")]
     pub cloud_types: Vec<String>,
 
-    /// 是否检查链接
-    #[serde(default = "default_true")]
-    pub check_links: bool,
-
-    /// 是否探测夸克文件
-    #[serde(default = "default_true")]
-    pub probe_quark_files: bool,
-
-    /// 是否过滤失效链接
-    #[serde(default = "default_true")]
-    pub filter_bad_links: bool,
-
     /// PanSou API URL
     #[serde(default)]
     pub pansou_api_url: String,
@@ -217,15 +205,6 @@ pub struct Settings {
     /// 是否把 HTTPStrm Token 写入生成的 URL query。默认关闭，避免 token 进入访问日志。
     #[serde(default)]
     pub strm_token_in_url: bool,
-
-    #[serde(default)]
-    pub media_library_refresh_enabled: bool,
-    #[serde(default = "default_media_library_type")]
-    pub media_library_type: String,
-    #[serde(default)]
-    pub media_library_refresh_url: String,
-    #[serde(default)]
-    pub media_library_token: String,
 
     // ===== 推送配置 =====
     /// Telegram Bot Token
@@ -644,10 +623,6 @@ fn default_strm_access_token() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-fn default_media_library_type() -> String {
-    "webhook".to_string()
-}
-
 fn default_telegram_bot_mode() -> String {
     "disabled".to_string()
 }
@@ -659,9 +634,6 @@ impl Default for Settings {
             app_password: default_password(),
             trust_proxy_headers: false,
             cloud_types: default_cloud_types(),
-            check_links: true,
-            probe_quark_files: true,
-            filter_bad_links: true,
             pansou_api_url: String::new(),
             metadata_provider: default_metadata_provider(),
             tmdb_api_key: String::new(),
@@ -706,10 +678,6 @@ impl Default for Settings {
             strm_public_base_url: String::new(),
             strm_access_token: default_strm_access_token(),
             strm_token_in_url: false,
-            media_library_refresh_enabled: false,
-            media_library_type: default_media_library_type(),
-            media_library_refresh_url: String::new(),
-            media_library_token: String::new(),
             telegram_bot_token: String::new(),
             telegram_chat_id: String::new(),
             telegram_bot_mode: default_telegram_bot_mode(),
@@ -767,7 +735,6 @@ mod tests {
         let settings = Settings::default();
         assert_eq!(settings.app_username, "admin");
         assert_eq!(settings.cloud_types, vec!["quark"]);
-        assert!(settings.check_links);
         assert_eq!(settings.metadata_provider, "tmdb");
         assert_eq!(settings.tmdb_language, "zh-CN");
         assert!(settings.quark_signin_cookie.is_empty());
@@ -817,7 +784,6 @@ mod tests {
         assert_eq!(settings.quark_cookie, "test_cookie");
         assert_eq!(settings.app_password, "change-me"); // 默认值
         assert!(!settings.trust_proxy_headers); // 默认不信任代理头
-        assert!(settings.check_links); // 默认值
     }
 
     #[test]
@@ -843,5 +809,37 @@ mod tests {
         assert!(serialized.get("nas_sync_enabled").is_none());
         assert!(serialized.get("nas_sync_source").is_none());
         assert!(serialized.get("nas_sync_target").is_none());
+    }
+
+    #[test]
+    fn legacy_search_and_media_library_fields_are_ignored_and_not_persisted_again() {
+        // 三个搜索开关从未被 Rust 侧读取，媒体库刷新整体下线（见 v2.2.24 之后的清理）。
+        // 旧 settings.json 仍带这些键，必须能无害反序列化且不再回写。
+        let json = r#"{
+            "app_username": "legacy",
+            "check_links": true,
+            "probe_quark_files": true,
+            "filter_bad_links": true,
+            "media_library_refresh_enabled": true,
+            "media_library_type": "emby",
+            "media_library_refresh_url": "https://media.example/refresh",
+            "media_library_token": "legacy-token"
+        }"#;
+
+        let settings: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.app_username, "legacy");
+
+        let serialized = serde_json::to_value(settings).unwrap();
+        for key in [
+            "check_links",
+            "probe_quark_files",
+            "filter_bad_links",
+            "media_library_refresh_enabled",
+            "media_library_type",
+            "media_library_refresh_url",
+            "media_library_token",
+        ] {
+            assert!(serialized.get(key).is_none(), "{key} 不应再被持久化");
+        }
     }
 }

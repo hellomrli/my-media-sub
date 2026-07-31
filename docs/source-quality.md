@@ -71,7 +71,6 @@
 
 - `GET /api/subscriptions/{id}/source-candidates`
 - `POST /api/subscriptions/{id}/source-candidates/search`
-- `POST /api/subscriptions/{id}/source-candidates/probe`
 - `POST /api/subscriptions/{id}/source-candidates/preview`
 - `POST /api/subscriptions/{id}/source-candidates/apply`
 - `GET /api/subscriptions/{id}/source-history`

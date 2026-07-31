@@ -922,7 +922,7 @@ async fn subscription_status_returns_episode_aggregation() {
 }
 
 #[tokio::test]
-async fn calendar_returns_manual_schedule_with_summary_and_actions() {
+async fn calendar_returns_metadata_schedule_with_summary_and_actions() {
     let (ctx, dir) = test_context().await;
     let app = create_app(ctx);
 
@@ -931,13 +931,18 @@ async fn calendar_returns_manual_schedule_with_summary_and_actions() {
         "url": "https://pan.quark.cn/s/calendar-test",
         "media_type": "series",
         "season": 1,
-        "manual_schedule": {
-            "start_date": "2026-07-06",
-            "weekdays": [1, 4],
-            "air_time": "20:30",
-            "interval_weeks": 1,
-            "first_episode_number": 1,
-            "total_episodes": 4
+        "metadata": {
+            "provider": "tmdb",
+            "provider_id": "1",
+            "title": "Calendar Test Series",
+            "media_type": "series",
+            "number_of_episodes": 4,
+            "episodes": [
+                {"season_number": 1, "episode_number": 1, "air_date": "2026-07-06"},
+                {"season_number": 1, "episode_number": 2, "air_date": "2026-07-09"},
+                {"season_number": 1, "episode_number": 3, "air_date": "2026-07-13"},
+                {"season_number": 1, "episode_number": 4, "air_date": "2026-07-16"}
+            ]
         }
     });
     let response = app
@@ -946,11 +951,6 @@ async fn calendar_returns_manual_schedule_with_summary_and_actions() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
-    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
-        .await
-        .unwrap();
-    let created: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    let subscription_id = created["data"]["id"].as_str().unwrap();
 
     let (status, headers, body) = json_response(
         &app,
@@ -964,35 +964,19 @@ async fn calendar_returns_manual_schedule_with_summary_and_actions() {
     assert_eq!(body["data"]["summary"]["total"], 4);
     assert_eq!(body["data"]["summary"]["subscriptions"], 1);
     let items = body["data"]["items"].as_array().unwrap();
-    assert_eq!(items[0]["scheduled_at"], "2026-07-06T20:30:00+08:00");
-    assert_eq!(items[0]["schedule_source"], "manual");
+    assert_eq!(items[0]["scheduled_date"], "2026-07-06");
+    assert_eq!(items[0]["schedule_source"], "metadata_episode");
     assert_eq!(items[0]["actions"]["can_check"], true);
     assert!(items[0]["actions"]["detail_url"]
         .as_str()
         .unwrap()
         .contains("subscription="));
 
-    let clear_response = app
-        .clone()
-        .oneshot(auth_put(
-            &format!("/api/subscriptions/{subscription_id}"),
-            serde_json::json!({"manual_schedule": null}),
-        ))
-        .await
-        .unwrap();
-    assert_eq!(clear_response.status(), StatusCode::OK);
-    let cleared = json_body(
-        &app,
-        auth_get(&format!("/api/subscriptions/{subscription_id}")),
-    )
-    .await;
-    assert!(cleared["data"].get("manual_schedule").is_none());
-
     let _ = std::fs::remove_dir_all(dir);
 }
 
 #[tokio::test]
-async fn calendar_rejects_invalid_query_and_manual_schedule() {
+async fn calendar_rejects_inverted_query_range() {
     let (ctx, dir) = test_context().await;
     let app = create_app(ctx);
 
@@ -1001,23 +985,6 @@ async fn calendar_rejects_invalid_query_and_manual_schedule() {
         auth_get("/api/calendar?from=2026-07-10&to=2026-07-01"),
     )
     .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_json_content_type(&headers);
-    assert_eq!(body["ok"], false);
-    assert_eq!(body["error"], "validation_error");
-
-    let invalid_payload = serde_json::json!({
-        "title": "Invalid Calendar Series",
-        "url": "https://pan.quark.cn/s/calendar-invalid",
-        "media_type": "series",
-        "manual_schedule": {
-            "start_date": "2026/07/06",
-            "weekdays": [8],
-            "air_time": "25:00"
-        }
-    });
-    let (status, headers, body) =
-        json_response(&app, auth_post("/api/subscriptions", invalid_payload)).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_json_content_type(&headers);
     assert_eq!(body["ok"], false);
@@ -2005,5 +1972,134 @@ async fn quark_signin_automation_scope_is_minimal_and_bot_compatible() {
         .body(Body::empty())
         .unwrap();
     assert_eq!(status(&app, subscriptions).await, StatusCode::UNAUTHORIZED);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+// ─── /api/update/* ─────────────────────────────────────────────────────────
+// 在线更新是全仓唯一会替换自身可执行文件并重启进程的路径，此前零集成测试。
+// 这里只覆盖不触发网络的部分：鉴权、Token scope、进度快照与重启守卫。
+// check/releases 的 handler 会真的打 GitHub API，故只验证它们的鉴权拒绝；
+// 运行时门控矩阵由 api/update.rs 的 online_update_supported_for 单测覆盖。
+
+#[tokio::test]
+async fn update_endpoints_reject_anonymous_access() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+
+    // 注意：认证失败连续 5 次后同一来源会被限流为 429，所以这里恰好用满 5 次，
+    // 不能再在本测试里追加需要鉴权成功的请求。
+    for uri in [
+        "/api/update/check",
+        "/api/update/releases",
+        "/api/update/progress",
+    ] {
+        let anonymous = Request::builder().uri(uri).body(Body::empty()).unwrap();
+        assert_eq!(
+            status(&app, anonymous).await,
+            StatusCode::UNAUTHORIZED,
+            "{uri} 必须拒绝匿名访问"
+        );
+    }
+    for uri in ["/api/update/apply", "/api/update/restart"] {
+        let anonymous = Request::builder()
+            .method(Method::POST)
+            .uri(uri)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from("{}"))
+            .unwrap();
+        assert_eq!(
+            status(&app, anonymous).await,
+            StatusCode::UNAUTHORIZED,
+            "{uri} 必须拒绝匿名访问"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn update_endpoints_are_closed_to_automation_tokens() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+
+    // 先取 Token，再打升级路径：反过来会先耗尽认证失败额度而被 429 挡住。
+    let rotated = json_body(
+        &app,
+        auth_post(
+            "/api/automation-token",
+            serde_json::json!({
+                "scopes": ["subscriptions:read", "diagnostics:read", "jobs:write"],
+                "expires_days": 30
+            }),
+        ),
+    )
+    .await;
+    let token = rotated["data"]["token"]
+        .as_str()
+        .expect("轮换自动化 Token 应该成功")
+        .to_string();
+
+    // 路径白名单默认拒绝：升级路径不得对任何 scope 开放，否则一个只读 Token
+    // 就能触发自替换二进制并重启进程。
+    for (method, uri) in [
+        (Method::GET, "/api/update/check"),
+        (Method::GET, "/api/update/progress"),
+        (Method::POST, "/api/update/apply"),
+        (Method::POST, "/api/update/restart"),
+    ] {
+        let bearer = Request::builder()
+            .method(method.clone())
+            .uri(uri)
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from("{}"))
+            .unwrap();
+        assert_eq!(
+            status(&app, bearer).await,
+            StatusCode::UNAUTHORIZED,
+            "{method} {uri} 不得对自动化 Token 开放"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn update_progress_reports_idle_snapshot_in_the_standard_envelope() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+
+    let (status_code, headers, body) = json_response(&app, auth_get("/api/update/progress")).await;
+    assert_eq!(status_code, StatusCode::OK);
+    assert_json_content_type(&headers);
+    assert_eq!(body["ok"], true);
+    assert_eq!(body["data"]["running"], false);
+    assert_eq!(body["data"]["stage"], "idle");
+    assert_eq!(body["data"]["percent"], 0);
+    assert_eq!(body["data"]["downloaded_bytes"], 0);
+    assert!(body["data"]["total_bytes"].is_null());
+    assert!(body["data"]["error"].is_null());
+    assert!(body["data"]["updated_at"].as_str().is_some());
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn update_restart_without_a_pending_plan_is_rejected() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+
+    // 没有走完 apply 就调 restart，必须是校验错误而不是真的重启进程。
+    let (status_code, headers, body) =
+        json_response(&app, auth_post("/api/update/restart", serde_json::json!({}))).await;
+    assert_eq!(status_code, StatusCode::BAD_REQUEST);
+    assert_json_content_type(&headers);
+    assert_eq!(body["ok"], false);
+    assert_eq!(body["error"], "validation_error");
+    assert!(body["message"]
+        .as_str()
+        .unwrap()
+        .contains("没有待重启的升级任务"));
+
     let _ = std::fs::remove_dir_all(dir);
 }

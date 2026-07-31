@@ -54,7 +54,7 @@
                     <div class="min-w-0"><div class="truncate text-text/85" x-text="item.name"></div><div x-show="item.parent_path" class="truncate text-xs text-muted/75" x-text="item.parent_path"></div></div>
                     <div class="text-xs text-muted/80" x-text="item.episode ? '第 ' + item.episode + ' 集' : '-' "></div>
                     <div><span class="badge" :class="item.action === 'new' ? 'badge-success' : (item.action === 'skip' ? 'badge-warning' : 'badge-primary')" x-text="checkActionLabel(item.action)"></span></div>
-                    <div class="truncate text-xs text-muted/80" x-text="item.reason || '-' "></div>
+                    <div class="truncate text-xs text-muted/80"><span class="lg:hidden">原因 </span><span x-text="item.reason || '-' "></span></div>
                   </div>
                 </template>
               </div>
@@ -101,7 +101,7 @@
                         <div class="truncate text-xs text-muted/75" x-text="item.message || activityTimeLabel(item)"></div>
                         <div x-show="item.source === 'job' && ((item.raw.attempt || 1) > 1 || item.raw.error_class)" class="truncate text-[10px] text-warning/80" x-text="'第 ' + (item.raw.attempt || 1) + ' 次 · ' + jobErrorClassLabel(item.raw.error_class)"></div>
                       </div>
-                      <div class="text-xs text-muted/75" x-text="activityTimeLabel(item)"></div>
+                      <div class="text-xs text-muted/75"><span class="lg:hidden">时间 </span><span x-text="activityTimeLabel(item)"></span></div>
                       <div class="flex flex-wrap justify-end gap-1">
                         <button x-show="item.source === 'job'" @click="openActivityItem(item)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">详情</button>
                         <select x-show="item.source === 'job' && item.raw.status === 'queued'" :value="item.raw.priority || 'normal'" @change="setJobPriority(item.raw, $event.target.value)" class="app-select px-1 py-1 text-xs" aria-label="任务优先级">

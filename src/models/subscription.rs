@@ -1,5 +1,5 @@
 use super::rules::TransferRules;
-use super::{MediaMetadata, MediaScheduleOverride, SourceQuality};
+use super::{MediaMetadata, SourceQuality};
 use serde::{Deserialize, Serialize};
 
 /// 订阅状态
@@ -249,10 +249,6 @@ pub struct Subscription {
     /// 刮削到的媒体元数据
     #[serde(default)]
     pub metadata: Option<MediaMetadata>,
-
-    /// 手动播出排期；存在时优先于元数据和推断排期。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub manual_schedule: Option<MediaScheduleOverride>,
 
     /// 云盘类型
     #[serde(default = "default_cloud_type")]
@@ -576,7 +572,6 @@ mod tests {
             source_group: "某字幕组".to_string(),
             tags: vec![],
             metadata: None,
-            manual_schedule: None,
             cloud_type: "quark".to_string(),
             url: "https://pan.quark.cn/s/test".to_string(),
             password: "".to_string(),
@@ -642,5 +637,33 @@ mod tests {
         assert!(sub.enabled); // 默认值
         assert_eq!(sub.status, "active"); // 默认值
         assert!(sub.metadata.is_none());
+    }
+
+    #[test]
+    fn legacy_manual_schedule_is_ignored_and_not_persisted_again() {
+        // 手动排期整体下线（见 v2.2.24 之后的清理）。历史 subscriptions.json 里仍带
+        // 这个字段，必须能无害反序列化且不再回写；日历回落到元数据/推断排期。
+        let json = r#"{
+            "id": "abc123",
+            "title": "测试",
+            "url": "https://pan.quark.cn/s/test",
+            "created_at": 1718236800,
+            "updated_at": 1718323200,
+            "last_checked_at": 1718323200,
+            "manual_schedule": {
+                "start_date": "2026-07-06",
+                "weekdays": [1, 4],
+                "air_time": "20:30",
+                "interval_weeks": 1,
+                "first_episode_number": 1,
+                "total_episodes": 12
+            }
+        }"#;
+
+        let sub: Subscription = serde_json::from_str(json).unwrap();
+        assert_eq!(sub.id, "abc123");
+
+        let serialized = serde_json::to_value(sub).unwrap();
+        assert!(serialized.get("manual_schedule").is_none());
     }
 }

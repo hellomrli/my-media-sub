@@ -2,45 +2,6 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-/// 单订阅的手动播出排期覆盖。
-///
-/// 日期和时间均按 Asia/Shanghai 解释。`weekdays` 使用 ISO 编号：
-/// 1 = 周一，7 = 周日。空数组时使用 `start_date` 自身的星期。
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct MediaScheduleOverride {
-    /// 首个排期日期，格式 YYYY-MM-DD。
-    #[serde(default)]
-    pub start_date: String,
-
-    /// 播出星期（ISO 1..=7），同一周期可包含多个播出日。
-    #[serde(default)]
-    pub weekdays: Vec<u8>,
-
-    /// 播出时间，格式 HH:MM；为空表示只有日期、没有可靠的具体时间。
-    #[serde(default)]
-    pub air_time: String,
-
-    /// 周期周数，1 表示每周，2 表示隔周。
-    #[serde(default = "default_interval_weeks")]
-    pub interval_weeks: u32,
-
-    /// `start_date` 对应的首集编号。
-    #[serde(default = "default_first_episode_number")]
-    pub first_episode_number: i32,
-
-    /// 手动覆盖的总集数；为空时回退到订阅或元数据总集数。
-    #[serde(default)]
-    pub total_episodes: Option<i32>,
-}
-
-fn default_interval_weeks() -> u32 {
-    1
-}
-
-fn default_first_episode_number() -> i32 {
-    1
-}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum CalendarStatus {
@@ -74,7 +35,6 @@ impl CalendarStatus {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CalendarScheduleSource {
-    Manual,
     MetadataEpisode,
     MetadataNextEpisode,
     MetadataReleaseDate,
