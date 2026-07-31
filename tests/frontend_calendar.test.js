@@ -50,6 +50,14 @@ test('calendar progress and stale-source reminders use the highest persisted epi
   assert.equal(calendar.sourceAlertLabel({latest_aired_episode: 8, latest_discovered_episode: 6, overdue_days: 10}), 'E8 已播 10 天，当前来源最高 E6');
 });
 
+test('calendar card meta merges date episode and transfer progress in one line', () => {
+  assert.equal(calendar.cardMetaLabel({media_type: 'series', season: 1, episode: 13, latest_transferred_episode: 10}), 'S1 E13 · 已存 E10');
+  assert.equal(calendar.cardMetaLabel({media_type: 'series', season: 1, episode: 13}), 'S1 E13 · 尚未转存');
+  assert.equal(calendar.cardMetaLabel({media_type: 'movie', transferred: true}), '已转存');
+  assert.equal(calendar.cardMetaLabel({media_type: 'movie'}), '尚未转存');
+  assert.equal(calendar.cardMetaLabel({media_type: 'series', scheduled_date: '2026-08-05'}), '上映 / 开播');
+});
+
 test('calendar stale-source action opens the existing source switch workflow', async () => {
   const fullSubscription = {id: 'sub-1', title: '完整订阅', source_candidates: [{id: 'candidate-1'}]};
   const opened = [];

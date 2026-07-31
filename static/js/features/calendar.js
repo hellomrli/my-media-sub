@@ -170,6 +170,17 @@
     return '尚未转存';
   }
 
+  /// 订阅卡元信息：把「该日期更新的集」与「目前已转存」合并为一行统一字号。
+  function cardMetaLabel(item) {
+    const episode = Number(item && item.episode);
+    const season = Number(item && item.season);
+    if (!Number.isInteger(episode) || episode <= 0) {
+      const mediaType = String((item && item.media_type) || '').toLowerCase();
+      return mediaType === 'movie' ? transferProgressLabel(item, true) : '上映 / 开播';
+    }
+    return `S${season} E${episode} · ${transferProgressLabel(item, true)}`;
+  }
+
   function sourceAlertLabel(alert) {
     if (!alert) return '';
     const aired = Number(alert.latest_aired_episode);
@@ -181,6 +192,7 @@
 
   return Object.freeze({
     addDays,
+    cardMetaLabel,
     confidenceLabel,
     dateKey,
     groupByDate,
