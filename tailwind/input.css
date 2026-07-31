@@ -2149,7 +2149,6 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
 .calendar-item.is-row .calendar-thumbnail.is-week { width: 46px; height: 62px; max-height: 100%; border-radius: 8px; }
 .calendar-item.is-row .calendar-item-title > span:first-of-type { flex: 1 1 auto; min-width: 0; }
 .calendar-item.is-row .calendar-item-title strong { font-size: 14px; }
-.calendar-item-episode { flex: 0 0 auto; margin-left: auto; color: rgb(var(--c-text) / .88); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; font-weight: 650; white-space: nowrap; }
 @media (min-width: 1024px) {
   .dashboard-page .calendar-day-items { align-items: stretch; }
   .dashboard-page .calendar-item.is-row { max-height: none; }
@@ -2168,7 +2167,6 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
 .calendar-day-head small { font-size: 12px; }
 .calendar-item.is-row .calendar-item-title strong { font-size: 14px; }
 .calendar-item.is-row .calendar-item-title small { font-size: 12px; }
-.calendar-item-episode { font-size: 14px; }
 .calendar-inline-metrics span { font-size: 12px; }
 .calendar-toolbar-filters select { font-size: 12px; }
 
@@ -2247,3 +2245,24 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
 .calendar-day-head { padding: 6px 10px; }
 .calendar-day-empty { padding: 12px 6px; }
 .settings-save-hint { font-size: 12px; color: rgb(var(--c-text) / .6); }
+
+/* ─── P25 日历订阅卡片紧凑 ──────────────────────────────────────────────
+   该日更新的集与已转存进度合并成一行统一字号（见 calendar.js cardMetaLabel），
+   缩略图与卡片宽度收窄，让同一天的卡片更紧凑。 */
+.calendar-item.is-row { gap: 8px; padding: 4px 10px; min-width: 250px; max-width: 400px; }
+.calendar-item.is-row .calendar-item-title { gap: 8px; }
+.calendar-item.is-row .calendar-thumbnail.is-week { width: 36px; height: 48px; }
+.calendar-item.is-row .calendar-item-copy { flex: 1 1 auto; min-width: 0; }
+.calendar-item.is-row .calendar-item-title strong { font-size: 13px; }
+.calendar-item.is-row .calendar-item-title small { font-size: 11px; color: rgb(var(--c-muted) / .68); white-space: nowrap; }
+@media (min-width: 1024px) {
+  .calendar-item.is-row { gap: 8px; padding: 4px 10px; }
+  .calendar-item.is-row .calendar-thumbnail.is-week { width: 38px; height: 50px; }
+}
+@media (min-width: 1024px) and (min-height: 1010px) {
+  .calendar-item.is-row { flex-basis: 400px; max-width: 460px; }
+  .calendar-item.is-row .calendar-thumbnail.is-week { width: 44px; height: 58px; }
+}
+@media (min-width: 1024px) and (min-height: 1250px) {
+  .calendar-item.is-row .calendar-thumbnail.is-week { width: 50px; height: 66px; }
+}

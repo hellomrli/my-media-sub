@@ -116,6 +116,10 @@
       return calendarTools.transferProgressLabel(item, compact);
     },
 
+    calendarCardMetaLabel(item) {
+      return calendarTools.cardMetaLabel(item);
+    },
+
     calendarSourceAlertLabel(alert) {
       return calendarTools.sourceAlertLabel(alert);
     },

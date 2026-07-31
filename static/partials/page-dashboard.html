@@ -128,7 +128,7 @@
                       <div class="calendar-day-items">
                         <template x-for="(item, itemIndex) in day.items" :key="'calendar-week-' + (item.id || 'missing') + '-' + itemIndex">
                           <article :class="calendarItemClass(item)" class="calendar-item is-row">
-                            <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-item-title"><img x-show="item.thumbnail_url" :src="remoteImageUrl(item.thumbnail_url)" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" class="calendar-thumbnail is-week"><span><strong x-text="item.subscription_title"></strong><small x-text="calendarTransferProgressLabel(item)"></small></span><span class="calendar-item-episode" x-text="item.episode ? 'S' + item.season + ' · E' + item.episode : '上映 / 开播'"></span></button>
+                            <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-item-title"><img x-show="item.thumbnail_url" :src="remoteImageUrl(item.thumbnail_url)" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" class="calendar-thumbnail is-week"><span class="calendar-item-copy"><strong x-text="item.subscription_title"></strong><small x-text="calendarCardMetaLabel(item)"></small></span></button>
                           </article>
                         </template>
                         <div x-show="day.items.length === 0" class="calendar-day-empty">暂无排期</div>
