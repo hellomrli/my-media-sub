@@ -724,44 +724,6 @@ impl QuarkSaveClient {
         Ok(())
     }
 
-    /// 移动文件
-    #[allow(dead_code)]
-    pub async fn move_items(&self, fids: &[String], target_fid: &str) -> Result<()> {
-        let payload = serde_json::json!({
-            "action_type": 1,
-            "exclude_fids": [],
-            "filelist": fids,
-            "to_pdir_fid": target_fid,
-        });
-
-        let data = self.post("/file/move", &payload).await?;
-
-        if let Some(err) = Self::api_error(&data) {
-            return Err(AppError::Http(err));
-        }
-
-        Ok(())
-    }
-
-    /// 复制文件
-    #[allow(dead_code)]
-    pub async fn copy_items(&self, fids: &[String], target_fid: &str) -> Result<()> {
-        let payload = serde_json::json!({
-            "action_type": 1,
-            "exclude_fids": [],
-            "filelist": fids,
-            "to_pdir_fid": target_fid,
-        });
-
-        let data = self.post("/file/copy", &payload).await?;
-
-        if let Some(err) = Self::api_error(&data) {
-            return Err(AppError::Http(err));
-        }
-
-        Ok(())
-    }
-
     // ── 转存分享文件 ──────────────────────────────────────────
 
     /// 转存分享文件到自己的网盘
@@ -788,33 +750,6 @@ impl QuarkSaveClient {
         }
 
         Ok(())
-    }
-
-    /// 转存整个分享链接的所有顶层文件
-    #[allow(dead_code)]
-    pub async fn save_entire_share(
-        &self,
-        pwd_id: &str,
-        stoken: &str,
-        top_files: &[super::quark::QuarkFile],
-        to_pdir_fid: &str,
-    ) -> Result<()> {
-        let mut fid_list = Vec::new();
-        let mut fid_token_list = Vec::new();
-
-        for f in top_files {
-            if !f.fid.is_empty() && !f.share_fid_token.is_empty() {
-                fid_list.push(f.fid.clone());
-                fid_token_list.push(f.share_fid_token.clone());
-            }
-        }
-
-        if fid_list.is_empty() {
-            return Err(AppError::Validation("没有可转存的文件".to_string()));
-        }
-
-        self.save_share_files(pwd_id, stoken, &fid_list, &fid_token_list, to_pdir_fid)
-            .await
     }
 }
 

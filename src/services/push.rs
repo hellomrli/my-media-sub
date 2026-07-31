@@ -42,7 +42,6 @@ fn is_endpoint_gone_description(description: &str) -> bool {
 }
 
 /// 推送级别
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PushLevel {
     Info,
@@ -571,16 +570,6 @@ impl PushService {
     }
 
     /// 发送推送到所有启用的渠道
-    #[allow(dead_code)]
-    pub async fn send(
-        &self,
-        title: &str,
-        message: &str,
-        level: PushLevel,
-    ) -> HashMap<String, bool> {
-        self.send_detailed(title, message, level).await.results
-    }
-
     pub async fn send_detailed(
         &self,
         title: &str,
@@ -593,19 +582,6 @@ impl PushService {
     }
 
     /// 发送推送到指定渠道
-    #[allow(dead_code)]
-    pub async fn send_to_channels(
-        &self,
-        channels: &[String],
-        title: &str,
-        message: &str,
-        level: PushLevel,
-    ) -> HashMap<String, bool> {
-        self.send_to_channels_detailed(channels, title, message, level)
-            .await
-            .results
-    }
-
     pub async fn send_to_channels_detailed(
         &self,
         channels: &[String],

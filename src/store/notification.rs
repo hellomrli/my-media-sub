@@ -53,7 +53,7 @@ impl NotificationStore {
                 )));
             }
             Err(error) => {
-                tracing::warn!("解析通知 JSON 失败，已隔离损坏文件并使用空通知: {}", error);
+                tracing::error!("解析通知 JSON 失败，已隔离损坏文件并使用空通知: {}", error);
                 quarantine_corrupt_file(&self.path);
                 *items = Vec::new();
             }

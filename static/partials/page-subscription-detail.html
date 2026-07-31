@@ -44,7 +44,7 @@
                     <div class="subscription-detail-actions">
                       <button @click="checkSubscription(selectedSubscriptionId)" class="btn-secondary"><span>立即检查</span><small>刷新来源和剧集状态</small></button>
                       <button @click="repairSubscriptionMissingEpisodes()" :disabled="subscriptionDetailSummary.missing_count === 0 && subscriptionDetailSummary.pending_transfer_count === 0" class="btn-primary disabled:opacity-40"><span>检查并补集</span><small x-text="subscriptionDetailSummary.missing_count ? ('缺 ' + subscriptionDetailSummary.missing_count + ' 集') : ('待转存 ' + subscriptionDetailSummary.pending_transfer_count + ' 集')"></small></button>
-                      <a :href="selectedSubscription.url" target="_blank" rel="noopener noreferrer" class="btn-secondary">打开分享</a>
+                      <a :href="safeExternalUrl(selectedSubscription.url)" target="_blank" rel="noopener noreferrer" class="btn-secondary">打开分享</a>
                     </div>
                   </div>
                   <div class="subscription-detail-health" :class="subscriptionStatusKey(selectedSubscription)">

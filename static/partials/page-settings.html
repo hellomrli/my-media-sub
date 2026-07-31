@@ -700,7 +700,7 @@
                         <div class="text-sm text-text mt-2 break-words" x-text="updateInfo ? updateInfo.release_name : '-'"></div>
                         <div class="text-xs text-muted/75 mt-1" x-text="updateInfo ? '发布时间 ' + formatUpdateTime(updateInfo.published_at) : '-'"></div>
                       </div>
-                      <a x-show="updateInfo && updateInfo.release_url" :href="updateInfo ? updateInfo.release_url : null" target="_blank" rel="noopener noreferrer" class="btn-secondary px-3 py-2 rounded text-xs text-center whitespace-nowrap">打开 Release</a>
+                      <a x-show="updateInfo && updateInfo.release_url" :href="safeExternalUrl(updateInfo && updateInfo.release_url)" target="_blank" rel="noopener noreferrer" class="btn-secondary px-3 py-2 rounded text-xs text-center whitespace-nowrap">打开 Release</a>
                     </div>
                     <pre x-show="updateInfo && updateInfo.release_notes" class="max-h-64 overflow-y-auto whitespace-pre-wrap text-xs text-muted leading-5" x-text="updateInfo ? updateInfo.release_notes : ''"></pre>
                     <div x-show="updateInfo && !updateInfo.release_notes" class="text-sm text-muted/75">暂无版本说明</div>

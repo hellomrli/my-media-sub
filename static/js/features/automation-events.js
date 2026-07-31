@@ -27,18 +27,9 @@
     if (seconds < 60) return `${seconds}秒`;
     return `${Math.floor(seconds / 60)}分${seconds % 60}秒`;
   }
-  function episodeGroups(events) {
-    const groups = new Map();
-    for (const event of Array.isArray(events) ? events : []) {
-      if (event.episode === null || event.episode === undefined) continue;
-      if (!groups.has(event.episode)) groups.set(event.episode, []);
-      groups.get(event.episode).push(event);
-    }
-    return [...groups.entries()].sort((a,b)=>a[0]-b[0]).map(([episode, items])=>({episode, items}));
-  }
   function canRetry(event) { return !!event && ['failed','canceled'].includes(event.status); }
   function timeline(events, limit = 100) {
     return [...(events || [])].sort((a,b)=>Number(a.updated_at||a.created_at||0)-Number(b.updated_at||b.created_at||0)).slice(-limit);
   }
-  return Object.freeze({canRetry, duration, episodeGroups, stageLabel, statusLabel, statusTone, timeline});
+  return Object.freeze({canRetry, duration, stageLabel, statusLabel, statusTone, timeline});
 });

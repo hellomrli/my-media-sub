@@ -217,7 +217,7 @@
         }
       }
 
-      if (this.currentTab === 'settings' && this.currentSettingsTab === 'maintenance') {
+      if (this.currentTab === 'settings' && this.currentSettingsTab === 'update') {
         if (!this.updateInfo && !this.updateLoading) this.checkUpdate(true);
         if (!this.updateReleases.length && !this.updateReleasesLoading) this.loadUpdateReleases(true);
         this.loadUpdateProgress().then(progress => {

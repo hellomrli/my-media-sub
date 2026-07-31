@@ -45,7 +45,7 @@ pub struct TelegramUserSessionRecord {
     pub payload: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct TelegramBotPersistentState {
     #[serde(default)]
     pub processed_update_ids: Vec<i64>,
@@ -100,7 +100,7 @@ impl TelegramBotStore {
                 )))
             }
             Err(error) => {
-                tracing::warn!("Telegram Bot 状态损坏，已隔离并使用空状态: {error}");
+                tracing::error!("Telegram Bot 状态损坏，已隔离并使用空状态: {error}");
                 quarantine_corrupt_file(&self.path);
                 let state = TelegramBotPersistentState::default();
                 self.save(&state).await?;
@@ -206,10 +206,15 @@ impl TelegramBotStore {
     {
         let _guard = self.save_lock.lock().await;
         let mut snapshot = self.state.read().await.clone();
+        let before = snapshot.clone();
         let result = update(&mut snapshot);
         trim_state(&mut snapshot);
-        self.save(&snapshot).await?;
-        *self.state.write().await = snapshot;
+        // Telegram 会高频重投已处理过的 update/callback；未发生任何变更时
+        // 跳过全文件重写，避免每次轮询都触发一次 fsync + rename。
+        if snapshot != before {
+            self.save(&snapshot).await?;
+            *self.state.write().await = snapshot;
+        }
         Ok(result)
     }
 
@@ -291,6 +296,28 @@ mod tests {
         let store = TelegramBotStore::new(&path);
         assert!(store.load().await.is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), content);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn duplicate_claim_skips_disk_rewrite() {
+        let path = std::env::temp_dir().join(format!(
+            "my-media-sub-telegram-noop-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let store = TelegramBotStore::new(&path);
+        store.load().await.unwrap();
+        assert!(store.claim_update(1).await.unwrap());
+
+        let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        // 重复认领是 no-op，不应触发全文件重写
+        assert!(!store.claim_update(1).await.unwrap());
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().modified().unwrap(),
+            modified,
+            "no-op 认领不应重写磁盘文件"
+        );
         let _ = std::fs::remove_file(path);
     }
 

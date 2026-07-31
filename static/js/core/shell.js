@@ -35,7 +35,6 @@
         this.loadSubscriptions(),
         this.loadNotifications(),
         this.loadJobs(),
-        this.loadAutomationSummary(),
         this.loadSettings(),
         this.loadSettingsSchema()
       ]);
@@ -167,7 +166,6 @@
           this.loadDownloads(true)
         ]);
       }
-      else if (this.currentTab === 'calendar') await this.loadCalendar();
       else if (this.currentTab === 'subscriptions') {
         await this.loadSubscriptions();
         if (this.selectedSubscriptionId) await this.loadSubscriptionDetail(this.selectedSubscriptionId);
@@ -175,7 +173,7 @@
       else if (this.currentTab === 'notifications') await this.loadActivity();
       else if (this.currentTab === 'diagnostics') await this.loadDiagnostics();
       else if (this.currentTab === 'settings') {
-        if (this.currentSettingsTab === 'maintenance') {
+        if (this.currentSettingsTab === 'update') {
           await Promise.all([this.loadSettings(), this.checkUpdate(true)]);
         } else {
           await this.loadSettings();

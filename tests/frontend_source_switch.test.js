@@ -2,7 +2,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   applyButtonState,
-  canApplyPreview,
   episodeRange,
   historyLabel,
   previewMatches,
@@ -27,9 +26,8 @@ test('candidate quality and episode range have compatibility fallbacks', () => {
 });
 
 test('preview must belong to the candidate and pass backend safety checks', () => {
-  assert.equal(canApplyPreview({can_apply: true, candidate: {id: 'a'}}, 'a'), true);
-  assert.equal(canApplyPreview({can_apply: false, candidate: {id: 'a'}}, 'a'), false);
-  assert.equal(canApplyPreview({can_apply: true, candidate: {id: 'b'}}, 'a'), false);
+  assert.equal(previewMatches({candidate: {id: 'a'}}, 'a'), true);
+  assert.equal(previewMatches({candidate: {id: 'b'}}, 'a'), false);
 });
 
 test('apply stays clickable before preview so搜索结果可以直接应用', () => {

@@ -17,7 +17,7 @@
     const url = new URL(typeof request === 'string' ? request : request.url, origin);
     if (url.origin !== origin) return 'network-only';
     const path = url.pathname;
-    if (path === '/api' || path.startsWith('/api/') || path === '/strm' || path.startsWith('/strm/')) {
+    if (path === '/api' || path.startsWith('/api/')) {
       return 'network-only';
     }
     if (path === '/health') return 'network-only';

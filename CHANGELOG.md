@@ -4,6 +4,35 @@ My Media Sub 的版本变更记录。新版本写在上方。
 
 升级步骤见对应的 [`docs/upgrade-v*.md`](docs/)；当前版本发布说明摘要也写在 [`README.md`](README.md) 的「版本说明」中。
 
+## 2.2.27
+
+### 安全加固
+
+- **在线升级解压前校验归档成员路径**。`tar -tvzf` 列出成员后拒绝绝对路径、`..` 组件与逃逸符号链接目标，解压加 `--no-same-owner` 并做解压后越界兜底校验，防止恶意升级包写出工作目录。
+- **推送凭据不再进 URL**。Gotify 使用 `X-Gotify-Key` 请求头、PushPlus 改为 HTTPS，避免 token/key 泄漏到访问日志。
+- **前端外链统一校验**。所有 `:href` 绑定经 `safeExternalUrl` 过滤，只放行 http/https，消除 `javascript:` 注入面。
+- **浏览器推送订阅拦截私网端点**。拒绝指向本机/回环/私网/链路本地的 HTTPS 订阅，防内网探测。
+
+### 数据一致性
+
+- **修复自动化 Token 轮换竞态**。`rotate`/`revoke`/`authenticate` 在持锁覆盖「落盘 + 内存更新」整个区间，并发校验不再可能用旧记录覆写新轮换的 token；新增并发回归测试。
+- **订阅自动转存失败不再自动重试**。转存不幂等，自动重试/崩溃恢复可能重复转存同一批文件；现保留终态由人工确认，元数据刮削与推送仍自动重试。
+- **看门狗宽限期**。任务判定卡死后先给 15 秒到达持久化点，避免 abort 与成功落盘竞争导致已完成的外部转存被误判为超时后重跑。
+
+### 修复
+
+- **设置页「版本更新」自动检查失效**。标签改名后 `maintenance` 分支永不可达，更新页进入时不再自动检查、刷新与轮询进度；改为正确的 `update` 分支，并清理永不触发的 `calendar` 刷新分支。
+
+### 工作台
+
+- 概览卡日期与状态摘要并排成一行、按钮降高；日历卡工具栏与周视图留白收敛；沿用既有统一字阶。
+
+### 清理
+
+- 移除旧版 "Media Deck" 仪表盘与媒体库的整块遗留 CSS（hero/kpi/media/watchlist 等）、dashboard 与多模块的死 JS 函数、`automationSummary` 死字段。
+- Rust：删除 `quark_save` 三个未用函数、`SubscriptionStatus`/`MediaType` 枚举、`trigger_manual_check`、`push.send`/`send_to_channels`、`subscription_check` 的同步回退路径；测试用 mock 改为 `#[cfg(test)]` 不编译进生产二进制。
+- 删除过期的 v1.x 升级文档（v1.2.0–v1.13.1）与 523KB 的旧架构图 PNG，`architecture.md` 标注 SVG 待重生成。
+
 ## 2.2.26
 
 ### 工作台日历

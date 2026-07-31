@@ -24,6 +24,8 @@
     calendarCursor: '',
     calendarStatusFilter: 'all',
     calendarMediaFilter: 'all',
+    /// 请求序号：快速切换视图/翻页时丢弃乱序返回的过期响应。
+    calendarRequestId: 0,
     calendarStatusOptions: [
       {id: 'all', name: '全部状态'},
       {id: 'today', name: '今日更新'},
@@ -151,6 +153,7 @@
     },
 
     async loadCalendar() {
+      const requestId = ++this.calendarRequestId;
       this.calendarLoading = true;
       this.calendarError = '';
       const range = this.calendarRange;
@@ -158,12 +161,15 @@
       if (this.calendarStatusFilter !== 'all') params.set('status', this.calendarStatusFilter);
       if (this.calendarMediaFilter !== 'all') params.set('media_type', this.calendarMediaFilter);
       try {
-        this.calendar = await apiData(`/api/calendar?${params.toString()}`, {cache: 'no-store'});
+        const data = await apiData(`/api/calendar?${params.toString()}`, {cache: 'no-store'});
+        if (requestId !== this.calendarRequestId) return;
+        this.calendar = data;
       } catch (error) {
+        if (requestId !== this.calendarRequestId) return;
         console.error('加载更新日历失败:', error);
         this.calendarError = this.apiErrorMessage(error, '更新日历加载失败');
       } finally {
-        this.calendarLoading = false;
+        if (requestId === this.calendarRequestId) this.calendarLoading = false;
       }
     },
 

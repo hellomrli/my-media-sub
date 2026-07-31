@@ -59,7 +59,6 @@ test('page navigation stops page-bound pollers before applying the next page eff
   store.loadDrive = () => {};
   store.loadDownloads = () => {};
   store.loadNotifications = () => {};
-  store.loadAutomationSummary = () => {};
   store.checkUpdate = () => {};
   store.loadUpdateReleases = () => {};
   store.loadUpdateProgress = async () => null;

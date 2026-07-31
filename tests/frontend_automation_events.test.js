@@ -10,8 +10,6 @@ test('automation event labels and tones are stable', () => {
 });
 
 test('events are grouped by episode and retry is limited to terminal failures', () => {
-  const groups = tools.episodeGroups([{episode: 2, id: 'b'}, {episode: 1, id: 'a'}, {episode: null}]);
-  assert.deepEqual(groups.map(group => group.episode), [1, 2]);
   assert.equal(tools.canRetry({status: 'failed'}), true);
   assert.equal(tools.canRetry({status: 'running'}), false);
 });

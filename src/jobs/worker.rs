@@ -41,6 +41,8 @@ const MAX_SIGNAL_DRAIN_PER_TICK: usize = 512;
 pub(crate) const SHUTDOWN_GRACE_SECONDS: u64 = 30;
 /// 卡死看门狗的心跳轮询间隔（秒）。
 const WATCHDOG_POLL_SECONDS: u64 = 60;
+/// 看门狗判定卡死后，再给任务到达持久化点的宽限时间（秒）。
+const WATCHDOG_GRACE_SECONDS: u64 = 15;
 
 /// 运行中任务的中止句柄注册表：取消 API 通过它真正终止已在执行的任务。
 pub(crate) type RunningJobHandles = Arc<StdMutex<HashMap<String, AbortHandle>>>;
@@ -199,8 +201,25 @@ impl JobWorker {
                                     Err(join_error) => JobTaskResult::Panicked(join_error.to_string()),
                                 },
                                 _ = watchdog => {
-                                    handle.abort();
-                                    JobTaskResult::TimedOut
+                                    // 看门狗判定卡死后，先给任务一个短宽限期到达持久化点，
+                                    // 避免「任务即将落盘成功」与「看门狗先触发」竞争，
+                                    // 导致 abort 把已完成的外部副作用误判为超时后重跑。
+                                    let grace = tokio::select! {
+                                        joined = &mut handle => Some(joined),
+                                        _ = tokio::time::sleep(std::time::Duration::from_secs(
+                                            WATCHDOG_GRACE_SECONDS,
+                                        )) => None,
+                                    };
+                                    match grace {
+                                        Some(joined) => match joined {
+                                            Ok(result) => JobTaskResult::Finished(result),
+                                            Err(join_error) => JobTaskResult::Panicked(join_error.to_string()),
+                                        },
+                                        None => {
+                                            handle.abort();
+                                            JobTaskResult::TimedOut
+                                        }
+                                    }
                                 }
                             };
                             running_job_handles(&handles).remove(&job.id);

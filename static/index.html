@@ -11,9 +11,9 @@
   <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%234f46e5%27/%3E%3Cpath d=%27M8 9h16v14H8zm4-4v22m8-22v22%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27/%3E%3C/svg%3E">
-  <script src="js/theme-init.js?v=2.2.26"></script>
-  <link rel="stylesheet" href="styles.css?v=2.2.26">
-  <script defer src="vendor/alpine.min.js?v=2.2.26"></script>
+  <script src="js/theme-init.js?v=2.2.27"></script>
+  <link rel="stylesheet" href="styles.css?v=2.2.27">
+  <script defer src="vendor/alpine.min.js?v=2.2.27"></script>
 </head>
 <body class="bg-app text-text/90 min-h-screen" x-data="app()" x-cloak>
 
@@ -510,7 +510,7 @@
 
                     <div class="search-result-actions">
                       <button @click.stop="openSearchResultPreview(result)" class="btn-primary">查看并添加</button>
-                      <a @click.stop :href="result.url" target="_blank" rel="noopener noreferrer" aria-label="打开原始分享链接">
+                      <a @click.stop :href="safeExternalUrl(result.url)" target="_blank" rel="noopener noreferrer" aria-label="打开原始分享链接">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 3h7v7m0-7-9 9M5 7v12h12v-5"/></svg>
                       </a>
                     </div>
@@ -539,7 +539,7 @@
                   <div class="search-list-quality"><span :class="searchResultQualityClass(result)"><strong x-text="searchResultInsights(result).score"></strong><span x-text="searchResultInsights(result).grade"></span></span><span :class="searchResultValidityBadgeClass(result)" x-text="searchResultValidityLabel(result)"></span></div>
                   <div class="search-list-content"><strong x-text="searchResultFileSummary(result)"></strong><small x-text="searchResultInsights(result).totalSize ? formatSize(searchResultInsights(result).totalSize) : '容量未知'"></small></div>
                   <div class="search-list-updated"><strong x-text="searchResultUpdateLabel(result)"></strong><small x-text="searchResultInsights(result).risks[0] || '未发现明显风险'"></small></div>
-                  <div class="search-list-actions"><button @click="openSearchResultPreview(result)" class="btn-primary">查看并添加</button><a :href="result.url" target="_blank" rel="noopener noreferrer">打开</a></div>
+                  <div class="search-list-actions"><button @click="openSearchResultPreview(result)" class="btn-primary">查看并添加</button><a :href="safeExternalUrl(result.url)" target="_blank" rel="noopener noreferrer">打开</a></div>
                 </div>
               </template>
             </div>
@@ -628,7 +628,7 @@
                   </div>
 
                   <div class="search-preview-actions">
-                    <a :href="selectedSearchResult.url" target="_blank" rel="noopener noreferrer" class="btn-secondary">打开原始分享</a>
+                    <a :href="safeExternalUrl(selectedSearchResult.url)" target="_blank" rel="noopener noreferrer" class="btn-secondary">打开原始分享</a>
                     <button @click="startSearchResultAction('once')" class="btn-secondary"><span>立即转存</span><small>只保存当前资源</small></button>
                     <button @click="startSearchResultAction('continuous')" class="btn-primary"><span>创建追更订阅</span><small>持续检查后续更新</small></button>
                   </div>
@@ -1097,7 +1097,7 @@
                     <div class="subscription-detail-actions">
                       <button @click="checkSubscription(selectedSubscriptionId)" class="btn-secondary"><span>立即检查</span><small>刷新来源和剧集状态</small></button>
                       <button @click="repairSubscriptionMissingEpisodes()" :disabled="subscriptionDetailSummary.missing_count === 0 && subscriptionDetailSummary.pending_transfer_count === 0" class="btn-primary disabled:opacity-40"><span>检查并补集</span><small x-text="subscriptionDetailSummary.missing_count ? ('缺 ' + subscriptionDetailSummary.missing_count + ' 集') : ('待转存 ' + subscriptionDetailSummary.pending_transfer_count + ' 集')"></small></button>
-                      <a :href="selectedSubscription.url" target="_blank" rel="noopener noreferrer" class="btn-secondary">打开分享</a>
+                      <a :href="safeExternalUrl(selectedSubscription.url)" target="_blank" rel="noopener noreferrer" class="btn-secondary">打开分享</a>
                     </div>
                   </div>
                   <div class="subscription-detail-health" :class="subscriptionStatusKey(selectedSubscription)">
@@ -1244,7 +1244,7 @@
                       <div x-show="(sourceCandidateQuality(candidate).recommendation_reasons || []).length" class="text-xs text-success" x-text="sourceCandidateQuality(candidate).recommendation_reasons.join(' · ')"></div>
                     </div>
                     <div class="flex gap-2 sm:flex-col">
-                      <a :href="candidate.url" target="_blank" rel="noopener noreferrer" class="btn-secondary px-3 py-2 rounded text-sm whitespace-nowrap text-center">打开链接</a>
+                      <a :href="safeExternalUrl(candidate.url)" target="_blank" rel="noopener noreferrer" class="btn-secondary px-3 py-2 rounded text-sm whitespace-nowrap text-center">打开链接</a>
                       <button @click="applySourceCandidate(candidate)" :disabled="sourceCandidateApplyState(candidate).disabled" class="btn-primary px-3 py-2 rounded text-sm whitespace-nowrap disabled:opacity-50" x-text="sourceCandidateApplyState(candidate).label"></button>
                     </div>
                   </div>
@@ -2150,7 +2150,7 @@
                         <div class="text-sm text-text mt-2 break-words" x-text="updateInfo ? updateInfo.release_name : '-'"></div>
                         <div class="text-xs text-muted/75 mt-1" x-text="updateInfo ? '发布时间 ' + formatUpdateTime(updateInfo.published_at) : '-'"></div>
                       </div>
-                      <a x-show="updateInfo && updateInfo.release_url" :href="updateInfo ? updateInfo.release_url : null" target="_blank" rel="noopener noreferrer" class="btn-secondary px-3 py-2 rounded text-xs text-center whitespace-nowrap">打开 Release</a>
+                      <a x-show="updateInfo && updateInfo.release_url" :href="safeExternalUrl(updateInfo && updateInfo.release_url)" target="_blank" rel="noopener noreferrer" class="btn-secondary px-3 py-2 rounded text-xs text-center whitespace-nowrap">打开 Release</a>
                     </div>
                     <pre x-show="updateInfo && updateInfo.release_notes" class="max-h-64 overflow-y-auto whitespace-pre-wrap text-xs text-muted leading-5" x-text="updateInfo ? updateInfo.release_notes : ''"></pre>
                     <div x-show="updateInfo && !updateInfo.release_notes" class="text-sm text-muted/75">暂无版本说明</div>
@@ -2800,29 +2800,29 @@
     </div>
   </div>
   <!-- Alpine.js 应用逻辑 -->
-  <script src="js/core/api.js?v=2.2.26"></script>
-  <script src="js/core/formatters.js?v=2.2.26"></script>
-  <script src="js/core/ux.js?v=2.2.26"></script>
-  <script src="js/features/search-results.js?v=2.2.26"></script>
-  <script src="js/features/subscription-detail.js?v=2.2.26"></script>
-  <script src="js/features/calendar.js?v=2.2.26"></script>
-  <script src="js/features/source-switch.js?v=2.2.26"></script>
-  <script src="js/features/automation-events.js?v=2.2.26"></script>
-  <script src="js/core/polling.js?v=2.2.26"></script>
-  <script src="js/core/router.js?v=2.2.26"></script>
-  <script src="js/core/notifications.js?v=2.2.26"></script>
-  <script src="js/stores/downloads.js?v=2.2.26"></script>
-  <script src="js/stores/drive.js?v=2.2.26"></script>
-  <script src="js/stores/jobs.js?v=2.2.26"></script>
-  <script src="js/stores/subscriptions.js?v=2.2.26"></script>
-  <script src="js/features/updates.js?v=2.2.26"></script>
-  <script src="js/features/settings.js?v=2.2.26"></script>
-  <script src="js/features/diagnostics.js?v=2.2.26"></script>
-  <script src="js/features/pwa.js?v=2.2.26"></script>
-  <script src="js/features/dashboard.js?v=2.2.26"></script>
-  <script src="js/features/search-page.js?v=2.2.26"></script>
-  <script src="js/features/calendar-page.js?v=2.2.26"></script>
-  <script src="js/core/shell.js?v=2.2.26"></script>
-  <script src="app.js?v=2.2.26"></script>
+  <script src="js/core/api.js?v=2.2.27"></script>
+  <script src="js/core/formatters.js?v=2.2.27"></script>
+  <script src="js/core/ux.js?v=2.2.27"></script>
+  <script src="js/features/search-results.js?v=2.2.27"></script>
+  <script src="js/features/subscription-detail.js?v=2.2.27"></script>
+  <script src="js/features/calendar.js?v=2.2.27"></script>
+  <script src="js/features/source-switch.js?v=2.2.27"></script>
+  <script src="js/features/automation-events.js?v=2.2.27"></script>
+  <script src="js/core/polling.js?v=2.2.27"></script>
+  <script src="js/core/router.js?v=2.2.27"></script>
+  <script src="js/core/notifications.js?v=2.2.27"></script>
+  <script src="js/stores/downloads.js?v=2.2.27"></script>
+  <script src="js/stores/drive.js?v=2.2.27"></script>
+  <script src="js/stores/jobs.js?v=2.2.27"></script>
+  <script src="js/stores/subscriptions.js?v=2.2.27"></script>
+  <script src="js/features/updates.js?v=2.2.27"></script>
+  <script src="js/features/settings.js?v=2.2.27"></script>
+  <script src="js/features/diagnostics.js?v=2.2.27"></script>
+  <script src="js/features/pwa.js?v=2.2.27"></script>
+  <script src="js/features/dashboard.js?v=2.2.27"></script>
+  <script src="js/features/search-page.js?v=2.2.27"></script>
+  <script src="js/features/calendar-page.js?v=2.2.27"></script>
+  <script src="js/core/shell.js?v=2.2.27"></script>
+  <script src="app.js?v=2.2.27"></script>
 </body>
 </html>

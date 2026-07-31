@@ -167,7 +167,8 @@ macro_rules! push_channel_methods {
 
         let resp = self
             .client
-            .post(format!("{}/message?token={}", url, token))
+            .post(format!("{}/message", url))
+            .header("X-Gotify-Key", token)
             .json(&payload)
             .send_observed("push")
             .await
@@ -192,7 +193,7 @@ macro_rules! push_channel_methods {
 
         let resp = self
             .client
-            .post("http://www.pushplus.plus/send")
+            .post("https://www.pushplus.plus/send")
             .json(&payload)
             .send_observed("push")
             .await

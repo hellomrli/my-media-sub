@@ -463,10 +463,6 @@
       return `width: ${value}%`;
     },
 
-    formatPercent(value) {
-      return mediaFormatters.formatPercent(value);
-    },
-
     formatDownloadSize(bytes) {
       return mediaFormatters.formatBytes(bytes);
     },

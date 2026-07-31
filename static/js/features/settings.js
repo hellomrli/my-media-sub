@@ -282,13 +282,6 @@
       return '未开启自动';
     },
 
-    // 今日签到状态对应的文字颜色
-    quarkSigninTodayClass() {
-      const notif = this.todaysSigninNotification();
-      if (notif) return notif.level === 'success' ? 'text-success' : 'text-danger';
-      return this.settings.quark_signin_enabled ? 'text-warning' : 'text-muted';
-    },
-
     quarkHealthStatusLabel() {
       const labels = {ok: '正常', failed: '异常', unknown: '未检测'};
       return labels[this.quarkHealth.status] || '未检测';

@@ -48,6 +48,41 @@ async fn browser_push_status(
     }))
 }
 
+/// 判断 HTTPS 端点是否指向私网/本机/回环/链路本地地址。IP 字面量直接判断；
+/// 域名则解析全部地址，任一命中私网即拒绝，解析失败按不安全处理。
+async fn endpoint_is_private(endpoint: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(endpoint) else {
+        return true;
+    };
+    let Some(host) = url.host_str().map(str::to_owned) else {
+        return true;
+    };
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        return is_private_ip(&ip);
+    }
+    let result = match tokio::net::lookup_host((host.as_str(), 443)).await {
+        Ok(addresses) => addresses
+            .into_iter()
+            .any(|address| is_private_ip(&address.ip())),
+        Err(_) => true,
+    };
+    result
+}
+
+fn is_private_ip(ip: &std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_private() || v4.is_loopback() || v4.is_link_local() || v4.is_unspecified()
+        }
+        std::net::IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_unique_local()
+                || v6.is_unicast_link_local()
+        }
+    }
+}
+
 async fn subscribe_browser_push(
     State(state): State<Arc<PushState>>,
     Json(request): Json<BrowserSubscriptionRequest>,
@@ -59,6 +94,13 @@ async fn subscribe_browser_push(
     {
         return Err(crate::error::AppError::Validation(
             "Browser Push 订阅参数无效".to_string(),
+        ));
+    }
+    // 拒绝指向私网/本机/回环/链路本地的端点，防止已认证用户把推送发往内网
+    // HTTPS 服务探测。
+    if endpoint_is_private(&request.endpoint).await {
+        return Err(crate::error::AppError::Validation(
+            "不支持订阅私网或本机推送端点".to_string(),
         ));
     }
     let endpoint = request.endpoint.clone();
