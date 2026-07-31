@@ -13,8 +13,8 @@ pub use subscription::{Subscription, SyncDownloadRecord};
 pub use automation_event::{AutomationEvent, AutomationStage, AutomationStatus};
 
 pub use calendar::{
-    CalendarConfidence, CalendarQuickActions, CalendarScheduleSource, CalendarStatus,
-    MediaCalendar, MediaCalendarItem, MediaCalendarSummary,
+    CalendarConfidence, CalendarQuickActions, CalendarScheduleSource, CalendarSourceAlert,
+    CalendarStatus, MediaCalendar, MediaCalendarItem, MediaCalendarSummary,
 };
 
 pub use rules::TransferRules;

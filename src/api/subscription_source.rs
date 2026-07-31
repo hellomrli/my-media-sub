@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::task::JoinSet;
 
 use super::response::ApiResponse as Response;
 use crate::app::AppContext;
@@ -18,6 +20,9 @@ use crate::services::notification::add_notification;
 use crate::services::subscription_source_switch::{
     SourceSwitchPreview, SourceSwitchRollbackResult, SubscriptionSourceSwitchService,
 };
+
+const AUTO_PROBE_CANDIDATE_LIMIT: usize = 5;
+const AUTO_PROBE_TIMEOUT: Duration = Duration::from_secs(12);
 
 /// 获取订阅的换源候选列表
 pub async fn get_source_candidates(
@@ -228,28 +233,16 @@ pub async fn trigger_source_search(
     let service = source_switch_service(&settings.pansou_api_url, &settings.quark_cookie);
     let mut candidates = service.search_source_candidates(&sub).await?;
 
-    // 自动探测前5个候选的有效性
+    // 自动探测前几个候选的有效性。探测涉及外部分享请求，必须并发限时，
+    // 避免单个慢源把整次搜索请求串行拖长。
     let now_ms = chrono::Utc::now().timestamp_millis();
-    let probe_count = candidates.len().min(5);
-    for i in 0..probe_count {
-        if let Some(candidate) = candidates.get(i).cloned() {
-            match service
-                .probe_and_score_candidate(&candidate, &settings.quark_cookie, now_ms)
-                .await
-            {
-                Ok(scored) => {
-                    candidates[i] = scored;
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        "自动探测候选 {} 失败: {}",
-                        crate::utils::redact_url(&candidate.url),
-                        error
-                    );
-                }
-            }
-        }
-    }
+    probe_top_candidates(
+        &mut candidates,
+        &settings.pansou_api_url,
+        &settings.quark_cookie,
+        now_ms,
+    )
+    .await;
 
     let updated_candidates = candidates.clone();
     ctx.subscription_store
@@ -259,6 +252,54 @@ pub async fn trigger_source_search(
         })
         .await?;
     Ok(Json(Response::ok(candidates)))
+}
+
+async fn probe_top_candidates(
+    candidates: &mut [SourceCandidate],
+    pansou_url: &str,
+    cookie: &str,
+    now_ms: i64,
+) {
+    let probe_count = candidates.len().min(AUTO_PROBE_CANDIDATE_LIMIT);
+    let mut tasks = JoinSet::new();
+    for (index, candidate) in candidates.iter().take(probe_count).cloned().enumerate() {
+        let pansou_url = pansou_url.to_string();
+        let cookie = cookie.to_string();
+        tasks.spawn(async move {
+            let redacted_url = crate::utils::redact_url(&candidate.url);
+            let service = source_switch_service(&pansou_url, &cookie);
+            let result = tokio::time::timeout(
+                AUTO_PROBE_TIMEOUT,
+                service.probe_and_score_candidate(&candidate, &cookie, now_ms),
+            )
+            .await;
+            match result {
+                Ok(Ok(scored)) => (index, redacted_url, Ok(scored)),
+                Ok(Err(error)) => (index, redacted_url, Err(error.to_string())),
+                Err(_) => (
+                    index,
+                    redacted_url,
+                    Err(format!("超过 {} 秒未完成", AUTO_PROBE_TIMEOUT.as_secs())),
+                ),
+            }
+        });
+    }
+
+    while let Some(result) = tasks.join_next().await {
+        match result {
+            Ok((index, _, Ok(scored))) => {
+                if let Some(candidate) = candidates.get_mut(index) {
+                    *candidate = scored;
+                }
+            }
+            Ok((_, url, Err(error))) => {
+                tracing::warn!("自动探测候选 {} 失败: {}", url, error);
+            }
+            Err(error) => {
+                tracing::warn!("自动探测候选任务失败: {}", error);
+            }
+        }
+    }
 }
 
 pub async fn get_source_switch_history(

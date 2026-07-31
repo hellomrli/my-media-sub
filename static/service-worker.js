@@ -1,8 +1,8 @@
 /* global MediaSubPwaPolicy */
-importScripts('/js/pwa-policy.js?v=2.2.25');
+importScripts('/js/pwa-policy.js?v=2.2.26');
 
-const ASSET_VERSION = '2.2.25';
-const CACHE_VERSION = 'v2.2.25-drop-dead-features-and-ia-fixes-1';
+const ASSET_VERSION = '2.2.26';
+const CACHE_VERSION = 'v2.2.26-calendar-transfer-progress-and-source-reminders-1';
 const SHELL_CACHE = `media-sub-shell-${CACHE_VERSION}`;
 const STATIC_CACHE = `media-sub-static-${CACHE_VERSION}`;
 const CACHE_PREFIX = 'media-sub-';

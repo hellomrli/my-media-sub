@@ -243,7 +243,7 @@ Docker 的 `runtime/` 不属于业务数据备份，包含当前二进制、完�
 | 用途 | 入口 |
 |---|---|
 | 存活 | `GET /health` |
-| 指标 | `GET /metrics`（Prometheus）、`GET /api/metrics`（JSON） |
+| 指标 | `GET /metrics`（Prometheus）；JSON 指标快照包含在 `GET /api/diagnostics` 的 `metrics` 字段中 |
 | 日志过滤 | `GET\|PUT /api/observability/log-filter` |
 | 诊断 | `GET /api/diagnostics`、`GET /api/diagnostics/export` |
 | 备份 | `GET /api/backups/export`、`POST /api/backups/preview`、`GET\|POST /api/backups/verification`、`POST /api/backups/restore` |
@@ -358,6 +358,14 @@ docker compose pull && docker compose up -d
 ---
 
 ## 版本说明
+
+### 2.2.26
+
+- 工作台日历的周、月、列表视图显示订阅最高已转存集数，便于直接核对排期与转存进度。
+- 最新明确排期集已播超过 7 天、宽限期后成功检查当前来源且仍未发现该集时，工作台显示换源提醒，并提供立即检查和查找新源操作。
+- 换源搜索并发探测前 5 个候选，每个候选限制为 12 秒，避免慢源串行拖住整个请求。
+- STRM 功能暂时完全下线：生成、审计和配置入口均关闭，旧字段仅保留数据兼容，不再生成已退休的媒体 URL。
+- 修正指标与 STRM API 文档，OpenAPI 不再包含孤立的 STRM Token 安全方案。
 
 ### 2.2.25
 

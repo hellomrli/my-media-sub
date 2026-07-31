@@ -81,14 +81,10 @@ pub(super) fn quark_health_snapshot(settings: &Settings) -> TestResponse {
     directories.insert("anime".to_string(), settings.quark_save_anime_dir.clone());
 
     let cookie_configured = !settings.quark_cookie.trim().is_empty();
-    let strm_ready = !settings.strm_output_dir.trim().is_empty()
-        && !settings.strm_public_base_url.trim().is_empty();
+    let strm_ready = false;
     let mut issues = Vec::new();
     if !cookie_configured {
         issues.push("未配置夸克 Cookie".to_string());
-    }
-    if settings.strm_enabled && !strm_ready {
-        issues.push("已启用 STRM，但输出目录或访问地址未配置完整".to_string());
     }
 
     TestResponse {
@@ -100,7 +96,7 @@ pub(super) fn quark_health_snapshot(settings: &Settings) -> TestResponse {
         signin_enabled: settings.quark_signin_enabled,
         signin_cookie_configured: !settings.quark_signin_cookie.trim().is_empty(),
         root_configured: true,
-        strm_enabled: settings.strm_enabled,
+        strm_enabled: false,
         strm_ready,
         directories,
         issues,
