@@ -2090,8 +2090,11 @@ async fn update_restart_without_a_pending_plan_is_rejected() {
     let app = create_app(ctx);
 
     // 没有走完 apply 就调 restart，必须是校验错误而不是真的重启进程。
-    let (status_code, headers, body) =
-        json_response(&app, auth_post("/api/update/restart", serde_json::json!({}))).await;
+    let (status_code, headers, body) = json_response(
+        &app,
+        auth_post("/api/update/restart", serde_json::json!({})),
+    )
+    .await;
     assert_eq!(status_code, StatusCode::BAD_REQUEST);
     assert_json_content_type(&headers);
     assert_eq!(body["ok"], false);
