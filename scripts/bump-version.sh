@@ -75,6 +75,10 @@ EOF
 echo "5. Updating Cargo.lock..."
 cargo check --quiet 2>/dev/null || true
 
+# 6. 更新 static/index.html 中的版本号
+echo "6. Updating static/index.html version tags..."
+sed -i "s/\?v=$CURRENT_VERSION/?v=$NEW_VERSION/g" static/index.html
+
 echo
 echo "✅ Version bumped to $NEW_VERSION"
 echo
