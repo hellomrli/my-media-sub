@@ -359,6 +359,10 @@ docker compose pull && docker compose up -d
 
 ## 版本说明
 
+### 2.2.28
+
+- 日历订阅卡片紧凑化：将「该日期更新的集」与「目前已转存」合并为一行统一字号，卡片宽度与缩略图收窄，同一天排期更紧凑。
+
 ### 2.2.27
 
 - 安全加固：在线升级解压前校验归档成员路径（拒绝 `..`/绝对路径/逃逸链接），Gotify 改用 `X-Gotify-Key` 请求头、PushPlus 改用 HTTPS，前端所有外链统一经 `safeExternalUrl` 校验只放行 http/https，浏览器推送订阅拦截私网/本机端点。
