@@ -2247,27 +2247,28 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
 .settings-save-hint { font-size: 12px; color: rgb(var(--c-text) / .6); }
 
 /* ─── P26 日历订阅卡片：留边缩略图 + 右侧三行文字 ─────────────────────
-   缩略图不再撑满整卡，四周留出卡片内边距，图片带细边框与圆角；右侧三行：
-   加粗剧名 / 当天会上映的集 / 目前已存的集。卡片宽度收敛到刚好容纳内容。 */
+   缩略图不再撑满整卡，四周留出卡片内边距（上下与左侧同为 6px），图片带细边框
+   与圆角；右侧三行：加粗剧名 / 当天会上映的集 / 目前已存的集。卡片宽度收敛，
+   避免右侧留白过多。 */
 .calendar-item.is-row {
   flex: 0 0 auto;
   gap: 0;
   padding: 6px;
-  min-width: 244px;
-  max-width: 360px;
+  min-width: 232px;
+  max-width: 330px;
   align-items: stretch;
 }
 .calendar-item.is-row .calendar-item-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
   min-width: 0;
 }
 .calendar-item.is-row .calendar-thumbnail.is-week {
   flex: 0 0 auto;
-  width: 44px;
-  height: 60px;
+  width: 50px;
+  height: 68px;
   margin: 0;
   border: 1px solid rgb(var(--c-border) / .55);
   border-radius: 6px;
@@ -2281,7 +2282,7 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
   flex-direction: column;
   justify-content: center;
   gap: 2px;
-  padding: 2px 2px 2px 0;
+  padding: 2px 4px 2px 0;
 }
 .calendar-item.is-row .calendar-item-title strong {
   display: block;
@@ -2305,8 +2306,8 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
 .calendar-item.is-row .calendar-item-copy small:last-child { color: rgb(var(--c-muted) / .7); }
 /* 高屏行更高，缩略图宽度小幅放大保持图文比例 */
 @media (min-width: 1024px) and (min-height: 1010px) {
-  .calendar-item.is-row .calendar-thumbnail.is-week { width: 48px; height: 64px; }
+  .calendar-item.is-row .calendar-thumbnail.is-week { width: 54px; height: 72px; }
 }
 @media (min-width: 1024px) and (min-height: 1250px) {
-  .calendar-item.is-row .calendar-thumbnail.is-week { width: 52px; height: 70px; }
+  .calendar-item.is-row .calendar-thumbnail.is-week { width: 58px; height: 78px; }
 }
