@@ -82,9 +82,9 @@ impl SessionStore {
 fn main_menu_markup() -> serde_json::Value {
     json!({
         "keyboard": [
-            [{"text": "🔍 搜索"}, {"text": "📋 订阅"}],
-            [{"text": "🔄 检查全部"}, {"text": "📅 日历"}],
-            [{"text": "⚙️ 状态"}, {"text": "❓ 帮助"}]
+            [{"text": "🔍 搜索"}, {"text": "📋 订阅"}, {"text": "⚙️ 状态"}],
+            [{"text": "📅 日历"}, {"text": "🔔 通知"}, {"text": "⚙️ 任务"}],
+            [{"text": "🔄 检查全部"}, {"text": "🩺 诊断"}, {"text": "❓ 帮助"}]
         ],
         "resize_keyboard": true,
         "is_persistent": true
@@ -122,9 +122,12 @@ fn map_menu_text(text: &str) -> Option<&'static str> {
     match text.trim() {
         "🔍 搜索" | "搜索" => Some("__search_help__"),
         "📋 订阅" | "订阅" | "订阅列表" => Some("/subscriptions"),
+        "⚙️ 任务" | "任务" | "任务列表" => Some("/jobs"),
+        "🔔 通知" | "通知" | "通知列表" | "未读通知" => Some("/notifications"),
         "🔄 检查全部" | "检查全部" => Some("/check all"),
         "📅 日历" | "日历" => Some("/calendar"),
         "⚙️ 状态" | "状态" => Some("/status"),
+        "🩺 诊断" | "诊断" => Some("/diagnostics"),
         "❓ 帮助" | "帮助" => Some("/help"),
         "菜单" | "主菜单" => Some("/menu"),
         _ => None,

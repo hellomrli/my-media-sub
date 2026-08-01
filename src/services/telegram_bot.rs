@@ -1548,6 +1548,8 @@ fn chunk_chars(value: &str, limit: usize) -> Vec<String> {
 fn help_text() -> &'static str {
     "🤖 <b>MEDIA/SUB 控制</b>
 
+直接发送中文也可唤起：状态 / 订阅 / 任务 / 日历 / 通知 / 诊断 / 帮助 / 检查全部
+
 <b>资源</b>
 /search &lt;关键词&gt; — 搜索夸克资源
 /subscribe &lt;序号&gt; [季号] — 订阅搜索结果（需确认）
