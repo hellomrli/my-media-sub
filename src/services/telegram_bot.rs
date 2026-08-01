@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::{Mutex, Semaphore};
 
-use crate::jobs::{JobQueue, JobStatus, JobStore};
-use crate::models::Settings;
+use crate::jobs::{JobErrorClass, JobQueue, JobStatus, JobStore};
+use crate::models::{Settings, Subscription};
 use crate::services::media_calendar::{
     build_media_calendar, natural_week, shanghai_offset, MediaCalendarQuery,
 };
@@ -148,6 +148,13 @@ pub struct TelegramBotService {
     confirmations: Mutex<HashMap<String, PendingConfirmation>>,
     command_rates: Mutex<CommandRateState>,
     sessions: Mutex<SessionStore>,
+}
+
+/// 分页列表的渲染结果，供翻页按钮与命令响应共用。
+struct ListPage {
+    text: String,
+    page: usize,
+    pages: usize,
 }
 
 impl TelegramBotService {
@@ -361,6 +368,23 @@ impl TelegramBotService {
                 Ok(()) => ("succeeded", response),
                 Err(error) => ("failed", error),
             }
+        } else if matches!(
+            command,
+            "subscriptions" | "jobs" | "notifications" | "calendar"
+        ) {
+            let page = argument
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(1)
+                .max(1);
+            let list = self.list_page(command, page).await;
+            let markup = list_page_markup(command, list.page, list.pages);
+            match self
+                .send_message_with_markup(&settings, message.chat.id, &list.text, markup)
+                .await
+            {
+                Ok(()) => ("succeeded", list.text),
+                Err(error) => ("failed", error),
+            }
         } else {
             let page = argument
                 .and_then(|value| value.parse::<usize>().ok())
@@ -381,7 +405,7 @@ impl TelegramBotService {
                 .send_message(
                     &settings,
                     message.chat.id,
-                    &format!("操作未执行：{}", outcome.1),
+                    &format!("操作未执行：{}", tg_escape(&outcome.1)),
                 )
                 .await;
         }
@@ -443,6 +467,46 @@ impl TelegramBotService {
         if let Some(token) = data.strip_prefix("prompt:") {
             self.handle_prompt_callback(update_id, &callback, message, token, started)
                 .await;
+            return;
+        }
+
+        // 分页按钮：直接编辑当前消息切换只读列表页
+        if let Some((command, page)) = parse_page_callback(data) {
+            let list = self.list_page(command, page).await;
+            let markup = list_page_markup(command, list.page, list.pages);
+            let page_note = if list.pages > 1 {
+                format!("第 {}/{} 页", list.page, list.pages)
+            } else {
+                "已到边界".to_string()
+            };
+            let _ = self
+                .answer_callback(&settings, &callback.id, &page_note, false)
+                .await;
+            if let Some(message_id) = callback.message.as_ref().map(|item| item.message_id) {
+                let _ = self
+                    .edit_message_with_markup(
+                        &settings,
+                        message.chat.id,
+                        message_id,
+                        &list.text,
+                        markup,
+                    )
+                    .await;
+            }
+            self.record_audit(
+                update_id,
+                Some(&callback.id),
+                callback.from.id,
+                message.chat.id,
+                &format!("page:{command}"),
+                &page.to_string(),
+                "succeeded",
+                &format!("第 {}/{} 页", list.page, list.pages),
+                started.elapsed(),
+                &format!("telegram-page-{update_id}"),
+            )
+            .await;
+            self.note_success().await;
             return;
         }
 
@@ -555,7 +619,7 @@ impl TelegramBotService {
             Err(error) => {
                 self.record_action_outcome(callback.from.id, message.chat.id, false)
                     .await;
-                ("failed", format!("操作失败：{error}"))
+                ("failed", format!("操作失败：{}", tg_escape(&error)))
             }
         };
         let _ = self
@@ -665,79 +729,102 @@ impl TelegramBotService {
             "start" => format!("my-media-sub Telegram 控制已连接。\n\n{}", help_text()),
             "help" => help_text().to_string(),
             "status" => self.status_text().await,
-            "subscriptions" => self.subscriptions_text(page).await,
+            "subscriptions" => self.subscriptions_page(page).await.text,
             "subscription" => self.subscription_text(argument).await,
-            "calendar" => self.calendar_text(page).await,
-            "jobs" => self.jobs_text(page).await,
+            "calendar" => self.calendar_page(page).await.text,
+            "jobs" => self.jobs_page(page).await.text,
             "job" => self.job_text(argument).await,
-            "notifications" => self.notifications_text(page).await,
+            "notifications" => self.notifications_page(page).await.text,
             "diagnostics" => self.diagnostics_text().await,
             _ => help_text().to_string(),
         }
     }
 
+    /// 分页列表的统一返回：正文 + 当前页码 + 总页数，供翻页按钮使用。
+    async fn list_page(&self, command: &str, page: usize) -> ListPage {
+        match command {
+            "subscriptions" => self.subscriptions_page(page).await,
+            "jobs" => self.jobs_page(page).await,
+            "notifications" => self.notifications_page(page).await,
+            "calendar" => self.calendar_page(page).await,
+            _ => ListPage {
+                text: help_text().to_string(),
+                page: 1,
+                pages: 1,
+            },
+        }
+    }
+
     async fn subscription_text(&self, argument: Option<&str>) -> String {
         let Some(value) = argument else {
-            return "用法：/subscription <订阅ID>".to_string();
+            return "用法：/subscription [订阅ID]".to_string();
         };
         let id = match self.resolve_subscription(value).await {
             Ok(id) => id,
             Err(error) => return error,
         };
         let Some(item) = self.subscription_store.get(&id).await else {
-            return format!("订阅不存在：{value}");
-        };
-        let state = if !item.enabled {
-            "停用"
-        } else if item.completed {
-            "完成"
-        } else {
-            "启用"
+            return format!("订阅不存在：{}", tg_escape(value));
         };
         let progress = item
             .total_episode_number
             .map(|total| format!("{}/{}", item.current_episode_number, total))
             .unwrap_or_else(|| item.current_episode_number.to_string());
+        let target_dir = if item.rules.target_dir.trim().is_empty() {
+            "自动".to_string()
+        } else {
+            tg_escape(&item.rules.target_dir)
+        };
         format!(
-            "订阅详情\nID：{}\n标题：{}\n状态：{}\n进度：{}\n目标目录：{}\n上次检查：{}\n最近结果：{}\n\n操作：/check {}",
-            item.id,
-            item.title,
-            state,
-            progress,
-            if item.rules.target_dir.trim().is_empty() { "自动" } else { item.rules.target_dir.as_str() },
-            item.last_checked_at,
-            one_line(&item.last_check_summary, 180),
+            "📺 <b>订阅详情</b>\n\nID：<code>{}</code>\n标题：{}\n类型：{}\n状态：{}\n进度：{}\n目标目录：{}\n上次检查：{}\n最近结果：{}\n\n操作：/check {}",
+            tg_escape(&item.id),
+            tg_escape(&item.title),
+            if item.media_type == "movie" { "电影" } else { "剧集" },
+            subscription_state_label(&item),
+            tg_escape(&progress),
+            target_dir,
+            timestamp_text(Some(item.last_checked_at)),
+            tg_escape(&one_line(&item.last_check_summary, 180)),
             short_id(&item.id)
         )
     }
 
     async fn job_text(&self, argument: Option<&str>) -> String {
         let Some(value) = argument else {
-            return "用法：/job <Job ID>".to_string();
+            return "用法：/job [Job ID]".to_string();
         };
         let id = match self.resolve_job(value).await {
             Ok(id) => id,
             Err(error) => return error,
         };
         let Some(job) = self.job_store.get(&id).await else {
-            return format!("任务不存在：{value}");
+            return format!("任务不存在：{}", tg_escape(value));
         };
         let error = job
             .error
             .as_deref()
             .map(|value| one_line(value, 240))
             .unwrap_or_else(|| "无".to_string());
+        let error_class = job
+            .error_class
+            .as_ref()
+            .map(job_error_class_label)
+            .unwrap_or("—");
         format!(
-            "任务详情\nID：{}\n标题：{}\n类型：{}\n状态：{}\n进度：{}%\n尝试：{}\n消息：{}\n错误：{}\ncorrelation：{}\n\n可用操作：/retry {} 或 /cancel {}",
-            job.id,
-            one_line(&job.title, 100),
-            job.kind.as_str(),
+            "⚙️ <b>任务详情</b>\n\nID：<code>{}</code>\n标题：{}\n类型：{}\n状态：{}\n进度：{}%\n尝试：{}\n错误分类：{}\n消息：{}\n错误：{}\n创建：{}\n开始：{}\n结束：{}\ncorrelation：<code>{}</code>\n\n可用操作：/retry {} 或 /cancel {}",
+            tg_escape(&job.id),
+            tg_escape(&one_line(&job.title, 100)),
+            tg_escape(job.kind.as_str()),
             status_name(&job.status),
             job.progress,
             job.attempt,
-            one_line(&job.message, 180),
-            error,
-            job.correlation_id.as_deref().unwrap_or("无"),
+            tg_escape(error_class),
+            tg_escape(&one_line(&job.message, 180)),
+            tg_escape(&error),
+            timestamp_text(job.created_at.into()),
+            timestamp_text(job.started_at),
+            timestamp_text(job.finished_at),
+            tg_escape(job.correlation_id.as_deref().unwrap_or("无")),
             short_id(&job.id),
             short_id(&job.id)
         )
@@ -761,7 +848,7 @@ impl TelegramBotService {
             .filter(|job| job.status == JobStatus::Failed)
             .count();
         format!(
-            "系统状态\n版本：{}\n订阅：{}（启用 {}）\n任务：排队 {} / 运行 {} / 失败 {}\n未读通知：{}",
+            "📊 <b>系统状态</b>\n\n🖥 版本：{}\n📺 订阅：{}（启用 {}）\n⚙️ 任务：排队 {} / 运行 {} / 失败 {}\n🔔 未读通知：{}",
             env!("CARGO_PKG_VERSION"),
             subscriptions.len(),
             enabled,
@@ -772,91 +859,91 @@ impl TelegramBotService {
         )
     }
 
-    async fn subscriptions_text(&self, page: usize) -> String {
+    async fn subscriptions_page(&self, page: usize) -> ListPage {
         let items = self.subscription_store.list().await;
         let (start, end, page, pages) = page_bounds(items.len(), page);
         let mut lines = vec![format!(
-            "订阅（第 {}/{} 页，共 {} 条）",
-            page,
-            pages,
+            "📋 <b>订阅</b>（第 {page}/{pages} 页，共 {} 条）",
             items.len()
         )];
         for item in &items[start..end] {
-            let state = if !item.enabled {
-                "停用"
-            } else if item.completed {
-                "完成"
-            } else {
-                "启用"
-            };
             let progress = item
                 .total_episode_number
                 .map(|total| format!("{}/{}", item.current_episode_number, total))
                 .unwrap_or_else(|| item.current_episode_number.to_string());
             lines.push(format!(
-                "• {} {} [{}，进度 {}]",
+                "• <code>{}</code> {} — {} · 进度 {}",
                 short_id(&item.id),
-                item.title,
-                state,
-                progress
+                tg_escape(&one_line(&item.title, 60)),
+                subscription_state_label(item),
+                tg_escape(&progress)
             ));
         }
         if items.is_empty() {
             lines.push("暂无订阅".to_string());
         }
-        lines.join("\n")
+        ListPage {
+            text: lines.join("\n"),
+            page,
+            pages,
+        }
     }
 
-    async fn jobs_text(&self, page: usize) -> String {
+    async fn jobs_page(&self, page: usize) -> ListPage {
         let mut items = self.job_store.list().await;
         items.sort_by_key(|job| std::cmp::Reverse(job.updated_at));
         let (start, end, page, pages) = page_bounds(items.len(), page);
         let mut lines = vec![format!(
-            "任务（第 {}/{} 页，共 {} 条）",
-            page,
-            pages,
+            "⚙️ <b>任务</b>（第 {page}/{pages} 页，共 {} 条）",
             items.len()
         )];
         for job in &items[start..end] {
             lines.push(format!(
-                "• {} [{}，{}%] {}",
+                "• <code>{}</code> {} [{}%，{}] {}",
                 short_id(&job.id),
                 status_name(&job.status),
                 job.progress,
-                one_line(&job.title, 80)
+                tg_escape(job.kind.as_str()),
+                tg_escape(&one_line(&job.title, 60))
             ));
         }
         if items.is_empty() {
             lines.push("暂无任务".to_string());
         }
-        lines.join("\n")
+        ListPage {
+            text: lines.join("\n"),
+            page,
+            pages,
+        }
     }
 
-    async fn notifications_text(&self, page: usize) -> String {
+    async fn notifications_page(&self, page: usize) -> ListPage {
         let items = self.notification_store.list(false).await;
         let (start, end, page, pages) = page_bounds(items.len(), page);
         let mut lines = vec![format!(
-            "未读通知（第 {}/{} 页，共 {} 条）",
-            page,
-            pages,
+            "🔔 <b>未读通知</b>（第 {page}/{pages} 页，共 {} 条）",
             items.len()
         )];
         for item in &items[start..end] {
             lines.push(format!(
-                "• {} [{}] {} — {}",
+                "• <code>{}</code> {} {} — {}",
                 short_id(&item.id),
-                item.level,
-                one_line(&item.title, 60),
-                one_line(&item.message, 100)
+                notification_level_label(&item.level),
+                tg_escape(&one_line(&item.title, 50)),
+                tg_escape(&one_line(&item.message, 90))
             ));
         }
         if items.is_empty() {
             lines.push("暂无未读通知".to_string());
         }
-        lines.join("\n")
+        ListPage {
+            text: lines.join("\n"),
+            page,
+            pages,
+        }
     }
 
-    async fn calendar_text(&self, page: usize) -> String {
+    async fn calendar_page(&self, page: usize) -> ListPage {
         let today = Utc::now().with_timezone(&shanghai_offset()).date_naive();
         let (from, to) = natural_week(today);
         let (subscriptions, settings, jobs, notifications, events) = tokio::join!(
@@ -883,45 +970,53 @@ impl TelegramBotService {
         );
         let (start, end, page, pages) = page_bounds(calendar.items.len(), page);
         let mut lines = vec![format!(
-            "本周日历（第 {}/{} 页，共 {} 项）",
-            page,
-            pages,
+            "📅 <b>本周日历</b>（第 {page}/{pages} 页，共 {} 项）",
             calendar.items.len()
         )];
         for item in &calendar.items[start..end] {
             let date = item.scheduled_date.as_deref().unwrap_or("日期未知");
+            let season = if item.season > 0 {
+                format!(" S{}", item.season)
+            } else {
+                String::new()
+            };
             let episode = item
                 .episode
                 .map(|value| format!(" E{}", value))
                 .unwrap_or_default();
             lines.push(format!(
-                "• {} {}{} [{}]",
+                "• {} {} {}{} — {}",
                 date,
-                one_line(&item.subscription_title, 70),
+                tg_escape(&one_line(&item.subscription_title, 60)),
+                season,
                 episode,
-                item.primary_status.as_str()
+                calendar_status_label(item.primary_status.as_str())
             ));
         }
         if calendar.items.is_empty() {
             lines.push("本周暂无排期".to_string());
         }
-        lines.join("\n")
+        ListPage {
+            text: lines.join("\n"),
+            page,
+            pages,
+        }
     }
 
     async fn diagnostics_text(&self) -> String {
         let state = self.diagnostics().await;
         let settings = self.settings_store.get().await;
         format!(
-            "Telegram Bot 诊断\n接入模式：{}\n运行状态：{}\nToken：{}\n允许用户：{}\n允许聊天：{}\n仅私聊：{}\n最近 Update：{}\n最近成功：{}\n最近错误：{}\n未授权 Update：{}\n去重 Update/Callback：{}\n限流拒绝：{}\n命令审计：{}\n待确认：{}",
-            state.mode,
-            state.status,
+            "🩺 <b>Telegram Bot 诊断</b>\n\n接入模式：{}\n运行状态：{}\nToken：{}\n允许用户：{}\n允许聊天：{}\n仅私聊：{}\n最近 Update：{}\n最近成功：{}\n最近错误：{}\n未授权 Update：{}\n去重 Update/Callback：{}\n限流拒绝：{}\n命令审计：{}\n待确认：{}",
+            tg_escape(&state.mode),
+            tg_escape(&state.status),
             if settings.telegram_bot_token.is_empty() { "未配置" } else { "已配置（已脱敏）" },
             settings.telegram_bot_allowed_user_ids.len(),
             effective_allowed_chats(&settings).len(),
             if settings.telegram_bot_private_only { "是" } else { "否" },
             timestamp_text(state.last_update_at),
             timestamp_text(state.last_success_at),
-            state.last_error.as_deref().unwrap_or("无"),
+            tg_escape(state.last_error.as_deref().unwrap_or("无")),
             state.unauthorized_updates,
             state.deduplicated_updates,
             state.rate_limited_updates,
@@ -964,15 +1059,68 @@ impl TelegramBotService {
         let mut payload = json!({
             "chat_id": chat_id,
             "text": text,
+            "parse_mode": "HTML",
             "disable_web_page_preview": true
         });
         if let Some(reply_markup) = reply_markup {
             payload["reply_markup"] = reply_markup;
         }
-        let _: serde_json::Value = self
-            .telegram_request(settings, "sendMessage", &payload)
-            .await?;
-        Ok(())
+        match self
+            .telegram_request::<serde_json::Value>(settings, "sendMessage", &payload)
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(error) if telegram_parse_error(&error) => {
+                if let Some(object) = payload.as_object_mut() {
+                    object.remove("parse_mode");
+                }
+                let _: serde_json::Value = self
+                    .telegram_request(settings, "sendMessage", &payload)
+                    .await?;
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// 编辑已发送消息（分页按钮用），保持与 sendMessage 相同的 HTML 排版。
+    async fn edit_message_with_markup(
+        &self,
+        settings: &Settings,
+        chat_id: i64,
+        message_id: i64,
+        text: &str,
+        reply_markup: Option<serde_json::Value>,
+    ) -> Result<(), String> {
+        let mut payload = json!({
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": true
+        });
+        match reply_markup {
+            Some(reply_markup) => payload["reply_markup"] = reply_markup,
+            // 编辑消息时省略 reply_markup 会保留旧键盘；
+            // 列表缩到单页后必须显式移除，否则翻页按钮会残留。
+            None => payload["reply_markup"] = json!({"inline_keyboard": []}),
+        }
+        match self
+            .telegram_request::<serde_json::Value>(settings, "editMessageText", &payload)
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(error) if telegram_parse_error(&error) => {
+                if let Some(object) = payload.as_object_mut() {
+                    object.remove("parse_mode");
+                }
+                let _: serde_json::Value = self
+                    .telegram_request(settings, "editMessageText", &payload)
+                    .await?;
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
     }
 
     async fn answer_callback(
@@ -1316,8 +1464,11 @@ fn confirmation_prompt(confirmation: &PendingConfirmation) -> String {
         other => other,
     };
     format!(
-        "请确认操作\n动作：{action_label}\n最小作用域：{}\n目标：{}\n有效期：{} 秒\n\n确认仅对当前 user/chat 有效，且只能使用一次。",
-        confirmation.scope, confirmation.resource, CONFIRMATION_TTL_SECONDS
+        "🔐 <b>请确认操作</b>\n\n动作：<b>{}</b>\n目标：<code>{}</code>\n最小权限：<code>{}</code>\n有效期：{} 秒\n\n确认仅对当前会话有效，且只能使用一次。",
+        action_label,
+        tg_escape(&confirmation.resource),
+        tg_escape(&confirmation.scope),
+        CONFIRMATION_TTL_SECONDS
     )
 }
 
@@ -1341,7 +1492,7 @@ fn resolve_unique_id<'a>(
         .collect::<Vec<_>>();
     match matches.as_slice() {
         [id] => Ok((*id).to_string()),
-        [] => Err(format!("{label}不存在：{value}")),
+        [] => Err(format!("{label}不存在：{}", tg_escape(value))),
         _ => Err(format!("{label} ID 前缀不唯一，请提供更长 ID")),
     }
 }
@@ -1395,35 +1546,141 @@ fn chunk_chars(value: &str, limit: usize) -> Vec<String> {
 }
 
 fn help_text() -> &'static str {
-    "菜单：/menu 或点下方按钮
+    "🤖 <b>MEDIA/SUB 控制</b>
 
-资源：
-/search <关键词> — 搜索夸克资源
-/subscribe <序号> [季号] — 订阅搜索结果（需确认）
-/switch <订阅ID> — 搜索换源候选
-/switch_apply <序号> — 应用换源（需确认）
+<b>资源</b>
+/search &lt;关键词&gt; — 搜索夸克资源
+/subscribe &lt;序号&gt; [季号] — 订阅搜索结果（需确认）
+/switch &lt;订阅ID&gt; — 搜索换源候选
+/switch_apply &lt;序号&gt; — 应用换源（需确认）
 
-只读：
-/status /subscriptions /subscription <ID>
-/calendar /jobs /job <ID>
-/notifications /diagnostics
+<b>只读</b>
+/status — 系统概况
+/subscriptions [页码] — 订阅列表
+/subscription &lt;ID&gt; — 订阅详情
+/calendar [页码] — 本周排期
+/jobs [页码] — 最近任务
+/job &lt;ID&gt; — 任务详情
+/notifications [页码] — 未读通知
 
-受控写（需确认）：
-/check <订阅ID|all>
-/retry <Job ID>
-/cancel <Job ID>
+/diagnostics — Bot 诊断
+
+<b>受控写（需确认）</b>
+/check &lt;订阅ID|all&gt;
+/retry &lt;Job ID&gt;
+/cancel &lt;Job ID&gt;
 /signin
-/read <通知ID|all>"
+/read &lt;通知ID|all&gt;"
 }
 
 fn status_name(status: &JobStatus) -> &'static str {
     match status {
-        JobStatus::Queued => "排队",
-        JobStatus::Running => "运行",
-        JobStatus::Succeeded => "成功",
-        JobStatus::Failed => "失败",
-        JobStatus::Canceled => "取消",
+        JobStatus::Queued => "⏳ 排队",
+        JobStatus::Running => "🔄 运行",
+        JobStatus::Succeeded => "✅ 成功",
+        JobStatus::Failed => "❌ 失败",
+        JobStatus::Canceled => "🚫 取消",
     }
+}
+
+fn subscription_state_label(item: &Subscription) -> &'static str {
+    if !item.enabled {
+        "⏸ 停用"
+    } else if item.completed {
+        "🏁 完成"
+    } else {
+        "✅ 启用"
+    }
+}
+
+fn notification_level_label(level: &str) -> String {
+    match level {
+        "info" => "ℹ️ 信息".to_string(),
+        "success" => "✅ 成功".to_string(),
+        "warning" => "⚠️ 警告".to_string(),
+        "error" => "❌ 错误".to_string(),
+        other => tg_escape(other),
+    }
+}
+
+fn calendar_status_label(status: &str) -> String {
+    match status {
+        "today" => "🟢 今日更新".to_string(),
+        "this_week" => "🟡 本周待更新".to_string(),
+        "aired_undiscovered" => "🔍 已播未发现".to_string(),
+        "discovered_pending_transfer" => "📥 待转存".to_string(),
+        "transferred_pending_download" => "⬇️ 待下载".to_string(),
+        "completed_missing" => "⚠️ 完结缺集".to_string(),
+        "ready" => "✅ 已就绪".to_string(),
+        "scheduled" => "📅 已排期".to_string(),
+        "unknown_schedule" => "❓ 排期未知".to_string(),
+        other => tg_escape(other),
+    }
+}
+
+fn job_error_class_label(class: &JobErrorClass) -> &'static str {
+    match class {
+        JobErrorClass::RateLimited => "限流",
+        JobErrorClass::Transient => "瞬时故障",
+        JobErrorClass::Authentication => "认证失败",
+        JobErrorClass::Validation => "参数或规则错误",
+        JobErrorClass::NotFound => "资源不存在",
+        JobErrorClass::Permanent => "永久错误",
+        JobErrorClass::Internal => "内部错误",
+        JobErrorClass::TimedOut => "超时",
+    }
+}
+
+/// Telegram HTML parse_mode 下的用户内容转义。所有来自 Store、搜索结果或
+/// 上游错误的信息都必须先经过这里，否则非法标签会让整条消息发送失败。
+fn tg_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+/// Telegram 对非法 HTML 的典型拒绝原因；命中时去掉 parse_mode 重发，
+/// 保证用户内容异常不会让整条消息发送失败。
+fn telegram_parse_error(error: &str) -> bool {
+    let lower = error.to_lowercase();
+    lower.contains("parse entities") || lower.contains("entity")
+}
+
+/// 只读列表的翻页按钮；单页时返回 None（不附加键盘）。
+fn list_page_markup(command: &str, page: usize, pages: usize) -> Option<serde_json::Value> {
+    if pages <= 1 {
+        return None;
+    }
+    let mut row = Vec::new();
+    if page > 1 {
+        row.push(json!({
+            "text": "◀️ 上一页",
+            "callback_data": format!("page:{command}:{}", page - 1)
+        }));
+    }
+    if page < pages {
+        row.push(json!({
+            "text": "下一页 ▶️",
+            "callback_data": format!("page:{command}:{}", page + 1)
+        }));
+    }
+    (!row.is_empty()).then(|| json!({ "inline_keyboard": [row] }))
+}
+
+/// 解析分页 Callback：`page:<command>:<页码>`，只放行白名单列表命令。
+fn parse_page_callback(data: &str) -> Option<(&'static str, usize)> {
+    let rest = data.strip_prefix("page:")?;
+    let (command, page_text) = rest.split_once(':')?;
+    let command = match command {
+        "subscriptions" => "subscriptions",
+        "jobs" => "jobs",
+        "notifications" => "notifications",
+        "calendar" => "calendar",
+        _ => return None,
+    };
+    let page = page_text.parse::<usize>().ok()?.max(1);
+    Some((command, page))
 }
 
 fn short_id(value: &str) -> &str {

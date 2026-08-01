@@ -28,6 +28,15 @@ fn hardcoded_regex(pattern: &str) -> Regex {
 /// （notification 服务）在派发时注册该句柄，供 404/410 剪除使用。
 static PRUNE_SETTINGS_STORE: OnceLock<Arc<SettingsStore>> = OnceLock::new();
 
+/// HTML 模板中的用户内容转义，防止标题/正文里的 `<`、`>`、`&` 破坏模板或
+/// 让 Telegram/PushPlus 等上游拒绝整条消息。
+fn html_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 pub fn register_settings_store_for_pruning(store: &Arc<SettingsStore>) {
     let _ = PRUNE_SETTINGS_STORE.set(store.clone());
 }

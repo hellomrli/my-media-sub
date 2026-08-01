@@ -1,5 +1,5 @@
 use crate::clients::pansou::{PanSouClient, SearchResult};
-use crate::models::subscription::{parse_season_spec, Subscription};
+use crate::models::subscription::parse_season_spec;
 use crate::services::subscription_source_switch::SubscriptionSourceSwitchService;
 use crate::services::title_normalize::clean_media_title;
 use crate::utils::unix_now;
@@ -133,36 +133,43 @@ fn map_menu_text(text: &str) -> Option<&'static str> {
 
 fn format_search_hits(keyword: &str, hits: &[SearchHit]) -> String {
     if hits.is_empty() {
-        return format!("未找到与「{keyword}」相关的夸克资源。");
+        return format!("🔍 未找到与「{}」相关的夸克资源。", tg_escape(keyword));
     }
     let mut lines = vec![
-        format!("搜索「{keyword}」共 {} 条（15 分钟内有效）：", hits.len()),
+        format!(
+            "🔍 <b>搜索「{}」</b>共 {} 条（15 分钟内有效）：",
+            tg_escape(keyword),
+            hits.len()
+        ),
         String::new(),
     ];
     for (index, hit) in hits.iter().enumerate() {
         lines.push(format!(
             "{}. {}\n{}",
             index + 1,
-            one_line(&hit.title, 80),
-            one_line(&hit.url, 120)
+            tg_escape(&one_line(&hit.title, 80)),
+            tg_escape(&one_line(&hit.url, 120))
         ));
     }
     lines.push(String::new());
     lines.push(
-        "订阅：/subscribe <序号> [季号]\n例如：/subscribe 1  或  /subscribe 1 1-4".to_string(),
+        "订阅：/subscribe &lt;序号&gt; [季号]\n例如：/subscribe 1 或 /subscribe 1 1-4".to_string(),
     );
     lines.join("\n")
 }
 
 fn format_switch_hits(sub: &Subscription, hits: &[SwitchHit]) -> String {
     if hits.is_empty() {
-        return format!("订阅 {} 未找到换源候选。", sub.title);
+        return format!(
+            "订阅 {} 未找到换源候选。",
+            tg_escape(&sub.title)
+        );
     }
     let mut lines = vec![
         format!(
-            "换源候选 · {}\nID：{}\n共 {} 条（15 分钟内有效）：",
-            one_line(&sub.title, 60),
-            short_id(&sub.id),
+            "🔄 <b>换源候选</b> · {}\nID：<code>{}</code>\n共 {} 条（15 分钟内有效）：",
+            tg_escape(&one_line(&sub.title, 60)),
+            tg_escape(short_id(&sub.id)),
             hits.len()
         ),
         String::new(),
@@ -172,21 +179,23 @@ fn format_switch_hits(sub: &Subscription, hits: &[SwitchHit]) -> String {
             "{}. {} 分 · {}\n{}",
             index + 1,
             hit.score,
-            one_line(&hit.note, 70),
-            one_line(&hit.url, 120)
+            tg_escape(&one_line(&hit.note, 70)),
+            tg_escape(&one_line(&hit.url, 120))
         ));
     }
     lines.push(String::new());
-    lines.push("应用：/switch_apply <序号>\n例如：/switch_apply 1（需确认）".to_string());
+    lines.push(
+        "应用：/switch_apply &lt;序号&gt;\n例如：/switch_apply 1（需确认）".to_string(),
+    );
     lines.join("\n")
 }
 
 fn search_help_text() -> &'static str {
-    "搜索资源：\n/search <关键词>\n例如：/search 庆余年\n\n找到结果后用：\n/subscribe <序号> [季号]\n例如：/subscribe 1 1-4"
+    "🔍 <b>搜索资源</b>\n\n/search &lt;关键词&gt;\n例如：/search 庆余年\n\n找到结果后用：\n/subscribe &lt;序号&gt; [季号]\n例如：/subscribe 1 1-4"
 }
 
 fn switch_help_text() -> &'static str {
-    "换源：\n/switch <订阅ID>\n例如：/switch a1b2c3d4\n\n找到候选后用：\n/switch_apply <序号>\n例如：/switch_apply 1"
+    "🔄 <b>换源</b>\n\n/switch &lt;订阅ID&gt;\n例如：/switch a1b2c3d4\n\n找到候选后用：\n/switch_apply &lt;序号&gt;\n例如：/switch_apply 1"
 }
 
 impl TelegramBotService {
@@ -212,7 +221,9 @@ impl TelegramBotService {
             .await
         {
             Ok(items) => items,
-            Err(error) => return format!("搜索失败：{}", sanitize_error(&error.to_string())),
+            Err(error) => {
+                return format!("搜索失败：{}", tg_escape(&sanitize_error(&error.to_string())))
+            }
         };
         let hits = results
             .into_iter()
@@ -273,7 +284,7 @@ impl TelegramBotService {
                     Some(markup),
                 )
                 .await;
-            text.push_str("\n\n也可点击上方按钮，或发送 /subscribe <序号> [季号]。");
+            text.push_str("\n\n也可点击上方按钮，或发送 /subscribe &lt;序号&gt; [季号]。");
         }
         text
     }
@@ -446,11 +457,11 @@ impl TelegramBotService {
             .await;
 
         Ok(format!(
-            "已创建订阅\n标题：{}\nID：{}\n季：{}\n链接：{}\n已提交元数据刮削任务\n\n立即检查：/check {}\n换源：/switch {}",
-            created.title,
-            created.id,
-            created.season_label(),
-            one_line(&created.url, 120),
+            "✅ <b>已创建订阅</b>\n\n标题：{}\nID：<code>{}</code>\n季：{}\n链接：{}\n\n已提交元数据刮削任务\n\n立即检查：/check {} · 换源：/switch {}",
+            tg_escape(&created.title),
+            tg_escape(&created.id),
+            tg_escape(&created.season_label()),
+            tg_escape(&one_line(&created.url, 120)),
             short_id(&created.id),
             short_id(&created.id)
         ))
@@ -499,7 +510,7 @@ impl TelegramBotService {
             Err(error) => return error,
         };
         let Some(sub) = self.subscription_store.get(&id).await else {
-            return format!("订阅不存在：{value}");
+            return format!("订阅不存在：{}", tg_escape(value));
         };
         let settings = self.settings_store.get().await;
         let pansou = settings.pansou_api_url.trim();
@@ -512,7 +523,12 @@ impl TelegramBotService {
         );
         let candidates = match service.search_source_candidates(&sub).await {
             Ok(items) => items,
-            Err(error) => return format!("换源搜索失败：{}", sanitize_error(&error.to_string())),
+            Err(error) => {
+                return format!(
+                    "换源搜索失败：{}",
+                    tg_escape(&sanitize_error(&error.to_string()))
+                )
+            }
         };
 
         // 写回候选，便于后续 apply 走正式服务逻辑
@@ -723,9 +739,9 @@ impl TelegramBotService {
             return Err(sanitize_error(&error.to_string()));
         }
         Ok(format!(
-            "已换源：{}\n新链接：{}\n质量：{} 分\n\n建议立即 /check {}",
-            updated.title,
-            one_line(&updated.url, 120),
+            "🔄 <b>已换源</b>\n\n标题：{}\n新链接：{}\n质量：{} 分\n\n建议立即 /check {}",
+            tg_escape(&updated.title),
+            tg_escape(&one_line(&updated.url, 120)),
             preview.candidate.quality.score,
             short_id(&updated.id)
         ))

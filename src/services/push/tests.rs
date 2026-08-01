@@ -12,6 +12,12 @@ mod tests {
     }
 
     #[test]
+    fn html_escape_keeps_push_templates_safe() {
+        assert_eq!(html_escape("<a & b>"), "&lt;a &amp; b&gt;");
+        assert_eq!(html_escape("普通内容 123"), "普通内容 123");
+    }
+
+    #[test]
     fn test_enabled_channels() {
         let settings = Settings {
             wecom_bot_url: "https://test".to_string(),
