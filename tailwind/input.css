@@ -2246,23 +2246,67 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
 .calendar-day-empty { padding: 12px 6px; }
 .settings-save-hint { font-size: 12px; color: rgb(var(--c-text) / .6); }
 
-/* ─── P25 日历订阅卡片紧凑 ──────────────────────────────────────────────
-   该日更新的集与已转存进度合并成一行统一字号（见 calendar.js cardMetaLabel），
-   缩略图与卡片宽度收窄，让同一天的卡片更紧凑。 */
-.calendar-item.is-row { gap: 8px; padding: 4px 10px; min-width: 250px; max-width: 400px; }
-.calendar-item.is-row .calendar-item-title { gap: 8px; }
-.calendar-item.is-row .calendar-thumbnail.is-week { width: 36px; height: 48px; }
-.calendar-item.is-row .calendar-item-copy { flex: 1 1 auto; min-width: 0; }
-.calendar-item.is-row .calendar-item-title strong { font-size: 13px; }
-.calendar-item.is-row .calendar-item-title small { font-size: 11px; color: rgb(var(--c-muted) / .68); white-space: nowrap; }
-@media (min-width: 1024px) {
-  .calendar-item.is-row { gap: 8px; padding: 4px 10px; }
-  .calendar-item.is-row .calendar-thumbnail.is-week { width: 38px; height: 50px; }
+/* ─── P26 日历订阅卡片：大图贴边 + 右侧三行文字 ────────────────────────
+   缩略图撑满卡片高度、紧贴卡片边缘（仅留圆角裁切），右侧三行：
+   加粗剧名 / 当天会上映的集 / 目前已存的集。卡片宽度收敛到刚好容纳内容。 */
+.calendar-item.is-row {
+  flex: 0 0 auto;
+  gap: 0;
+  padding: 0;
+  min-width: 244px;
+  max-width: 360px;
+  align-items: stretch;
 }
+.calendar-item.is-row .calendar-item-title {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  width: 100%;
+  min-width: 0;
+}
+.calendar-item.is-row .calendar-thumbnail.is-week {
+  flex: 0 0 auto;
+  align-self: stretch;
+  width: 62px;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  object-fit: cover;
+}
+.calendar-item.is-row .calendar-item-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 10px 6px 12px;
+}
+.calendar-item.is-row .calendar-item-title strong {
+  display: block;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: rgb(var(--c-text) / .92);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.calendar-item.is-row .calendar-item-copy small {
+  display: block;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.calendar-item.is-row .calendar-item-copy small:first-child { color: rgb(var(--c-text) / .8); }
+.calendar-item.is-row .calendar-item-copy small:last-child { color: rgb(var(--c-muted) / .7); }
+/* 高屏行更高，缩略图宽度小幅放大保持图文比例 */
 @media (min-width: 1024px) and (min-height: 1010px) {
-  .calendar-item.is-row { flex-basis: 400px; max-width: 460px; }
-  .calendar-item.is-row .calendar-thumbnail.is-week { width: 44px; height: 58px; }
+  .calendar-item.is-row .calendar-thumbnail.is-week { width: 70px; }
 }
 @media (min-width: 1024px) and (min-height: 1250px) {
-  .calendar-item.is-row .calendar-thumbnail.is-week { width: 50px; height: 66px; }
+  .calendar-item.is-row .calendar-thumbnail.is-week { width: 78px; }
 }
