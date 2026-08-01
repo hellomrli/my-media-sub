@@ -2165,8 +2165,8 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
 .calendar-day-head span { font-size: 12px; }
 .calendar-day-head strong { font-size: 20px; }
 .calendar-day-head small { font-size: 12px; }
-.calendar-item.is-row .calendar-item-title strong { font-size: 14px; }
-.calendar-item.is-row .calendar-item-title small { font-size: 12px; }
+.calendar-item.is-row .calendar-item-title strong { font-size: 15px; }
+.calendar-item.is-row .calendar-item-title small { font-size: 13px; }
 .calendar-inline-metrics span { font-size: 12px; }
 .calendar-toolbar-filters select { font-size: 12px; }
 
@@ -2261,7 +2261,7 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
 .calendar-item.is-row .calendar-item-title {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
   width: 100%;
   min-width: 0;
 }
@@ -2287,7 +2287,7 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
 .calendar-item.is-row .calendar-item-title strong {
   display: block;
   overflow: hidden;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
   line-height: 1.25;
   color: rgb(var(--c-text) / .92);
@@ -2297,7 +2297,7 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
 .calendar-item.is-row .calendar-item-copy small {
   display: block;
   overflow: hidden;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
