@@ -116,10 +116,10 @@ impl TelegramBotService {
                             .await
                             .map_err(|error| sanitize_error(&error.to_string()))?;
                         Ok(format!(
-                            "全部订阅检查完成：{} 个结果\nrequest: telegram-{}\ncorrelation: {}",
+                            "✅ 全部订阅检查完成：{} 个结果\nrequest: telegram-{}\ncorrelation: <code>{}</code>",
                             results.len(),
                             confirmation.nonce,
-                            correlation_id
+                            tg_escape(correlation_id)
                         ))
                     } else {
                         let result = self
@@ -128,11 +128,11 @@ impl TelegramBotService {
                             .await
                             .map_err(|error| sanitize_error(&error.to_string()))?;
                         Ok(format!(
-                            "订阅检查完成：{}\n{}\nrequest: telegram-{}\ncorrelation: {}",
-                            result.subscription_title,
-                            result.summary,
+                            "✅ <b>订阅检查完成</b>\n\n标题：{}\n结果：{}\nrequest: telegram-{}\ncorrelation: <code>{}</code>",
+                            tg_escape(&result.subscription_title),
+                            tg_escape(&result.summary),
                             confirmation.nonce,
-                            correlation_id
+                            tg_escape(correlation_id)
                         ))
                     }
                 }
@@ -143,10 +143,10 @@ impl TelegramBotService {
                         .await
                         .map_err(|error| sanitize_error(&error.to_string()))?;
                     Ok(format!(
-                        "任务已重新入队\nrequest: telegram-{}\njob: {}\ncorrelation: {}",
+                        "✅ 任务已重新入队\nrequest: telegram-{}\njob: <code>{}</code>\ncorrelation: <code>{}</code>",
                         confirmation.nonce,
-                        job.id,
-                        job.correlation_id.as_deref().unwrap_or(correlation_id)
+                        tg_escape(&job.id),
+                        tg_escape(job.correlation_id.as_deref().unwrap_or(correlation_id))
                     ))
                 }
                 "cancel" => {
@@ -156,8 +156,10 @@ impl TelegramBotService {
                         .await
                         .map_err(|error| sanitize_error(&error.to_string()))?;
                     Ok(format!(
-                        "任务已取消\nrequest: telegram-{}\njob: {}\ncorrelation: {}",
-                        confirmation.nonce, job.id, correlation_id
+                        "🚫 任务已取消\nrequest: telegram-{}\njob: <code>{}</code>\ncorrelation: <code>{}</code>",
+                        confirmation.nonce,
+                        tg_escape(&job.id),
+                        tg_escape(correlation_id)
                     ))
                 }
                 "signin" => {
@@ -167,7 +169,7 @@ impl TelegramBotService {
                         .await
                         .map_err(|error| sanitize_error(&error.to_string()))?;
                     Ok(format!(
-                        "夸克签到完成：{}\nrequest: telegram-{}\ncorrelation: {}",
+                        "☁️ <b>夸克签到完成</b>：{}\nrequest: telegram-{}\ncorrelation: <code>{}</code>",
                         if result.already_signed {
                             "今日已签到"
                         } else if result.signed {
@@ -176,7 +178,7 @@ impl TelegramBotService {
                             "未获得签到结果"
                         },
                         confirmation.nonce,
-                        correlation_id
+                        tg_escape(correlation_id)
                     ))
                 }
                 "read" => {
@@ -188,8 +190,10 @@ impl TelegramBotService {
                         .await
                         .map_err(|error| sanitize_error(&error.to_string()))?;
                     Ok(format!(
-                        "通知已标记为已读：{}\nrequest: telegram-{}\ncorrelation: {}",
-                        confirmation.resource, confirmation.nonce, correlation_id
+                        "✅ 通知已标记为已读：<code>{}</code>\nrequest: telegram-{}\ncorrelation: <code>{}</code>",
+                        tg_escape(&confirmation.resource),
+                        confirmation.nonce,
+                        tg_escape(correlation_id)
                     ))
                 }
                 "subscribe" => self
@@ -202,7 +206,7 @@ impl TelegramBotService {
                     .map(|text| {
                         format!(
                             "{text}\nrequest: telegram-{}\ncorrelation: {}",
-                            confirmation.nonce, correlation_id
+                            confirmation.nonce, tg_escape(correlation_id)
                         )
                     }),
                 "switch_apply" => self
@@ -211,7 +215,7 @@ impl TelegramBotService {
                     .map(|text| {
                         format!(
                             "{text}\nrequest: telegram-{}\ncorrelation: {}",
-                            confirmation.nonce, correlation_id
+                            confirmation.nonce, tg_escape(correlation_id)
                         )
                     }),
                 _ => Err("不允许的操作".to_string()),
@@ -378,7 +382,14 @@ impl TelegramBotService {
             let response = notifications
                 .iter()
                 .find(|item| item.id == resource)
-                .map(|item| format!("{}\n{}\n事件：{}", item.title, item.message, item.event))
+                .map(|item| {
+                    format!(
+                        "🔔 <b>{}</b>\n\n{}\n\n事件：{}",
+                        tg_escape(&item.title),
+                        tg_escape(&item.message),
+                        tg_escape(&item.event)
+                    )
+                })
                 .unwrap_or_else(|| "通知不存在或已清理".to_string());
             let _ = self
                 .answer_callback(&settings, &callback.id, "详情已发送", false)

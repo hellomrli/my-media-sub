@@ -52,7 +52,11 @@ macro_rules! push_channel_methods {
 
         let payload = json!({
             "appToken": token,
-            "content": format!("<h3>{}</h3><p>{}</p>", title, message),
+            "content": format!(
+                "<h3>{}</h3><p>{}</p>",
+                html_escape(title),
+                html_escape(message)
+            ),
             "summary": title,
             "contentType": 2,
             "uids": uids,
@@ -88,7 +92,12 @@ macro_rules! push_channel_methods {
             return Ok(false);
         }
 
-        let text = format!("{} <b>{}</b>\n\n{}", level.emoji(), title, message);
+        let text = format!(
+            "{} <b>{}</b>\n\n{}",
+            level.emoji(),
+            html_escape(title),
+            html_escape(message)
+        );
         let mut payload = json!({
             "chat_id": chat_id,
             "text": text,

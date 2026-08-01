@@ -82,6 +82,7 @@ mod tests {
             Some(("subscriptions", Some("3")))
         );
         assert_eq!(parse_command("/jobs 0"), Some(("jobs", Some("0"))));
+        assert_eq!(page_bounds(0, 1), (0, 0, 1, 1));
         assert_eq!(
             parse_command("/subscription abc123"),
             Some(("subscription", Some("abc123")))
@@ -89,6 +90,43 @@ mod tests {
         assert_eq!(parse_command("/job deadbeef"), Some(("job", Some("deadbeef"))));
         assert_eq!(parse_command("hello"), None);
         assert_eq!(page_bounds(17, 99), (16, 17, 3, 3));
+    }
+
+    #[test]
+    fn html_content_is_escaped_for_telegram_parse_mode() {
+        assert_eq!(tg_escape("<a & b>"), "&lt;a &amp; b&gt;");
+        assert_eq!(tg_escape("普通文本 123"), "普通文本 123");
+    }
+
+    #[test]
+    fn page_buttons_roundtrip_through_whitelist() {
+        assert_eq!(
+            parse_page_callback("page:subscriptions:2"),
+            Some(("subscriptions", 2))
+        );
+        assert_eq!(parse_page_callback("page:jobs:0"), Some(("jobs", 1)));
+        assert_eq!(parse_page_callback("page:calendar:abc"), None);
+        assert_eq!(parse_page_callback("page:sub:2"), None);
+        assert!(list_page_markup("subscriptions", 1, 1).is_none());
+        let markup = list_page_markup("jobs", 2, 3).unwrap();
+        let row = markup["inline_keyboard"][0].as_array().unwrap();
+        assert_eq!(row.len(), 2);
+        assert_eq!(
+            row[0]["callback_data"].as_str().unwrap(),
+            "page:jobs:1"
+        );
+        assert_eq!(
+            row[1]["callback_data"].as_str().unwrap(),
+            "page:jobs:3"
+        );
+    }
+
+    #[test]
+    fn telegram_parse_errors_trigger_html_fallback() {
+        assert!(telegram_parse_error(
+            "Bad Request: can't parse entities: line 1 column 2"
+        ));
+        assert!(!telegram_parse_error("Bad Request: message is too long"));
     }
 
     #[test]
