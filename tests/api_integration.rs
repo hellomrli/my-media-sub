@@ -24,8 +24,6 @@ async fn test_context() -> (Arc<AppContext>, PathBuf) {
         server: my_media_sub::config::ServerConfig {
             host: "127.0.0.1".to_string(),
             port: 0,
-            username: "admin".to_string(),
-            password: "test-secret-pw".to_string(),
         },
         data_dir: dir.clone(),
     };
@@ -1147,6 +1145,41 @@ async fn get_settings_returns_current_values() {
     let body = json_body(&app, auth_get("/api/settings")).await;
     // 默认用户名应为 admin
     assert_eq!(body["data"]["app_username"].as_str().unwrap(), "admin");
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn settings_reject_credentials_that_would_lock_out_login() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+
+    for payload in [
+        serde_json::json!({"app_password": "change-me"}),
+        serde_json::json!({"app_username": ""}),
+        serde_json::json!({"app_username": "   "}),
+        serde_json::json!({"app_username": "user:name"}),
+    ] {
+        let (status, _, body) = json_response(&app, auth_post("/api/settings", payload)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "body: {body}");
+        assert_eq!(body["ok"], false);
+    }
+
+    // 被拒绝的写入不能改变已保存的凭据：原密码仍然可以登录。
+    let ok = status(&app, auth_get("/api/diagnostics")).await;
+    assert_eq!(ok, StatusCode::OK);
+
+    // 合法更新会去除用户名首尾空白并正常保存。
+    let (status, _, body) = json_response(
+        &app,
+        auth_post(
+            "/api/settings",
+            serde_json::json!({"app_username": "  new-admin  "}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["app_username"], "new-admin");
 
     let _ = std::fs::remove_dir_all(dir);
 }
