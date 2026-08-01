@@ -165,7 +165,9 @@
     const episode = Number(item && item.latest_transferred_episode);
     if (mediaType === 'movie') return item && item.transferred ? '已转存' : '尚未转存';
     if (Number.isInteger(episode) && episode > 0) {
-      return compact ? `已存 E${episode}` : `最高已转存 E${episode}`;
+      const season = Number(item && item.season);
+      const seasonPart = Number.isInteger(season) && season > 0 ? `S${season} ` : '';
+      return compact ? `已存 ${seasonPart}E${episode}` : `最高已转存 ${seasonPart}E${episode}`;
     }
     return '尚未转存';
   }
