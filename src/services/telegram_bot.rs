@@ -260,6 +260,69 @@ impl TelegramBotService {
         let Some(raw_text) = message.text.as_deref() else {
             return;
         };
+        // 直接粘贴豆瓣链接：解析剧名后进入搜索，等价于 /search <剧名>。
+        if let Some(subject_url) = crate::clients::douban::find_subject_url(raw_text) {
+            let correlation_id = format!("telegram-update-{update_id}");
+            if !self
+                .allow_command(user.id, message.chat.id, "douban", false)
+                .await
+            {
+                let response = "操作过于频繁，请稍后再试。";
+                let _ = self
+                    .send_message(&settings, message.chat.id, response)
+                    .await;
+                self.record_audit(
+                    update_id,
+                    None,
+                    user.id,
+                    message.chat.id,
+                    "douban",
+                    &subject_url,
+                    "rate_limited",
+                    response,
+                    started.elapsed(),
+                    &correlation_id,
+                )
+                .await;
+                return;
+            }
+            let response = self
+                .search_douban_text(&subject_url, user.id, message.chat.id)
+                .await;
+            let outcome = match self
+                .send_text_parts(&settings, message.chat.id, &response)
+                .await
+            {
+                Ok(()) => ("succeeded", response),
+                Err(error) => ("failed", error),
+            };
+            if outcome.0 == "failed" {
+                let _ = self
+                    .send_message(
+                        &settings,
+                        message.chat.id,
+                        &format!("操作未执行：{}", tg_escape(&outcome.1)),
+                    )
+                    .await;
+            }
+            self.record_audit(
+                update_id,
+                None,
+                user.id,
+                message.chat.id,
+                "douban",
+                &subject_url,
+                outcome.0,
+                &outcome.1,
+                started.elapsed(),
+                &correlation_id,
+            )
+            .await;
+            if outcome.0 != "failed" {
+                self.note_success().await;
+            }
+            return;
+        }
         // 主菜单按钮文案映射为命令
         let mapped = map_menu_text(raw_text);
         let text = mapped.unwrap_or(raw_text);
@@ -1549,6 +1612,7 @@ fn help_text() -> &'static str {
     "🤖 <b>MEDIA/SUB 控制</b>
 
 直接发送中文也可唤起：状态 / 订阅 / 任务 / 日历 / 通知 / 诊断 / 帮助 / 检查全部
+🎬 直接发送豆瓣链接，即可搜索链接对应的剧集
 
 <b>资源</b>
 /search &lt;关键词&gt; — 搜索夸克资源
