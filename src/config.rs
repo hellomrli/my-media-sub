@@ -18,10 +18,6 @@ pub struct ServerConfig {
     pub host: String,
     /// 监听端口
     pub port: u16,
-    /// HTTP Basic Auth 用户名
-    pub username: String,
-    /// HTTP Basic Auth 密码
-    pub password: String,
 }
 
 impl Default for Config {
@@ -30,8 +26,6 @@ impl Default for Config {
             server: ServerConfig {
                 host: "0.0.0.0".to_string(),
                 port: 56001,
-                username: "admin".to_string(),
-                password: "change-me".to_string(),
             },
             data_dir: PathBuf::from("./data"),
         }
@@ -51,16 +45,6 @@ impl Config {
             config.server.port = port
                 .parse()
                 .map_err(|e| AppError::Config(format!("Invalid SERVER_PORT: {}", e)))?;
-        }
-        if let Ok(username) =
-            std::env::var("APP_USERNAME").or_else(|_| std::env::var("SERVER_USERNAME"))
-        {
-            config.server.username = username;
-        }
-        if let Ok(password) =
-            std::env::var("APP_PASSWORD").or_else(|_| std::env::var("SERVER_PASSWORD"))
-        {
-            config.server.password = password;
         }
         if let Ok(data_dir) = std::env::var("DATA_DIR") {
             config.data_dir = PathBuf::from(data_dir);

@@ -21,8 +21,6 @@ async fn test_context() -> (Arc<AppContext>, std::path::PathBuf) {
         server: my_media_sub::config::ServerConfig {
             host: "127.0.0.1".to_string(),
             port: 0,
-            username: "admin".to_string(),
-            password: PASSWORD.to_string(),
         },
         data_dir: dir.clone(),
     };

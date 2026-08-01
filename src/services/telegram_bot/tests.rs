@@ -16,8 +16,6 @@ mod tests {
             server: crate::config::ServerConfig {
                 host: "127.0.0.1".to_string(),
                 port: 0,
-                username: "admin".to_string(),
-                password: "test-password".to_string(),
             },
             data_dir: dir.clone(),
         };
