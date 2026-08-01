@@ -1,4 +1,5 @@
 pub mod aria2;
+pub mod douban;
 pub mod http_pool;
 pub mod pansou;
 pub mod quark;

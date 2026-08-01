@@ -292,6 +292,37 @@ impl TelegramBotService {
         text
     }
 
+    /// 直接粘贴豆瓣链接：解析 subject 页的剧名后走同一套 PanSou 搜索。
+    async fn search_douban_text(&self, url: &str, user_id: i64, chat_id: i64) -> String {
+        let subject = match crate::clients::douban::fetch_subject(&self.client, url).await {
+            Ok(subject) => subject,
+            Err(error) => {
+                return format!(
+                    "豆瓣链接解析失败：{}",
+                    tg_escape(&sanitize_error(&error.to_string()))
+                )
+            }
+        };
+        let title = clean_media_title(&subject.title);
+        if title.is_empty() {
+            return format!(
+                "无法从「{}」识别剧名，请改用 /search &lt;关键词&gt;。",
+                tg_escape(&subject.title)
+            );
+        }
+        let year = subject.year.as_deref().unwrap_or("年份未知");
+        let header = format!(
+            "🎬 <b>豆瓣剧集搜索</b>\n链接：<code>{}</code>\n解析标题：{}（{}）\n\n",
+            tg_escape(url),
+            tg_escape(&subject.title),
+            tg_escape(year)
+        );
+        let body = self
+            .search_resources_text(&title, user_id, chat_id)
+            .await;
+        format!("{header}{body}")
+    }
+
     async fn subscribe_prepare(
         &self,
         argument: Option<&str>,
