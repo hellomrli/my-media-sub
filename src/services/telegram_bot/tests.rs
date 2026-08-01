@@ -99,6 +99,21 @@ mod tests {
     }
 
     #[test]
+    fn chinese_plain_text_maps_to_commands() {
+        assert_eq!(map_menu_text("任务"), Some("/jobs"));
+        assert_eq!(map_menu_text("任务列表"), Some("/jobs"));
+        assert_eq!(map_menu_text("通知列表"), Some("/notifications"));
+        assert_eq!(map_menu_text("未读通知"), Some("/notifications"));
+        assert_eq!(map_menu_text("诊断"), Some("/diagnostics"));
+        assert_eq!(map_menu_text("状态"), Some("/status"));
+        assert_eq!(map_menu_text("订阅"), Some("/subscriptions"));
+        assert_eq!(map_menu_text("日历"), Some("/calendar"));
+        assert_eq!(map_menu_text("检查全部"), Some("/check all"));
+        assert_eq!(map_menu_text("帮助"), Some("/help"));
+        assert_eq!(map_menu_text("随便说说"), None);
+    }
+
+    #[test]
     fn page_buttons_roundtrip_through_whitelist() {
         assert_eq!(
             parse_page_callback("page:subscriptions:2"),
