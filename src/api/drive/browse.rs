@@ -59,6 +59,7 @@ pub(super) async fn cached_drive_items(
 
 pub(super) async fn cache_drive_items(state: &DriveState, key: String, items: Vec<NormalizedItem>) {
     let mut cache = state.drive_cache.write().await;
+    prune_drive_cache(&mut cache);
     cache.insert(
         key,
         CachedDriveList {
@@ -66,6 +67,19 @@ pub(super) async fn cache_drive_items(state: &DriveState, key: String, items: Ve
             items,
         },
     );
+}
+
+/// 缓存条目硬上限：20 秒 TTL 本身已能控制内存，这个上限只兜底极端浏览
+/// 行为（同一窗口内快速翻几百个目录），避免长期运行无界增长。
+const DRIVE_CACHE_MAX_ENTRIES: usize = 512;
+
+/// 写入前清理过期条目；条目数超过硬上限时整体清空（目录列表缓存只有 20 秒
+/// 有效期，清空代价极小）。
+fn prune_drive_cache(cache: &mut HashMap<String, CachedDriveList>) {
+    cache.retain(|_, cached| cached.created_at.elapsed() <= DRIVE_CACHE_TTL);
+    if cache.len() >= DRIVE_CACHE_MAX_ENTRIES {
+        cache.clear();
+    }
 }
 
 pub(super) async fn clear_drive_cache(state: &DriveState) {
@@ -107,5 +121,53 @@ pub(super) async fn find_path(
             tracing::warn!("查找路径 {} 失败: {}", req.path, e);
             Err(e)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prune_drive_cache_removes_expired_entries_and_keeps_fresh_ones() {
+        let mut cache = HashMap::new();
+        cache.insert(
+            "old".to_string(),
+            CachedDriveList {
+                created_at: Instant::now() - Duration::from_secs(30),
+                items: vec![],
+            },
+        );
+        cache.insert(
+            "fresh".to_string(),
+            CachedDriveList {
+                created_at: Instant::now(),
+                items: vec![],
+            },
+        );
+
+        prune_drive_cache(&mut cache);
+
+        assert_eq!(cache.len(), 1);
+        assert!(cache.contains_key("fresh"));
+        assert!(!cache.contains_key("old"));
+    }
+
+    #[test]
+    fn prune_drive_cache_clears_when_entries_exceed_hard_cap() {
+        let mut cache = HashMap::new();
+        for index in 0..(DRIVE_CACHE_MAX_ENTRIES + 10) {
+            cache.insert(
+                format!("key-{index}"),
+                CachedDriveList {
+                    created_at: Instant::now(),
+                    items: vec![],
+                },
+            );
+        }
+
+        prune_drive_cache(&mut cache);
+
+        assert!(cache.is_empty());
     }
 }
