@@ -170,15 +170,17 @@
     return '尚未转存';
   }
 
-  /// 订阅卡元信息：把「该日期更新的集」与「目前已转存」合并为一行统一字号。
-  function cardMetaLabel(item) {
+  /// 当天会上映的集（日历订阅卡第二行）。
+  function cardDayLabel(item) {
     const episode = Number(item && item.episode);
     const season = Number(item && item.season);
-    if (!Number.isInteger(episode) || episode <= 0) {
-      const mediaType = String((item && item.media_type) || '').toLowerCase();
-      return mediaType === 'movie' ? transferProgressLabel(item, true) : '上映 / 开播';
-    }
-    return `S${season} E${episode} · ${transferProgressLabel(item, true)}`;
+    if (!Number.isInteger(episode) || episode <= 0) return '上映 / 开播';
+    return `今天 S${season} E${episode}`;
+  }
+
+  /// 目前已存的集（日历订阅卡第三行）。
+  function cardSavedLabel(item) {
+    return transferProgressLabel(item, true);
   }
 
   function sourceAlertLabel(alert) {
@@ -192,7 +194,8 @@
 
   return Object.freeze({
     addDays,
-    cardMetaLabel,
+    cardDayLabel,
+    cardSavedLabel,
     confidenceLabel,
     dateKey,
     groupByDate,
