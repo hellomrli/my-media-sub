@@ -2253,7 +2253,7 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
 .calendar-item.is-row {
   flex: 0 0 auto;
   gap: 0;
-  padding: 6px;
+  padding: 3px 6px;
   min-width: 232px;
   max-width: 330px;
   align-items: stretch;
