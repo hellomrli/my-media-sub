@@ -43,6 +43,8 @@ test('labels expose stable Chinese presentation', () => {
 });
 
 test('calendar progress and stale-source reminders use the highest persisted episodes', () => {
+  assert.equal(calendar.transferProgressLabel({media_type: 'series', season: 1, latest_transferred_episode: 6}), '最高已转存 S1 E6');
+  assert.equal(calendar.transferProgressLabel({media_type: 'series', season: 1, latest_transferred_episode: 6}, true), '已存 S1 E6');
   assert.equal(calendar.transferProgressLabel({media_type: 'series', latest_transferred_episode: 6}), '最高已转存 E6');
   assert.equal(calendar.transferProgressLabel({media_type: 'series', latest_transferred_episode: 6}, true), '已存 E6');
   assert.equal(calendar.transferProgressLabel({media_type: 'series'}), '尚未转存');
@@ -54,6 +56,7 @@ test('calendar card lines: bold title data with day episode and saved episodes',
   assert.equal(calendar.cardDayLabel({season: 1, episode: 13}), '今天 S1 E13');
   assert.equal(calendar.cardDayLabel({season: 2, episode: 1}), '今天 S2 E1');
   assert.equal(calendar.cardDayLabel({}), '上映 / 开播');
+  assert.equal(calendar.cardSavedLabel({media_type: 'series', season: 2, latest_transferred_episode: 10}), '已存 S2 E10');
   assert.equal(calendar.cardSavedLabel({media_type: 'series', latest_transferred_episode: 10}), '已存 E10');
   assert.equal(calendar.cardSavedLabel({media_type: 'series'}), '尚未转存');
   assert.equal(calendar.cardSavedLabel({media_type: 'movie', transferred: true}), '已转存');
