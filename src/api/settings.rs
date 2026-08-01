@@ -8,7 +8,7 @@ use serde::Serialize;
 use std::sync::Arc;
 
 use super::response::ApiResponse as Response;
-use crate::error::Result;
+use crate::error::{AppError, Result};
 use crate::models::{
     settings::{
         normalize_aria2_batch_submit_limit, normalize_check_interval_minutes,
@@ -622,6 +622,46 @@ fn non_mask_secret(value: &serde_json::Value) -> Option<String> {
     non_empty_string(value).filter(|s| !is_secret_mask(s))
 }
 
+/// 认证字段必须先校验再落盘：一旦写入空用户名或登录层会拒绝的默认密码，
+/// 用户会立刻被锁在门外，只能手工改文件或靠环境变量恢复。
+fn validate_app_username(username: &str) -> Result<()> {
+    let username = username.trim();
+    if username.is_empty() {
+        return Err(AppError::Validation("用户名不能为空".to_string()));
+    }
+    if username.len() > 64 {
+        return Err(AppError::Validation(
+            "用户名长度不能超过 64 个字符".to_string(),
+        ));
+    }
+    if username.contains(':') {
+        return Err(AppError::Validation(
+            "用户名不能包含冒号，否则 HTTP Basic 认证无法解析".to_string(),
+        ));
+    }
+    if username.chars().any(char::is_control) {
+        return Err(AppError::Validation("用户名不能包含控制字符".to_string()));
+    }
+    Ok(())
+}
+
+fn validate_app_password(password: &str) -> Result<()> {
+    if super::is_default_app_password(password) {
+        return Err(AppError::Validation(
+            "密码不能使用默认值 change-me（登录层会拒绝该值）".to_string(),
+        ));
+    }
+    if password.len() > 512 {
+        return Err(AppError::Validation(
+            "密码长度不能超过 512 个字符".to_string(),
+        ));
+    }
+    if password.chars().any(char::is_control) {
+        return Err(AppError::Validation("密码不能包含控制字符".to_string()));
+    }
+    Ok(())
+}
+
 fn setting_secret(settings: &crate::models::Settings, key: &str) -> Option<String> {
     let value = match key {
         "app_password" => &settings.app_password,
@@ -691,6 +731,22 @@ async fn update_settings(
 ) -> Result<impl IntoResponse> {
     let previous = state.store.get().await;
 
+    for (key, value) in &req {
+        match key.as_str() {
+            "app_username" => {
+                if let Some(username) = value.as_str() {
+                    validate_app_username(username)?;
+                }
+            }
+            "app_password" => {
+                if let Some(password) = non_mask_secret(value) {
+                    validate_app_password(&password)?;
+                }
+            }
+            _ => {}
+        }
+    }
+
     let updated = state
         .store
         .update(|settings| {
@@ -699,7 +755,7 @@ async fn update_settings(
                 match key.as_str() {
                     "app_username" => {
                         if let Some(s) = value.as_str() {
-                            settings.app_username = s.to_string();
+                            settings.app_username = s.trim().to_string();
                         }
                     }
                     "app_password" => {
@@ -1263,5 +1319,24 @@ mod tests {
             non_mask_secret(&serde_json::json!("new-secret")),
             Some("new-secret".to_string())
         );
+    }
+
+    #[test]
+    fn app_username_rejects_values_that_break_basic_auth() {
+        assert!(validate_app_username("admin").is_ok());
+        assert!(validate_app_username("  media-user  ").is_ok());
+        assert!(validate_app_username("").is_err());
+        assert!(validate_app_username("   ").is_err());
+        assert!(validate_app_username("user:name").is_err());
+        assert!(validate_app_username("user\nname").is_err());
+        assert!(validate_app_username(&"a".repeat(65)).is_err());
+    }
+
+    #[test]
+    fn app_password_rejects_auth_blocked_or_unusable_values() {
+        assert!(validate_app_password("s3cure-password-2026!").is_ok());
+        assert!(validate_app_password("change-me").is_err());
+        assert!(validate_app_password("pass\nword").is_err());
+        assert!(validate_app_password(&"a".repeat(513)).is_err());
     }
 }
