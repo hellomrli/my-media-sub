@@ -2267,8 +2267,8 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
 }
 .calendar-item.is-row .calendar-thumbnail.is-week {
   flex: 0 0 auto;
-  width: 50px;
-  height: 75px;
+  width: 52px;
+  height: 78px;
   margin: 0;
   border: 1px solid rgb(var(--c-border) / .55);
   border-radius: 6px;
@@ -2306,8 +2306,8 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
 .calendar-item.is-row .calendar-item-copy small:last-child { color: rgb(var(--c-muted) / .7); }
 /* 高屏行更高，缩略图宽度小幅放大保持图文比例 */
 @media (min-width: 1024px) and (min-height: 1010px) {
-  .calendar-item.is-row .calendar-thumbnail.is-week { width: 54px; height: 81px; }
+  .calendar-item.is-row .calendar-thumbnail.is-week { width: 56px; height: 84px; }
 }
 @media (min-width: 1024px) and (min-height: 1250px) {
-  .calendar-item.is-row .calendar-thumbnail.is-week { width: 58px; height: 87px; }
+  .calendar-item.is-row .calendar-thumbnail.is-week { width: 60px; height: 90px; }
 }
