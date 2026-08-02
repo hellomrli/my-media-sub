@@ -2165,3 +2165,23 @@ async fn update_restart_without_a_pending_plan_is_rejected() {
 
     let _ = std::fs::remove_dir_all(dir);
 }
+
+// ─── TMDB 测试 ────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn metadata_test_reports_missing_tmdb_key_without_network() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+
+    let (status_code, headers, body) = json_response(&app, auth_get("/api/metadata/test")).await;
+    assert_eq!(status_code, StatusCode::OK);
+    assert_json_content_type(&headers);
+    assert_eq!(body["ok"], true);
+    assert_eq!(body["data"]["success"], false);
+    assert!(body["data"]["message"]
+        .as_str()
+        .unwrap_or("")
+        .contains("未配置 TMDB API Key"));
+
+    let _ = std::fs::remove_dir_all(dir);
+}

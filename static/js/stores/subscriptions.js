@@ -1196,7 +1196,7 @@
     mediaFolderName() {
       const title = this.safePathSegment((this.newSubscription.metadata && this.newSubscription.metadata.title) || this.newSubscription.title || '未命名');
       const year = this.metadataYear();
-      return year ? `${title}（${year}）` : title;
+      return year ? `${title} (${year})` : title;
     },
 
     seasonFolderName() {

@@ -13,7 +13,8 @@ use crate::models::{
 use crate::providers::{CloudDriveProviderRegistry, TransferRequest};
 use crate::services::notification::add_notification;
 use crate::services::push::{
-    record_push_message_report_for_notification, PushEvent, PushLevel, PushRetryPolicy, PushService,
+    notification_thumbnail, record_push_message_report_for_notification, PushEvent, PushLevel,
+    PushRetryPolicy, PushService,
 };
 use crate::services::subscription_progress::reconcile_completed_subscription_status;
 use crate::services::{MetadataService, SubscriptionTransferService};

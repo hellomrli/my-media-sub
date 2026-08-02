@@ -35,6 +35,64 @@ mod tests {
     }
 
     #[test]
+    fn with_telegram_image_ignores_empty_urls() {
+        let service = PushService::new(Settings::default()).with_telegram_image(None);
+        assert!(service.telegram_image_url.is_none());
+
+        let service = PushService::new(Settings::default())
+            .with_telegram_image(Some("   ".to_string()));
+        assert!(service.telegram_image_url.is_none());
+
+        let service = PushService::new(Settings::default())
+            .with_telegram_image(Some("file:///tmp/poster.jpg".to_string()));
+        assert!(service.telegram_image_url.is_none());
+
+        let service = PushService::new(Settings::default())
+            .with_telegram_image(Some("https://example.com/poster.jpg".to_string()));
+        assert_eq!(
+            service.telegram_image_url.as_deref(),
+            Some("https://example.com/poster.jpg")
+        );
+    }
+
+    #[tokio::test]
+    async fn notification_thumbnail_reads_poster_url_from_meta() {
+        let tmp = std::env::temp_dir().join(format!(
+            "my-media-sub-push-thumb-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let store = NotificationStore::new(&tmp);
+        store.load().await.unwrap();
+        let notification = store
+            .add(Notification {
+                id: "thumb-notification".to_string(),
+                level: "success".to_string(),
+                event: "download_completed".to_string(),
+                title: "下载完成".to_string(),
+                message: "文件：A.mkv".to_string(),
+                meta: HashMap::from([(
+                    "poster_url".to_string(),
+                    json!("https://image.tmdb.org/t/p/w500/poster.jpg"),
+                )]),
+                read: false,
+                created_at: 1,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            notification_thumbnail(&store, Some(&notification.id))
+                .await
+                .as_deref(),
+            Some("https://image.tmdb.org/t/p/w500/poster.jpg")
+        );
+        assert!(notification_thumbnail(&store, None).await.is_none());
+        assert!(notification_thumbnail(&store, Some("missing")).await.is_none());
+
+        let _ = std::fs::remove_file(tmp);
+    }
+
+    #[test]
     fn test_retry_policy_uses_exponential_backoff_with_cap() {
         let policy = PushRetryPolicy {
             max_attempts: 0,

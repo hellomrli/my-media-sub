@@ -17,6 +17,7 @@
             <div class="settings-overview-actions">
               <button @click="testQuark()" :disabled="quarkHealthLoading" class="btn-secondary">测试夸克</button>
               <button @click="testAria2()" :disabled="!settings.aria2_rpc_url" class="btn-secondary disabled:opacity-40">测试 Aria2</button>
+              <button @click="testTmdb()" class="btn-secondary">测试 TMDB API</button>
             </div>
           </section>
 

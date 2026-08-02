@@ -317,7 +317,7 @@ fn media_folder_name(sub: &Subscription) -> String {
         .unwrap_or(&sub.title);
     let title = sanitize_path_segment(title);
     match metadata_year(sub) {
-        Some(year) => format!("{}（{}）", title, year),
+        Some(year) => format!("{} ({})", title, year),
         None => title,
     }
 }

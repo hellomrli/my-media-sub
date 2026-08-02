@@ -22,7 +22,7 @@ pub mod transfer_rule;
 
 pub use download_monitor::DownloadMonitorService;
 pub use episode::{detect_episode, is_video_name};
-pub use metadata::MetadataService;
+pub use metadata::{MetadataService, TmdbTestResult};
 pub use quark_signin::{QuarkSigninScheduler, QuarkSigninService};
 pub use subscription_check::SubscriptionCheckService;
 pub use subscription_scheduler::SubscriptionScheduler;

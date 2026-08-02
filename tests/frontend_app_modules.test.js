@@ -176,3 +176,94 @@ test('subscription data refresh recovers failed image nodes reused with the same
     global.window = originalWindow;
   }
 });
+
+test('settings load auto-refreshes Quark health when a cookie is configured', async () => {
+  const store = app();
+  const refreshes = [];
+  store.refreshQuarkHealth = async () => { refreshes.push('refresh'); };
+  const originalFetch = global.fetch;
+  global.fetch = async url => {
+    if (url === '/api/settings') {
+      return {ok: true, status: 200, json: async () => ({data: {quark_cookie_configured: true}})};
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+
+  try {
+    await store.loadSettings();
+    assert.deepEqual(refreshes, ['refresh']);
+    assert.equal(store.settingsLoaded, true);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('settings load skips Quark health refresh without a configured cookie', async () => {
+  const store = app();
+  const refreshes = [];
+  store.refreshQuarkHealth = async () => { refreshes.push('refresh'); };
+  const originalFetch = global.fetch;
+  global.fetch = async url => {
+    if (url === '/api/settings') {
+      return {ok: true, status: 200, json: async () => ({data: {quark_cookie_configured: false, quark_cookie: ''}})};
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+
+  try {
+    await store.loadSettings();
+    assert.deepEqual(refreshes, []);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('testTmdb warns when no TMDB API key is configured', async () => {
+  const store = app();
+  const notices = [];
+  store.showNotification = (level, message) => notices.push([level, message]);
+
+  await store.testTmdb();
+
+  assert.deepEqual(notices, [['warning', '请先填写 TMDB API Key']]);
+});
+
+test('testTmdb reports a successful TMDB API connection', async () => {
+  const store = app();
+  const notices = [];
+  store.showNotification = (level, message) => notices.push([level, message]);
+  store.settings.tmdb_api_key_configured = true;
+  const originalFetch = global.fetch;
+  global.fetch = async url => {
+    assert.equal(url, '/api/metadata/test');
+    return {ok: true, status: 200, json: async () => ({data: {success: true, message: 'TMDB API 连接成功'}})};
+  };
+
+  try {
+    await store.testTmdb();
+    assert.deepEqual(notices, [
+      ['info', '测试 TMDB API 连接中...'],
+      ['success', 'TMDB API 连接成功']
+    ]);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('testTmdb surfaces the backend failure message', async () => {
+  const store = app();
+  const notices = [];
+  store.showNotification = (level, message) => notices.push([level, message]);
+  store.settings.tmdb_api_key = 'secret-key';
+  const originalFetch = global.fetch;
+  global.fetch = async () => {
+    return {ok: true, status: 200, json: async () => ({data: {success: false, message: 'TMDB API 测试失败: HTTP 401'}})};
+  };
+
+  try {
+    await store.testTmdb();
+    assert.deepEqual(notices[1], ['error', 'TMDB API 测试失败: HTTP 401']);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});

@@ -7,7 +7,8 @@ use crate::error::Result;
 use crate::jobs::{JobQueue, PushDispatchPayload};
 use crate::models::Notification;
 use crate::services::push::{
-    record_push_message_report_for_notification, PushEvent, PushLevel, PushRetryPolicy, PushService,
+    notification_thumbnail, record_push_message_report_for_notification, PushEvent, PushLevel,
+    PushRetryPolicy, PushService,
 };
 use crate::store::{NotificationStore, SettingsStore};
 use crate::utils::unix_now;
@@ -189,8 +190,10 @@ async fn send_push_event(
     subscription_id: Option<&str>,
 ) {
     let settings = settings_store.get().await;
-    let push_service =
-        PushService::new(settings).with_telegram_actions(event, notification_id, subscription_id);
+    let image_url = notification_thumbnail(notification_store, notification_id).await;
+    let push_service = PushService::new(settings)
+        .with_telegram_actions(event, notification_id, subscription_id)
+        .with_telegram_image(image_url);
     let report = push_service
         .send_event_with_retry_detailed(
             event,

@@ -381,7 +381,7 @@
                 </div>
                 <div x-show="newSubscription.custom_dir" class="space-y-2">
                   <div class="flex gap-2">
-                    <input type="text" x-model="newSubscription.target_dir_name" class="flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="目录名称或完整路径，例如：庆余年（2024）" />
+                    <input type="text" x-model="newSubscription.target_dir_name" class="flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="目录名称或完整路径，例如：庆余年 (2024)" />
                     <button type="button" @click="browseTargetDir()" class="btn-secondary px-3 py-2 rounded-lg text-sm whitespace-nowrap">浏览网盘</button>
                   </div>
                   <p class="text-xs text-muted/75">单季落到 Season N；多季只写剧名，转存时自动创建 Season 文件夹。</p>
