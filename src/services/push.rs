@@ -6,7 +6,7 @@ use crate::store::{NotificationStore, SettingsStore};
 use crate::utils::metrics::global_metrics;
 use regex::Regex;
 use reqwest::Client;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -106,6 +106,7 @@ pub enum PushEvent {
     SubscriptionCompleted,
     TransferSaved,
     DownloadCompleted,
+    DownloadFailed,
     QuarkSignin,
     NotificationDigest,
     JobQueueBacklog,
@@ -119,6 +120,7 @@ impl PushEvent {
             "subscription_completed" => Some(Self::SubscriptionCompleted),
             "transfer_saved" => Some(Self::TransferSaved),
             "download_completed" => Some(Self::DownloadCompleted),
+            "download_failed" => Some(Self::DownloadFailed),
             "quark_signin" => Some(Self::QuarkSignin),
             "notification_digest" => Some(Self::NotificationDigest),
             "job_queue_backlog" => Some(Self::JobQueueBacklog),
@@ -133,6 +135,7 @@ impl PushEvent {
             Self::SubscriptionCompleted => "subscription_completed",
             Self::TransferSaved => "transfer_saved",
             Self::DownloadCompleted => "download_completed",
+            Self::DownloadFailed => "download_failed",
             Self::QuarkSignin => "quark_signin",
             Self::NotificationDigest => "notification_digest",
             Self::JobQueueBacklog => "job_queue_backlog",
@@ -424,6 +427,7 @@ pub struct PushService {
     settings: Settings,
     client: Client,
     telegram_reply_markup: Option<serde_json::Value>,
+    telegram_image_url: Option<String>,
 }
 
 impl PushService {
@@ -434,7 +438,22 @@ impl PushService {
             settings,
             client,
             telegram_reply_markup: None,
+            telegram_image_url: None,
         }
+    }
+
+    /// 携带 Telegram 消息缩略图（图片 URL）。仅在 URL 非空时生效，
+    /// 其余渠道不受影响。
+    pub fn with_telegram_image(mut self, image_url: Option<String>) -> Self {
+        let is_http = image_url
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|url| url.starts_with("http://") || url.starts_with("https://"));
+        if !is_http {
+            return self;
+        }
+        self.telegram_image_url = image_url;
+        self
     }
 
     pub fn with_telegram_actions(
@@ -512,7 +531,9 @@ impl PushService {
             PushEvent::SubscriptionFailed => self.settings.push_on_failed,
             PushEvent::SubscriptionCompleted => self.settings.push_on_completed,
             PushEvent::TransferSaved => self.settings.push_on_save,
-            PushEvent::DownloadCompleted => self.settings.push_on_download_completed,
+            PushEvent::DownloadCompleted | PushEvent::DownloadFailed => {
+                self.settings.push_on_download_completed
+            }
             PushEvent::QuarkSignin => self.settings.push_on_quark_signin,
             PushEvent::NotificationDigest | PushEvent::JobQueueBacklog => true,
         }
@@ -854,6 +875,24 @@ impl PushService {
     }
 
     push_channel_methods!();
+}
+
+/// 从通知 meta 中读取可用于 Telegram 缩略图的海报地址。
+pub async fn notification_thumbnail(
+    store: &NotificationStore,
+    notification_id: Option<&str>,
+) -> Option<String> {
+    let notification_id = notification_id?;
+    let notifications = store.list(true).await;
+    let notification = notifications
+        .into_iter()
+        .find(|item| item.id == notification_id)?;
+    notification
+        .meta
+        .get("poster_url")
+        .and_then(Value::as_str)
+        .filter(|url| url.starts_with("http://") || url.starts_with("https://"))
+        .map(ToString::to_string)
 }
 
 fn versioned_webhook_payload(title: &str, message: &str, level: PushLevel) -> serde_json::Value {

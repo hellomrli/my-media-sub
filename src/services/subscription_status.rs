@@ -153,16 +153,34 @@ pub fn build_subscription_detail(
         }
     }
 
-    let completed_gids = notifications
+    let mut completed_gids = notifications
         .iter()
         .filter(|notification| notification.event == "download_completed")
         .filter_map(|notification| meta_string(&notification.meta, "gid"))
         .collect::<HashSet<_>>();
-    let completed_file_names = notifications
+    let mut completed_file_names = notifications
         .iter()
         .filter(|notification| notification.event == "download_completed")
         .filter_map(|notification| meta_string(&notification.meta, "file_name"))
         .collect::<HashSet<_>>();
+    for notification in notifications
+        .iter()
+        .filter(|notification| notification.event == "download_completed")
+    {
+        if let Some(gids) = notification.meta.get("gids").and_then(Value::as_array) {
+            for gid in gids.iter().filter_map(Value::as_str) {
+                completed_gids.insert(gid.to_string());
+            }
+        }
+        if let Some(files) = notification.meta.get("files").and_then(Value::as_array) {
+            for file in files
+                .iter()
+                .filter_map(|file| file.get("file_name").and_then(Value::as_str))
+            {
+                completed_file_names.insert(file.to_string());
+            }
+        }
+    }
     let mut download_status = HashMap::<i32, &'static str>::new();
     let mut strm_status = HashMap::<i32, &'static str>::new();
 

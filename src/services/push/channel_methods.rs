@@ -98,6 +98,50 @@ macro_rules! push_channel_methods {
             html_escape(title),
             html_escape(message)
         );
+        let image_url = self
+            .telegram_image_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+
+        // 有缩略图时优先用 sendPhoto（caption 支持 HTML）；失败或超长时
+        // 回退到 sendMessage，避免图片问题导致整条推送丢失。
+        if let Some(image_url) = image_url {
+            let mut photo_payload = json!({
+                "chat_id": chat_id,
+                "photo": image_url,
+                "caption": text,
+                "parse_mode": "HTML",
+                "disable_notification": silent,
+            });
+            if let Some(reply_markup) = &self.telegram_reply_markup {
+                photo_payload["reply_markup"] = reply_markup.clone();
+            }
+
+            let photo_url = format!("https://api.telegram.org/bot{}/sendPhoto", token);
+            match self
+                .client
+                .post(&photo_url)
+                .json(&photo_payload)
+                .send_observed("push")
+                .await
+            {
+                Ok(resp) => {
+                    let data: serde_json::Value = resp
+                        .json()
+                        .await
+                        .unwrap_or(serde_json::Value::Null);
+                    if data.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                        return Ok(true);
+                    }
+                    tracing::debug!("Telegram sendPhoto 失败，回退到文本消息");
+                }
+                Err(error) => {
+                    tracing::debug!("Telegram sendPhoto 请求失败，回退到文本消息: {}", error);
+                }
+            }
+        }
+
         let mut payload = json!({
             "chat_id": chat_id,
             "text": text,

@@ -1,6 +1,6 @@
 use crate::clients::http_pool::ObservedRequestBuilder;
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::clients::http_pool;
 use crate::error::{AppError, Result};
@@ -9,6 +9,12 @@ use crate::store::SettingsStore;
 
 pub struct MetadataService {
     client: Client,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TmdbTestResult {
+    pub success: bool,
+    pub message: String,
 }
 
 impl MetadataService {
@@ -66,6 +72,48 @@ impl MetadataService {
                     .max_by_key(|item| metadata_score(query, item))
                     .cloned()
             })
+    }
+
+    /// 测试 TMDB API Key 是否可用（请求配置接口，不依赖具体搜索词）。
+    pub async fn test_api(&self, settings_store: &SettingsStore) -> TmdbTestResult {
+        let settings = settings_store.get().await;
+        let api_key = settings.tmdb_api_key.trim();
+        if api_key.is_empty() {
+            return TmdbTestResult {
+                success: false,
+                message: "未配置 TMDB API Key".to_string(),
+            };
+        }
+
+        match self.check_tmdb_api(api_key).await {
+            Ok(()) => TmdbTestResult {
+                success: true,
+                message: "TMDB API 连接成功".to_string(),
+            },
+            Err(error) => TmdbTestResult {
+                success: false,
+                message: format!("TMDB API 测试失败: {error}"),
+            },
+        }
+    }
+
+    async fn check_tmdb_api(&self, api_key: &str) -> Result<()> {
+        let response = self
+            .client
+            .get("https://api.themoviedb.org/3/configuration")
+            .query(&[("api_key", api_key)])
+            .send_observed("metadata")
+            .await
+            .map_err(|error| {
+                // 请求错误的 Display 可能携带完整 URL（含 api_key），只透出状态摘要。
+                tracing::debug!("TMDB API 测试请求失败: {}", error);
+                AppError::Http("网络请求失败，请检查服务出网能力".to_string())
+            })?;
+
+        if !response.status().is_success() {
+            return Err(AppError::Http(format!("HTTP {}", response.status())));
+        }
+        Ok(())
     }
 
     async fn search_tmdb(
@@ -438,6 +486,8 @@ impl Default for MetadataService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::SettingsStore;
+    use std::sync::Arc;
 
     #[test]
     fn test_tmdb_item_into_metadata() {
@@ -463,6 +513,24 @@ mod tests {
             metadata.poster_url.as_deref(),
             Some("https://image.tmdb.org/t/p/w500/poster.jpg")
         );
+    }
+
+    #[tokio::test]
+    async fn test_tmdb_api_reports_missing_key_without_network() {
+        let settings = Arc::new(SettingsStore::new(std::env::temp_dir().join(format!(
+                "my_media_sub_metadata_test_{}_{}.json",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos()
+            ))));
+        let service = MetadataService::new();
+
+        let result = service.test_api(&settings).await;
+
+        assert!(!result.success);
+        assert!(result.message.contains("未配置 TMDB API Key"));
     }
 
     #[test]

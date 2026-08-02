@@ -272,6 +272,7 @@
         subscription_completed: '订阅完结',
         subscription_transferred: '自动转存',
         download_completed: '下载完成',
+        download_failed: '下载失败',
         quark_signin: '夸克签到',
         subscription_transfer_failed: '转存失败',
         manual_transfer_succeeded: '手动转存',

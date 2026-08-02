@@ -382,7 +382,7 @@ mod tests {
         let result = generate_subscription_strm_files(
             &settings,
             &sub,
-            "/连续剧/庆余年（2024）/Season 1",
+            "/连续剧/庆余年 (2024)/Season 1",
             &[video_item("fid1", "庆余年.S01E01.mkv")],
         )
         .unwrap();

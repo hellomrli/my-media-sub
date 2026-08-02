@@ -182,6 +182,7 @@
         this.settingsLoaded = true;
         this.settings.rule_presets = this.rulePresets;
         this.resetSecretVisibility();
+        this.autoRefreshQuarkHealth();
       } catch (error) {
         console.error('加载设置失败:', error);
       }
@@ -322,6 +323,12 @@
       await this.testQuark({silent: true});
     },
 
+    autoRefreshQuarkHealth() {
+      // 打开项目时自动检测一次夸克账号状态，侧边栏无需手动点刷新
+      const hasQuarkCookie = !!this.settings.quark_cookie_configured || !!this.settings.quark_cookie;
+      if (hasQuarkCookie) this.refreshQuarkHealth();
+    },
+
     async testQuark(options = {}) {
       const silent = !!options.silent;
       if (!silent) this.showNotification('info', '测试夸克连接中...');
@@ -409,6 +416,27 @@
       } catch (error) {
         console.error('Aria2 测试失败:', error);
         this.showNotification('error', this.apiErrorMessage(error, 'Aria2 测试失败'));
+      }
+    },
+
+    async testTmdb() {
+      const hasApiKey = !!this.settings.tmdb_api_key_configured || !!this.settings.tmdb_api_key;
+      if (!hasApiKey) {
+        this.showNotification('warning', '请先填写 TMDB API Key');
+        return;
+      }
+
+      this.showNotification('info', '测试 TMDB API 连接中...');
+      try {
+        const data = await apiData('/api/metadata/test');
+        if (data.success) {
+          this.showNotification('success', data.message || 'TMDB API 连接成功');
+        } else {
+          this.showNotification('error', data.message || data.error || 'TMDB API 测试失败');
+        }
+      } catch (error) {
+        console.error('TMDB API 测试失败:', error);
+        this.showNotification('error', this.apiErrorMessage(error, 'TMDB API 测试失败'));
       }
     },
 

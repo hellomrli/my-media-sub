@@ -9,7 +9,7 @@ use std::sync::Arc;
 use super::response::ApiResponse as Response;
 use crate::error::Result;
 use crate::models::MediaMetadata;
-use crate::services::MetadataService;
+use crate::services::{MetadataService, TmdbTestResult};
 use crate::store::SettingsStore;
 
 pub struct MetadataState {
@@ -46,6 +46,11 @@ async fn search_metadata(
     Ok(Json(Response::ok(results)))
 }
 
+async fn test_tmdb(State(state): State<Arc<MetadataState>>) -> Json<Response<TmdbTestResult>> {
+    let result = state.metadata_service.test_api(&state.settings_store).await;
+    Json(Response::ok(result))
+}
+
 pub fn routes(
     settings_store: Arc<SettingsStore>,
     metadata_service: Arc<MetadataService>,
@@ -57,5 +62,6 @@ pub fn routes(
 
     Router::new()
         .route("/api/metadata/search", get(search_metadata))
+        .route("/api/metadata/test", get(test_tmdb))
         .with_state(state)
 }

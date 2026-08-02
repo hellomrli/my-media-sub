@@ -107,7 +107,7 @@ mod tests {
 
         let target = determine_subscription_target_directory(&sub, &settings);
 
-        assert_eq!(target, "/连续剧/庆余年（2024）/Season 1");
+        assert_eq!(target, "/连续剧/庆余年 (2024)/Season 1");
     }
 
     #[test]
@@ -120,7 +120,7 @@ mod tests {
 
         let target = determine_subscription_target_directory(&sub, &settings);
 
-        assert_eq!(target, "/电影/庆余年（2024）");
+        assert_eq!(target, "/电影/庆余年 (2024)");
     }
 
     #[test]
@@ -133,10 +133,10 @@ mod tests {
         sub.season_end = Some(4);
 
         let target = determine_subscription_target_directory(&sub, &settings);
-        assert_eq!(target, "/连续剧/庆余年（2024）");
+        assert_eq!(target, "/连续剧/庆余年 (2024)");
         assert_eq!(
             season_target_directory(&target, 3),
-            "/连续剧/庆余年（2024）/Season 3"
+            "/连续剧/庆余年 (2024)/Season 3"
         );
     }
 
