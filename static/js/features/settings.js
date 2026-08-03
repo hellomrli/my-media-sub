@@ -66,7 +66,7 @@
       wxpusher_app_token: '', wxpusher_app_token_configured: false, wxpusher_uids: '', gotify_url: '', gotify_token: '', gotify_token_configured: false, pushplus_token: '', pushplus_token_configured: false,
       subscription_check_interval_minutes: 60, subscription_check_max_concurrency: 4, external_api_max_concurrency: 8,
       job_max_concurrency: 4, job_transfer_max_concurrency: 2, job_metadata_max_concurrency: 2, job_push_max_concurrency: 4,
-      job_maintenance_mode: false,
+      job_maintenance_mode: false, media_metadata_files_enabled: false,
       aria2_batch_submit_limit: 20, subscription_scheduler_enabled: false, pansou_api_url: '', pansou_api_url_configured: false,
       push_silent: false, webhook_enabled: false, webhook_urls: [], webhook_secret: '',
       push_event_routes: {}, push_min_level: 'info', push_quiet_hours_enabled: false, push_quiet_start_hour: 23, push_quiet_end_hour: 8,

@@ -10,7 +10,7 @@ use crate::clients::aria2::Aria2Task;
 use crate::clients::Aria2Client;
 use crate::error::{AppError, Result};
 use crate::jobs::JobQueue;
-use crate::models::{Notification, Settings, Subscription, SyncDownloadRecord};
+use crate::models::{MediaMetadata, Notification, Settings, Subscription, SyncDownloadRecord};
 use crate::services::notification::{
     add_notification, dispatch_push_event_for_notification, PushDispatchRequest,
 };
@@ -70,6 +70,10 @@ struct DownloadBatch {
     subscription_id: String,
     title: String,
     poster_url: Option<String>,
+    /// 订阅的媒体类型（series/anime/movie 等），用于媒体库元数据落盘布局。
+    media_type: String,
+    /// 订阅匹配到的 TMDB 元数据，用于下载完成后写入海报/NFO 文件。
+    metadata: Option<MediaMetadata>,
     records: Vec<SyncDownloadRecord>,
 }
 
@@ -135,15 +139,6 @@ impl DownloadMonitorService {
     }
 
     pub async fn notify_completed_downloads(&self, tasks: &[Aria2Task]) {
-        let history = self.notification_store.list(true).await;
-        let pushed_downloads = self
-            .job_queue
-            .successful_push_dispatch_messages(PushEvent::DownloadCompleted.as_str())
-            .await;
-        let pushed_failures = self
-            .job_queue
-            .successful_push_dispatch_messages(PushEvent::DownloadFailed.as_str())
-            .await;
         let known_keys = self.notified_completed_downloads.read().await.snapshot();
         let pending_tasks = tasks
             .iter()
@@ -177,10 +172,21 @@ impl DownloadMonitorService {
 
         for (gid, keys) in claimed {
             if let Some(task) = tasks.iter().find(|task| task.gid == gid) {
+                // 每个任务用最新快照做去重：同一轮扫描中前一个任务刚写入的
+                // 合并通知，必须对后续任务可见，否则同批会各自补发一条。
+                let history = self.notification_store.list(true).await;
                 let result = if task.status == "error" {
+                    let pushed_failures = self
+                        .job_queue
+                        .successful_push_dispatch_messages(PushEvent::DownloadFailed.as_str())
+                        .await;
                     self.notify_failed_download(task, &history, &pushed_failures)
                         .await
                 } else {
+                    let pushed_downloads = self
+                        .job_queue
+                        .successful_push_dispatch_messages(PushEvent::DownloadCompleted.as_str())
+                        .await;
                     self.notify_completed_download(task, tasks, &history, &pushed_downloads)
                         .await
                 };
@@ -208,6 +214,23 @@ impl DownloadMonitorService {
 
         let batch = self.download_batch_for_task(task).await;
         if let Some(batch) = &batch {
+            // 下载完成后按 TMDB 元数据写海报/NFO 到本地下载目录。放在通知
+            // 分叉之前：合并批次未结算、已记录、重启回放等路径都不会漏写，
+            // 且幂等跳过让重复处理（如重启后重新扫描）自动变成免费重试。
+            if let Some(metadata) = &batch.metadata {
+                let settings = self.settings_store.get().await;
+                if let Err(error) =
+                    crate::services::media_metadata_files::write_media_metadata_files(
+                        &settings,
+                        metadata,
+                        &batch.media_type,
+                        &task.dir,
+                    )
+                    .await
+                {
+                    warn!("写入媒体库元数据文件失败（GID {}）: {}", task.gid, error);
+                }
+            }
             if batch.records.len() > 1 {
                 let failed_gids = failed_download_gids(history);
                 if !batch_records_settled(&batch.records, &failed_gids) {
@@ -369,6 +392,8 @@ impl DownloadMonitorService {
                 .metadata
                 .as_ref()
                 .and_then(|metadata| metadata.poster_url.clone()),
+            media_type: subscription.media_type.clone(),
+            metadata: subscription.metadata.clone(),
             records,
         })
     }
@@ -717,7 +742,7 @@ fn merged_download_already_recorded(
         .iter()
         .map(|record| record.gid.as_str())
         .collect::<HashSet<_>>();
-    history.iter().any(|notification| {
+    if history.iter().any(|notification| {
         if notification.event != PushEvent::DownloadCompleted.as_str() {
             return false;
         }
@@ -735,6 +760,53 @@ fn merged_download_already_recorded(
             && gids
                 .iter()
                 .any(|gid| gid.as_str().is_some_and(|gid| batch_gids.contains(gid)))
+    }) {
+        return true;
+    }
+    // 升级前的旧版本按文件逐条发送通知（meta 只有单个 gid，没有 gids 数组）。
+    // 若批次内每个文件都已被单独通知过，说明这批已经通知完毕，不应合并补发。
+    batch_records_individually_notified(history, pushed_downloads, batch)
+}
+
+/// 批次内每个文件是否都已有各自的「下载完成」记录（历史通知或已成功推送）。
+/// 用于识别 2.4.0 之前逐文件通知的遗留历史，避免升级重启后整批合并补发。
+fn batch_records_individually_notified(
+    history: &[Notification],
+    pushed_downloads: &HashSet<(String, String)>,
+    batch: &DownloadBatch,
+) -> bool {
+    batch.records.iter().all(|record| {
+        let gid = record.gid.trim();
+        let covered_in_history = history.iter().any(|notification| {
+            notification.event == PushEvent::DownloadCompleted.as_str()
+                && (notification.meta.get("gid").and_then(Value::as_str) == Some(gid)
+                    || notification
+                        .meta
+                        .get("gids")
+                        .and_then(Value::as_array)
+                        .is_some_and(|gids| {
+                            gids.iter().any(|candidate| candidate.as_str() == Some(gid))
+                        }))
+        });
+        if covered_in_history {
+            return true;
+        }
+        // 通知历史被清空时，回退到已成功推送的逐文件消息（目录行之后可能
+        // 还有旧版本附加的“大小”行，只要求重建的消息是推送消息的前缀）。
+        let file_name = record.file_name.trim();
+        if file_name.is_empty() {
+            return false;
+        }
+        let title = format!("下载完成: {}", file_name);
+        let mut parts = vec![format!("文件：{}", file_name)];
+        let dir = record.download_dir.trim();
+        if !dir.is_empty() {
+            parts.push(format!("目录：{}", dir));
+        }
+        let message = parts.join("\n");
+        pushed_downloads.iter().any(|(pushed_title, pushed_message)| {
+            pushed_title == &title && pushed_message.starts_with(&message)
+        })
     })
 }
 
@@ -1450,5 +1522,470 @@ mod tests {
             &pushed_downloads,
             &task
         ));
+    }
+
+    /// 重启恢复场景：记录的完成状态已落盘、内存去重缓存为空，同一批次的
+    /// 任务在同一轮扫描中全部出现。即使先处理的任务已发出合并通知，后续
+    /// 任务也必须能看见它，整批只能补发一条。
+    #[tokio::test]
+    async fn settled_batch_in_one_poll_sends_single_merged_notification() {
+        use crate::app::AppContext;
+        use crate::config::{Config, ServerConfig};
+        use crate::models::SyncDownloadRecord;
+
+        let dir = std::env::temp_dir().join(format!(
+            "my-media-sub-download-batch-restart-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let context = AppContext::new(&Config {
+            server: ServerConfig {
+                host: "127.0.0.1".to_string(),
+                port: 0,
+            },
+            data_dir: dir.clone(),
+        })
+        .await
+        .unwrap();
+        let mut subscription: Subscription = serde_json::from_value(json!({
+            "id": "sub-batch-restart",
+            "title": "Show",
+            "url": "https://pan.quark.cn/s/test",
+            "created_at": 1,
+            "updated_at": 1,
+            "last_checked_at": 1
+        }))
+        .unwrap();
+        subscription.sync_download_enabled = true;
+        subscription.completed = true;
+        subscription.sync_downloads = vec![
+            SyncDownloadRecord {
+                gid: "gid-1".to_string(),
+                file_name: "Show.S01E01.mkv".to_string(),
+                download_dir: "/downloads/anime".to_string(),
+                target_dir: "/series/Show/Season 1".to_string(),
+                submitted_at: 100,
+                completed_at: Some(1),
+            },
+            SyncDownloadRecord {
+                gid: "gid-2".to_string(),
+                file_name: "Show.S01E02.mkv".to_string(),
+                download_dir: "/downloads/anime".to_string(),
+                target_dir: "/series/Show/Season 1".to_string(),
+                submitted_at: 100,
+                completed_at: Some(1),
+            },
+        ];
+        context
+            .subscription_store
+            .create(subscription)
+            .await
+            .unwrap();
+
+        // 两个已完成任务出现在同一轮扫描中。
+        context
+            .download_monitor
+            .notify_completed_downloads(&[
+                task_with("gid-1", "Show.S01E01.mkv", "complete"),
+                task_with("gid-2", "Show.S01E02.mkv", "complete"),
+            ])
+            .await;
+
+        let notifications = context.notification_store.list(true).await;
+        let completed = notifications
+            .iter()
+            .filter(|notification| notification.event == "download_completed")
+            .collect::<Vec<_>>();
+        assert_eq!(completed.len(), 1, "同批只能补发一条合并通知");
+        assert!(completed[0].title.contains("2 个文件"));
+
+        context.job_queue.shutdown().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// 本地图片测试服务器，返回请求计数与 URL。
+    async fn spawn_image_server() -> (Arc<std::sync::atomic::AtomicUsize>, String) {
+        use std::sync::atomic::AtomicUsize;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let counter = requests.clone();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let mut buf = [0u8; 4096];
+                let _ = socket.read(&mut buf).await;
+                let body = b"fake-jpeg-bytes";
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+                let _ = socket.write_all(body).await;
+            }
+        });
+        (requests, format!("http://{addr}/poster.jpg"))
+    }
+
+    fn completed_task_in_dir(gid: &str, file_name: &str, dir: &str) -> Aria2Task {
+        Aria2Task {
+            gid: gid.to_string(),
+            status: "complete".to_string(),
+            file_name: file_name.to_string(),
+            total_length: 1024,
+            completed_length: 1024,
+            download_speed: 0,
+            upload_speed: 0,
+            connections: 0,
+            progress: 100.0,
+            eta_seconds: None,
+            dir: dir.to_string(),
+            error_code: String::new(),
+            error_message: String::new(),
+            files: vec![],
+        }
+    }
+
+    async fn metadata_subscription(dir: &str) -> Subscription {
+        use crate::models::{MediaMetadata, MediaMetadataSeason, MetadataProvider};
+
+        let mut subscription: Subscription = serde_json::from_value(json!({
+            "id": "sub-metadata",
+            "title": "Show",
+            "url": "https://pan.quark.cn/s/test",
+            "created_at": 1,
+            "updated_at": 1,
+            "last_checked_at": 1
+        }))
+        .unwrap();
+        subscription.media_type = "series".to_string();
+        subscription.sync_download_enabled = true;
+        subscription.metadata = Some(MediaMetadata {
+            provider: MetadataProvider::Tmdb,
+            provider_id: "123".to_string(),
+            title: "Show".to_string(),
+            original_title: "Original Show".to_string(),
+            media_type: "series".to_string(),
+            overview: "简介".to_string(),
+            poster_url: Some("http://127.0.0.1:1/poster.jpg".to_string()),
+            backdrop_url: None,
+            release_date: Some("2024-01-01".to_string()),
+            vote_average: Some(8.2),
+            number_of_episodes: Some(1),
+            number_of_seasons: Some(1),
+            seasons: vec![MediaMetadataSeason {
+                season_number: 1,
+                episode_count: Some(1),
+                name: "Season 1".to_string(),
+                air_date: Some("2024-01-01".to_string()),
+                poster_url: Some("http://127.0.0.1:1/poster.jpg".to_string()),
+            }],
+            next_episode_to_air: None,
+            episodes: vec![],
+        });
+        subscription.sync_downloads = vec![SyncDownloadRecord {
+            gid: "gid-1".to_string(),
+            file_name: "Show.S01E01.mkv".to_string(),
+            download_dir: dir.to_string(),
+            target_dir: "/series/Show/Season 1".to_string(),
+            submitted_at: 100,
+            completed_at: None,
+        }];
+        subscription
+    }
+
+    /// 完整链路：开关打开时，下载完成会按 TMDB 元数据把 NFO/海报写入本地下载目录。
+    #[tokio::test]
+    async fn completed_download_writes_media_metadata_files() {
+        use crate::app::AppContext;
+        use crate::config::{Config, ServerConfig};
+
+        let dir = std::env::temp_dir().join(format!(
+            "my-media-sub-download-metadata-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let season_dir = dir.join("Show/Season 1");
+        std::fs::create_dir_all(&season_dir).unwrap();
+        let (requests, url) = spawn_image_server().await;
+
+        let context = AppContext::new(&Config {
+            server: ServerConfig {
+                host: "127.0.0.1".to_string(),
+                port: 0,
+            },
+            data_dir: dir.clone(),
+        })
+        .await
+        .unwrap();
+        context
+            .settings_store
+            .update(|settings| settings.media_metadata_files_enabled = true)
+            .await
+            .unwrap();
+        let mut subscription = metadata_subscription(season_dir.to_str().unwrap()).await;
+        if let Some(metadata) = subscription.metadata.as_mut() {
+            metadata.poster_url = Some(url.clone());
+            metadata.seasons[0].poster_url = Some(url.clone());
+        }
+        context
+            .subscription_store
+            .create(subscription)
+            .await
+            .unwrap();
+
+        context
+            .download_monitor
+            .notify_completed_downloads(&[completed_task_in_dir(
+                "gid-1",
+                "Show.S01E01.mkv",
+                season_dir.to_str().unwrap(),
+            )])
+            .await;
+
+        let show_root = dir.join("Show");
+        let tvshow = std::fs::read_to_string(show_root.join("tvshow.nfo")).unwrap();
+        assert!(tvshow.contains("<title>Show</title>"));
+        assert!(tvshow.contains("<uniqueid type=\"tmdb\">123</uniqueid>"));
+        assert!(std::fs::read_to_string(season_dir.join("season.nfo"))
+            .unwrap()
+            .contains("<seasonnumber>1</seasonnumber>"));
+        assert_eq!(std::fs::read(show_root.join("poster.jpg")).unwrap(), b"fake-jpeg-bytes");
+        assert_eq!(
+            std::fs::read(season_dir.join("poster.jpg")).unwrap(),
+            b"fake-jpeg-bytes"
+        );
+        assert_eq!(requests.load(std::sync::atomic::Ordering::SeqCst), 2);
+
+        context.job_queue.shutdown().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// 开关关闭时不写任何媒体库元数据文件。
+    #[tokio::test]
+    async fn completed_download_skips_metadata_files_when_disabled() {
+        use crate::app::AppContext;
+        use crate::config::{Config, ServerConfig};
+
+        let dir = std::env::temp_dir().join(format!(
+            "my-media-sub-download-metadata-off-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let season_dir = dir.join("Show/Season 1");
+        std::fs::create_dir_all(&season_dir).unwrap();
+        let (requests, url) = spawn_image_server().await;
+
+        let context = AppContext::new(&Config {
+            server: ServerConfig {
+                host: "127.0.0.1".to_string(),
+                port: 0,
+            },
+            data_dir: dir.clone(),
+        })
+        .await
+        .unwrap();
+        let mut subscription = metadata_subscription(season_dir.to_str().unwrap()).await;
+        if let Some(metadata) = subscription.metadata.as_mut() {
+            metadata.poster_url = Some(url.clone());
+            metadata.seasons[0].poster_url = Some(url.clone());
+        }
+        context
+            .subscription_store
+            .create(subscription)
+            .await
+            .unwrap();
+
+        context
+            .download_monitor
+            .notify_completed_downloads(&[completed_task_in_dir(
+                "gid-1",
+                "Show.S01E01.mkv",
+                season_dir.to_str().unwrap(),
+            )])
+            .await;
+
+        assert_eq!(requests.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert!(!dir.join("Show/tvshow.nfo").exists());
+        assert!(!season_dir.join("poster.jpg").exists());
+
+        context.job_queue.shutdown().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// 重启回放：第二轮重新扫描已完成任务时，通知不再发、文件不再重写，
+    /// 但第一轮写入的内容保持不变。
+    #[tokio::test]
+    async fn replay_after_restart_does_not_rewrite_metadata_files() {
+        use crate::app::AppContext;
+        use crate::config::{Config, ServerConfig};
+
+        let dir = std::env::temp_dir().join(format!(
+            "my-media-sub-download-metadata-replay-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let season_dir = dir.join("Show/Season 1");
+        std::fs::create_dir_all(&season_dir).unwrap();
+        let (requests, url) = spawn_image_server().await;
+
+        let context = AppContext::new(&Config {
+            server: ServerConfig {
+                host: "127.0.0.1".to_string(),
+                port: 0,
+            },
+            data_dir: dir.clone(),
+        })
+        .await
+        .unwrap();
+        context
+            .settings_store
+            .update(|settings| settings.media_metadata_files_enabled = true)
+            .await
+            .unwrap();
+        let mut subscription = metadata_subscription(season_dir.to_str().unwrap()).await;
+        if let Some(metadata) = subscription.metadata.as_mut() {
+            metadata.poster_url = Some(url.clone());
+            metadata.seasons[0].poster_url = Some(url.clone());
+        }
+        context
+            .subscription_store
+            .create(subscription)
+            .await
+            .unwrap();
+
+        let task = completed_task_in_dir("gid-1", "Show.S01E01.mkv", season_dir.to_str().unwrap());
+        context.download_monitor.notify_completed_downloads(&[task]).await;
+        let tvshow_path = dir.join("Show/tvshow.nfo");
+        let first_mtime = std::fs::metadata(&tvshow_path).unwrap().modified().unwrap();
+
+        // 模拟重启：内存去重缓存清空后再次扫描同一批任务。
+        context
+            .download_monitor
+            .notified_completed_downloads
+            .write()
+            .await
+            .keys
+            .clear();
+        let task = completed_task_in_dir("gid-1", "Show.S01E01.mkv", season_dir.to_str().unwrap());
+        context.download_monitor.notify_completed_downloads(&[task]).await;
+
+        let second_mtime = std::fs::metadata(&tvshow_path).unwrap().modified().unwrap();
+        assert_eq!(first_mtime, second_mtime, "幂等跳过时不应重写 NFO");
+        assert_eq!(requests.load(std::sync::atomic::Ordering::SeqCst), 4);
+        let notifications = context.notification_store.list(true).await;
+        assert_eq!(
+            notifications
+                .iter()
+                .filter(|notification| notification.event == "download_completed")
+                .count(),
+            1,
+            "回放不得重复发送下载完成通知"
+        );
+
+        context.job_queue.shutdown().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// 升级场景：旧版本（2.4.0 之前）已按文件逐条发送「下载完成」通知，
+    /// meta 只有单个 gid。升级重启后不得把同一批次再次合并补发。
+    #[tokio::test]
+    async fn legacy_per_file_history_does_not_trigger_merged_resend() {
+        use crate::app::AppContext;
+        use crate::config::{Config, ServerConfig};
+        use crate::models::SyncDownloadRecord;
+
+        let dir = std::env::temp_dir().join(format!(
+            "my-media-sub-download-batch-legacy-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let context = AppContext::new(&Config {
+            server: ServerConfig {
+                host: "127.0.0.1".to_string(),
+                port: 0,
+            },
+            data_dir: dir.clone(),
+        })
+        .await
+        .unwrap();
+        let mut subscription: Subscription = serde_json::from_value(json!({
+            "id": "sub-batch-legacy",
+            "title": "Show",
+            "url": "https://pan.quark.cn/s/test",
+            "created_at": 1,
+            "updated_at": 1,
+            "last_checked_at": 1
+        }))
+        .unwrap();
+        subscription.sync_download_enabled = true;
+        subscription.completed = true;
+        subscription.sync_downloads = vec![
+            SyncDownloadRecord {
+                gid: "gid-1".to_string(),
+                file_name: "Show.S01E01.mkv".to_string(),
+                download_dir: "/downloads/anime".to_string(),
+                target_dir: "/series/Show/Season 1".to_string(),
+                submitted_at: 100,
+                completed_at: Some(1),
+            },
+            SyncDownloadRecord {
+                gid: "gid-2".to_string(),
+                file_name: "Show.S01E02.mkv".to_string(),
+                download_dir: "/downloads/anime".to_string(),
+                target_dir: "/series/Show/Season 1".to_string(),
+                submitted_at: 100,
+                completed_at: Some(1),
+            },
+        ];
+        context
+            .subscription_store
+            .create(subscription)
+            .await
+            .unwrap();
+
+        // 旧版本遗留的逐文件通知：标题不同、meta 只有单个 gid。
+        for (id, gid, file_name) in [
+            ("legacy-1", "gid-1", "Show.S01E01.mkv"),
+            ("legacy-2", "gid-2", "Show.S01E02.mkv"),
+        ] {
+            context
+                .notification_store
+                .add(Notification {
+                    id: id.to_string(),
+                    level: "success".to_string(),
+                    event: "download_completed".to_string(),
+                    title: format!("下载完成: {}", file_name),
+                    message: format!("文件：{}\n目录：/downloads/anime", file_name),
+                    meta: HashMap::from([("gid".to_string(), json!(gid))]),
+                    read: false,
+                    created_at: 1,
+                })
+                .await
+                .unwrap();
+        }
+
+        context
+            .download_monitor
+            .notify_completed_downloads(&[
+                task_with("gid-1", "Show.S01E01.mkv", "complete"),
+                task_with("gid-2", "Show.S01E02.mkv", "complete"),
+            ])
+            .await;
+
+        let notifications = context.notification_store.list(true).await;
+        // 除遗留的逐文件通知外，不得再新增任何合并通知。
+        let merged = notifications
+            .iter()
+            .filter(|notification| {
+                notification.event == "download_completed" && notification.title.contains("个文件")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(merged.len(), 0, "已逐文件通知过的批次不得合并补发");
+
+        context.job_queue.shutdown().await;
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

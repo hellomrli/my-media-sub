@@ -1145,6 +1145,31 @@ async fn get_settings_returns_current_values() {
     let body = json_body(&app, auth_get("/api/settings")).await;
     // 默认用户名应为 admin
     assert_eq!(body["data"]["app_username"].as_str().unwrap(), "admin");
+    // 媒体库元数据落盘开关默认关闭
+    assert_eq!(body["data"]["media_metadata_files_enabled"], false);
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn media_metadata_files_enabled_setting_round_trips() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+
+    // 开启后 GET 往返确认持久化。
+    let (status, _, body) = json_response(
+        &app,
+        auth_post(
+            "/api/settings",
+            serde_json::json!({"media_metadata_files_enabled": true}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["media_metadata_files_enabled"], true);
+
+    let body = json_body(&app, auth_get("/api/settings")).await;
+    assert_eq!(body["data"]["media_metadata_files_enabled"], true);
 
     let _ = std::fs::remove_dir_all(dir);
 }
