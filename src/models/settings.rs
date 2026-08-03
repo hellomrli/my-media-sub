@@ -185,6 +185,11 @@ pub struct Settings {
     #[serde(default)]
     pub aria2_anime_dir: String,
 
+    /// 下载完成后在 Aria2 下载目录写入 NFO/海报元数据文件（供 Jellyfin/Emby/Kodi 刮削）。
+    /// 默认关闭，先试用再作为默认功能。
+    #[serde(default)]
+    pub media_metadata_files_enabled: bool,
+
     // ===== STRM 配置 =====
     /// 是否启用 STRM 文件生成
     #[serde(default)]
@@ -673,6 +678,7 @@ impl Default for Settings {
             aria2_movie_dir: String::new(),
             aria2_series_dir: String::new(),
             aria2_anime_dir: String::new(),
+            media_metadata_files_enabled: false,
             strm_enabled: false,
             strm_output_dir: String::new(),
             strm_public_base_url: String::new(),
@@ -745,6 +751,8 @@ mod tests {
         assert!(!settings.rule_presets.is_empty());
         assert_eq!(settings.job_max_concurrency, 4);
         assert_eq!(settings.job_transfer_max_concurrency, 2);
+        // 媒体库元数据落盘为实验功能，默认关闭
+        assert!(!settings.media_metadata_files_enabled);
     }
 
     #[test]

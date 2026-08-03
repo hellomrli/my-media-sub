@@ -322,11 +322,12 @@ fn media_folder_name(sub: &Subscription) -> String {
     }
 }
 
-fn season_folder_name(season: i32) -> String {
+pub(crate) fn season_folder_name(season: i32) -> String {
     format!("Season {}", season.max(1))
 }
 
-fn has_season_suffix(path: &str) -> bool {
+/// 目录最后一段是否为 `Season N`（大小写不敏感），返回季号。
+pub(crate) fn season_suffix_number(path: &str) -> Option<i32> {
     let last = path
         .trim()
         .trim_end_matches('/')
@@ -337,7 +338,10 @@ fn has_season_suffix(path: &str) -> bool {
         .to_ascii_lowercase();
     last.strip_prefix("season ")
         .and_then(|number| number.parse::<i32>().ok())
-        .is_some()
+}
+
+pub(crate) fn has_season_suffix(path: &str) -> bool {
+    season_suffix_number(path).is_some()
 }
 
 fn category_directory(sub: &Subscription, settings: &Settings) -> String {
@@ -370,7 +374,7 @@ fn media_type_aria2_directory(sub: &Subscription, settings: &Settings) -> String
     dir.to_string()
 }
 
-fn strip_season_suffix(path: &str) -> String {
+pub(crate) fn strip_season_suffix(path: &str) -> String {
     let trimmed = path.trim().trim_end_matches('/');
     if !has_season_suffix(trimmed) {
         return trimmed.to_string();

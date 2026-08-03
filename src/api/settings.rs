@@ -116,6 +116,13 @@ fn settings_schema() -> SettingsSchemaResponse {
         ),
         setting_field!("aria2_anime_dir", "Aria2 动画下载目录", "path", "basic", ""),
         setting_field!(
+            "media_metadata_files_enabled",
+            "下载完成写入媒体库元数据文件",
+            "boolean",
+            "basic",
+            false
+        ),
+        setting_field!(
             "metadata_provider",
             "元数据提供方",
             "select",
@@ -832,6 +839,11 @@ async fn update_settings(
                     "job_maintenance_mode" => {
                         if let Some(enabled) = value.as_bool() {
                             settings.job_maintenance_mode = enabled;
+                        }
+                    }
+                    "media_metadata_files_enabled" => {
+                        if let Some(enabled) = value.as_bool() {
+                            settings.media_metadata_files_enabled = enabled;
                         }
                     }
                     "aria2_batch_submit_limit" => {

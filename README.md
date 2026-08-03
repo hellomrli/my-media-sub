@@ -359,6 +359,11 @@ docker compose pull && docker compose up -d
 
 ## 版本说明
 
+### 2.5.0
+
+- 修复同批下载的合并通知重复发送：同一批次在同一轮扫描中出现多个已完成任务时，只发一条「下载完成」通知；升级前旧版本已逐文件通知过的批次也不会在升级后合并补发。
+- 下载完成后按匹配到的 TMDB 元数据写入媒体库元数据文件（实验性，默认关闭）：剧集生成 `tvshow.nfo`、`poster.jpg`、`backdrop.jpg` 与每季 `season.nfo`/季海报，电影生成 `movie.nfo`/`poster.jpg`/`backdrop.jpg`，供 Jellyfin/Emby/Kodi 刮削。设置页「媒体元数据」可开关。
+
 ### 2.4.0
 
 - 默认下载目录的剧名年份统一为半角括号（`聪明镇 (2026)/Season 1`）。
