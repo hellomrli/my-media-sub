@@ -804,9 +804,11 @@ fn batch_records_individually_notified(
             parts.push(format!("目录：{}", dir));
         }
         let message = parts.join("\n");
-        pushed_downloads.iter().any(|(pushed_title, pushed_message)| {
-            pushed_title == &title && pushed_message.starts_with(&message)
-        })
+        pushed_downloads
+            .iter()
+            .any(|(pushed_title, pushed_message)| {
+                pushed_title == &title && pushed_message.starts_with(&message)
+            })
     })
 }
 
@@ -1754,7 +1756,10 @@ mod tests {
         assert!(std::fs::read_to_string(season_dir.join("season.nfo"))
             .unwrap()
             .contains("<seasonnumber>1</seasonnumber>"));
-        assert_eq!(std::fs::read(show_root.join("poster.jpg")).unwrap(), b"fake-jpeg-bytes");
+        assert_eq!(
+            std::fs::read(show_root.join("poster.jpg")).unwrap(),
+            b"fake-jpeg-bytes"
+        );
         assert_eq!(
             std::fs::read(season_dir.join("poster.jpg")).unwrap(),
             b"fake-jpeg-bytes"
@@ -1857,7 +1862,10 @@ mod tests {
             .unwrap();
 
         let task = completed_task_in_dir("gid-1", "Show.S01E01.mkv", season_dir.to_str().unwrap());
-        context.download_monitor.notify_completed_downloads(&[task]).await;
+        context
+            .download_monitor
+            .notify_completed_downloads(&[task])
+            .await;
         let tvshow_path = dir.join("Show/tvshow.nfo");
         let first_mtime = std::fs::metadata(&tvshow_path).unwrap().modified().unwrap();
 
@@ -1870,7 +1878,10 @@ mod tests {
             .keys
             .clear();
         let task = completed_task_in_dir("gid-1", "Show.S01E01.mkv", season_dir.to_str().unwrap());
-        context.download_monitor.notify_completed_downloads(&[task]).await;
+        context
+            .download_monitor
+            .notify_completed_downloads(&[task])
+            .await;
 
         let second_mtime = std::fs::metadata(&tvshow_path).unwrap().modified().unwrap();
         assert_eq!(first_mtime, second_mtime, "幂等跳过时不应重写 NFO");

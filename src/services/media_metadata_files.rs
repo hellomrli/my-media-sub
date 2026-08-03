@@ -175,10 +175,12 @@ fn build_movie_nfo(metadata: &MediaMetadata) -> String {
 }
 
 fn build_root_nfo(metadata: &MediaMetadata, root: &str) -> String {
-    let mut xml = format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\" ?>\n<{root}>\n"
-    );
-    xml.push_str(&format!("  <title>{}</title>\n", xml_escape(&metadata.title)));
+    let mut xml =
+        format!("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\" ?>\n<{root}>\n");
+    xml.push_str(&format!(
+        "  <title>{}</title>\n",
+        xml_escape(&metadata.title)
+    ));
     if !metadata.original_title.trim().is_empty() {
         xml.push_str(&format!(
             "  <originaltitle>{}</originaltitle>\n",
@@ -189,7 +191,10 @@ fn build_root_nfo(metadata: &MediaMetadata, root: &str) -> String {
         xml.push_str(&format!("  <year>{year}</year>\n"));
     }
     if !metadata.overview.trim().is_empty() {
-        xml.push_str(&format!("  <plot>{}</plot>\n", xml_escape(&metadata.overview)));
+        xml.push_str(&format!(
+            "  <plot>{}</plot>\n",
+            xml_escape(&metadata.overview)
+        ));
     }
     if let Some(rating) = metadata.vote_average {
         // `{}` 输出 f32 的最短表示（如 8.25），避免 {:.1} 的舍入误差。
@@ -200,7 +205,10 @@ fn build_root_nfo(metadata: &MediaMetadata, root: &str) -> String {
         .as_deref()
         .filter(|value| !value.trim().is_empty())
     {
-        xml.push_str(&format!("  <premiered>{}</premiered>\n", xml_escape(premiered)));
+        xml.push_str(&format!(
+            "  <premiered>{}</premiered>\n",
+            xml_escape(premiered)
+        ));
     }
     // 豆瓣 id 冒充 TMDB id 会污染媒体库刮削，只在 TMDB 提供方时写 uniqueid。
     if metadata.provider == MetadataProvider::Tmdb && !metadata.provider_id.trim().is_empty() {
@@ -543,9 +551,14 @@ mod tests {
         metadata.poster_url = Some(url.clone());
         metadata.backdrop_url = Some(url.clone());
         metadata.seasons[0].poster_url = Some(url.clone());
-        let outcome = write_media_metadata_files(&settings, &metadata, "series", season_dir.to_str().unwrap())
-            .await
-            .unwrap();
+        let outcome = write_media_metadata_files(
+            &settings,
+            &metadata,
+            "series",
+            season_dir.to_str().unwrap(),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(outcome.written, 0);
         assert_eq!(outcome.failed, 0);
@@ -623,9 +636,14 @@ mod tests {
         write_media_metadata_files(&settings, &metadata, "series", season_dir.to_str().unwrap())
             .await
             .unwrap();
-        let first = write_media_metadata_files(&settings, &metadata, "series", season_dir.to_str().unwrap())
-            .await
-            .unwrap();
+        let first = write_media_metadata_files(
+            &settings,
+            &metadata,
+            "series",
+            season_dir.to_str().unwrap(),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(first.written, 0);
         assert_eq!(first.skipped, 4);
@@ -656,9 +674,14 @@ mod tests {
             .await
             .unwrap();
         metadata.title = "新标题".to_string();
-        let second = write_media_metadata_files(&settings, &metadata, "series", season_dir.to_str().unwrap())
-            .await
-            .unwrap();
+        let second = write_media_metadata_files(
+            &settings,
+            &metadata,
+            "series",
+            season_dir.to_str().unwrap(),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(second.written, 1);
         assert_eq!(requests.load(std::sync::atomic::Ordering::SeqCst), 4);
@@ -685,9 +708,13 @@ mod tests {
         metadata.poster_url = Some(url.clone());
         metadata.backdrop_url = Some(url.clone());
         metadata.seasons[0].poster_url = Some(url.clone());
-        let result =
-            write_media_metadata_files(&settings, &metadata, "series", season_dir.to_str().unwrap())
-                .await;
+        let result = write_media_metadata_files(
+            &settings,
+            &metadata,
+            "series",
+            season_dir.to_str().unwrap(),
+        )
+        .await;
 
         // 三张图全部因 content-type 失败，但 NFO 仍写入。
         assert_eq!(requests.load(std::sync::atomic::Ordering::SeqCst), 3);
@@ -719,9 +746,14 @@ mod tests {
         metadata.poster_url = Some(url.clone());
         metadata.backdrop_url = None;
         metadata.seasons = vec![]; // 当前季未命中
-        let outcome = write_media_metadata_files(&settings, &metadata, "series", season_dir.to_str().unwrap())
-            .await
-            .unwrap();
+        let outcome = write_media_metadata_files(
+            &settings,
+            &metadata,
+            "series",
+            season_dir.to_str().unwrap(),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(outcome.written, 3); // tvshow.nfo + season.nfo + poster.jpg（两图无 URL 跳过）
         assert_eq!(outcome.failed, 0);
@@ -746,9 +778,10 @@ mod tests {
         let mut metadata = tmdb_metadata();
         metadata.poster_url = Some(url.clone());
         metadata.backdrop_url = Some(url.clone());
-        let outcome = write_media_metadata_files(&settings, &metadata, "movie", dir.to_str().unwrap())
-            .await
-            .unwrap();
+        let outcome =
+            write_media_metadata_files(&settings, &metadata, "movie", dir.to_str().unwrap())
+                .await
+                .unwrap();
 
         assert_eq!(outcome.written, 3); // movie.nfo + poster.jpg + backdrop.jpg
         assert_eq!(requests.load(std::sync::atomic::Ordering::SeqCst), 2);
