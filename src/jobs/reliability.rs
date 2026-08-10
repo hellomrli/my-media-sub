@@ -23,7 +23,7 @@ pub(crate) fn job_history_retain() -> usize {
 pub(crate) fn classify_app_error(error: &AppError) -> JobErrorClass {
     match error {
         AppError::RateLimited(_) => JobErrorClass::RateLimited,
-        AppError::Http(_) => JobErrorClass::Transient,
+        AppError::Http(_) | AppError::UpstreamStatus { .. } => JobErrorClass::Transient,
         AppError::Validation(_) => JobErrorClass::Validation,
         AppError::NotFound(_) => JobErrorClass::NotFound,
         AppError::Config(message) if looks_like_authentication(message) => {
@@ -167,6 +167,13 @@ mod tests {
         assert_eq!(
             classify_app_error(&AppError::RateLimited("429".into())),
             JobErrorClass::RateLimited
+        );
+        assert_eq!(
+            classify_app_error(&AppError::UpstreamStatus {
+                status: reqwest::StatusCode::NOT_FOUND,
+                message: "404".into(),
+            }),
+            JobErrorClass::Transient
         );
         assert_eq!(
             classify_message("Cookie 已失效"),

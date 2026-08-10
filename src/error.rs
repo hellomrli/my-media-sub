@@ -13,6 +13,11 @@ pub enum AppError {
     Database(String),
     /// 网络请求错误
     Http(String),
+    /// 上游服务返回了明确的 HTTP 状态码
+    UpstreamStatus {
+        status: reqwest::StatusCode,
+        message: String,
+    },
     /// 配置错误
     Config(String),
     /// 验证错误
@@ -31,6 +36,9 @@ impl fmt::Display for AppError {
         match self {
             AppError::Database(msg) => write!(f, "Database error: {}", redact(msg)),
             AppError::Http(msg) => write!(f, "HTTP error: {}", redact(msg)),
+            AppError::UpstreamStatus { message, .. } => {
+                write!(f, "HTTP error: {}", redact(message))
+            }
             AppError::Config(msg) => write!(f, "Config error: {}", redact(msg)),
             AppError::Validation(msg) => write!(f, "Validation error: {}", redact(msg)),
             AppError::RateLimited(msg) => write!(f, "Rate limited: {}", redact(msg)),
@@ -81,6 +89,11 @@ impl IntoResponse for AppError {
                 "http_error",
                 "上游服务请求失败".to_string(),
             ),
+            AppError::UpstreamStatus { .. } => (
+                StatusCode::BAD_GATEWAY,
+                "upstream_http_error",
+                "上游服务返回异常状态".to_string(),
+            ),
             AppError::Config(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "config_error",
@@ -100,7 +113,11 @@ impl IntoResponse for AppError {
 
         if matches!(
             &self,
-            AppError::Database(_) | AppError::Http(_) | AppError::Config(_) | AppError::Internal(_)
+            AppError::Database(_)
+                | AppError::Http(_)
+                | AppError::UpstreamStatus { .. }
+                | AppError::Config(_)
+                | AppError::Internal(_)
         ) {
             tracing::error!("请求处理失败: {}", self);
         }

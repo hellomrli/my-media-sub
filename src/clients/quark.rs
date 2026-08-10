@@ -3,7 +3,7 @@ use crate::clients::http_pool::ObservedRequestBuilder;
 use crate::error::{AppError, Result};
 use regex::Regex;
 use reqwest::header::HeaderValue;
-use reqwest::Client;
+use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -74,6 +74,22 @@ struct FileListResponse {
 #[derive(Deserialize)]
 struct FileListData {
     list: Option<Vec<HashMap<String, serde_json::Value>>>,
+}
+
+/// 将夸克请求错误转换为分享探测状态。
+///
+/// 只有上游明确确认分享不存在（404/410）时才判定为失效；网络错误、限流和
+/// 其他 HTTP 状态仍保留临时故障语义，避免把夸克自身抖动误报成失效来源。
+fn classify_probe_error(error: AppError) -> (&'static str, String) {
+    let display = error.to_string();
+    match error {
+        AppError::RateLimited(message) => ("rate_limited", message),
+        AppError::UpstreamStatus {
+            status: StatusCode::NOT_FOUND | StatusCode::GONE,
+            ..
+        } => ("bad", display),
+        _ => ("error", display),
+    }
 }
 
 fn raw_time_field(item: &HashMap<String, serde_json::Value>) -> Option<String> {
@@ -312,10 +328,7 @@ impl QuarkShareProbe {
         let (stoken, err) = match self.get_share_token(&pwd_id, passcode).await {
             Ok(result) => result,
             Err(e) => {
-                let (state, message) = match e {
-                    AppError::RateLimited(message) => ("rate_limited", message),
-                    error => ("error", error.to_string()),
-                };
+                let (state, message) = classify_probe_error(e);
                 return QuarkShareInfo {
                     ok: false,
                     state: state.to_string(),
@@ -364,10 +377,7 @@ impl QuarkShareProbe {
         let (raw, err) = match self.list_files(&pwd_id, &stoken, "0").await {
             Ok(result) => result,
             Err(e) => {
-                let (state, message) = match e {
-                    AppError::RateLimited(message) => ("rate_limited", message),
-                    error => ("error", error.to_string()),
-                };
+                let (state, message) = classify_probe_error(e);
                 return QuarkShareInfo {
                     ok: false,
                     state: state.to_string(),
@@ -603,5 +613,34 @@ mod tests {
         ];
 
         assert_eq!(count_episodes(&files), 2);
+    }
+
+    #[test]
+    fn classify_probe_error_marks_missing_share_as_bad() {
+        for status in [StatusCode::NOT_FOUND, StatusCode::GONE] {
+            let (state, message) = classify_probe_error(AppError::UpstreamStatus {
+                status,
+                message: format!("请求夸克 token HTTP 状态异常: {status}"),
+            });
+            assert_eq!(state, "bad");
+            assert!(message.contains(status.as_str()));
+        }
+    }
+
+    #[test]
+    fn classify_probe_error_keeps_transient_failures_transient() {
+        let (state, _) = classify_probe_error(AppError::UpstreamStatus {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: "请求夸克 token HTTP 状态异常: 500 Internal Server Error".to_string(),
+        });
+        assert_eq!(state, "error");
+
+        let (state, _) = classify_probe_error(AppError::Http("error sending request".to_string()));
+        assert_eq!(state, "error");
+
+        let (state, message) =
+            classify_probe_error(AppError::RateLimited("建议稍后重试".to_string()));
+        assert_eq!(state, "rate_limited");
+        assert_eq!(message, "建议稍后重试");
     }
 }
