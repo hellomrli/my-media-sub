@@ -591,7 +591,7 @@ mod tests {
                 "https://pan.quark.cn/s/dead": {
                     "ok": false,
                     "state": "bad",
-                    "message": "分享已被取消",
+                    "message": "HTTP error: 请求夸克 token HTTP 状态异常: 404 Not Found",
                     "files": []
                 }
             }"#,
@@ -599,7 +599,7 @@ mod tests {
         .unwrap();
         std::env::set_var("MOCK_QUARK_SHARE_FIXTURE", &path);
 
-        let (service, store, _) = make_service();
+        let (service, store, notifications) = make_service();
         let mut sub = make_subscription();
         sub.id = "dead-sub".to_string();
         sub.url = "https://pan.quark.cn/s/dead".to_string();
@@ -614,6 +614,11 @@ mod tests {
         let stored = store.get("dead-sub").await.unwrap();
         assert_eq!(stored.status, "invalid");
         assert_eq!(stored.source_failure_count, 1);
+        assert!(notifications
+            .list(true)
+            .await
+            .iter()
+            .any(|item| item.event == "subscription_invalid"));
     }
 
     #[tokio::test]

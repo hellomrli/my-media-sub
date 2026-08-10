@@ -38,10 +38,10 @@ fn upstream_status_error(
         )));
     }
     if !status.is_success() {
-        return Some(AppError::Http(format!(
-            "{} HTTP 状态异常: {}",
-            operation, status
-        )));
+        return Some(AppError::UpstreamStatus {
+            status,
+            message: format!("{} HTTP 状态异常: {}", operation, status),
+        });
     }
     None
 }
@@ -64,10 +64,30 @@ mod tests {
     }
 
     #[test]
-    fn upstream_non_success_status_is_http_error() {
+    fn upstream_non_success_status_preserves_status() {
         let error =
             upstream_status_error(reqwest::StatusCode::BAD_GATEWAY, None, "夸克请求").unwrap();
 
-        assert!(matches!(error, AppError::Http(_)));
+        assert!(matches!(
+            error,
+            AppError::UpstreamStatus {
+                status: reqwest::StatusCode::BAD_GATEWAY,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn upstream_not_found_status_is_preserved() {
+        let error =
+            upstream_status_error(reqwest::StatusCode::NOT_FOUND, None, "请求夸克 token").unwrap();
+
+        match error {
+            AppError::UpstreamStatus { status, message } => {
+                assert_eq!(status, reqwest::StatusCode::NOT_FOUND);
+                assert!(message.contains("404 Not Found"));
+            }
+            other => panic!("expected upstream status error, got {other:?}"),
+        }
     }
 }
