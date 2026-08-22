@@ -43,7 +43,6 @@ macro_rules! subscription_transfer_notification_methods {
         file_names: &[String],
         target_dir: &str,
         sync_report: Option<&SyncDownloadReport>,
-        strm_report: Option<&StrmGenerationReport>,
     ) -> (String, String, Option<String>) {
         let target_dir_label = if target_dir.is_empty() {
             "根目录"
@@ -54,7 +53,6 @@ macro_rules! subscription_transfer_notification_methods {
             file_names.len(),
             target_dir_label,
             sync_report,
-            strm_report,
         );
         let mut meta = std::collections::HashMap::from([
             (
@@ -108,22 +106,6 @@ macro_rules! subscription_transfer_notification_methods {
                         .collect(),
                 ),
             );
-        }
-        if let Some(report) = strm_report {
-            meta.insert(
-                "strm_generated_count".to_string(),
-                serde_json::json!(report.generated_count),
-            );
-            meta.insert(
-                "strm_dir".to_string(),
-                serde_json::Value::String(report.dir.clone()),
-            );
-            if let Some(error) = &report.error {
-                meta.insert(
-                    "strm_error".to_string(),
-                    serde_json::Value::String(error.clone()),
-                );
-            }
         }
 
         let title = format!("订阅自动转存: {}", sub.title);

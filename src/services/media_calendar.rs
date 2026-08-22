@@ -330,7 +330,6 @@ fn build_item(
     let discovered = state.is_some_and(|item| item.discovered);
     let transferred = state.is_some_and(|item| item.transferred);
     let downloaded = state.is_some_and(|item| item.download_status == "completed");
-    let strm_ready = state.is_some_and(|item| item.strm_status == "generated");
     let missing = candidate.episode.is_some() && !discovered;
     let mut statuses = Vec::new();
 
@@ -392,7 +391,6 @@ fn build_item(
         discovered,
         transferred,
         downloaded,
-        strm_ready,
         missing,
         subscription_completed: subscription.completed,
         latest_discovered_episode: progress.latest_discovered_episode,
@@ -454,7 +452,6 @@ fn unknown_schedule_item(
         discovered: false,
         transferred: false,
         downloaded: false,
-        strm_ready: false,
         missing: false,
         subscription_completed: subscription.completed,
         latest_discovered_episode: progress.latest_discovered_episode,

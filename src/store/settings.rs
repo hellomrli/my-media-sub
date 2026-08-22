@@ -16,7 +16,6 @@ pub const SECRET_KEYS: &[&str] = &[
     "aria2_secret",
     "quark_cookie",
     "quark_signin_cookie",
-    "strm_access_token",
     "pansou_api_url",
     "tmdb_api_key",
     "wecom_bot_url",
@@ -114,10 +113,6 @@ impl SettingsStore {
         backup_store_before_migration(&self.path, &content, decoded.source_version)?;
         let mut should_write = decoded.needs_write;
         *settings = decoded.data;
-        if settings.strm_access_token.trim().is_empty() {
-            settings.strm_access_token = uuid::Uuid::new_v4().to_string();
-            should_write = true;
-        }
         should_write |= ensure_browser_push_keys(&mut settings)?;
         should_write |= ensure_telegram_webhook_secrets(&mut settings);
         if should_write {
@@ -183,9 +178,6 @@ impl SettingsStore {
                 .retain(|t| SUPPORTED_CLOUD_TYPES.contains(&t.as_str()));
             if settings.cloud_types.is_empty() {
                 settings.cloud_types = vec!["quark".to_string()];
-            }
-            if settings.strm_access_token.trim().is_empty() {
-                settings.strm_access_token = uuid::Uuid::new_v4().to_string();
             }
             settings
         };
@@ -290,7 +282,6 @@ mod tests {
         let tmp = temp_path("settings-legacy");
         let legacy = Settings {
             app_username: "legacy-user".to_string(),
-            strm_access_token: "existing-token".to_string(),
             ..Settings::default()
         };
         let original = serde_json::to_vec_pretty(&legacy).unwrap();

@@ -12,6 +12,5 @@
   "quark_signin_enabled": false,
   "quark_signin_hour": 8,
   "quark_save_root": "",
-  "subscription_check_interval_minutes": 60,
-  "strm_access_token": "fixture-token-1234"
+  "subscription_check_interval_minutes": 60
 }

@@ -260,6 +260,21 @@ mod tests {
         )
         .unwrap_err()
         .contains("过期"));
+
+        // 「继续下载」按钮使用 download 动作，资源为任务 UUID。
+        let download = telegram_prompt_callback_data(
+            &settings,
+            "download",
+            "12345678-1234-1234-1234-123456789012",
+            crate::utils::unix_now() + 60,
+        )
+        .unwrap();
+        assert!(download.starts_with("prompt:d."));
+        let token = download.strip_prefix("prompt:").unwrap();
+        let (action, resource) =
+            verify_prompt_callback_data(&settings, token, 42, 42).unwrap();
+        assert_eq!(action, "download");
+        assert_eq!(resource, "12345678-1234-1234-1234-123456789012");
     }
 
     #[tokio::test]
@@ -354,6 +369,11 @@ mod tests {
             "notifications:write"
         );
         assert_eq!(bot_action_scope("signin", "quark").unwrap(), "quark:signin");
+        assert_eq!(
+            bot_action_scope("transfer", "1").unwrap(),
+            "subscriptions:write"
+        );
+        assert_eq!(bot_action_scope("download", "job-1").unwrap(), "jobs:write");
         assert!(bot_action_scope("delete", "anything").is_err());
     }
 

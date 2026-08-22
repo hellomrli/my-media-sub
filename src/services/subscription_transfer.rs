@@ -19,9 +19,6 @@ use crate::services::post_transfer::{
     PostTransferContext, PostTransferRegistry, PostTransferStatus,
 };
 use crate::services::push::{PushEvent, PushLevel};
-use crate::services::strm::{
-    generate_subscription_strm_files_async, strm_generation_enabled, StrmGenerationResult,
-};
 use crate::services::subscription_progress::{
     completion_target_episode, should_mark_completed_from_transferred_files,
 };
@@ -96,8 +93,6 @@ impl SubscriptionTransferService {
                 push_message: None,
                 push_notification_id: None,
                 renamed_count: 0,
-                strm_generated_count: 0,
-                strm_error: None,
                 aria2_submitted_count: 0,
                 aria2_error: None,
             });
@@ -125,8 +120,6 @@ impl SubscriptionTransferService {
                 push_message: None,
                 push_notification_id: None,
                 renamed_count: 0,
-                strm_generated_count: 0,
-                strm_error: None,
                 aria2_submitted_count: 0,
                 aria2_error: None,
             });
@@ -142,8 +135,6 @@ impl SubscriptionTransferService {
                 push_message: None,
                 push_notification_id: None,
                 renamed_count: 0,
-                strm_generated_count: 0,
-                strm_error: None,
                 aria2_submitted_count: 0,
                 aria2_error: None,
             });
@@ -162,8 +153,6 @@ impl SubscriptionTransferService {
                 push_message: None,
                 push_notification_id: None,
                 renamed_count: 0,
-                strm_generated_count: 0,
-                strm_error: None,
                 aria2_submitted_count: 0,
                 aria2_error: None,
             });
@@ -179,8 +168,6 @@ impl SubscriptionTransferService {
                 push_message: None,
                 push_notification_id: None,
                 renamed_count: 0,
-                strm_generated_count: 0,
-                strm_error: None,
                 aria2_submitted_count: 0,
                 aria2_error: None,
             });
@@ -233,8 +220,6 @@ impl SubscriptionTransferService {
                 push_message: None,
                 push_notification_id: None,
                 renamed_count: 0,
-                strm_generated_count: 0,
-                strm_error: None,
                 aria2_submitted_count: 0,
                 aria2_error: None,
             });
@@ -283,8 +268,6 @@ impl SubscriptionTransferService {
                 push_message: None,
                 push_notification_id: None,
                 renamed_count: 0,
-                strm_generated_count: 0,
-                strm_error: None,
                 aria2_submitted_count: 0,
                 aria2_error: None,
             });
@@ -429,12 +412,7 @@ impl SubscriptionTransferService {
             info!("订阅 {} 已达到完结集数并标记为完结", sub.title);
         }
 
-        // 12. 如果订阅开启了 STRM，生成 HTTPStrm 文件
-        let strm_report = self
-            .generate_strm_files(&settings, &sub, &target_dir, &transferred_files)
-            .await;
-
-        // 13. 运行独立后处理模块。模块只能读取快照，失败不会回滚已完成的转存。
+        // 12. 运行独立后处理模块。模块只能读取快照，失败不会回滚已完成的转存。
         // 注册表为空时直接跳过：构造上下文要克隆设置、订阅和整个转存文件列表，
         // 没有模块可跑时这些克隆纯属浪费。
         let module_outcomes = if self.post_transfer_registry.is_empty() {
@@ -475,12 +453,11 @@ impl SubscriptionTransferService {
                 &transfer_file_names,
                 &target_dir,
                 sync_report.as_ref(),
-                strm_report.as_ref(),
             )
             .await;
 
         info!("成功转存 {} 个文件", transferred_count);
-        let reason = transfer_reason(&target_dir, sync_report.as_ref(), strm_report.as_ref());
+        let reason = transfer_reason(&target_dir, sync_report.as_ref());
 
         Ok(TransferResult {
             subscription_id: sub.id.clone(),
@@ -491,11 +468,6 @@ impl SubscriptionTransferService {
             push_message: Some(push_message),
             push_notification_id,
             renamed_count,
-            strm_generated_count: strm_report
-                .as_ref()
-                .map(|report| report.generated_count)
-                .unwrap_or_default(),
-            strm_error: strm_report.as_ref().and_then(|report| report.error.clone()),
             aria2_submitted_count: sync_report
                 .as_ref()
                 .map(|report| report.submitted_count)
@@ -641,62 +613,6 @@ impl SubscriptionTransferService {
         self.rename_transferred_files(provider.as_ref(), &target_fid, &sub, None)
             .await
             .map(|result| result.renamed_count)
-    }
-
-    /// 按订阅目标目录中的现有视频补齐 STRM 文件。
-    pub async fn audit_existing_strm_files(
-        &self,
-        subscription_id: &str,
-    ) -> Result<crate::services::strm::StrmAuditReport> {
-        if !crate::services::STRM_MODULE_ENABLED {
-            return Err(AppError::Validation("STRM 功能已暂时下线".to_string()));
-        }
-
-        let sub = self
-            .subscription_store
-            .get(subscription_id)
-            .await
-            .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?;
-        let settings = self.settings_store.get().await;
-        let target_dir = if sub.rules.target_dir.trim().is_empty() {
-            format!("/{}", sub.title)
-        } else {
-            sub.rules.target_dir.clone()
-        };
-        crate::services::strm::audit_subscription_strm(&settings, &sub, &target_dir)
-    }
-
-    pub async fn generate_existing_strm_files(
-        &self,
-        subscription_id: &str,
-    ) -> Result<StrmGenerationResult> {
-        if !crate::services::STRM_MODULE_ENABLED {
-            return Err(AppError::Validation("STRM 功能已暂时下线".to_string()));
-        }
-
-        let sub = self
-            .subscription_store
-            .get(subscription_id)
-            .await
-            .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?;
-
-        let settings = self.settings_store.get().await;
-        if !settings.strm_enabled {
-            return Err(AppError::Validation("全局 STRM 生成未启用".to_string()));
-        }
-        if !sub.strm_enabled {
-            return Err(AppError::Validation("订阅未启用 STRM 生成".to_string()));
-        }
-        if settings.quark_cookie.trim().is_empty() {
-            return Err(AppError::Validation("未配置夸克 Cookie".to_string()));
-        }
-
-        let provider = self.provider_registry.resolve(&sub.cloud_type, &settings)?;
-        let target_dir = self.determine_target_directory(&sub, &settings);
-        let target_fid = provider.ensure(&target_dir).await?;
-        let files = collect_video_files_recursive(provider.as_ref(), &target_fid).await?;
-
-        generate_subscription_strm_files_async(&settings, &sub, &target_dir, &files).await
     }
 
     async fn submit_sync_downloads(
@@ -917,45 +833,6 @@ impl SubscriptionTransferService {
             .await?
             .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?;
         Ok(())
-    }
-
-    async fn generate_strm_files(
-        &self,
-        settings: &Settings,
-        sub: &Subscription,
-        target_dir: &str,
-        files: &[DriveItem],
-    ) -> Option<StrmGenerationReport> {
-        if !crate::services::STRM_MODULE_ENABLED {
-            return None;
-        }
-        if !strm_generation_enabled(settings, sub) {
-            return None;
-        }
-
-        match generate_subscription_strm_files_async(settings, sub, target_dir, files).await {
-            Ok(result) => {
-                let dir = result.output_dir.display().to_string();
-                info!(
-                    "订阅 {} 已生成 {} 个 STRM 文件到 {}",
-                    sub.title, result.generated_count, dir
-                );
-                Some(StrmGenerationReport {
-                    generated_count: result.generated_count,
-                    dir,
-                    error: None,
-                })
-            }
-            Err(e) => {
-                let error = format!("{}", e);
-                warn!("订阅 {} STRM 生成失败: {}", sub.title, error);
-                Some(StrmGenerationReport {
-                    generated_count: 0,
-                    dir: settings.strm_output_dir.clone(),
-                    error: Some(error),
-                })
-            }
-        }
     }
 
     /// 确定目标目录

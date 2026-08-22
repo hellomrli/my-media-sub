@@ -134,21 +134,6 @@ async fn project_transfer_stages(
                 .unwrap_or(Value::from(0)),
         ),
         (
-            AutomationStage::Strm,
-            stage_status(
-                result
-                    .get("strm_generated_count")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0),
-                result.get("strm_error").and_then(Value::as_str),
-            ),
-            "STRM 阶段",
-            result
-                .get("strm_generated_count")
-                .cloned()
-                .unwrap_or(Value::from(0)),
-        ),
-        (
             AutomationStage::Aria2,
             stage_status(
                 result
@@ -204,11 +189,6 @@ async fn project_transfer_stages(
             event.job_id = Some(job.id.clone());
             event.message = (*message).to_string();
             event.error = match stage {
-                AutomationStage::Strm => result
-                    .get("strm_error")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
                 AutomationStage::Aria2 => result
                     .get("aria2_error")
                     .and_then(Value::as_str)
@@ -418,8 +398,6 @@ mod tests {
             }),
             result: Some(json!({
                 "renamed_count":1,
-                "strm_generated_count":1,
-                "strm_error":null,
                 "aria2_submitted_count":0,
                 "aria2_error":"aria2 unavailable",
                 "notification_id":"notification-1"
@@ -437,11 +415,6 @@ mod tests {
             .any(|event| event.stage == AutomationStage::CloudTransfer));
         assert!(events.iter().any(|event| {
             event.stage == AutomationStage::Rename
-                && event.status == AutomationStatus::Succeeded
-                && event.episode == Some(4)
-        }));
-        assert!(events.iter().any(|event| {
-            event.stage == AutomationStage::Strm
                 && event.status == AutomationStatus::Succeeded
                 && event.episode == Some(4)
         }));

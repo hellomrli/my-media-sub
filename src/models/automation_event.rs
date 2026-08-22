@@ -11,7 +11,6 @@ pub enum AutomationStage {
     VersionSelect,
     CloudTransfer,
     Rename,
-    Strm,
     Aria2,
     Notification,
 }
@@ -24,7 +23,6 @@ impl AutomationStage {
             Self::VersionSelect => "version_select",
             Self::CloudTransfer => "cloud_transfer",
             Self::Rename => "rename",
-            Self::Strm => "strm",
             Self::Aria2 => "aria2",
             Self::Notification => "notification",
         }
@@ -178,7 +176,6 @@ mod tests {
             AutomationStage::VersionSelect,
             AutomationStage::CloudTransfer,
             AutomationStage::Rename,
-            AutomationStage::Strm,
             AutomationStage::Aria2,
             AutomationStage::Notification,
         ];
@@ -190,7 +187,6 @@ mod tests {
                 "version_select",
                 "cloud_transfer",
                 "rename",
-                "strm",
                 "aria2",
                 "notification",
             ]

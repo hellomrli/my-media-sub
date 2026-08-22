@@ -150,6 +150,7 @@ async fn dispatch_push_event_impl(
                 correlation_id: String::new(),
                 subscription_id: subscription_id.clone(),
                 episode: None,
+                job_id: None,
             })
             .await
         {
@@ -192,7 +193,7 @@ async fn send_push_event(
     let settings = settings_store.get().await;
     let image_url = notification_thumbnail(notification_store, notification_id).await;
     let push_service = PushService::new(settings)
-        .with_telegram_actions(event, notification_id, subscription_id)
+        .with_telegram_actions(event, notification_id, subscription_id, None)
         .with_telegram_image(image_url);
     let report = push_service
         .send_event_with_retry_detailed(
@@ -286,6 +287,7 @@ async fn flush_digest_pending(
                 correlation_id: String::new(),
                 subscription_id: None,
                 episode: None,
+                job_id: None,
             })
             .await;
     } else {

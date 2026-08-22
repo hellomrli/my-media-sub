@@ -1,6 +1,6 @@
 # PWA、离线壳层与缓存安全
 
-my-media-sub 可以安装为桌面或移动端 PWA。PWA 只缓存静态应用壳层，不缓存业务 API、STRM 媒体响应或健康检查。
+my-media-sub 可以安装为桌面或移动端 PWA。PWA 只缓存静态应用壳层，不缓存业务 API 或健康检查。
 
 ## 安装
 
@@ -18,7 +18,6 @@ Safari/iOS 若不提供安装事件，可使用浏览器“添加到主屏幕”
 | JS、CSS、Worker | network-first | 在线时必须取得当前版本，失败时才回退到对应版本的静态缓存，避免新版 HTML 与旧脚本混用。 |
 | 图标、字体、Manifest | stale-while-revalidate | 立即使用缓存并在后台刷新；只缓存成功且未声明 `private/no-store` 的响应。 |
 | `/api/*` | network-only | 不读取、不写入 Cache Storage。 |
-| `/strm/*` | network-only | 不缓存媒体代理响应和 Token 相关结果。 |
 | `/health`、跨域请求、非 GET | network-only | 保持实时或交给浏览器。 |
 
 Cache Storage 使用不含 Authorization header 的规范化静态键。HTTP Basic Auth 401/403 不会写入缓存；离线壳层不包含订阅、Cookie、Token、任务或诊断数据，离线时业务操作仍会失败而不会显示过期 API 数据。

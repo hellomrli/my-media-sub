@@ -9,8 +9,6 @@ pub struct TransferResult {
     pub push_message: Option<String>,
     pub push_notification_id: Option<String>,
     pub renamed_count: usize,
-    pub strm_generated_count: usize,
-    pub strm_error: Option<String>,
     pub aria2_submitted_count: usize,
     pub aria2_error: Option<String>,
 }

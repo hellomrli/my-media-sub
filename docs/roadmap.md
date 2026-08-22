@@ -13,18 +13,18 @@
 
 ## 当前执行指针
 
-- **当前阶段**：v2.2.10 发布（高级规则 UI 整理）
-- **当前任务**：发布 v2.2.10（tag / Release 二进制 / GHCR / VPS）
-- **下一任务（建议）**：换源可解释性 / Telegram 运维菜单 / 仪表盘失败归因；STRM 独立模块回归暂缓
+- **当前阶段**：v2.5.1 发布
+- **当前任务**：发布 v2.5.1（tag / Release 二进制 / GHCR / VPS）
+- **下一任务（建议）**：换源可解释性 / Telegram 运维菜单 / 仪表盘失败归因
 - **后续阶段**：保持单实例安全模型与 JSON 单写；未经明确需求不启动多用户、SQLite 或第二 Provider
-- **当前发布基线**：v2.2.10（`Cargo.toml` / OpenAPI / PWA 缓存代次）
+- **当前发布基线**：v2.5.1（`Cargo.toml` / OpenAPI / PWA 缓存代次）
 - **工作树状态**：见 `main` 最新提交；历史 v1.x 交接记录保留在下方作审计
 
 ---
 
 ## v2.2.x 摘要（相对 v1.13 规划台账）
 
-- 2.2.0：STRM 模块级下线；设置字段保留，HTTP/生成关闭。
+- 2.2.0：移除已退休的媒体代理与生成入口，相关设置字段保留兼容。
 - 2.2.1–2.2.5：完结/日历/PWA/图片代理/订阅编辑与网盘语义等功能正确性修复。
 - 2.2.6：多季 `season_spec`、服务端重命名分组、Telegram 主菜单与会话持久化。
 - 2.2.7：Job store 写失败可观测与句柄 poison 恢复；Telegram 搜索上限 10；规划文档对齐。
@@ -99,7 +99,7 @@
 ## P13/P14 完成交接（停止于 P15 前）
 
 - P13 已完成：订阅级搜索/排除/偏好词、稳定排序去重、PanSou 退避、候选探测缓存、集数覆盖预览、建议/自动模式、通知审计与回滚。
-- P14 已完成：同名冲突策略、安全文件名、最终计划预览、STRM 一致性审计、Aria2 幂等查重重试、Jellyfin/Emby/Plex/通用 Webhook 自动刷新。
+- P14 已完成：同名冲突策略、安全文件名、最终计划预览、Aria2 幂等查重重试、Jellyfin/Emby/Plex/通用 Webhook 自动刷新。
 - P15-01 至 P15-03 已完成；下一步从 P16 通知中心开始。
 - 多网盘与多用户仍冻结；不创建 tag/Release，除非用户明确要求。
 
@@ -158,10 +158,10 @@
 ### P3 已完成能力
 
 - `AutomationEvent` 已覆盖 correlation、订阅、集数、Job、阶段、状态、尝试、消息、错误、metadata 和生命周期时间；
-- 固化 source_check、file_filter、version_select、cloud_transfer、rename、strm、aria2、notification 八阶段和七状态状态机；
+- 固化 source_check、file_filter、version_select、cloud_transfer、rename、aria2、notification 七阶段和七状态状态机；
 - `AutomationEventStore` 使用 schema v1、原子写入、`0600`、30/90 天分级保留、5,000 条上限及 subscription/correlation/job 内存索引；
 - 同一执行阶段使用稳定事件 ID 原位更新，保留开始时间；摘要会折叠旧式历史状态，已完成任务不会因历史 running 事件被误判为卡住；
-- Job 广播、订阅检查、版本选择、转存、重命名、STRM、Aria2 和通知路径均写入结构化事件，通知正文仅保留展示职责；
+- Job 广播、订阅检查、版本选择、转存、重命名、Aria2 和通知路径均写入结构化事件，通知正文仅保留展示职责；
 - API 支持事件筛选、自动化摘要、单订阅/单集/单 Job 流水线和失败/取消阶段安全重试；
 - WebUI 已在工作台展示成功率、最近失败和卡住阶段，在订阅详情展示事件、耗时、尝试、错误和重试入口；
 - 详细契约见 `docs/automation-events.md` 与 `docs/api-contract.md`。
@@ -182,7 +182,7 @@
 - 排期优先级：手动排期 → 逐集元数据 → 下一集元数据 → 发布日期 → 稳定周期推断 → 排期未知。
 - 手动排期覆盖展示结果，但不修改原始 `MediaMetadata`。
 - API 默认查询当前自然周；`from`/`to` 为闭区间，最多覆盖 367 个自然日。
-- 日历复用订阅详情聚合结果，不另外维护 known/transferred/STRM/Aria2 状态判定。
+- 日历复用订阅详情聚合结果，不另外维护 known/transferred/Aria2 状态判定。
 - `UpdateSubscriptionRequest` 对 `metadata` 和 `manual_schedule` 使用“字段存在感知”的反序列化，JSON `null` 表示显式清除，缺少字段表示保持不变。
 - v1.3.0 不提升持久化 schema；回滚 v1.2.0 可以读取 schema v1，但旧程序重写订阅文件时可能丢弃 `manual_schedule`，完整回滚应恢复升级前备份。
 
@@ -238,7 +238,7 @@ git diff --check
 - [x] `BASE-06` 订阅详情、剧集网格、缺集检测、流水线和活动时间线。
   - 证据：`src/services/subscription_status.rs`、`static/js/features/subscription-detail.js`。
 - [x] `BASE-07` 网盘面包屑、筛选排序、批量操作和 Aria2 提交。
-- [x] `BASE-08` Aria2 任务关联订阅、集数、转存、重命名和 STRM 状态。
+- [x] `BASE-08` Aria2 任务关联订阅、集数、转存和重命名状态。
 - [x] `BASE-09` 设置中心按连接、自动化、命名规则、通知和维护重组。
 - [x] `BASE-10` JSON API 成功响应统一为 `{ok:true,data:...}`，应用错误包含 `{ok:false,error,message}`。
   - 证据：`src/api/response.rs`、`src/error.rs`。
@@ -280,7 +280,7 @@ git diff --check
 - [x] `P0-03-04` Basic Auth 401 返回 JSON 错误信封并保留 `WWW-Authenticate`。
 - [x] `P0-03-05` CSRF 403 返回 JSON 错误信封。
 - [x] `P0-03-06` 认证、CSRF、已知/未知 404、malformed JSON、405 和验证错误均有内容类型与结构断言。
-- [x] `P0-03-07` 已审计 API 路由，并在 `docs/api-contract.md` 登记 `/health`、`/strm/*`、SSE 和 204 例外。
+- [x] `P0-03-07` 已审计 API 路由，并在 `docs/api-contract.md` 登记 `/health`、SSE 和 204 例外。
 
 ## P0-04 架构和升级文档
 
@@ -318,7 +318,7 @@ git diff --check
 - [x] `P1-02-01` 新增 `src/models/calendar.rs`。
 - [x] `P1-02-02` 新增纯计算服务 `src/services/media_calendar.rs`。
 - [x] `P1-02-03` 从 `MediaMetadata.episodes/next_episode_to_air/release_date` 派生日历。
-- [x] `P1-02-04` 合并 known/transferred/STRM/Aria2 状态。
+- [x] `P1-02-04` 合并 known/transferred/Aria2 状态。
 - [x] `P1-02-05` 增加手动播出星期、时间、开播日期、周期和总集数覆盖字段。
 - [x] `P1-02-06` 保证所有新增字段使用兼容默认值。
   - 证据：`src/models/calendar.rs`、`src/services/media_calendar.rs`；7 个日历服务单元测试。
@@ -398,13 +398,13 @@ git diff --check
 ## P3-01 事件模型
 
 - [x] `P3-01-01` 定义 AutomationEvent：correlation/subscription/episode/job/stage/status/attempt/message/error/metadata/time。
-- [x] `P3-01-02` 定义 source_check、file_filter、version_select、cloud_transfer、rename、strm、aria2、notification 阶段。
+- [x] `P3-01-02` 定义 source_check、file_filter、version_select、cloud_transfer、rename、aria2、notification 阶段。
 - [x] `P3-01-03` 定义 pending/running/succeeded/skipped/failed/retrying/canceled 状态机。
 
 ## P3-02 事件职责与存储
 
 - [x] `P3-02-01` Job 只负责执行，事件负责业务轨迹，Notification 负责用户消息，Metrics 负责统计。
-- [x] `P3-02-02` 不再依赖通知文本推断 STRM、重命名和下载关联。
+- [x] `P3-02-02` 不再依赖通知文本推断重命名和下载关联。
 - [x] `P3-02-03` 实现 JSON 事件存储、条数/时间保留和失败事件延长保留。
 - [x] `P3-02-04` 为单订阅和 correlation_id 建立高效内存索引。
 - [x] `P3-02-05` 增加重启恢复、重复事件和幂等测试。
@@ -529,7 +529,7 @@ git diff --check
 
 - [x] `P8-01` 新增 manifest、图标和 service worker。
 - [x] `P8-02` HTML network-first，静态资源 stale-while-revalidate。
-- [x] `P8-03` `/api/*` 与 `/strm/*` network-only，不缓存敏感业务数据。
+- [x] `P8-03` `/api/*` network-only，不缓存敏感业务数据。
 - [x] `P8-04` 增加安装入口和新版本缓存更新提示。
 - [x] `P8-05` 增加今日更新、缺集、失败任务、检查全部、下载进度和签到快捷入口。
 - [x] `P8-06` 覆盖 Basic Auth、离线壳层、缓存升级和 390px 测试。
@@ -602,7 +602,7 @@ git diff --check
 - `src/store/settings.rs`、`subscription.rs`、`notification.rs`、`src/jobs/store.rs`：权限修复、迁移/未来版本/损坏/保存失败测试；
 - `src/error.rs`、`src/api/mod.rs`：认证、CSRF、未知 API 和框架拒绝统一 JSON；
 - `docs/api-contract.md`：响应契约、错误代码和例外登记；
-- `tests/api_integration.rs`：401、403、404、405、malformed JSON、SSE、STRM、静态资源和 204 测试。
+- `tests/api_integration.rs`：401、403、404、405、malformed JSON、SSE、静态资源和 204 测试。
 
 测试证据：
 
@@ -750,7 +750,7 @@ git diff --check
 
 - `src/models/automation_event.rs`：八阶段、七状态状态机和完整 `AutomationEvent` 契约；
 - `src/store/automation_event.rs`：schema v1、原子持久化、权限修复、分级保留、幂等和三类内存索引；
-- `src/services/automation_events.rs`：稳定生命周期更新、Job 广播投影、转存后 rename/STRM/Aria2/notification 结果投影；
+- `src/services/automation_events.rs`：稳定生命周期更新、Job 广播投影、转存后 rename/Aria2/notification 结果投影；
 - `src/services/subscription_check.rs`：source_check、file_filter、version_select 结构化事件和 correlation 传递；
 - `src/api/automation.rs`：事件查询、当前状态摘要、单订阅/单集/单 Job 流水线及安全重试；
 - `src/services/subscription_status.rs`：结构化事件优先覆盖旧通知 metadata 降级，不解析通知正文；
@@ -835,7 +835,7 @@ git diff --check
 
 - `src/providers/mod.rs`：定义 `probe/list/find/ensure/transfer/rename/delete/download_info/health` 对象安全能力边界、通用文件/下载/健康数据和 `CloudDriveProviderRegistry`；
 - `src/providers/quark.rs`：用现有 `QuarkShareProbe` / `QuarkSaveClient` 实现 Quark Provider，保留递归探测、手动整分享转存、订阅选择性转存、目录、重命名、删除和下载直链行为；
-- `src/services/{subscription_check,subscription_transfer,strm}.rs` 与 `src/jobs/worker/manual_transfer.rs`：业务检查、自动转存、重命名、同步下载、STRM 和手动转存通过 Provider 能力调用，不再直接依赖 `QuarkSaveClient`；
+- `src/services/{subscription_check,subscription_transfer}.rs` 与 `src/jobs/worker/manual_transfer.rs`：业务检查、自动转存、重命名、同步下载和手动转存通过 Provider 能力调用，不再直接依赖 `QuarkSaveClient`；
 - `src/providers/mock.rs`：提供可注入探测结果、目录项、转存记录和按操作失败注入；检查与转存 Service 测试证明 `cloud_type=mock` 会选择注入 Provider；
 - `src/api/subscriptions/crud.rs`：创建和更新时规范化并校验 `cloud_type`，空值兼容为 `quark`，未知 Provider 提前返回稳定校验错误；
 - `src/services/quark_signin.rs`：签到继续作为夸克专属服务直接使用夸克扩展 API，不进入通用 CloudDriveProvider 能力面；
@@ -879,7 +879,7 @@ git diff --check
 
 - `static/manifest.webmanifest`、`static/icons/`：standalone Manifest、192/512/maskable PNG 图标以及今日更新、缺集、失败任务、检查全部、下载进度和夸克签到六类快捷入口；
 - `static/service-worker.js`、`static/js/pwa-policy.js`：版本化应用壳层、HTML network-first、静态资源 stale-while-revalidate、旧缓存清理和可独立测试的请求分类/响应缓存策略；
-- `/api/*`、`/strm/*`、`/health`、跨域请求和非 GET 请求始终 network-only；401/403、非 200、`private` 和 `no-store` 响应永不缓存；
+- `/api/*`、`/health`、跨域请求和非 GET 请求始终 network-only；401/403、非 200、`private` 和 `no-store` 响应永不缓存；
 - `static/js/features/pwa.js`：Service Worker 注册、认证后缓存预热、安装提示、在线/离线状态、新 Worker 更新提示、`SKIP_WAITING` 和快捷动作复用；
 - `static/index.html`、`tailwind/input.css`：安装入口、更新/离线横幅、六项快捷面板和 390px 专用布局；
 - `src/api/mod.rs`：Service Worker 返回 `no-cache` 和根 scope 许可；Manifest、Worker 和图标继续受 Basic Auth 保护；
@@ -967,7 +967,7 @@ git diff --check
 ## P14. 转存与媒体库工作流
 
 - [x] 增加 skip/overwrite/keep_both 目录冲突策略、最终重命名预览和跨平台安全文件名。
-- [x] 增加 STRM 缺失/孤立/无效/重复目标扫描，以及 Aria2 任务复用、失败后查重和指数退避。
+- [x] 增加 Aria2 任务复用、失败后查重和指数退避。
 - [x] 增加 Jellyfin、Emby、Plex、通用 Webhook 自动刷新；复用 AutomationEvent 八阶段与转存结果统一进度。
 
 ## P15. 任务队列与调度可靠性
@@ -1078,7 +1078,7 @@ P19 最终验证：404 个 Rust 测试登记，403 个通过、1 个真实 PanSo
 
 - [x] `P20-01` 保持 OpenAPI 与路由同步并建立契约兼容回归测试。
   - `scripts/check-openapi.py` 解析字面量 Axum route，双向核对 OpenAPI 的路径/方法/路径参数；动态 route 或未展开 any 会失败。
-  - OpenAPI 已从少量摘要补齐为 89 条路径、101 个操作，统一错误响应引用、Basic/STRM 安全声明和路径参数。
+  - OpenAPI 已从少量摘要补齐为 89 条路径、101 个操作，统一错误响应引用、Basic 安全声明和路径参数。
   - `docs/openapi-baseline-v1.12.0.json` 固化发布表面与 Success/Error 信封，删除兼容接口或修改稳定信封会阻断 CI；CI 和 Release 均执行检查。
 - [x] `P20-02` 增加单实例自动化 Token 的轮换、撤销和最小作用域；不扩展为多用户认证。
   - Token 使用 64 位以上随机材料和 `mms_` 前缀，明文仅轮换时显示一次；`automation-token.json` 只保存 SHA-256、脱敏前缀、scope、创建/过期/最后使用/撤销时间并使用 0600。

@@ -47,8 +47,6 @@ impl JobWorker {
                 let push_notification_id = result.push_notification_id.clone();
                 let result_notification_id = push_notification_id.clone();
                 let renamed_count = result.renamed_count;
-                let strm_generated_count = result.strm_generated_count;
-                let strm_error = result.strm_error.clone();
                 let aria2_submitted_count = result.aria2_submitted_count;
                 let aria2_error = result.aria2_error.clone();
                 let completed = self
@@ -61,8 +59,6 @@ impl JobWorker {
                             "transferred_count": transferred_count,
                             "skipped": skipped,
                             "renamed_count": renamed_count,
-                            "strm_generated_count": strm_generated_count,
-                            "strm_error": strm_error,
                             "aria2_submitted_count": aria2_submitted_count,
                             "aria2_error": aria2_error,
                             "notification_id": result_notification_id,
@@ -82,6 +78,7 @@ impl JobWorker {
                                 correlation_id: payload.correlation_id.clone(),
                                 subscription_id: Some(payload.subscription_id.clone()),
                                 episode: None,
+                                job_id: None,
                             })
                             .await
                         {

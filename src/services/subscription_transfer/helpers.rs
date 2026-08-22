@@ -260,13 +260,6 @@ fn merge_sync_download_reports(reports: Vec<SyncDownloadReport>) -> Option<SyncD
     })
 }
 
-#[derive(Debug, Clone)]
-struct StrmGenerationReport {
-    generated_count: usize,
-    dir: String,
-    error: Option<String>,
-}
-
 fn append_path(base: &str, segment: &str) -> String {
     let base = base.trim().trim_end_matches('/');
     let segment = segment.trim().trim_matches('/');
@@ -476,7 +469,6 @@ fn resolve_sync_download_dir_for_season(
 fn transfer_reason(
     target_dir: &str,
     sync_report: Option<&SyncDownloadReport>,
-    strm_report: Option<&StrmGenerationReport>,
 ) -> String {
     let target = if target_dir.trim().is_empty() {
         "根目录"
@@ -502,23 +494,6 @@ fn transfer_reason(
             ),
         });
     }
-    if let Some(report) = strm_report {
-        parts.push(match report {
-            report if report.generated_count > 0 && report.error.is_none() => format!(
-                "已生成 {} 个 STRM 文件到 {}",
-                report.generated_count, report.dir
-            ),
-            report if report.generated_count > 0 => format!(
-                "已生成 {} 个 STRM 文件，部分失败: {}",
-                report.generated_count,
-                report.error.as_deref().unwrap_or("未知错误")
-            ),
-            report => format!(
-                "STRM 生成失败: {}",
-                report.error.as_deref().unwrap_or("未知错误")
-            ),
-        });
-    }
     parts.join("，")
 }
 
@@ -538,7 +513,6 @@ fn transfer_notification_message(
     file_count: usize,
     target_dir: &str,
     sync_report: Option<&SyncDownloadReport>,
-    strm_report: Option<&StrmGenerationReport>,
 ) -> String {
     let mut parts = vec![format!("已转存 {} 个文件到 {}", file_count, target_dir)];
     if let Some(report) = sync_report {
@@ -555,23 +529,6 @@ fn transfer_notification_message(
             ),
             report => format!(
                 "同步下载失败: {}",
-                report.error.as_deref().unwrap_or("未知错误")
-            ),
-        });
-    }
-    if let Some(report) = strm_report {
-        parts.push(match report {
-            report if report.generated_count > 0 && report.error.is_none() => format!(
-                "生成 {} 个 STRM 文件到 {}",
-                report.generated_count, report.dir
-            ),
-            report if report.generated_count > 0 => format!(
-                "生成 {} 个 STRM 文件，部分失败: {}",
-                report.generated_count,
-                report.error.as_deref().unwrap_or("未知错误")
-            ),
-            report => format!(
-                "STRM 生成失败: {}",
                 report.error.as_deref().unwrap_or("未知错误")
             ),
         });

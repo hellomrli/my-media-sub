@@ -49,7 +49,6 @@ mod tests {
             sync_download_enabled: false,
             sync_download_dir: String::new(),
             sync_downloads: vec![],
-            strm_enabled: false,
             enabled: true,
             completed: false,
             rules: crate::models::rules::TransferRules::default(),
@@ -991,7 +990,6 @@ mod tests {
             sync_download_enabled: false,
             sync_download_dir: String::new(),
             sync_downloads: vec![],
-            strm_enabled: false,
             enabled: true,
             completed: false,
             rules: crate::models::rules::TransferRules {

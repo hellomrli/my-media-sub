@@ -4,16 +4,9 @@
 
 ## 架构图
 
-> 下图仍是 v1.13.1 时代的产物，尚未从当前代码重新生成（STRM 已于 v2.2.0 停用），仅作结构参考。
+> 下图仍是 v1.13.1 时代的产物，尚未从当前代码重新生成，仅作结构参考。
 
-- [SVG](architecture.svg)
 - [Graphviz 源文件](architecture.dot)
-
-重新生成：
-
-```bash
-dot -Tsvg docs/architecture.dot -o docs/architecture.svg
-```
 
 ## 设计边界
 
@@ -51,12 +44,11 @@ My Media Sub 是面向单实例管理员的自托管应用，不是多租户平�
 浏览器 ── Basic Auth + 同源 CSRF ──┐
 自动化客户端 ── scoped Bearer ─────┼─> Axum API -> Service / JobQueue -> Store
 Telegram ── 随机路径 + Header Secret ┘
-媒体客户端 ── STRM Token ─────────────> /strm/* -> Quark
 健康探针 ─────────────────────────────> /health
 ```
 
 - 普通业务 API 返回 `{"ok":true,"data":...}`；错误返回 `{"ok":false,"error":"...","message":"..."}`。
-- `/health` 免认证；`/strm/*` 使用独立 Token；Telegram Webhook 在专用 Handler 中校验随机路径和 Secret Header。
+- `/health` 免认证；Telegram Webhook 在专用 Handler 中校验随机路径和 Secret Header。
 - Bearer Token 只允许路由声明的最小 scope。设置、Token 管理、备份恢复、Store 清理和在线升级不向自动化 Token 开放。
 - `/metrics`、诊断、Telegram 审计等管理信息仍需 Basic Auth 或 `diagnostics:read`。
 - 所有请求生成或继承安全格式的 request/correlation ID；自动化事件继续关联 subscription/job/episode。
@@ -92,7 +84,7 @@ SubscriptionScheduler / API / Telegram
          -> 媒体库刷新（PostTransferModule）-> Notification / Push / AutomationEvent
 ```
 
-STRM 自 v2.2.0 起模块级下线（`STRM_MODULE_ENABLED=false`），转存链路不再生成 STRM；settings 中仍保留字段以便日后以独立模块接回。每个阶段使用稳定幂等键和 correlation；Job 的业务结果与 AutomationEvent、Notification、Metrics 各自承担不同职责，不能互相替代。
+每个阶段使用稳定幂等键和 correlation；Job 的业务结果与 AutomationEvent、Notification、Metrics 各自承担不同职责，不能互相替代。
 
 ## 后台执行
 

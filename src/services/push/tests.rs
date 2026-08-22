@@ -389,6 +389,7 @@ fn telegram_active_notification_actions_are_signed_and_bounded() {
         PushEvent::SubscriptionFailed,
         Some("12345678-1234-1234-1234-123456789012"),
         Some("87654321-4321-4321-4321-210987654321"),
+        None,
     );
     let markup = service.telegram_reply_markup.unwrap();
     let buttons = markup["inline_keyboard"][0].as_array().unwrap();
@@ -396,4 +397,34 @@ fn telegram_active_notification_actions_are_signed_and_bounded() {
     assert!(buttons.iter().all(|button| button["callback_data"]
         .as_str()
         .is_some_and(|data| data.starts_with("prompt:") && data.len() <= 64)));
+}
+
+#[test]
+fn telegram_transfer_saved_actions_include_download_button_only_with_job_id() {
+    let settings = Settings {
+        telegram_bot_token: "123456:test".to_string(),
+        telegram_chat_id: "42".to_string(),
+        telegram_bot_mode: "long_polling".to_string(),
+        telegram_bot_allowed_user_ids: vec![42],
+        telegram_bot_allowed_chat_ids: vec![42],
+        telegram_bot_webhook_secret: "a".repeat(64),
+        ..Settings::default()
+    };
+    let job_id = "12345678-1234-1234-1234-123456789012";
+
+    // 带 job_id 时生成「继续下载」按钮
+    let with_download = PushService::new(settings.clone())
+        .with_telegram_actions(PushEvent::TransferSaved, None, None, Some(job_id));
+    let markup = with_download.telegram_reply_markup.unwrap();
+    let buttons = markup["inline_keyboard"][0].as_array().unwrap();
+    assert_eq!(buttons.len(), 1);
+    assert_eq!(buttons[0]["text"], "继续下载");
+    assert!(buttons[0]["callback_data"]
+        .as_str()
+        .is_some_and(|data| data.starts_with("prompt:d.") && data.len() <= 64));
+
+    // 不带 job_id 时不生成下载按钮
+    let without_download = PushService::new(settings)
+        .with_telegram_actions(PushEvent::TransferSaved, None, None, None);
+    assert!(without_download.telegram_reply_markup.is_none());
 }

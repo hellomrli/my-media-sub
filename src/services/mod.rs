@@ -11,7 +11,6 @@ pub mod push;
 pub mod quark_signin;
 pub mod source_quality;
 pub mod storage;
-pub mod strm;
 pub mod subscription_check;
 pub mod subscription_progress;
 pub mod subscription_scheduler;
@@ -31,11 +30,6 @@ pub use subscription_source_switch::SubscriptionSourceSwitchService;
 pub use subscription_transfer::SubscriptionTransferService;
 
 pub mod telegram_bot;
-
-/// STRM is temporarily kept as migration-compatible code, but is not part of
-/// the active application. Keeping the switch in Rust makes every execution
-/// path fail closed until STRM returns as an independently mounted module.
-pub const STRM_MODULE_ENABLED: bool = false;
 
 /// 订阅检查/转存探测分享时的文件数上限。
 /// 超限会在 ProbeResult 中标记 `partial` 状态，不再静默截断。

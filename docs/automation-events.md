@@ -9,7 +9,7 @@
 - **Notification**：面向用户的消息与推送结果；
 - **Metrics**：聚合计数、耗时和成功率。
 
-订阅状态不再通过通知正文判断 STRM 成败；结构化事件优先，旧通知仅从 metadata 兼容降级。
+订阅状态不再通过通知正文判断各阶段成败；结构化事件优先，旧通知仅从 metadata 兼容降级。
 
 ## 2. 事件模型
 
@@ -25,7 +25,7 @@
 
 ```text
 source_check → file_filter → version_select → cloud_transfer
-             → rename → strm → aria2 → notification
+             → rename → aria2 → notification
 ```
 
 状态：
@@ -53,7 +53,7 @@ failed → retrying → pending / running / failed / canceled
 
 - 订阅检查写入 source_check、file_filter 和 version_select；
 - JobStore 状态广播投影 pending/running/succeeded/failed/canceled；
-- SubscriptionTransfer 的结构化结果投影 cloud_transfer、rename、strm、aria2 和用户通知结果；
+- SubscriptionTransfer 的结构化结果投影 cloud_transfer、rename、aria2 和用户通知结果；
 - PushDispatch payload 继承 correlation/subscription 上下文并投影 notification；
 - Job payload 中的 `correlation_id` 将检查与后续转存任务串联。
 

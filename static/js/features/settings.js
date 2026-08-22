@@ -45,7 +45,7 @@
     // 更新日历
     quarkSigninLoading: false,
     quarkHealthLoading: false,
-    quarkHealth: {status: 'unknown', message: '尚未检测', checkedAt: null, nickname: '', signinMessage: '', signinResult: null, issues: [], directories: {}, saveEnabled: false, signinEnabled: false, rootConfigured: false, strmReady: false, capacityBytes: 0, usedCapacityBytes: null, memberType: '', signProgress: 0, signTarget: 0},
+    quarkHealth: {status: 'unknown', message: '尚未检测', checkedAt: null, nickname: '', signinMessage: '', signinResult: null, issues: [], directories: {}, saveEnabled: false, signinEnabled: false, rootConfigured: false, capacityBytes: 0, usedCapacityBytes: null, memberType: '', signProgress: 0, signTarget: 0},
 
     // 规则中心
     settings: {
@@ -56,7 +56,6 @@
       custom_categories: [],
       aria2_rpc_url: '', aria2_secret: '', aria2_secret_configured: false,
       aria2_movie_dir: '', aria2_series_dir: '', aria2_anime_dir: '',
-      strm_enabled: false, strm_output_dir: '', strm_public_base_url: '', strm_access_token: '', strm_access_token_configured: false, strm_token_in_url: false,
       cloud_types: ['quark'], dashboard_widgets: ['command','calendar'], push_on_update: true, push_on_failed: true, push_on_completed: true, push_on_save: true, push_on_download_completed: true, push_on_quark_signin: true,
       metadata_provider: 'tmdb', tmdb_api_key: '', tmdb_api_key_configured: false, tmdb_language: 'zh-CN',
       wecom_bot_url: '', wecom_bot_url_configured: false, telegram_bot_token: '', telegram_bot_token_configured: false, telegram_chat_id: '',
@@ -354,7 +353,6 @@
             saveEnabled: !!data.save_enabled,
             signinEnabled: !!data.signin_enabled,
             rootConfigured: !!data.root_configured,
-            strmReady: !!data.strm_ready,
             capacityBytes: Number(data.total_capacity_bytes || 0),
             usedCapacityBytes: data.used_capacity_bytes ?? null,
             memberType: data.member_type || '',
@@ -374,7 +372,6 @@
             saveEnabled: !!data.save_enabled,
             signinEnabled: !!data.signin_enabled,
             rootConfigured: !!data.root_configured,
-            strmReady: !!data.strm_ready,
             capacityBytes: Number(data.total_capacity_bytes || 0),
             usedCapacityBytes: data.used_capacity_bytes ?? null,
             memberType: data.member_type || '',

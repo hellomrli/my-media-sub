@@ -190,27 +190,6 @@ pub struct Settings {
     #[serde(default)]
     pub media_metadata_files_enabled: bool,
 
-    // ===== STRM 配置 =====
-    /// 是否启用 STRM 文件生成
-    #[serde(default)]
-    pub strm_enabled: bool,
-
-    /// 本地 STRM 文件输出根目录
-    #[serde(default)]
-    pub strm_output_dir: String,
-
-    /// HTTPStrm 对外访问根地址
-    #[serde(default)]
-    pub strm_public_base_url: String,
-
-    /// HTTPStrm 访问 Token
-    #[serde(default = "default_strm_access_token")]
-    pub strm_access_token: String,
-
-    /// 是否把 HTTPStrm Token 写入生成的 URL query。默认关闭，避免 token 进入访问日志。
-    #[serde(default)]
-    pub strm_token_in_url: bool,
-
     // ===== 推送配置 =====
     /// Telegram Bot Token
     #[serde(default)]
@@ -624,10 +603,6 @@ fn default_dashboard_widgets() -> Vec<String> {
         .collect()
 }
 
-fn default_strm_access_token() -> String {
-    uuid::Uuid::new_v4().to_string()
-}
-
 fn default_telegram_bot_mode() -> String {
     "disabled".to_string()
 }
@@ -679,11 +654,6 @@ impl Default for Settings {
             aria2_series_dir: String::new(),
             aria2_anime_dir: String::new(),
             media_metadata_files_enabled: false,
-            strm_enabled: false,
-            strm_output_dir: String::new(),
-            strm_public_base_url: String::new(),
-            strm_access_token: default_strm_access_token(),
-            strm_token_in_url: false,
             telegram_bot_token: String::new(),
             telegram_chat_id: String::new(),
             telegram_bot_mode: default_telegram_bot_mode(),

@@ -105,7 +105,6 @@ pub(super) async fn create_subscription(
         sync_download_enabled: req.sync_download_enabled,
         sync_download_dir: req.sync_download_dir,
         sync_downloads: vec![],
-        strm_enabled: false,
         enabled: true,
         completed: false,
         rules,
@@ -231,9 +230,6 @@ pub(super) async fn update_subscription(
             }
             if let Some(sync_download_dir) = req.sync_download_dir {
                 sub.sync_download_dir = sync_download_dir;
-            }
-            if req.strm_enabled.is_some() {
-                sub.strm_enabled = false;
             }
             if let Some(total_episode_number) = req.total_episode_number {
                 sub.total_episode_number = total_episode_number;

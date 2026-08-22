@@ -42,7 +42,6 @@
       notify_only: false,
       sync_download_enabled: false,
       sync_download_dir: '',
-      strm_enabled: false,
       metadata: null,
       include_keywords_text: '',
       exclude_keywords_text: DEFAULT_EXCLUDE_KEYWORDS,
@@ -407,7 +406,6 @@
         notify_only: !!sub.notify_only,
         sync_download_enabled: !!sub.sync_download_enabled,
         sync_download_dir: sub.sync_download_dir || '',
-        strm_enabled: !!sub.strm_enabled,
         metadata: sub.metadata || null,
         check_interval_minutes: Number(rules.check_interval_minutes || (this.settings && this.settings.subscription_check_interval_minutes) || 60),
         include_keywords_text: (rules.include_keywords || []).join(', '),
@@ -1929,7 +1927,6 @@
       const files = (episode && episode.files) || [];
       const parts = [`第 ${episode.episode} 集`, this.subscriptionEpisodeLabel(episode)];
       if (episode.download_status && episode.download_status !== 'disabled') parts.push(`下载: ${episode.download_status}`);
-      if (episode.strm_status && episode.strm_status !== 'disabled') parts.push(`STRM: ${episode.strm_status}`);
       if (files.length) parts.push(files.slice(0, 3).join(' / '));
       return parts.join(' · ');
     },
@@ -2561,7 +2558,7 @@
     get subscriptionDetailSummary() {
       return (this.subscriptionDetail && this.subscriptionDetail.summary) || {
         expected_count: 0, discovered_count: 0, transferred_count: 0, downloaded_count: 0,
-        strm_count: 0, missing_count: 0, pending_transfer_count: 0, pending_download_count: 0,
+        missing_count: 0, pending_transfer_count: 0, pending_download_count: 0,
         completion_percent: 0, target_episode: null, data_inferred: false, grid_truncated: false
       };
     },

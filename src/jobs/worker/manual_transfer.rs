@@ -80,6 +80,7 @@ impl JobWorker {
                     &target_fid,
                     share_info.files.len(),
                     saved_count,
+                    &outcome.transferred_files,
                 )
                 .await?;
             }
@@ -105,18 +106,26 @@ impl JobWorker {
         target_fid: &str,
         file_count: usize,
         saved_count: usize,
+        files: &[crate::providers::ProviderFile],
     ) -> Result<()> {
         let message = format!("成功转存 {} 个文件到网盘", saved_count);
+        let files_json: Vec<serde_json::Value> = files
+            .iter()
+            .filter(|file| !file.is_dir && !file.id.trim().is_empty())
+            .map(|file| json!({"fid": file.id, "name": file.name}))
+            .collect();
+        let result_json = json!({
+            "file_count": file_count,
+            "saved_count": saved_count,
+            "target_fid": target_fid,
+            "files": files_json,
+        });
         if !self
             .complete_if_active(job_id, |job| {
                 job.status = JobStatus::Succeeded;
                 job.progress = 100;
                 job.message = message.clone();
-                job.result = Some(json!({
-                    "file_count": file_count,
-                    "saved_count": saved_count,
-                    "target_fid": target_fid,
-                }));
+                job.result = Some(result_json.clone());
                 job.finished_at = Some(now());
             })
             .await?
@@ -156,6 +165,25 @@ impl JobWorker {
             ]),
         )
         .await;
+
+        if req.offer_download {
+            if let Err(e) = self
+                .enqueue_push_dispatch(PushDispatchPayload {
+                    event: PushEvent::TransferSaved.as_str().to_string(),
+                    title: "手动转存完成".to_string(),
+                    message: message.clone(),
+                    level: "success".to_string(),
+                    notification_id: None,
+                    correlation_id: String::new(),
+                    subscription_id: None,
+                    episode: None,
+                    job_id: Some(job_id.to_string()),
+                })
+                .await
+            {
+                warn!("创建转存完成推送任务失败: {}", e);
+            }
+        }
 
         Ok(())
     }

@@ -98,12 +98,6 @@
 
 完整的 105 个 operation 逐条核对结果：
 
-### 3.1 幽灵路由（已修复）
-
-`openapi.json` 曾对外宣称 `GET /strm/quark/{fid}/{file_name}`，但**服务器从不提供这条路由**：`src/api/strm.rs` 从未被 `mod` 声明，整个文件不参与编译。`scripts/check-openapi.py` 用文本扫描 `src/api/**`，把这个死文件里的 `.route(...)` 字面量当成了真实路由写进规范。
-
-本次删除 `api/strm.rs` 后契约检查立刻报错，已同步从规范中移除该 operation（92 路径 / 104 operation）。
-
 ### 3.2 12 个孤儿端点（约 351 行，未处理）
 
 零消费方——前端、测试、smoke 脚本、CI、文档全都不引用：
@@ -166,7 +160,7 @@ SSE 连接正常时轮询是纯冗余。合理的做法是把轮询降级为 SSE
 
 ### 后端（约 570 行）
 
-- **4 个完全死的文件**：`src/api/strm.rs`（136 行，从未 `mod` 声明，不参与编译）、`src/models/transfer.rs`（106 行，活的版本在 `services/transfer_rule.rs`）、`src/store/session.rs`（115 行，`telegram_bot` 用的是同名但不同的私有 struct）、`src/models/search.rs`（135 行，唯一消费者就是 `store/session.rs`）。
+- **3 个完全死的文件**：`src/models/transfer.rs`（106 行，活的版本在 `services/transfer_rule.rs`）、`src/store/session.rs`（115 行，`telegram_bot` 用的是同名但不同的私有 struct）、`src/models/search.rs`（135 行，唯一消费者就是 `store/session.rs`）。
 - **3 个零使用依赖**：`anyhow`、`thiserror`（`error.rs` 手写 `Display`，全仓无 `#[derive(Error)]`）、`tokio-test`；`tower` 从 `[dependencies]` 移到 `[dev-dependencies]`（唯一使用点是 `tests/api_integration.rs:11`）。`Cargo.lock` 少 14 行。
 - **7 处说谎的 `#[allow(dead_code)]`**：标注的代码其实都在用（`quark_save.rs` 的 `delete_items`、`subscription_scheduler.rs` 的 `reload`、`models/mod.rs` 的 calendar 模块），以及 4 处模块级 `#![allow(dead_code)]` 毯子。
 
@@ -187,11 +181,9 @@ SSE 连接正常时轮询是纯冗余。合理的做法是把轮询降级为 SSE
 
 ## 六、未处理，需要决定
 
-### 6.1 STRM 死链（约 530 行）
+### 6.1 已移除的媒体代理死链（约 530 行）
 
-`src/services/strm.rs`（435 行）加 `subscription_transfer.rs` 的三个方法。`services/mod.rs:38` 的 `STRM_MODULE_ENABLED = false` 让私有的 `generate_strm_files` 常量折叠后恒返回 `None`，两个 pub 入口零调用。
-
-**没有动它的原因**：`scripts/check-openapi.py:24` 的注释写明「STRM is intentionally retired in v2.2.0 and will return as an independent module」。这 435 行是能工作的实现，删不删取决于它是否真的会回来。若确定不回来，还可连带清理 `models/settings.rs:200-219` 的 5 个 STRM 设置项和 `subscription_status.rs` 的流水线阶段（合计约 200 行），但需要考虑历史 `settings.json` 的反序列化兼容。
+> **结论：已随本次清理移除。** 相关媒体代理服务与流水线阶段已永久下线；历史 `settings.json` 保留反序列化兼容。
 
 ### 6.2 12 个孤儿端点（约 351 行）
 
