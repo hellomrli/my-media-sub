@@ -6,7 +6,7 @@
   'use strict';
   const STAGES = {
     source_check: '来源检查', file_filter: '文件过滤', version_select: '版本选择',
-    cloud_transfer: '云盘转存', rename: '重命名', strm: 'STRM', aria2: 'Aria2', notification: '通知'
+    cloud_transfer: '云盘转存', rename: '重命名', aria2: 'Aria2', notification: '通知'
   };
   const STATUSES = {
     pending: '等待', running: '执行中', succeeded: '成功', skipped: '跳过',

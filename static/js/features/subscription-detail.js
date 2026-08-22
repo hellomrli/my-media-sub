@@ -13,10 +13,7 @@
     if (!episode) return 'unknown';
     if (episode.missing) return 'missing';
     const downloaded = episode.download_status === 'completed';
-    const strmReady = episode.strm_status === 'generated';
-    if (downloaded && strmReady) return 'complete';
     if (downloaded) return 'downloaded';
-    if (strmReady) return 'strm';
     if (episode.transferred) return 'transferred';
     if (episode.discovered) return 'discovered';
     return 'unknown';
@@ -28,8 +25,6 @@
       discovered: '已发现',
       transferred: '已转存',
       downloaded: '已下载',
-      strm: 'STRM 就绪',
-      complete: '已完成',
       unknown: '未知'
     }[episodeStage(episode)] || '未知';
   }
@@ -41,11 +36,10 @@
       return items.filter(item => item.discovered && (
         !item.transferred
         || ['queued', 'pending'].includes(item.download_status)
-        || item.strm_status === 'failed'
       ));
     }
     if (filter === 'ready') {
-      return items.filter(item => ['complete', 'downloaded', 'strm'].includes(episodeStage(item)));
+      return items.filter(item => ['downloaded'].includes(episodeStage(item)));
     }
     if (filter === 'recent') return items.filter(item => item.recent);
     return items;

@@ -283,10 +283,6 @@ pub struct Subscription {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sync_downloads: Vec<SyncDownloadRecord>,
 
-    /// 自动转存后生成 STRM 文件
-    #[serde(default)]
-    pub strm_enabled: bool,
-
     /// 是否启用
     #[serde(default = "default_true")]
     pub enabled: bool,
@@ -564,7 +560,6 @@ mod tests {
             sync_download_enabled: false,
             sync_download_dir: String::new(),
             sync_downloads: vec![],
-            strm_enabled: false,
             enabled: true,
             completed: false,
             rules: TransferRules::default(),

@@ -597,6 +597,7 @@ impl JobWorker {
                     correlation_id: format!("job-backlog-{}", now()),
                     subscription_id: None,
                     episode: None,
+                    job_id: None,
                 })
                 .await;
         }
@@ -811,7 +812,6 @@ mod tests {
             sync_download_enabled: false,
             sync_download_dir: String::new(),
             sync_downloads: vec![],
-            strm_enabled: false,
             enabled: true,
             completed: true,
             rules: TransferRules::default(),

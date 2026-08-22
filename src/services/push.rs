@@ -461,6 +461,7 @@ impl PushService {
         event: PushEvent,
         notification_id: Option<&str>,
         subscription_id: Option<&str>,
+        download_job_id: Option<&str>,
     ) -> Self {
         if self.settings.telegram_bot_mode == "disabled"
             || self.settings.telegram_bot_allowed_user_ids.len() != 1
@@ -507,6 +508,18 @@ impl PushService {
                     expires_at,
                 ) {
                     buttons.push(json!({"text": "重新检查", "callback_data": data}));
+                }
+            }
+        }
+        if event == PushEvent::TransferSaved {
+            if let Some(job_id) = download_job_id {
+                if let Some(data) = crate::services::telegram_bot::telegram_prompt_callback_data(
+                    &self.settings,
+                    "download",
+                    job_id,
+                    expires_at,
+                ) {
+                    buttons.push(json!({"text": "继续下载", "callback_data": data}));
                 }
             }
         }

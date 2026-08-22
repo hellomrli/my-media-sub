@@ -15,7 +15,7 @@ impl TelegramBotService {
                     self.resolve_subscription(argument).await?
                 }
             }
-            "retry" | "cancel" => {
+            "retry" | "cancel" | "download" => {
                 let argument = argument.ok_or_else(|| format!("用法：/{command} <Job ID>"))?;
                 self.resolve_job(argument).await?
             }
@@ -211,6 +211,28 @@ impl TelegramBotService {
                     }),
                 "switch_apply" => self
                     .execute_switch_apply(&confirmation.resource)
+                    .await
+                    .map(|text| {
+                        format!(
+                            "{text}\nrequest: telegram-{}\ncorrelation: {}",
+                            confirmation.nonce, tg_escape(correlation_id)
+                        )
+                    }),
+                "transfer" => self
+                    .execute_transfer(
+                        confirmation.user_id,
+                        confirmation.chat_id,
+                        &confirmation.resource,
+                    )
+                    .await
+                    .map(|text| {
+                        format!(
+                            "{text}\nrequest: telegram-{}\ncorrelation: {}",
+                            confirmation.nonce, tg_escape(correlation_id)
+                        )
+                    }),
+                "download" => self
+                    .execute_download(&confirmation.resource)
                     .await
                     .map(|text| {
                         format!(

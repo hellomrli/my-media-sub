@@ -63,7 +63,7 @@
 - `known_files` / `known_file_keys` / `known_episodes`；
 - `transferred_files` / `transferred_file_keys`；
 - 当前集数和总集数；
-- 转存、STRM 和 Aria2 关联所依赖的历史数据。
+- 转存和 Aria2 关联所依赖的历史数据。
 
 `source_switch_history` 最多保留 50 条成功、失败和回滚记录，包含新旧 URL、候选评分、原因、自动/手动标记、错误和时间。WebUI 支持查看历史并一键回滚上一来源；回滚同样保留追更与转存进度，并触发立即检查。
 

@@ -92,8 +92,6 @@ pub struct CreateSubscriptionRequest {
     #[serde(default)]
     pub sync_download_dir: String,
     #[serde(default)]
-    pub strm_enabled: bool,
-    #[serde(default)]
     pub metadata: Option<MediaMetadata>,
     #[serde(default)]
     pub rules: Option<TransferRules>,
@@ -136,8 +134,6 @@ pub struct UpdateSubscriptionRequest {
     pub sync_download_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_download_dir: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub strm_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keep_progress_on_source_change: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -401,7 +397,6 @@ fn preview_subscription(req: &RenamePreviewRequest, base: Option<&Subscription>)
         sync_downloads: base
             .map(|sub| sub.sync_downloads.clone())
             .unwrap_or_default(),
-        strm_enabled: false,
         enabled: true,
         completed: false,
         rules,

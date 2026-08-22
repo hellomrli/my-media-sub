@@ -21,7 +21,6 @@ digraph MyMediaSub {
     Browser [label="WebUI / PWA\nAlpine 静态模块", fillcolor="#172554", color="#3b82f6"];
     Automation [label="自动化客户端\nscoped Bearer + Idempotency-Key"];
     Telegram [label="Telegram\nLong polling / Webhook"];
-    MediaClient [label="Jellyfin / Emby / Plex\nSTRM 媒体客户端"];
   }
 
   subgraph cluster_http {
@@ -30,14 +29,13 @@ digraph MyMediaSub {
     TelegramAuth [label="Webhook 随机路径\nSecret Header"];
     Routes [label="src/api/*\n统一 JSON 信封", fillcolor="#312e81", color="#6366f1"];
     Static [label="ServeDir static/\nService Worker"];
-    Strm [label="/strm/*\n独立 Token"];
     SSE [label="Job SSE"];
   }
 
   subgraph cluster_core {
     label="AppContext 与业务层"; color="#14532d"; style="rounded,dashed";
     Context [label="AppContext\n共享依赖与生命周期", fillcolor="#052e16", color="#22c55e"];
-    Services [label="Services\n检查 / 进度完结 / 转存 / 换源\n元数据 / 日历 / 通知 / STRM"];
+    Services [label="Services\n检查 / 进度完结 / 转存 / 换源\n元数据 / 日历 / 通知"];
     Queue [label="JobQueue + Worker\n幂等 / 并发 / 重试 / 恢复", fillcolor="#134e4a"];
     Schedulers [label="后台服务\n订阅 / 签到 / 下载监控\n备份维护 / Telegram Bot"];
     Events [label="AutomationEvent\ncorrelation / stage / job / episode"];
@@ -70,7 +68,6 @@ digraph MyMediaSub {
   Auth -> Static -> Browser;
   Browser -> Routes [label="apiData / apiFetch"];
   Browser -> SSE [style=dashed];
-  MediaClient -> Strm -> Quark;
 
   Routes -> Context;
   SSE -> Queue;

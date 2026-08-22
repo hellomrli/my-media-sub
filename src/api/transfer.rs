@@ -42,6 +42,7 @@ async fn transfer_share(
             url: req.url,
             passcode: req.passcode,
             target_fid: req.target_fid,
+            offer_download: false,
         })
         .await?;
 

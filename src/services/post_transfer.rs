@@ -35,7 +35,7 @@ pub enum PostTransferStatus {
 
 pub type PostTransferFuture<'a> = Pin<Box<dyn Future<Output = PostTransferOutcome> + Send + 'a>>;
 
-/// Rust 原生的对象安全模块接口。STRM、媒体库刷新、索引通知等后续能力
+/// Rust 原生的对象安全模块接口。媒体库刷新、索引通知等后续能力
 /// 只需实现该 trait，并在注册表中挂载。
 pub trait PostTransferModule: Send + Sync {
     fn id(&self) -> &'static str;
@@ -48,7 +48,7 @@ pub struct PostTransferRegistry {
 }
 
 impl PostTransferRegistry {
-    /// 当前没有内置模块：媒体库刷新已下线，STRM 仍停在 `STRM_MODULE_ENABLED = false`。
+    /// 当前没有内置模块。
     /// 保留这个构造函数作为将来挂载模块的唯一入口。
     pub fn with_defaults() -> Self {
         Self { modules: vec![] }

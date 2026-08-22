@@ -372,6 +372,9 @@ impl TelegramBotService {
             } else if command == "subscribe" {
                 self.subscribe_prepare(argument, user.id, message.chat.id)
                     .await
+            } else if command == "transfer" {
+                self.transfer_prepare(argument, user.id, message.chat.id)
+                    .await
             } else {
                 self.prepare_confirmation(user.id, message.chat.id, command, argument)
                     .await
@@ -608,6 +611,29 @@ impl TelegramBotService {
                     let markup = confirmation_markup(&confirmation.nonce);
                     let _ = self
                         .answer_callback(&settings, &callback.id, "请确认换源", false)
+                        .await;
+                    let _ = self
+                        .send_message_with_markup(&settings, message.chat.id, &text, Some(markup))
+                        .await;
+                }
+                Err(error) => {
+                    let _ = self
+                        .answer_callback(&settings, &callback.id, &error, true)
+                        .await;
+                }
+            }
+            return;
+        }
+        if let Some(index_text) = data.strip_prefix("mtr:") {
+            match self
+                .transfer_prepare(Some(index_text), callback.from.id, message.chat.id)
+                .await
+            {
+                Ok(confirmation) => {
+                    let text = confirmation_prompt(&confirmation);
+                    let markup = confirmation_markup(&confirmation.nonce);
+                    let _ = self
+                        .answer_callback(&settings, &callback.id, "请确认转存", false)
                         .await;
                     let _ = self
                         .send_message_with_markup(&settings, message.chat.id, &text, Some(markup))
@@ -1335,6 +1361,7 @@ pub fn telegram_prompt_callback_data(
         "read" => "m",
         "view" => "v",
         "retry" => "r",
+        "download" => "d",
         _ => return None,
     };
     if resource.is_empty()
@@ -1384,6 +1411,7 @@ fn verify_prompt_callback_data(
         "m" => "read",
         "v" => "view",
         "r" => "retry",
+        "d" => "download",
         _ => return Err("按钮动作不受支持".to_string()),
     };
     Ok((action.to_string(), resource.to_string()))
@@ -1484,6 +1512,7 @@ fn parse_command(text: &str) -> Option<(&'static str, Option<&str>)> {
         "cancel",
         "signin",
         "read",
+        "transfer",
     ];
     let command = supported
         .into_iter()
@@ -1496,7 +1525,15 @@ fn parse_command(text: &str) -> Option<(&'static str, Option<&str>)> {
 fn is_write_command(command: &str) -> bool {
     matches!(
         command,
-        "check" | "retry" | "cancel" | "signin" | "read" | "subscribe" | "switch_apply"
+        "check"
+            | "retry"
+            | "cancel"
+            | "signin"
+            | "read"
+            | "subscribe"
+            | "switch_apply"
+            | "transfer"
+            | "download"
     )
 }
 
@@ -1509,6 +1546,8 @@ fn bot_action_scope(command: &str, resource: &str) -> Result<&'static str, Strin
         "signin" => "/api/quark/signin".to_string(),
         "read" if resource == "all" => "/api/notifications/read-all".to_string(),
         "read" => format!("/api/notifications/{resource}/read"),
+        "transfer" => return Ok("subscriptions:write"),
+        "download" => return Ok("jobs:write"),
         _ => return Err("操作没有对应的最小作用域".to_string()),
     };
     crate::api::required_token_scope(&axum::http::Method::POST, &path)
@@ -1519,6 +1558,8 @@ fn confirmation_prompt(confirmation: &PendingConfirmation) -> String {
     let action_label = match confirmation.action.as_str() {
         "subscribe" => "创建订阅",
         "switch_apply" => "应用换源",
+        "transfer" => "转存资源",
+        "download" => "提交下载",
         "check" => "检查订阅",
         "retry" => "重试任务",
         "cancel" => "取消任务",
@@ -1617,6 +1658,7 @@ fn help_text() -> &'static str {
 <b>资源</b>
 /search &lt;关键词&gt; — 搜索夸克资源
 /subscribe &lt;序号&gt; [季号] — 订阅搜索结果（需确认）
+/transfer &lt;序号&gt; — 转存搜索结果到网盘（需确认，完成后可一键下载）
 /switch &lt;订阅ID&gt; — 搜索换源候选
 /switch_apply &lt;序号&gt; — 应用换源（需确认）
 

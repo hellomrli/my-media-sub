@@ -164,24 +164,6 @@ async fn health_returns_ok_without_auth() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-#[tokio::test]
-async fn retired_strm_route_is_not_exposed() {
-    let (ctx, dir) = test_context().await;
-    let app = create_app(ctx);
-
-    let req = Request::builder()
-        .uri("/strm/quark/test-fid/test.mkv")
-        .body(Body::empty())
-        .unwrap();
-    let response = app.clone().oneshot(req).await.unwrap();
-
-    // The retired path no longer bypasses management authentication. It is
-    // intentionally treated like any other protected, unknown route.
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-
-    let _ = std::fs::remove_dir_all(dir);
-}
-
 // ─── Basic Auth ───────────────────────────────────────────────────────────
 
 #[tokio::test]
@@ -644,8 +626,7 @@ async fn create_subscription_returns_201_and_can_be_fetched() {
         "title": "API Test Series",
         "url": "https://pan.quark.cn/s/api-test-001",
         "media_type": "series",
-        "season": 1,
-        "strm_enabled": true
+        "season": 1
     });
 
     let resp = app
@@ -663,14 +644,12 @@ async fn create_subscription_returns_201_and_can_be_fetched() {
         .as_str()
         .expect("created sub should have id");
     assert!(!id.is_empty());
-    assert_eq!(created["data"]["strm_enabled"], false);
 
     // 用 GET 能取回
     let list = json_body(&app, auth_get("/api/subscriptions")).await;
     let items = list["data"].as_array().unwrap();
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["id"].as_str().unwrap(), id);
-    assert_eq!(items[0]["strm_enabled"], false);
 
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -919,7 +898,7 @@ async fn subscription_status_returns_episode_aggregation() {
         serde_json::json!([3, 5, 6])
     );
     assert_eq!(body["data"]["episodes"].as_array().unwrap().len(), 6);
-    assert_eq!(body["data"]["pipeline"].as_array().unwrap().len(), 7);
+    assert_eq!(body["data"]["pipeline"].as_array().unwrap().len(), 6);
 
     let _ = std::fs::remove_dir_all(dir);
 }

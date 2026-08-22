@@ -81,7 +81,6 @@ pub(super) fn quark_health_snapshot(settings: &Settings) -> TestResponse {
     directories.insert("anime".to_string(), settings.quark_save_anime_dir.clone());
 
     let cookie_configured = !settings.quark_cookie.trim().is_empty();
-    let strm_ready = false;
     let mut issues = Vec::new();
     if !cookie_configured {
         issues.push("未配置夸克 Cookie".to_string());
@@ -96,8 +95,6 @@ pub(super) fn quark_health_snapshot(settings: &Settings) -> TestResponse {
         signin_enabled: settings.quark_signin_enabled,
         signin_cookie_configured: !settings.quark_signin_cookie.trim().is_empty(),
         root_configured: true,
-        strm_enabled: false,
-        strm_ready,
         directories,
         issues,
         total_capacity_bytes: 0,

@@ -128,6 +128,9 @@ pub struct ManualTransferPayload {
     pub passcode: String,
     #[serde(default)]
     pub target_fid: String,
+    /// Telegram 发起的转存：完成后推送带「继续下载」按钮的通知。
+    #[serde(default)]
+    pub offer_download: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,6 +165,9 @@ pub struct PushDispatchPayload {
     pub subscription_id: Option<String>,
     #[serde(default)]
     pub episode: Option<i32>,
+    /// 关联的业务任务 ID（例如手动转存任务），用于生成「继续下载」等操作按钮。
+    #[serde(default)]
+    pub job_id: Option<String>,
 }
 
 pub(crate) fn job_idempotency_key(kind: &JobKind, payload: &serde_json::Value) -> String {

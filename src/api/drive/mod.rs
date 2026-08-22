@@ -201,7 +201,6 @@ pub struct Aria2AutomationContext {
     pub episode: Option<i32>,
     pub transfer_status: String,
     pub rename_status: String,
-    pub strm_status: String,
 }
 
 #[derive(Serialize)]
@@ -256,8 +255,6 @@ pub struct TestResponse {
     pub signin_enabled: bool,
     pub signin_cookie_configured: bool,
     pub root_configured: bool,
-    pub strm_enabled: bool,
-    pub strm_ready: bool,
     pub directories: HashMap<String, String>,
     pub issues: Vec<String>,
     pub total_capacity_bytes: i64,
@@ -466,12 +463,11 @@ mod tests {
             level: "success".to_string(),
             event: "subscription_transferred".to_string(),
             title: "转存".to_string(),
-            message: "已生成 1 个 STRM 文件".to_string(),
+            message: "已转存文件".to_string(),
             meta: HashMap::from([
                 ("subscription_id".to_string(), json!("sub1")),
                 ("subscription_title".to_string(), json!("Show")),
                 ("target_dir".to_string(), json!("/series/Show/Season 1")),
-                ("strm_generated_count".to_string(), json!(1)),
                 (
                     "sync_downloads".to_string(),
                     json!([{"gid": "gid-12", "file_name": "Show.S01E12.mkv"}]),
@@ -486,7 +482,6 @@ mod tests {
         assert_eq!(context.subscription_id, "sub1");
         assert_eq!(context.subscription_title, "Show");
         assert_eq!(context.episode, Some(12));
-        assert_eq!(context.strm_status, "generated");
         assert_eq!(context.rename_status, "completed");
     }
 

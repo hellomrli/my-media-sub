@@ -37,7 +37,6 @@ pub struct SubscriptionStatusSummary {
     pub latest_discovered_episode: Option<i32>,
     pub latest_transferred_episode: Option<i32>,
     pub downloaded_count: usize,
-    pub strm_count: usize,
     pub missing_count: usize,
     pub pending_transfer_count: usize,
     pub pending_download_count: usize,
@@ -52,7 +51,6 @@ pub struct EpisodeStatusItem {
     pub discovered: bool,
     pub transferred: bool,
     pub download_status: String,
-    pub strm_status: String,
     pub missing: bool,
     pub recent: bool,
     pub files: Vec<String>,
@@ -77,7 +75,7 @@ struct EpisodeFiles {
 
 pub fn build_subscription_detail(
     subscription: Subscription,
-    settings: &Settings,
+    _settings: &Settings,
     jobs: &[Job],
     notifications: &[Notification],
     events: &[AutomationEvent],
@@ -182,7 +180,6 @@ pub fn build_subscription_detail(
         }
     }
     let mut download_status = HashMap::<i32, &'static str>::new();
-    let mut strm_status = HashMap::<i32, &'static str>::new();
 
     // 新版本把 Aria2 关联作为订阅业务状态持久化；通知仅作为旧数据兼容
     // 和展示审计来源，清空通知不会再让下载进度消失。
@@ -207,12 +204,6 @@ pub fn build_subscription_detail(
             (AutomationStage::CloudTransfer, AutomationStatus::Succeeded) => {
                 transferred.insert(episode);
                 discovered.insert(episode);
-            }
-            (AutomationStage::Strm, AutomationStatus::Succeeded) => {
-                strm_status.entry(episode).or_insert("generated");
-            }
-            (AutomationStage::Strm, AutomationStatus::Failed) => {
-                strm_status.entry(episode).or_insert("failed");
             }
             (AutomationStage::Aria2, AutomationStatus::Succeeded) => {
                 download_status.entry(episode).or_insert("queued");
@@ -259,33 +250,6 @@ pub fn build_subscription_detail(
                 set_episode_status(&mut download_status, episode, status);
             }
         }
-
-        let strm_error = notification
-            .meta
-            .get("strm_error")
-            .and_then(Value::as_str)
-            .filter(|value| !value.trim().is_empty());
-        let strm_generated = notification
-            .meta
-            .get("strm_generated_count")
-            .and_then(Value::as_u64)
-            .unwrap_or(0)
-            > 0;
-        let inferred_strm_status = if strm_error.is_some() {
-            Some("failed")
-        } else if strm_generated {
-            Some("generated")
-        } else {
-            None
-        };
-        if let Some(status) = inferred_strm_status {
-            for name in &file_names {
-                if let Some(episode) = episode_number(name) {
-                    // Notifications are newest-first; the newest STRM outcome wins.
-                    strm_status.entry(episode).or_insert(status);
-                }
-            }
-        }
     }
 
     let start = subscription.start_episode_number.unwrap_or(1).max(1);
@@ -322,10 +286,6 @@ pub fn build_subscription_detail(
     let downloaded = download_status
         .iter()
         .filter_map(|(episode, status)| (*status == "completed").then_some(*episode))
-        .collect::<BTreeSet<_>>();
-    let generated_strm = strm_status
-        .iter()
-        .filter_map(|(episode, status)| (*status == "generated").then_some(*episode))
         .collect::<BTreeSet<_>>();
     let pending_download_episodes = if subscription.sync_download_enabled {
         transferred
@@ -374,25 +334,12 @@ pub fn build_subscription_detail(
                         "not_started"
                     })
             };
-            let strm = if !settings.strm_enabled || !subscription.strm_enabled {
-                "disabled"
-            } else {
-                strm_status
-                    .get(&episode)
-                    .copied()
-                    .unwrap_or(if transferred_episode {
-                        "unknown"
-                    } else {
-                        "not_started"
-                    })
-            };
             let files = files_by_episode.remove(&episode).unwrap_or_default();
             EpisodeStatusItem {
                 episode,
                 discovered: discovered.contains(&episode),
                 transferred: transferred_episode,
                 download_status: download.to_string(),
-                strm_status: strm.to_string(),
                 missing: target_episode.is_some() && !discovered.contains(&episode),
                 recent: recent_episodes.contains(&episode),
                 files: files.names.into_iter().collect(),
@@ -417,11 +364,6 @@ pub fn build_subscription_detail(
     } else {
         downloaded.len()
     };
-    let strm_count = if target_episode.is_some() {
-        expected.intersection(&generated_strm).count()
-    } else {
-        generated_strm.len()
-    };
     let progress_base = if subscription.sync_download_enabled {
         downloaded_count
     } else {
@@ -443,7 +385,6 @@ pub fn build_subscription_detail(
         latest_discovered_episode: discovered.last().copied(),
         latest_transferred_episode: transferred.last().copied(),
         downloaded_count,
-        strm_count,
         missing_count: missing_episodes.len(),
         pending_transfer_count: pending_transfer_episodes.len(),
         pending_download_count: pending_download_episodes.len(),
@@ -453,12 +394,10 @@ pub fn build_subscription_detail(
     };
     let pipeline = build_pipeline(
         &subscription,
-        settings,
         &summary,
         &recent_jobs,
         &recent_notifications,
         &download_status,
-        &strm_status,
         &recent_events,
     );
 
@@ -506,7 +445,7 @@ fn set_episode_status(
 ) {
     let rank = |value: &str| match value {
         "failed" => 4,
-        "completed" | "generated" => 3,
+        "completed" => 3,
         "queued" => 2,
         "pending" => 1,
         _ => 0,
@@ -559,12 +498,10 @@ fn meta_string_array(meta: &HashMap<String, Value>, key: &str) -> Vec<String> {
 #[allow(clippy::too_many_arguments)]
 fn build_pipeline(
     subscription: &Subscription,
-    settings: &Settings,
     summary: &SubscriptionStatusSummary,
     jobs: &[Job],
     notifications: &[Notification],
     download_status: &HashMap<i32, &'static str>,
-    strm_status: &HashMap<i32, &'static str>,
     events: &[AutomationEvent],
 ) -> Vec<PipelineStep> {
     let latest_transfer_job = jobs
@@ -591,18 +528,6 @@ fn build_pipeline(
         _ => "等待发现可转存内容".to_string(),
     };
 
-    let strm_failed = strm_status.values().any(|status| *status == "failed");
-    let strm_pipeline_status = if !settings.strm_enabled || !subscription.strm_enabled {
-        "disabled"
-    } else if strm_failed {
-        "error"
-    } else if summary.strm_count > 0 {
-        "success"
-    } else if summary.transferred_count > 0 {
-        "warning"
-    } else {
-        "idle"
-    };
     let queued_downloads = download_status
         .values()
         .filter(|status| **status == "queued")
@@ -683,21 +608,6 @@ fn build_pipeline(
             count: summary.transferred_count,
         },
         PipelineStep {
-            id: "strm".to_string(),
-            label: "STRM".to_string(),
-            status: strm_pipeline_status.to_string(),
-            message: if !settings.strm_enabled || !subscription.strm_enabled {
-                "未启用 STRM".to_string()
-            } else if strm_failed {
-                "最近一次 STRM 生成失败".to_string()
-            } else if summary.strm_count > 0 {
-                format!("已确认生成 {} 集", summary.strm_count)
-            } else {
-                "暂无可确认的生成记录".to_string()
-            },
-            count: summary.strm_count,
-        },
-        PipelineStep {
             id: "aria2".to_string(),
             label: "Aria2".to_string(),
             status: download_pipeline_status.to_string(),
@@ -736,7 +646,6 @@ fn build_pipeline(
             AutomationStage::FileFilter | AutomationStage::VersionSelect => "filter",
             AutomationStage::CloudTransfer => "transfer",
             AutomationStage::Rename => "rename",
-            AutomationStage::Strm => "strm",
             AutomationStage::Aria2 => "aria2",
             AutomationStage::Notification => "notify",
         };
@@ -785,7 +694,6 @@ mod tests {
             "transferred_files": ["Example.S01E01.mkv", "Example.S01E02.mkv"],
             "transferred_file_keys": ["ep:1", "ep:2"],
             "sync_download_enabled": true,
-            "strm_enabled": true,
             "enabled": true,
             "completed": false,
             "rules": TransferRules::default(),
@@ -804,7 +712,7 @@ mod tests {
             level: "success".to_string(),
             event: event.to_string(),
             title: event.to_string(),
-            message: "已生成 2 个 STRM 文件".to_string(),
+            message: "处理完成".to_string(),
             meta: serde_json::from_value(meta).unwrap(),
             read: false,
             created_at: 10,
@@ -812,7 +720,7 @@ mod tests {
     }
 
     #[test]
-    fn builds_missing_transfer_download_and_strm_states() {
+    fn builds_missing_transfer_and_download_states() {
         let transfer = notification(
             "subscription_transferred",
             json!({
@@ -822,7 +730,6 @@ mod tests {
                     {"gid": "gid-1", "file_name": "Example.S01E01.mkv"},
                     {"gid": "gid-2", "file_name": "Example.S01E02.mkv"}
                 ],
-                "strm_generated_count": 2
             }),
         );
         let completed = notification(
@@ -832,17 +739,13 @@ mod tests {
                 "file_name": "Example.S01E01.mkv"
             }),
         );
-        let settings = Settings {
-            strm_enabled: true,
-            ..Settings::default()
-        };
+        let settings = Settings::default();
         let detail =
             build_subscription_detail(subscription(), &settings, &[], &[transfer, completed], &[]);
 
         assert_eq!(detail.missing_episodes, vec![3, 5, 6]);
         assert_eq!(detail.pending_transfer_episodes, vec![4]);
         assert_eq!(detail.summary.downloaded_count, 1);
-        assert_eq!(detail.summary.strm_count, 2);
         assert_eq!(detail.episodes[0].download_status, "completed");
         assert_eq!(detail.episodes[1].download_status, "queued");
         assert!(detail.episodes[3].recent);

@@ -20,10 +20,9 @@ function response(status, cacheControl = '') {
   };
 }
 
-test('PWA policy keeps API, STRM and health network-only', () => {
+test('PWA policy keeps API and health network-only', () => {
   const origin = 'https://media.example.com';
   assert.equal(policy.classifyRequest({url: `${origin}/api/settings`, mode: 'cors', destination: ''}, origin), 'network-only');
-  assert.equal(policy.classifyRequest({url: `${origin}/strm/quark/id/file.mkv`, mode: 'cors', destination: ''}, origin), 'network-only');
   assert.equal(policy.classifyRequest({url: `${origin}/health`, mode: 'cors', destination: ''}, origin), 'network-only');
   assert.equal(policy.classifyRequest({url: 'https://other.example/app.js', mode: 'cors', destination: 'script'}, origin), 'network-only');
 });

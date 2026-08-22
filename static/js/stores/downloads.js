@@ -180,8 +180,7 @@
       return {
         linked: linked.length,
         manual: tasks.length - linked.length,
-        activeLinked: linked.filter(task => ['active', 'waiting', 'paused'].includes(task.status)).length,
-        strmReady: linked.filter(task => task.automation.strm_status === 'generated').length
+        activeLinked: linked.filter(task => ['active', 'waiting', 'paused'].includes(task.status)).length
       };
     },
 
@@ -368,11 +367,9 @@
         active: 'active', waiting: 'active', paused: 'warning', complete: 'success',
         error: 'error', removed: 'error'
       }[task.status] || 'idle';
-      const strmStatus = {generated: 'success', failed: 'error', not_recorded: 'idle'}[task.automation.strm_status] || 'idle';
       return [
         {id: 'transfer', label: '转存', status: task.automation.transfer_status === 'completed' ? 'success' : 'idle'},
         {id: 'rename', label: '重命名', status: task.automation.rename_status === 'completed' ? 'success' : 'idle'},
-        {id: 'strm', label: 'STRM', status: strmStatus},
         {id: 'aria2', label: 'Aria2', status: aria2Status}
       ];
     },

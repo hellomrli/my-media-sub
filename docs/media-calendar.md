@@ -43,7 +43,7 @@
 
 - “已发现”来自 `known_episodes`、`known_files` 和最近探测结果；旧数据缺少逐集列表时沿用订阅详情服务的连续进度推断。
 - “已转存”来自 `transferred_file_keys`、`transferred_files` 和转存通知。
-- Aria2 状态复用订阅详情聚合逻辑；STRM 暂时下线，历史字段仅按 `disabled`/旧记录兼容展示。
+- Aria2 状态复用订阅详情聚合逻辑。
 - 日历计算为纯计算过程，不写回订阅、元数据、任务或通知。
 - 每个日历项返回 `latest_discovered_episode` 与 `latest_transferred_episode`，用于核对当前来源和转存进度；它们表示最高集号，不等同于连续集数。
 - 非电影订阅的最新一集有明确元数据播出日期、已播超过 7 个自然日、系统在宽限期结束后成功探测过当前来源且仍未发现该集时，`source_alerts` 返回按订阅去重的换源提醒。网络失败和周期推断日期不会触发提醒。

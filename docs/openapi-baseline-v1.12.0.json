@@ -231,12 +231,6 @@
     "/api/subscriptions/{id}/status": [
       "get"
     ],
-    "/api/subscriptions/{id}/strm": [
-      "post"
-    ],
-    "/api/subscriptions/{id}/strm/audit": [
-      "get"
-    ],
     "/api/transfer": [
       "post"
     ],
@@ -259,9 +253,6 @@
       "get"
     ],
     "/metrics": [
-      "get"
-    ],
-    "/strm/quark/{fid}/{file_name}": [
       "get"
     ]
   },

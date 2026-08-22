@@ -262,7 +262,7 @@ impl TelegramBotService {
             })
             .await;
         let mut text = format_search_hits(keyword, &hits);
-        // 内联按钮：点选序号订阅
+        // 内联按钮：每个结果提供「订阅」与「转存」两组，按 3 个/行排布。
         let mut rows = Vec::new();
         let mut row = Vec::new();
         for index in 1..=hits.len() {
@@ -277,17 +277,32 @@ impl TelegramBotService {
         if !row.is_empty() {
             rows.push(row);
         }
+        let mut row = Vec::new();
+        for index in 1..=hits.len() {
+            row.push(json!({
+                "text": format!("转存 {index}"),
+                "callback_data": format!("mtr:{index}")
+            }));
+            if row.len() == 3 {
+                rows.push(std::mem::take(&mut row));
+            }
+        }
+        if !row.is_empty() {
+            rows.push(row);
+        }
         if !rows.is_empty() {
             let markup = json!({ "inline_keyboard": rows });
             let _ = self
                 .send_message_with_markup(
                     &self.settings_store.get().await,
                     chat_id,
-                    "点按钮选择要订阅的结果：",
+                    "点按钮选择要订阅或转存的结果：",
                     Some(markup),
                 )
                 .await;
-            text.push_str("\n\n也可点击上方按钮，或发送 /subscribe &lt;序号&gt; [季号]。");
+            text.push_str(
+                "\n\n也可点击上方按钮，或发送 /subscribe &lt;序号&gt; [季号] 订阅、/transfer &lt;序号&gt; 转存。",
+            );
         }
         text
     }
@@ -321,6 +336,54 @@ impl TelegramBotService {
             .search_resources_text(&title, user_id, chat_id)
             .await;
         format!("{header}{body}")
+    }
+
+    async fn transfer_prepare(
+        &self,
+        argument: Option<&str>,
+        user_id: i64,
+        chat_id: i64,
+    ) -> Result<PendingConfirmation, String> {
+        let argument = argument.ok_or_else(|| {
+            "用法：/transfer <序号>\n先用 /search <关键词>，再 /transfer 1".to_string()
+        })?;
+        let index = argument
+            .trim()
+            .parse::<usize>()
+            .ok()
+            .filter(|value| *value > 0)
+            .ok_or_else(|| "序号必须是从 1 开始的数字".to_string())?;
+        let session = self
+            .load_session(user_id, chat_id)
+            .await
+            .ok_or_else(|| "没有可用的搜索结果，请先 /search <关键词>".to_string())?;
+        let SessionKind::Search { hits } = &session.kind else {
+            return Err("当前会话不是搜索结果，请先 /search <关键词>".to_string());
+        };
+        let _ = hits
+            .get(index - 1)
+            .ok_or_else(|| format!("序号超出范围（1-{}）", hits.len()))?;
+        let nonce = uuid::Uuid::new_v4().simple().to_string();
+        let confirmation = PendingConfirmation {
+            nonce: nonce.clone(),
+            user_id,
+            chat_id,
+            action: "transfer".to_string(),
+            scope: "subscriptions:write".to_string(),
+            resource: index.to_string(),
+            expires_at: unix_now() + CONFIRMATION_TTL_SECONDS,
+            idempotency_key: format!(
+                "telegram:subscriptions:write:{user_id}:{chat_id}:transfer:{index}:{nonce}"
+            ),
+        };
+        let mut confirmations = self.confirmations.lock().await;
+        let now = unix_now();
+        confirmations.retain(|_, item| item.expires_at >= now);
+        if confirmations.len() >= 1_000 {
+            return Err("待确认操作过多，请稍后再试".to_string());
+        }
+        confirmations.insert(nonce, confirmation.clone());
+        Ok(confirmation)
     }
 
     async fn subscribe_prepare(
@@ -451,7 +514,6 @@ impl TelegramBotService {
             sync_download_enabled: false,
             sync_download_dir: String::new(),
             sync_downloads: vec![],
-            strm_enabled: false,
             enabled: true,
             completed: false,
             rules,
@@ -498,6 +560,134 @@ impl TelegramBotService {
             tg_escape(&one_line(&created.url, 120)),
             short_id(&created.id),
             short_id(&created.id)
+        ))
+    }
+
+    async fn execute_transfer(
+        &self,
+        user_id: i64,
+        chat_id: i64,
+        resource: &str,
+    ) -> Result<String, String> {
+        let index = resource
+            .parse::<usize>()
+            .ok()
+            .filter(|value| *value > 0)
+            .ok_or_else(|| "转存序号无效".to_string())?;
+        let session = self
+            .load_session(user_id, chat_id)
+            .await
+            .ok_or_else(|| "搜索会话已过期，请重新 /search".to_string())?;
+        let SessionKind::Search { hits } = session.kind else {
+            return Err("搜索会话已失效，请重新 /search".to_string());
+        };
+        let hit = hits
+            .get(index - 1)
+            .cloned()
+            .ok_or_else(|| "搜索结果序号无效".to_string())?;
+
+        let settings = self.settings_store.get().await;
+        if settings.quark_cookie.trim().is_empty() {
+            return Err("未配置夸克 Cookie，无法转存".to_string());
+        }
+
+        let job = self
+            .job_queue
+            .submit_manual_transfer(crate::jobs::ManualTransferPayload {
+                url: hit.url.clone(),
+                passcode: hit.password.clone(),
+                target_fid: String::new(),
+                offer_download: true,
+            })
+            .await
+            .map_err(|error| sanitize_error(&error.to_string()))?;
+
+        Ok(format!(
+            "📥 <b>转存任务已提交</b>\n\n标题：{}\n链接：{}\n任务：<code>{}</code>\n\n转存完成后会推送通知，届时可一键继续下载。",
+            tg_escape(&hit.title),
+            tg_escape(&one_line(&hit.url, 120)),
+            tg_escape(&job.id)
+        ))
+    }
+
+    async fn execute_download(&self, resource: &str) -> Result<String, String> {
+        let job = self
+            .job_store
+            .get(resource)
+            .await
+            .ok_or_else(|| "转存任务不存在或已被清理".to_string())?;
+
+        // 从转存任务 result 中读取落盘文件的 fid。
+        let files: Vec<String> = job
+            .result
+            .as_ref()
+            .and_then(|result| result.get("files"))
+            .and_then(|files| files.as_array())
+            .map(|files| {
+                files
+                    .iter()
+                    .filter_map(|file| file.get("fid").and_then(|fid| fid.as_str()))
+                    .filter(|fid| !fid.trim().is_empty())
+                    .map(ToString::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        if files.is_empty() {
+            return Err("转存任务没有可下载的文件记录".to_string());
+        }
+
+        let settings = self.settings_store.get().await;
+        if settings.aria2_rpc_url.trim().is_empty() {
+            return Err("未配置 Aria2 RPC URL，无法下载".to_string());
+        }
+
+        let provider = crate::providers::CloudDriveProviderRegistry::new()
+            .resolve("quark", &settings)
+            .map_err(|error| sanitize_error(&error.to_string()))?;
+        let download_infos = provider
+            .download_info(&files)
+            .await
+            .map_err(|error| sanitize_error(&error.to_string()))?;
+
+        if download_infos.is_empty() {
+            return Err("获取下载直链失败：没有可下载的文件".to_string());
+        }
+
+        let dir = settings.aria2_series_dir.trim().to_string();
+        let aria2 = crate::clients::Aria2Client::new(
+            settings.aria2_rpc_url.clone(),
+            settings.aria2_secret.clone(),
+            dir,
+        );
+
+        let mut submitted = 0usize;
+        let mut last_error = None;
+        for info in download_infos {
+            match aria2
+                .add_uri(&info.download_url, Some(&info.file_name), &info.headers)
+                .await
+            {
+                Ok(_) => submitted += 1,
+                Err(error) => last_error = Some(error.to_string()),
+            }
+        }
+
+        if submitted == 0 {
+            return Err(format!(
+                "提交下载失败：{}",
+                tg_escape(&last_error.unwrap_or_else(|| "未知错误".to_string()))
+            ));
+        }
+
+        Ok(format!(
+            "⬇️ <b>已提交下载</b>\n\n共提交 {} 个文件到 Aria2{}",
+            submitted,
+            if let Some(error) = last_error {
+                format!("\n\n部分失败：{}", tg_escape(&error))
+            } else {
+                String::new()
+            }
         ))
     }
 

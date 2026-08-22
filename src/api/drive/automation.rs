@@ -37,27 +37,6 @@ pub(super) fn aria2_automation_contexts(
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string();
-        let strm_status = if notification
-            .meta
-            .get("strm_error")
-            .and_then(Value::as_str)
-            .is_some_and(|value| !value.trim().is_empty())
-            || notification.message.contains("STRM 生成失败")
-        {
-            "failed"
-        } else if notification
-            .meta
-            .get("strm_generated_count")
-            .and_then(Value::as_u64)
-            .is_some_and(|count| count > 0)
-            || (notification.message.contains("STRM")
-                && notification.message.contains("生成")
-                && !notification.message.contains("生成失败"))
-        {
-            "generated"
-        } else {
-            "not_recorded"
-        };
         let Some(downloads) = notification
             .meta
             .get("sync_downloads")
@@ -87,13 +66,12 @@ pub(super) fn aria2_automation_contexts(
                     episode: crate::services::detect_episode(file_name).episode,
                     transfer_status: "completed".to_string(),
                     rename_status: "completed".to_string(),
-                    strm_status: strm_status.to_string(),
                 });
         }
     }
 
     // 通知可能被用户清理；持久化在订阅中的下载记录作为权威兜底。
-    // 若通知仍存在，则保留其中更丰富的 STRM/重命名展示信息。
+    // 若通知仍存在，则保留其中更丰富的重命名展示信息。
     for subscription in subscriptions {
         for download in &subscription.sync_downloads {
             if download.gid.trim().is_empty() {
@@ -109,7 +87,6 @@ pub(super) fn aria2_automation_contexts(
                     episode: crate::services::detect_episode(&download.file_name).episode,
                     transfer_status: "completed".to_string(),
                     rename_status: "completed".to_string(),
-                    strm_status: "not_recorded".to_string(),
                 });
         }
     }

@@ -1382,7 +1382,6 @@ body::before {
 .subscription-episode-cell.is-missing { color: var(--app-danger); border-color: rgb(var(--c-danger) / .28); background: rgb(var(--c-danger) / .07); }
 .subscription-episode-cell.is-discovered { color: var(--app-cyan); border-color: rgb(var(--c-cyan) / .24); background: rgb(var(--c-cyan) / .06); }
 .subscription-episode-cell.is-transferred { color: var(--app-primary); border-color: rgb(var(--c-primary) / .28); background: rgb(var(--c-primary) / .07); }
-.subscription-episode-cell.is-strm { color: var(--app-secondary); border-color: rgb(var(--c-secondary) / .28); background: rgb(var(--c-secondary) / .07); }
 .subscription-episode-cell.is-downloaded, .subscription-episode-cell.is-complete { color: var(--app-success); border-color: rgb(var(--c-success) / .3); background: rgb(var(--c-success) / .07); }
 .subscription-episode-signals { display: flex; gap: 3px; margin-top: 3px; }
 .subscription-episode-signals i { width: 10px; height: 3px; border-radius: 999px; background: rgb(var(--c-muted) / .16); }
@@ -1464,7 +1463,7 @@ body::before {
 }
 
 
-/* Drive → subscription → STRM → Aria2 relationship */
+/* Drive → subscription → Aria2 relationship */
 .download-task-origin { display: inline-flex; width: fit-content; min-height: 20px; align-items: center; margin-top: 5px; padding: 0 6px; border: 1px solid rgb(var(--c-border) / .44); border-radius: 5px; color: rgb(var(--c-muted) / .58); background: rgb(var(--c-muted) / .06); font-size: 11px; }
 button.download-task-origin.is-subscription { color: rgb(var(--c-primary) / .88); border-color: rgb(var(--c-primary) / .22); background: rgb(var(--c-primary) / .08); }
 button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-primary) / .42); background: rgb(var(--c-primary) / .14); }

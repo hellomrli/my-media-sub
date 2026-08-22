@@ -28,6 +28,7 @@ impl JobWorker {
                 event,
                 payload.notification_id.as_deref(),
                 payload.subscription_id.as_deref(),
+                payload.job_id.as_deref(),
             )
             .with_telegram_image(image_url);
 

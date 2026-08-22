@@ -101,7 +101,6 @@ pub struct MediaCalendarItem {
     pub discovered: bool,
     pub transferred: bool,
     pub downloaded: bool,
-    pub strm_ready: bool,
     pub missing: bool,
     pub subscription_completed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
