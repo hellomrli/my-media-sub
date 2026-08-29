@@ -145,3 +145,35 @@ test('getApiErrorMessage keeps safe fallbacks for unknown errors', () => {
   assert.equal(getApiErrorMessage(new ApiError('后端错误'), '操作失败'), '后端错误');
   assert.equal(getApiErrorMessage(new Error('implementation detail'), '操作失败'), '操作失败');
 });
+
+// 超时保护回归：停滞的连接必须在 timeout 后抛出可感知的失败，
+// 而不是让 loading 状态永久卡死。
+test('apiFetch aborts stalled requests after timeout and reports timeout', async () => {
+  const {createApiClient, ApiError} = require('../static/js/core/api.js');
+  const fetchImpl = (_input, init) => new Promise((_resolve, reject) => {
+    init.signal.addEventListener('abort', () => {
+      const error = new Error('aborted');
+      error.name = 'AbortError';
+      reject(error);
+    });
+  });
+  const client = createApiClient(fetchImpl);
+
+  await assert.rejects(
+    client.apiData('/api/dashboard', {timeout: 20}),
+    error => error instanceof ApiError && error.isTimeout && /超时/.test(error.message)
+  );
+});
+
+test('apiFetch timeout=0 disables the timeout entirely', async () => {
+  const {createApiClient} = require('../static/js/core/api.js');
+  let observed;
+  const fetchImpl = async (_input, init) => {
+    observed = init.signal;
+    return {ok: true, status: 200, headers: new Map(), json: async () => ({ok: true, data: 1})};
+  };
+  const client = createApiClient(fetchImpl);
+  const data = await client.apiData('/api/dashboard', {timeout: 0});
+  assert.equal(data, 1);
+  assert.equal(observed, undefined);
+});

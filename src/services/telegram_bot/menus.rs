@@ -134,6 +134,37 @@ fn map_menu_text(text: &str) -> Option<&'static str> {
     }
 }
 
+/// 搜索结果快照指纹：绑定确认时的 url/password/title，
+/// 防止确认期间会话被新搜索覆盖后按旧序号执行到新结果。
+fn search_hit_fingerprint(hit: &SearchHit) -> String {
+    format!("{:x}", md5::compute(format!(
+        "{}|{}|{}",
+        hit.url.trim(),
+        hit.password.trim(),
+        hit.title.trim()
+    )))
+}
+
+fn verify_search_hit_fingerprint(hit: &SearchHit, fingerprint: &str) -> Result<(), String> {
+    if fingerprint.is_empty() || search_hit_fingerprint(hit) == fingerprint {
+        return Ok(());
+    }
+    Err("搜索结果已变化，与确认时不一致；请重新 /search 并再次确认".to_string())
+}
+
+fn search_hit_label(hit: &SearchHit) -> String {
+    let title = if hit.title.trim().is_empty() {
+        clean_media_title(&hit.url)
+    } else {
+        hit.title.clone()
+    };
+    format!(
+        "{}（{}）",
+        one_line(&title, 60),
+        one_line(&hit.url, 80)
+    )
+}
+
 fn format_search_hits(keyword: &str, hits: &[SearchHit]) -> String {
     if hits.is_empty() {
         return format!("🔍 未找到与「{}」相关的夸克资源。", tg_escape(keyword));
@@ -360,9 +391,11 @@ impl TelegramBotService {
         let SessionKind::Search { hits } = &session.kind else {
             return Err("当前会话不是搜索结果，请先 /search <关键词>".to_string());
         };
-        let _ = hits
+        let hit = hits
             .get(index - 1)
             .ok_or_else(|| format!("序号超出范围（1-{}）", hits.len()))?;
+        let fingerprint = search_hit_fingerprint(hit);
+        let label = search_hit_label(hit);
         let nonce = uuid::Uuid::new_v4().simple().to_string();
         let confirmation = PendingConfirmation {
             nonce: nonce.clone(),
@@ -371,6 +404,8 @@ impl TelegramBotService {
             action: "transfer".to_string(),
             scope: "subscriptions:write".to_string(),
             resource: index.to_string(),
+            resource_fingerprint: fingerprint,
+            resource_label: label,
             expires_at: unix_now() + CONFIRMATION_TTL_SECONDS,
             idempotency_key: format!(
                 "telegram:subscriptions:write:{user_id}:{chat_id}:transfer:{index}:{nonce}"
@@ -413,7 +448,11 @@ impl TelegramBotService {
         let hit = hits
             .get(index - 1)
             .ok_or_else(|| format!("序号超出范围（1-{}）", hits.len()))?;
-        let resource = format!("{index}|{season_spec}|{}", short_id(&hit.url));
+        // resource 只承载序号与季号；搜索结果本体由指纹快照锁定，
+        // 执行时会校验会话中的结果与确认时完全一致。
+        let resource = format!("{index}|{season_spec}");
+        let fingerprint = search_hit_fingerprint(hit);
+        let label = search_hit_label(hit);
         let nonce = uuid::Uuid::new_v4().simple().to_string();
         let confirmation = PendingConfirmation {
             nonce: nonce.clone(),
@@ -422,6 +461,8 @@ impl TelegramBotService {
             action: "subscribe".to_string(),
             scope: "subscriptions:write".to_string(),
             resource,
+            resource_fingerprint: fingerprint,
+            resource_label: label,
             expires_at: unix_now() + CONFIRMATION_TTL_SECONDS,
             idempotency_key: format!(
                 "telegram:subscriptions:write:{user_id}:{chat_id}:subscribe:{index}:{nonce}"
@@ -442,6 +483,7 @@ impl TelegramBotService {
         user_id: i64,
         chat_id: i64,
         resource: &str,
+        fingerprint: &str,
     ) -> Result<String, String> {
         let mut parts = resource.split('|');
         let index = parts
@@ -462,6 +504,7 @@ impl TelegramBotService {
             .get(index - 1)
             .cloned()
             .ok_or_else(|| "搜索结果序号无效".to_string())?;
+        verify_search_hit_fingerprint(&hit, fingerprint)?;
 
         let settings = self.settings_store.get().await;
         let title = if hit.title.trim().is_empty() {
@@ -568,6 +611,7 @@ impl TelegramBotService {
         user_id: i64,
         chat_id: i64,
         resource: &str,
+        fingerprint: &str,
     ) -> Result<String, String> {
         let index = resource
             .parse::<usize>()
@@ -585,6 +629,7 @@ impl TelegramBotService {
             .get(index - 1)
             .cloned()
             .ok_or_else(|| "搜索结果序号无效".to_string())?;
+        verify_search_hit_fingerprint(&hit, fingerprint)?;
 
         let settings = self.settings_store.get().await;
         if settings.quark_cookie.trim().is_empty() {
@@ -872,6 +917,8 @@ impl TelegramBotService {
             action: "switch_apply".to_string(),
             scope: scope.to_string(),
             resource: resource.clone(),
+            resource_fingerprint: String::new(),
+            resource_label: String::new(),
             expires_at: unix_now() + CONFIRMATION_TTL_SECONDS,
             idempotency_key: format!(
                 "telegram:{scope}:{user_id}:{chat_id}:switch_apply:{resource}:{nonce}"

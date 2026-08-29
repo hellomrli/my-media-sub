@@ -861,7 +861,7 @@ mod tests {
             .iter()
             .map(|file| file.name.clone())
             .collect::<Vec<_>>();
-        let new_episodes = service.parse_episodes(&new_names);
+        let new_episodes = service.parse_episodes(&sub, &new_names);
 
         service
             .update_subscription_after_check(
@@ -920,7 +920,7 @@ mod tests {
             .iter()
             .map(|file| file.name.clone())
             .collect::<Vec<_>>();
-        let new_episodes = service.parse_episodes(&new_names);
+        let new_episodes = service.parse_episodes(&sub, &new_names);
 
         service
             .update_subscription_after_check(
@@ -1200,6 +1200,254 @@ mod tests {
         merge_check_results(&mut current, Some(&original), &checked);
         assert_eq!(current.url, "https://pan.quark.cn/s/switched");
         assert_eq!(current.last_source_switch_at, Some(200));
+    }
+
+    #[test]
+    fn merge_check_results_preserves_user_edited_total_and_evidence() {
+        let original = make_subscription();
+
+        // 批量期间用户改了总集数：快照里的旧值不得覆盖。
+        let mut current = make_subscription();
+        current.total_episode_number = Some(100);
+        let mut checked = make_subscription();
+        checked.total_episode_number = None;
+        merge_check_results(&mut current, Some(&original), &checked);
+        assert_eq!(current.total_episode_number, Some(100));
+
+        // 批量期间用户编辑了链接：旧 URL 的探测证据与失效计数不得写回新 URL。
+        let mut current = make_subscription();
+        current.url = "https://pan.quark.cn/s/user-edited".to_string();
+        let mut checked = make_subscription();
+        checked.last_probe = None;
+        checked.check_history.push(crate::models::subscription::CheckHistoryItem {
+            time: 100,
+            state: "ok".to_string(),
+            matched_count: 1,
+            transfer_count: 0,
+            scanned_count: 1,
+            new_count: 1,
+            known_count: 0,
+            skipped_directory_count: 0,
+            skipped_other_season_count: 0,
+            skipped_before_start_count: 0,
+            skipped_duplicate_episode_count: 0,
+            new_files: vec![],
+            new_episodes: vec![],
+            summary: "ok".to_string(),
+        });
+        checked.source_failure_count = 3;
+        merge_check_results(&mut current, Some(&original), &checked);
+        assert!(current.check_history.is_empty());
+        assert_eq!(current.source_failure_count, 0);
+
+        // 批量期间来源被重置（检查历史被清空）：快照证据不得复活。
+        let mut original = make_subscription();
+        original.check_history.push(crate::models::subscription::CheckHistoryItem {
+            time: 50,
+            state: "ok".to_string(),
+            matched_count: 1,
+            transfer_count: 0,
+            scanned_count: 1,
+            new_count: 1,
+            known_count: 0,
+            skipped_directory_count: 0,
+            skipped_other_season_count: 0,
+            skipped_before_start_count: 0,
+            skipped_duplicate_episode_count: 0,
+            new_files: vec![],
+            new_episodes: vec![],
+            summary: "ok".to_string(),
+        });
+        let mut current = make_subscription();
+        current.check_history.clear();
+        let mut checked = original.clone();
+        checked.last_checked_at = 100;
+        checked.check_history.push(crate::models::subscription::CheckHistoryItem {
+            time: 100,
+            state: "ok".to_string(),
+            matched_count: 1,
+            transfer_count: 0,
+            scanned_count: 1,
+            new_count: 1,
+            known_count: 0,
+            skipped_directory_count: 0,
+            skipped_other_season_count: 0,
+            skipped_before_start_count: 0,
+            skipped_duplicate_episode_count: 0,
+            new_files: vec![],
+            new_episodes: vec![],
+            summary: "ok".to_string(),
+        });
+        merge_check_results(&mut current, Some(&original), &checked);
+        assert!(current.check_history.is_empty());
+    }
+
+    #[test]
+    fn merge_check_results_never_downgrades_concurrent_completion() {
+        let original = make_subscription();
+
+        // 批量进行期间并发转存刚把订阅置为已完结；
+        // 快照探测到来源失效时不得把完结状态回退为 invalid。
+        let mut current = make_subscription();
+        current.completed = true;
+        current.status = "completed".to_string();
+        let mut checked = make_subscription();
+        checked.completed = false;
+        checked.status = "invalid".to_string();
+        checked.invalid_since = Some(200);
+        checked.last_error = "分享已失效".to_string();
+        merge_check_results(&mut current, Some(&original), &checked);
+        assert!(current.completed);
+        assert_eq!(current.status, "completed");
+        assert_eq!(current.invalid_since, None);
+    }
+
+    fn probe_video(name: &str, key: &str, parent: &str) -> ProbeFile {
+        ProbeFile {
+            name: name.to_string(),
+            is_dir: false,
+            parent_path: parent.to_string(),
+            size: 1,
+            updated_at: None,
+            file_key: key.to_string(),
+        }
+    }
+
+    #[test]
+    fn test_find_new_files_does_not_cross_block_multi_season_episodes() {
+        // 回归：known_episodes 是扁平集数列表，第二季的同号集数曾被
+        // 第一季的记录永久挡掉，多季订阅从此静默停更。
+        let (service, _, _) = make_service();
+        let mut sub = make_subscription();
+        sub.season = 1;
+        sub.season_end = Some(2);
+        sub.known_episodes = vec![1, 2, 3];
+        let files = vec![
+            probe_video("Show S02E01.mkv", "s02e01", ""),
+            probe_video("Show S02E02.mkv", "s02e02", ""),
+            probe_video("Show S01E01-4k.mkv", "s01e01-4k", ""),
+        ];
+
+        let new_names = service
+            .find_new_files(&sub, &files)
+            .into_iter()
+            .map(|file| file.name)
+            .collect::<Vec<_>>();
+
+        // 第二季文件不受第一季 known_episodes 影响；主季已记录的同号集数仍被去重。
+        assert_eq!(new_names, vec!["Show S02E01.mkv", "Show S02E02.mkv"]);
+    }
+
+    #[test]
+    fn test_transferred_other_season_does_not_block_primary_season() {
+        let (service, _, _) = make_service();
+        let mut sub = make_subscription();
+        sub.season = 1;
+        sub.season_end = Some(2);
+        sub.transferred_files = vec!["Show S02E05.mkv".to_string()];
+        let files = vec![
+            probe_video("Show S02E05-v2.mkv", "s02e05-v2", ""),
+            probe_video("Show S01E05.mkv", "s01e05", ""),
+        ];
+
+        let new_names = service
+            .find_new_files(&sub, &files)
+            .into_iter()
+            .map(|file| file.name)
+            .collect::<Vec<_>>();
+
+        // S02E05 已转存（同季同集跳过）；S01E05 不被 S02 的转存记录挡掉。
+        assert_eq!(new_names, vec!["Show S01E05.mkv"]);
+    }
+
+    #[test]
+    fn test_start_episode_only_applies_to_primary_season() {
+        let (service, _, _) = make_service();
+        let mut sub = make_subscription();
+        sub.season = 1;
+        sub.season_end = Some(2);
+        sub.start_episode_number = Some(5);
+        let files = vec![
+            probe_video("Show S01E03.mkv", "s01e03", ""),
+            probe_video("Show S02E03.mkv", "s02e03", ""),
+        ];
+
+        let new_names = service
+            .find_new_files(&sub, &files)
+            .into_iter()
+            .map(|file| file.name)
+            .collect::<Vec<_>>();
+
+        // 起始集数只约束起始季；第二季从第 1 集开始追。
+        assert_eq!(new_names, vec!["Show S02E03.mkv"]);
+    }
+
+    #[test]
+    fn test_special_episodes_do_not_collide_with_main_episode_slots() {
+        let (service, _, _) = make_service();
+        let mut sub = make_subscription();
+        sub.known_episodes = vec![1];
+        let files = vec![
+            probe_video("Show SP01.mkv", "sp01", ""),
+            probe_video("Show S01E01-v2.mkv", "s01e01-v2", ""),
+        ];
+
+        let new_names = service
+            .find_new_files(&sub, &files)
+            .into_iter()
+            .map(|file| file.name)
+            .collect::<Vec<_>>();
+
+        // SP01 不占用 EP01 槽位：正片 EP01 被 known 去重，特典正常入选。
+        assert_eq!(new_names, vec!["Show SP01.mkv"]);
+    }
+
+    #[test]
+    fn test_multi_episode_pack_blocks_split_single_episodes() {
+        // 回归：合集「E01-E12」转存后只记录了起始集的 ep:1 键，分享方
+        // 拆成单集发布时 E02–E12 会被误判为新文件重复转存。
+        let (service, _, _) = make_service();
+        let mut sub = make_subscription();
+        sub.transferred_files = vec!["Show E01-E12.mkv".to_string()];
+        sub.transferred_file_keys = (1..=12).map(|episode| format!("ep:{}", episode)).collect();
+        let files = vec![
+            probe_video("Show E05.mkv", "split-e05", ""),
+            probe_video("Show E13.mkv", "new-e13", ""),
+        ];
+
+        let new_names = service
+            .find_new_files(&sub, &files)
+            .into_iter()
+            .map(|file| file.name)
+            .collect::<Vec<_>>();
+
+        // 已随合集转存的第 5 集不再重复转存；真正的新集照常入选。
+        assert_eq!(new_names, vec!["Show E13.mkv"]);
+    }
+
+    #[test]
+    fn test_new_episodes_recording_stays_in_primary_season() {
+        let (service, _, _) = make_service();
+        let mut sub = make_subscription();
+        sub.season = 1;
+        sub.season_end = Some(2);
+        let probe = ProbeResult {
+            ok: true,
+            state: "ok".to_string(),
+            message: String::new(),
+            files: vec![
+                probe_video("Show S02E05.mkv", "s02e05", ""),
+                probe_video("Show S01E05.mkv", "s01e05", ""),
+            ],
+        };
+        let new_files = service.find_new_files(&sub, &probe.files);
+        let new_names = new_files.iter().map(|f| f.name.clone()).collect::<Vec<_>>();
+
+        let primary = service.primary_season_new_episodes(&sub, &probe.files, &new_names);
+
+        // S02 的集数不得写入扁平的 known_episodes。
+        assert_eq!(primary, vec![5]);
+        assert!(new_names.contains(&"Show S02E05.mkv".to_string()));
     }
 
 }

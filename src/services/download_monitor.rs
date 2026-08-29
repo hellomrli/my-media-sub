@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 use tokio::sync::RwLock;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::clients::aria2::Aria2Task;
 use crate::clients::Aria2Client;
@@ -28,6 +28,14 @@ const STOPPED_LIMIT: u64 = 50;
 /// 内存去重键上限（每个下载最多 2 个键，约等于最近 1000 个下载）。
 /// 超出后按插入顺序淘汰最旧的键，防止长期运行时无界增长。
 const MAX_TRACKED_DEDUPE_KEYS: usize = 2_000;
+
+/// 单个下载事件在本轮扫描中的处理结果。
+enum CompletionOutcome {
+    /// 已终结：通知已发送、已记录或判定为无需通知，去重 claim 应保留。
+    Handled,
+    /// 批次未结算：释放去重 claim，等批次结算后的扫描重新处理。
+    Deferred,
+}
 
 /// 插入有序、带上限的去重键缓存。
 #[derive(Default)]
@@ -182,6 +190,7 @@ impl DownloadMonitorService {
                         .await;
                     self.notify_failed_download(task, &history, &pushed_failures)
                         .await
+                        .map(|_| CompletionOutcome::Handled)
                 } else {
                     let pushed_downloads = self
                         .job_queue
@@ -190,11 +199,26 @@ impl DownloadMonitorService {
                     self.notify_completed_download(task, tasks, &history, &pushed_downloads)
                         .await
                 };
-                if let Err(e) = result {
-                    warn!("处理 Aria2 下载事件失败 {}: {}", task.gid, e);
-                    let mut known = self.notified_completed_downloads.write().await;
-                    for key in &keys {
-                        known.remove(key);
+                match result {
+                    Ok(CompletionOutcome::Handled) => {}
+                    Ok(CompletionOutcome::Deferred) => {
+                        // 批次尚未结算（同批其他文件仍在下载）。必须释放本轮
+                        // claim，否则该任务会被去重缓存永久挡住：等失败通知
+                        // 让批次结算后，没有任何路径再回头发送合并完成通知。
+                        // 释放后下一轮扫描会重试，直到批次结算或任务滑出
+                        // stopped 窗口；重放的业务状态更新本身是幂等的。
+                        debug!("下载批次未结算，稍后重试合并通知: {}", task.gid);
+                        let mut known = self.notified_completed_downloads.write().await;
+                        for key in &keys {
+                            known.remove(key);
+                        }
+                    }
+                    Err(e) => {
+                        warn!("处理 Aria2 下载事件失败 {}: {}", task.gid, e);
+                        let mut known = self.notified_completed_downloads.write().await;
+                        for key in &keys {
+                            known.remove(key);
+                        }
                     }
                 }
             }
@@ -207,7 +231,7 @@ impl DownloadMonitorService {
         tasks: &[Aria2Task],
         history: &[Notification],
         pushed_downloads: &HashSet<(String, String)>,
-    ) -> Result<()> {
+    ) -> Result<CompletionOutcome> {
         // 业务状态必须先于展示通知落盘。即使通知已存在，也仍需重放该步骤，
         // 以便修复此前在通知写入后、订阅更新前发生的瞬时失败。
         self.complete_subscription_for_download(task).await?;
@@ -235,17 +259,22 @@ impl DownloadMonitorService {
                 let failed_gids = failed_download_gids(history);
                 if !batch_records_settled(&batch.records, &failed_gids) {
                     // 同一次发现的其他文件仍在下载，等全部完成再合并发送。
-                    return Ok(());
+                    // 返回 Deferred 让调用方释放本轮去重 claim，批次结算后
+                    // 的扫描才能重新进入这里发送合并通知。
+                    return Ok(CompletionOutcome::Deferred);
                 }
                 if merged_download_already_recorded(history, pushed_downloads, batch, tasks) {
-                    return Ok(());
+                    return Ok(CompletionOutcome::Handled);
                 }
-                return self.notify_batch_completed(batch.clone(), tasks).await;
+                return self
+                    .notify_batch_completed(batch.clone(), tasks)
+                    .await
+                    .map(|_| CompletionOutcome::Handled);
             }
         }
 
         if completed_download_already_recorded(history, pushed_downloads, task) {
-            return Ok(());
+            return Ok(CompletionOutcome::Handled);
         }
 
         let poster_url = batch.as_ref().and_then(|batch| batch.poster_url.clone());
@@ -275,7 +304,7 @@ impl DownloadMonitorService {
         )
         .await;
 
-        Ok(())
+        Ok(CompletionOutcome::Handled)
     }
 
     async fn notify_batch_completed(
@@ -1461,6 +1490,124 @@ mod tests {
         assert!(completed[0].title.contains("1 个文件"));
         assert!(completed[0].message.contains("Show.S01E02.mkv"));
         assert!(!completed[0].message.contains("Show.S01E01.mkv"));
+
+        context.job_queue.shutdown().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn completed_before_batch_failure_still_sends_merged_notification() {
+        // 回归：批次“先完成后失败”时，先到的完成通知在批次未结算时只应
+        // 挂起而不应永久持有去重 claim——否则失败通知结算批次后，合并
+        // 完成通知永远没有机会再发出。
+        use crate::app::AppContext;
+        use crate::config::{Config, ServerConfig};
+        use crate::models::SyncDownloadRecord;
+
+        let dir = std::env::temp_dir().join(format!(
+            "my-media-sub-download-batch-completed-first-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let context = AppContext::new(&Config {
+            server: ServerConfig {
+                host: "127.0.0.1".to_string(),
+                port: 0,
+            },
+            data_dir: dir.clone(),
+        })
+        .await
+        .unwrap();
+        let mut subscription: Subscription = serde_json::from_value(json!({
+            "id": "sub-batch-completed-first",
+            "title": "Show",
+            "url": "https://pan.quark.cn/s/test",
+            "created_at": 1,
+            "updated_at": 1,
+            "last_checked_at": 1
+        }))
+        .unwrap();
+        subscription.sync_download_enabled = true;
+        subscription.sync_downloads = vec![
+            SyncDownloadRecord {
+                gid: "gid-1".to_string(),
+                file_name: "Show.S01E01.mkv".to_string(),
+                download_dir: "/downloads/anime".to_string(),
+                target_dir: "/series/Show/Season 1".to_string(),
+                submitted_at: 100,
+                completed_at: None,
+            },
+            SyncDownloadRecord {
+                gid: "gid-2".to_string(),
+                file_name: "Show.S01E02.mkv".to_string(),
+                download_dir: "/downloads/anime".to_string(),
+                target_dir: "/series/Show/Season 1".to_string(),
+                submitted_at: 100,
+                completed_at: None,
+            },
+        ];
+        context
+            .subscription_store
+            .create(subscription)
+            .await
+            .unwrap();
+
+        // 第一轮：gid-1 完成先到，同批 gid-2 仍在下载 → 批次未结算，无通知。
+        context
+            .download_monitor
+            .notify_completed_downloads(&[task_with("gid-1", "Show.S01E01.mkv", "complete")])
+            .await;
+        let notifications = context.notification_store.list(true).await;
+        assert_eq!(
+            notifications
+                .iter()
+                .filter(|notification| notification.event == "download_completed")
+                .count(),
+            0
+        );
+        assert_eq!(
+            notifications
+                .iter()
+                .filter(|notification| notification.event == "download_failed")
+                .count(),
+            0
+        );
+
+        // 第二轮：gid-2 失败 → 立即写失败通知，批次就此结算。
+        context
+            .download_monitor
+            .notify_completed_downloads(&[task_with("gid-2", "Show.S01E02.mkv", "error")])
+            .await;
+        let notifications = context.notification_store.list(true).await;
+        assert_eq!(
+            notifications
+                .iter()
+                .filter(|notification| notification.event == "download_failed")
+                .count(),
+            1
+        );
+        assert_eq!(
+            notifications
+                .iter()
+                .filter(|notification| notification.event == "download_completed")
+                .count(),
+            0
+        );
+
+        // 第三轮：gid-1 的完成事件再次被扫描到（claim 已释放）→ 合并通知发出。
+        context
+            .download_monitor
+            .notify_completed_downloads(&[task_with("gid-1", "Show.S01E01.mkv", "complete")])
+            .await;
+        let notifications = context.notification_store.list(true).await;
+        let completed = notifications
+            .iter()
+            .filter(|notification| notification.event == "download_completed")
+            .collect::<Vec<_>>();
+        assert_eq!(completed.len(), 1);
+        assert!(completed[0].title.contains("1 个文件"));
+        assert!(completed[0].message.contains("Show.S01E01.mkv"));
+        assert!(!completed[0].message.contains("Show.S01E02.mkv"));
 
         context.job_queue.shutdown().await;
         let _ = std::fs::remove_dir_all(dir);

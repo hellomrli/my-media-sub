@@ -101,7 +101,7 @@
       <!-- 操作按钮 -->
       <div class="flex gap-3">
         <button @click="showTransferModal = false; transferingForSubscription = false" class="btn-secondary flex-1 px-4 py-2 rounded-lg transition-colors">取消</button>
-        <button @click="confirmTransfer()" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors" x-text="transferingForSubscription ? '确认选择此目录' : '确认转存到此目录'"></button>
+        <button @click="confirmTransfer()" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors" x-text="'确认选择此目录'"></button>
       </div>
     </div>
   </div>

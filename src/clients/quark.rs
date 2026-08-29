@@ -246,6 +246,7 @@ impl QuarkShareProbe {
         // 目录内容按页拉取：单页 100 项，翻页直到取完。
         // 返回 Some(错误) 时列表可能不完整（首页失败则为空），由调用方标记 partial。
         let mut all: Vec<HashMap<String, serde_json::Value>> = Vec::new();
+        let mut truncated = false;
         for page in 1..=MAX_PAGES {
             let page_param = page.to_string();
             let resp = self
@@ -304,8 +305,15 @@ impl QuarkShareProbe {
             if fetched < PAGE_SIZE {
                 break;
             }
+            if page == MAX_PAGES {
+                // 达到分页安全上限且最后一页仍是满页：显式标记截断，
+                // 让调用方在检查详情里提示结果不完整，而不是静默丢条目。
+                truncated = true;
+            }
         }
-        Ok((all, None))
+        let warning =
+            truncated.then(|| format!("目录条目超过分页上限（{MAX_PAGES} 页），结果可能不完整"));
+        Ok((all, warning))
     }
 
     /// 探测分享链接

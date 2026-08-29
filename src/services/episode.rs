@@ -9,6 +9,9 @@ pub const VIDEO_EXTS: &[&str] = &[
 struct EpisodePattern {
     id: &'static str,
     regex: Regex,
+    /// 方括号里的 4 位数字绝大多数是年份（[SubGroup][2024][05]），
+    /// 该模式命中 1900–2099 时继续扫描后续候选而不是直接采信。
+    reject_year: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -30,24 +33,29 @@ static EPISODE_PATTERNS: LazyLock<Vec<EpisodePattern>> = LazyLock::new(|| {
         EpisodePattern {
             id: "season_episode",
             regex: hardcoded_regex(r"(?i)S(?P<season>\d{1,2})[._\-\s]*E(?P<episode>\d{1,4})"),
+            reject_year: false,
         },
         EpisodePattern {
             id: "episode_marker",
             regex: hardcoded_regex(r"(?i)(?:^|[^\p{L}\d])EP?[._\-\s]*(?P<episode>\d{1,4})"),
+            reject_year: false,
         },
         EpisodePattern {
             id: "special_marker",
             regex: hardcoded_regex(
                 r"(?i)(?:^|[^\p{L}\d])(?:SP|OVA|OAD)[._\-\s]*(?P<episode>\d{1,4})(?:$|[^\p{L}\d])",
             ),
+            reject_year: false,
         },
         EpisodePattern {
             id: "chinese_episode",
             regex: hardcoded_regex(r"第\s*(?P<episode>\d{1,4})\s*[集话話期]"),
+            reject_year: false,
         },
         EpisodePattern {
             id: "bracket_number",
             regex: hardcoded_regex(r"[\[【]\s*(?P<episode>\d{1,4})\s*[\]】]"),
+            reject_year: true,
         },
     ]
 });
@@ -122,6 +130,33 @@ fn is_likely_explicit_episode_number(episode: i32) -> bool {
     episode > 0
 }
 
+fn is_plausible_year(episode: i32) -> bool {
+    (1900..=2099).contains(&episode)
+}
+
+fn special_kind_for(name: &str) -> Option<&'static str> {
+    let upper = name.to_ascii_uppercase();
+    if upper.contains("OVA") {
+        Some("ova")
+    } else if upper.contains("OAD") {
+        Some("oad")
+    } else {
+        Some("sp")
+    }
+}
+
+/// numeric_fallback 前从文件名剥离的编码/声道噪声（x265、H.264、DD5.1 等），
+/// 否则 "Movie.2024.H.265" 会把 265 当成集数、"DD5.1" 会把 1 当成集数。
+static FALLBACK_NOISE_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+    vec![
+        hardcoded_regex(r"(?i)(?:^|[^\p{L}\d])(?:x|h)[._\-\s]*26[0-9](?:$|[^\p{L}\d])"),
+        hardcoded_regex(r"(?i)(?:^|[^\p{L}\d])(?:hevc|avc|xvid|divx)(?:$|[^\p{L}\d])"),
+        hardcoded_regex(
+            r"(?i)(?:^|[^\p{L}\d])(?:dd|ddp|dd+|eac-?3|ac-?3|dts(?:[._\-\s]*hd)?|truehd|atmos|flac|aac|opus)(?:[._\-\s]*\d)?(?:[._]\d)?(?:ch)?(?:$|[^\p{L}\d])",
+        ),
+    ]
+});
+
 fn is_likely_numeric_fallback_episode(episode: i32) -> bool {
     if episode <= 0 {
         return false;
@@ -138,17 +173,25 @@ fn numeric_fallback_episode(name: &str) -> Option<i32> {
         .and_then(|stem| stem.to_str())
         .unwrap_or(name);
 
-    stem.split(|ch: char| {
-        ch.is_whitespace()
-            || matches!(
-                ch,
-                '.' | '_' | '-' | '[' | ']' | '(' | ')' | '【' | '】' | '（' | '）'
-            )
-    })
-    .filter(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
-    .filter_map(|part| part.parse::<i32>().ok())
-    .find(|episode| is_likely_numeric_fallback_episode(*episode))
-    .or_else(|| leading_numeric_episode(stem))
+    // 剥离编码/声道噪声后再做独立数字兜底，避免 265/1 这类技术数字误判。
+    let stripped = FALLBACK_NOISE_PATTERNS
+        .iter()
+        .fold(stem.to_string(), |acc, pattern| {
+            pattern.replace_all(&acc, "").to_string()
+        });
+
+    stripped
+        .split(|ch: char| {
+            ch.is_whitespace()
+                || matches!(
+                    ch,
+                    '.' | '_' | '-' | '[' | ']' | '(' | ')' | '【' | '】' | '（' | '）'
+                )
+        })
+        .filter(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+        .filter_map(|part| part.parse::<i32>().ok())
+        .find(|episode| is_likely_numeric_fallback_episode(*episode))
+        .or_else(|| leading_numeric_episode(&stripped))
 }
 
 fn leading_numeric_episode(stem: &str) -> Option<i32> {
@@ -313,6 +356,53 @@ pub fn episode_video_key(name: &str, default_season: i32) -> Option<(i32, i32)> 
     Some((season, episode))
 }
 
+/// 与 special_marker 同源的模式，供流水线判断「这是特典文件」。
+static SPECIAL_MARKER_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    hardcoded_regex(r"(?i)(?:^|[^\p{L}\d])(?:SP|OVA|OAD)[._\-\s]*\d{1,4}(?:$|[^\p{L}\d])")
+});
+
+/// 是否是特典文件（SP/OVA/OAD 编号）。
+pub fn is_special_episode_name(name: &str) -> bool {
+    SPECIAL_MARKER_REGEX.is_match(name)
+}
+
+/// 检查/转存流水线的同集状态键。
+///
+/// 与 `episode_video_key` 的区别：特典（SP/OVA/OAD）返回 `None`，只参与按
+/// 文件名的去重与幂等，不占用正片集数槽位——否则 SP01 会以 ep:1 的身份
+/// 与正片 EP01 互相挤掉。展示与诊断仍使用 `detect_episode_explained`。
+pub fn episode_state_key(name: &str, default_season: i32) -> Option<(i32, i32)> {
+    if is_special_episode_name(name) {
+        return None;
+    }
+    episode_video_key(name, default_season)
+}
+
+/// 同 `episode_state_key`，但优先使用订阅级 episode_regex 覆盖。
+///
+/// 自动检查/转存/去重链路必须与展示预览使用同一识别结果，否则配置了
+/// 覆盖正则的订阅在预览里看得到集数、在自动链路里却被判「无法识别」。
+/// 覆盖正则无效或未命中该文件时安全回落到默认识别。
+pub fn episode_state_key_with_override(
+    name: &str,
+    default_season: i32,
+    override_regex: &str,
+) -> Option<(i32, i32)> {
+    if is_special_episode_name(name) {
+        return None;
+    }
+    if !is_video_name(name) {
+        return None;
+    }
+    let detected = match detect_episode_with_override(name, override_regex) {
+        Ok(detected) => detected,
+        Err(_) => detect_episode_explained(name),
+    };
+    let episode = detected.episode?;
+    let season = detected.season.unwrap_or(default_season).max(1);
+    Some((season, episode))
+}
+
 pub fn normalize_duplicate_episode_strategy(strategy: &str) -> &'static str {
     match strategy.trim().to_ascii_lowercase().as_str() {
         "latest_upload" | "latest_uploaded" | "latest_time" | "latest" | "newest" => {
@@ -412,6 +502,14 @@ pub fn detect_episode_explained(name: &str) -> EpisodeDetection {
                 .and_then(|m| m.as_str().parse::<i32>().ok());
             if let (Some(start), Some(end)) = (start, end) {
                 if start > 0 && end >= start && end - start <= 100 {
+                    // 「Show.2023-2024」这类年份区间不是多集合集；
+                    // collection_range 没有集数后缀强制，这里显式排除。
+                    if *method == "collection_range"
+                        && is_plausible_year(start)
+                        && is_plausible_year(end)
+                    {
+                        continue;
+                    }
                     let season = caps
                         .name("season")
                         .and_then(|m| m.as_str().parse::<i32>().ok())
@@ -439,10 +537,14 @@ pub fn detect_episode_explained(name: &str) -> EpisodeDetection {
                 .name("season")
                 .and_then(|m| m.as_str().parse::<i32>().ok());
             let season = if season == Some(0) { None } else { season };
+
             if !episode
                 .map(is_likely_explicit_episode_number)
                 .unwrap_or(false)
             {
+                continue;
+            }
+            if pattern.reject_year && episode.is_some_and(is_plausible_year) {
                 continue;
             }
             return EpisodeDetection {
@@ -450,16 +552,7 @@ pub fn detect_episode_explained(name: &str) -> EpisodeDetection {
                 episodes: episode.into_iter().collect(),
                 season,
                 special_kind: match pattern.id {
-                    "special_marker" => {
-                        let upper = name.to_ascii_uppercase();
-                        if upper.contains("OVA") {
-                            Some("ova")
-                        } else if upper.contains("OAD") {
-                            Some("oad")
-                        } else {
-                            Some("sp")
-                        }
-                    }
+                    "special_marker" => special_kind_for(name),
                     _ => None,
                 },
                 method: pattern.id,
@@ -915,5 +1008,65 @@ mod episode_override_tests {
         assert_eq!(found.method, "subscription_override");
         assert!(detect_episode_with_override("show.mkv", "(").is_err());
         assert!(detect_episode_with_override("show-17.mkv", r"(\d+)").is_err());
+    }
+}
+
+#[cfg(test)]
+mod episode_misdetection_tests {
+    use super::*;
+
+    #[test]
+    fn bracketed_years_are_not_episodes() {
+        // 回归：[SubGroup][2024][05] 的年份曾被识别为集数 2024，
+        // 导致 known_episodes 写入 2024 并让换源/完结判定永久失效。
+        let detected = detect_episode_explained("[SubGroup][2024][05][1080p].mkv");
+        assert_eq!(detected.episode, Some(5));
+        let detected = detect_episode_explained("Show.[2024].mkv");
+        assert_eq!(detected.episode, None);
+    }
+
+    #[test]
+    fn codec_and_channel_numbers_are_not_episodes() {
+        let detected = detect_episode_explained("Movie.2024.H.265.mkv");
+        assert_eq!(detected.episode, None);
+        let detected = detect_episode_explained("Movie.2023.DD5.1.mkv");
+        assert_eq!(detected.episode, None);
+    }
+
+    #[test]
+    fn year_ranges_are_not_collections() {
+        let detected = detect_episode_explained("Show.2023-2024.mkv");
+        assert_eq!(detected.episode, None);
+        // 真实集数区间不受影响
+        let detected = detect_episode_explained("Show.E01-E12.mkv");
+        assert_eq!(detected.episode, Some(1));
+        assert_eq!(detected.episodes, (1..=12).collect::<Vec<i32>>());
+    }
+
+    #[test]
+    fn pipeline_state_key_excludes_specials() {
+        // 特典不占用正片集数槽位：SP01 与 EP01 的状态键不同。
+        assert!(is_special_episode_name("Show SP01.mkv"));
+        assert!(is_special_episode_name("动画 OVA02 BDRip.mkv"));
+        assert!(!is_special_episode_name("Show S01E01.mkv"));
+        assert_eq!(episode_state_key("Show SP01.mkv", 1), None);
+        assert_eq!(episode_state_key("Show S01E01.mkv", 1), Some((1, 1)));
+        // 展示识别保持原有语义（特典仍可解释出编号供人工查看）
+        let detected = detect_episode_explained("Show SP01.mkv");
+        assert_eq!(detected.episode, Some(1));
+        assert_eq!(detected.special_kind, Some("sp"));
+    }
+
+    #[test]
+    fn state_key_honors_subscription_override() {
+        let key = episode_state_key_with_override(
+            "show-2x17.mkv",
+            1,
+            r"(?P<season>\d+)x(?P<episode>\d+)",
+        );
+        assert_eq!(key, Some((2, 17)));
+        // 无效 override 安全回落默认识别
+        let key = episode_state_key_with_override("Show S01E17.mkv", 1, "(");
+        assert_eq!(key, Some((1, 17)));
     }
 }

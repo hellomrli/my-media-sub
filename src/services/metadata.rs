@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::clients::http_pool::ObservedRequestBuilder;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -9,7 +11,21 @@ use crate::store::SettingsStore;
 
 pub struct MetadataService {
     client: Client,
+    /// TV 详情缓存：(provider_id, language) → (写入时间, 数据)。
+    /// 一次搜索最多产生 ~70 个上游请求且全部串行，重复搜索会原样重放；
+    /// 短 TTL 缓存把重复搜索的请求放大压回常数，也降低触发 TMDB 限流
+    /// 的概率。条目超上限时整体清空（缓存只是性能优化）。
+    tv_details_cache: std::sync::Mutex<TmdbTvDetailsCache>,
+    season_details_cache: std::sync::Mutex<TmdbSeasonDetailsCache>,
 }
+
+/// 详情缓存 TTL：TMDB 数据变化频率低，10 分钟内重复搜索直接复用。
+const TMDB_CACHE_TTL_SECONDS: i64 = 600;
+const TMDB_CACHE_MAX_ENTRIES: usize = 256;
+
+type TmdbTvDetailsCache = HashMap<(String, String), (i64, std::sync::Arc<TmdbTvDetails>)>;
+type TmdbSeasonDetailsCache =
+    HashMap<(String, i32, String), (i64, std::sync::Arc<TmdbSeasonDetails>)>;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TmdbTestResult {
@@ -20,7 +36,11 @@ pub struct TmdbTestResult {
 impl MetadataService {
     pub fn new() -> Self {
         let client = http_pool::short_client();
-        Self { client }
+        Self {
+            client,
+            tv_details_cache: std::sync::Mutex::new(HashMap::new()),
+            season_details_cache: std::sync::Mutex::new(HashMap::new()),
+        }
     }
 
     pub async fn search(
@@ -173,7 +193,12 @@ impl MetadataService {
                     item.number_of_seasons = details.number_of_seasons;
                     item.next_episode_to_air = details.next_episode_to_air.clone().map(Into::into);
                     let season_numbers = tmdb_episode_season_numbers(&details);
-                    item.seasons = details.seasons.into_iter().map(Into::into).collect();
+                    item.seasons = details
+                        .seasons
+                        .clone()
+                        .into_iter()
+                        .map(Into::into)
+                        .collect();
                     for season_number in season_numbers {
                         if let Ok(Some(season_details)) = self
                             .fetch_tmdb_tv_season_details(
@@ -187,7 +212,8 @@ impl MetadataService {
                             item.episodes.extend(
                                 season_details
                                     .episodes
-                                    .into_iter()
+                                    .iter()
+                                    .cloned()
                                     .map(|episode| episode.into_metadata(season_number)),
                             );
                         }
@@ -204,7 +230,19 @@ impl MetadataService {
         api_key: &str,
         language: &str,
         provider_id: &str,
-    ) -> Result<Option<TmdbTvDetails>> {
+    ) -> Result<Option<std::sync::Arc<TmdbTvDetails>>> {
+        let cache_key = (provider_id.to_string(), language.to_string());
+        if let Some((cached_at, details)) = self
+            .tv_details_cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(&cache_key)
+        {
+            if crate::utils::unix_now() - cached_at < TMDB_CACHE_TTL_SECONDS {
+                return Ok(Some(details.clone()));
+            }
+        }
+
         let endpoint = format!("https://api.themoviedb.org/3/tv/{}", provider_id);
         let response = self
             .client
@@ -217,7 +255,17 @@ impl MetadataService {
             return Ok(None);
         }
 
-        Ok(Some(response.json().await?))
+        let details: TmdbTvDetails = response.json().await?;
+        let details = std::sync::Arc::new(details);
+        let mut cache = self
+            .tv_details_cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if cache.len() >= TMDB_CACHE_MAX_ENTRIES {
+            cache.clear();
+        }
+        cache.insert(cache_key, (crate::utils::unix_now(), details.clone()));
+        Ok(Some(details))
     }
 
     async fn fetch_tmdb_tv_season_details(
@@ -226,7 +274,19 @@ impl MetadataService {
         language: &str,
         provider_id: &str,
         season_number: i32,
-    ) -> Result<Option<TmdbSeasonDetails>> {
+    ) -> Result<Option<std::sync::Arc<TmdbSeasonDetails>>> {
+        let cache_key = (provider_id.to_string(), season_number, language.to_string());
+        if let Some((cached_at, details)) = self
+            .season_details_cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(&cache_key)
+        {
+            if crate::utils::unix_now() - cached_at < TMDB_CACHE_TTL_SECONDS {
+                return Ok(Some(details.clone()));
+            }
+        }
+
         let endpoint = format!(
             "https://api.themoviedb.org/3/tv/{}/season/{}",
             provider_id, season_number
@@ -242,7 +302,17 @@ impl MetadataService {
             return Ok(None);
         }
 
-        Ok(Some(response.json().await?))
+        let details: TmdbSeasonDetails = response.json().await?;
+        let details = std::sync::Arc::new(details);
+        let mut cache = self
+            .season_details_cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if cache.len() >= TMDB_CACHE_MAX_ENTRIES {
+            cache.clear();
+        }
+        cache.insert(cache_key, (crate::utils::unix_now(), details.clone()));
+        Ok(Some(details))
     }
 }
 
@@ -279,7 +349,7 @@ struct TmdbSearchItem {
     vote_average: Option<f32>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct TmdbTvDetails {
     #[serde(default)]
     number_of_episodes: Option<i32>,
@@ -305,7 +375,7 @@ struct TmdbSeason {
     poster_path: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct TmdbSeasonDetails {
     #[serde(default)]
     episodes: Vec<TmdbEpisode>,

@@ -255,7 +255,10 @@
       try {
         const history = localStorage.getItem('searchHistory');
         if (history) {
-          this.searchHistory = JSON.parse(history);
+          const parsed = JSON.parse(history);
+          // 历史数据可能是被旧版本或手改写入的非数组，校验失败时回退为空，
+          // 避免渲染与 addSearchHistory 抛 TypeError 导致搜索不可用。
+          this.searchHistory = Array.isArray(parsed) ? parsed.filter(item => typeof item === 'string') : [];
         }
       } catch (error) {
         console.error('加载搜索历史失败:', error);

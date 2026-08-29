@@ -6,7 +6,7 @@
 const browserGlobals = Object.fromEntries([
   'window', 'document', 'navigator', 'location', 'history',
   'localStorage', 'sessionStorage',
-  'fetch', 'Headers', 'Request', 'Response', 'AbortController',
+  'fetch', 'Headers', 'Request', 'Response', 'AbortController', 'AbortSignal',
   'URL', 'URLSearchParams', 'EventSource',
   'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval',
   'requestAnimationFrame', 'cancelAnimationFrame', 'queueMicrotask',

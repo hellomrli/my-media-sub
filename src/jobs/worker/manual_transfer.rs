@@ -63,13 +63,16 @@ impl JobWorker {
             info!("任务 {} 已在转存前取消", job_id);
             return Ok(());
         }
-        match provider
-            .transfer(TransferRequest {
-                share_url: req.url.clone(),
-                passcode: req.passcode.clone(),
-                target_id: target_fid.clone(),
-                file_ids: Vec::new(),
-            })
+        match self
+            .run_with_heartbeat(
+                job_id,
+                provider.transfer(TransferRequest {
+                    share_url: req.url.clone(),
+                    passcode: req.passcode.clone(),
+                    target_id: target_fid.clone(),
+                    file_ids: Vec::new(),
+                }),
+            )
             .await
         {
             Ok(outcome) => {

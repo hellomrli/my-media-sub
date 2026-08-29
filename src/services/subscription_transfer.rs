@@ -22,11 +22,12 @@ use crate::services::push::{PushEvent, PushLevel};
 use crate::services::subscription_progress::{
     completion_target_episode, should_mark_completed_from_transferred_files,
 };
-use crate::services::transfer_rule::{apply_rename, effective_rules, transfer_state_key};
+use crate::services::transfer_rule::{
+    apply_rename, effective_rules, portable_filename, transfer_state_key,
+};
 use crate::services::{
-    episode::episode_video_key, episode::is_better_episode_duplicate_candidate,
-    episode::matches_subscription_season_range, episode::resolve_file_season,
-    episode::EpisodeDuplicateCandidate,
+    episode::is_better_episode_duplicate_candidate, episode::matches_subscription_season_range,
+    episode::resolve_file_season, episode::EpisodeDuplicateCandidate,
 };
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 use crate::utils::unix_now;
@@ -81,6 +82,9 @@ impl SubscriptionTransferService {
             .get(subscription_id)
             .await
             .ok_or_else(|| AppError::NotFound("订阅不存在".to_string()))?;
+        // 快照任务开始时最新检查历史的时间，结束时校验一致才回填
+        // transfer_count，避免并发的新检查条目被错误覆盖。
+        let latest_history_time_at_start = sub.check_history.first().map(|item| item.time);
 
         // 检查是否启用自动转存
         if sub.notify_only {
@@ -396,6 +400,24 @@ impl SubscriptionTransferService {
         }
 
         let transferred_count = transfer_file_names.len();
+
+        // 回填检查历史的转存数：检查链路入队时无法知道实际转存结果，
+        // 这里补齐任务开始时那条最新检查记录的 transfer_count；若期间
+        // 有新检查写入了新条目则跳过，避免张冠李戴。
+        let backfilled = self
+            .subscription_store
+            .update(&sub.id, |sub| {
+                if let Some(latest) = sub.check_history.first_mut() {
+                    if Some(latest.time) == latest_history_time_at_start {
+                        latest.transfer_count = transferred_count as i32;
+                    }
+                }
+            })
+            .await;
+        if let Err(error) = backfilled {
+            warn!("回填检查历史转存数失败: {}", error);
+        }
+
         let target_dir = if multi_season {
             show_root.clone()
         } else {
@@ -544,6 +566,9 @@ impl SubscriptionTransferService {
                 files.push(final_file);
                 continue;
             }
+            // 与手动/预览链路同一清洗口径：模板标题可能来自远程元数据，
+            // 含 : / " 等字符或超长时会产出跨平台非法文件名。
+            let new_name = portable_filename(&new_name);
 
             // 如果新旧文件名相同，跳过
             if new_name == video_file.name {
@@ -684,6 +709,12 @@ impl SubscriptionTransferService {
                 .chain(tasks.waiting)
                 .chain(tasks.stopped)
             {
+                // 失败任务不复用：复用会让后续每轮检查都跳过该文件（既不
+                // 重新提交也没有完成事件），下载被无限期搁置。失败的任务
+                // 留给本轮重新提交或用户在 Aria2 中处理。
+                if task.status == "error" {
+                    continue;
+                }
                 if !task.file_name.trim().is_empty() {
                     existing_tasks.insert(task.file_name.to_lowercase(), task.gid);
                 }
@@ -740,6 +771,7 @@ impl SubscriptionTransferService {
                                     .chain(tasks.stopped)
                                     .find(|task| {
                                         task.file_name.eq_ignore_ascii_case(&info.file_name)
+                                            && task.status != "error"
                                     })
                                 {
                                     submitted = Some(task.gid);
@@ -846,11 +878,39 @@ impl SubscriptionTransferService {
         sub: &Subscription,
         file_names: &[String],
     ) -> Result<()> {
+        /// 单个多集包最多记录的集数键数（检测器本身已把区间限制在 ≤100）。
+        const MAX_EPISODE_KEYS_PER_FILE: usize = 100;
         let file_keys: Vec<String> = file_names
             .iter()
-            .map(|name| {
-                let episode = crate::services::detect_episode(name).episode;
-                transfer_state_key(name, episode, sub.rules.ignore_extensions)
+            .flat_map(|name| {
+                // 与检查链路同一识别口径（override + 特典排除 + 季号）。
+                let detected = match crate::services::episode::detect_episode_with_override(
+                    name,
+                    &sub.rules.episode_regex,
+                ) {
+                    Ok(detected) => detected,
+                    Err(_) => crate::services::episode::detect_episode_explained(name),
+                };
+                let season = detected.season.unwrap_or(sub.season).max(1);
+                let primary = season == sub.season.max(1)
+                    && !crate::services::episode::is_special_episode_name(name);
+                if primary {
+                    // 多集包（E01-E12）按区间记录全部集数键：分享方后续把
+                    // 合集拆成单集发布时，不会被误判为新文件重复转存。
+                    let mut keys = detected
+                        .episodes
+                        .iter()
+                        .take(MAX_EPISODE_KEYS_PER_FILE)
+                        .map(|episode| format!("ep:{}", episode))
+                        .collect::<Vec<_>>();
+                    if keys.is_empty() {
+                        keys.push(transfer_state_key(name, None, sub.rules.ignore_extensions));
+                    }
+                    keys
+                } else {
+                    // 特典与其他季的文件退回 `name:` 键，不占用正片集数槽位。
+                    vec![transfer_state_key(name, None, sub.rules.ignore_extensions)]
+                }
             })
             .collect();
 

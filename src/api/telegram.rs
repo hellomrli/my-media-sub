@@ -37,7 +37,7 @@ async fn webhook(
     }
 
     tokio::spawn(async move {
-        service.handle_update(update).await;
+        service.handle_update_bounded(update).await;
     });
     StatusCode::OK
 }

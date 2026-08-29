@@ -34,6 +34,7 @@
       this.response = options.response || null;
       this.url = options.url || '';
       this.isNetworkError = !!options.isNetworkError;
+      this.isTimeout = !!options.isTimeout;
       if (options.cause !== undefined) this.cause = options.cause;
     }
   }
@@ -160,6 +161,29 @@
     return normalized;
   }
 
+  // 所有请求的默认总超时：反向代理挂起、连接停滞时 fetch 永不 settle，
+  // 依赖请求完成的 loading 闸门（搜索按钮、下载页互斥等）会永久卡死。
+  // 长耗时操作（全量检查、导入导出等）可显式传更大的 timeout 或 0 关闭。
+  const DEFAULT_TIMEOUT_MS = 120000;
+
+  function createTimeoutController(timeout, callerSignal) {
+    if (!Number(timeout) || Number(timeout) <= 0) return null;
+    if (typeof AbortController !== 'function') return null;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.max(1, Number(timeout)));
+    return {controller, timer, callerSignal};
+  }
+
+  function combinedSignal(handle) {
+    if (!handle) return undefined;
+    const {controller, callerSignal} = handle;
+    if (callerSignal && typeof AbortSignal === 'function' && typeof AbortSignal.any === 'function') {
+      return AbortSignal.any([callerSignal, controller.signal]);
+    }
+    if (callerSignal) return callerSignal;
+    return controller.signal;
+  }
+
   function createApiClient(fetchImpl) {
     if (typeof fetchImpl !== 'function') {
       throw new TypeError('createApiClient requires a fetch implementation');
@@ -169,11 +193,15 @@
       const {
         json,
         errorMessage,
+        timeout = DEFAULT_TIMEOUT_MS,
         ...requestOptions
       } = options || {};
       const url = requestUrl(input);
       const headers = normalizeHeaders(requestOptions.headers, json);
+      const timeoutHandle = createTimeoutController(timeout, requestOptions.signal || null);
       const init = {...requestOptions, headers};
+      const signal = combinedSignal(timeoutHandle);
+      if (signal !== undefined) init.signal = signal;
 
       if (json !== undefined) {
         init.body = JSON.stringify(json);
@@ -183,17 +211,22 @@
       try {
         response = await fetchImpl(input, init);
       } catch (error) {
+        if (timeoutHandle) clearTimeout(timeoutHandle.timer);
         if (error instanceof ApiError) throw error;
         const aborted = error && error.name === 'AbortError';
+        const timedOut = aborted && timeoutHandle && !timeoutHandle.callerSignal;
         throw new ApiError(
-          errorMessage || (aborted ? '请求已取消' : '无法连接服务，请检查网络后重试'),
+          errorMessage
+            || (timedOut ? '请求超时，请检查网络后重试' : aborted ? '请求已取消' : '无法连接服务，请检查网络后重试'),
           {
             url,
             isNetworkError: !aborted,
+            isTimeout: !!timedOut,
             cause: error
           }
         );
       }
+      if (timeoutHandle) clearTimeout(timeoutHandle.timer);
 
       if (!response.ok) {
         const payload = await readErrorPayload(response);

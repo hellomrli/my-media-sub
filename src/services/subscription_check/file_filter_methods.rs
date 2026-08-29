@@ -102,27 +102,40 @@ macro_rules! subscription_check_file_filter_methods {
 
     /// 找出新增文件
     fn find_new_files(&self, sub: &Subscription, files: &[ProbeFile]) -> Vec<ProbeFile> {
-        // 【新增】收集已转存的集数（包括 known_episodes 和 transferred_files）
-        let mut known_episode_set = sub.known_episodes.iter().copied().collect::<HashSet<i32>>();
-
-        // 从已转存文件名中提取集数，补充到 known_episode_set
-        if sub.media_type != "movie" {
-            for transferred_file in &sub.transferred_files {
-                if let Some(key) = episode_video_key(transferred_file, sub.season) {
-                    known_episode_set.insert(key.1);
-                }
-            }
-        }
+        // 已转存证据按「季+集」限定：known_episodes 是扁平集数列表（schema v1
+        // 无季号），只对订阅主季生效；transferred_files 由文件名重新解析出
+        // (season, episode)。否则多季订阅里 S02E01 会被 S01 的记录挡掉，
+        // 第二季从此静默停更。
+        let primary_season = sub.season.max(1);
+        let transferred_episode_keys: HashSet<(i32, i32)> = if sub.media_type == "movie" {
+            HashSet::new()
+        } else {
+            sub.transferred_files
+                .iter()
+                .filter_map(|name| episode_state_key_with_override(name, sub.season, &sub.rules.episode_regex))
+                .collect()
+        };
 
         let eligible_indices: Vec<usize> = files
             .iter()
             .enumerate()
             .filter_map(|(index, file)| {
-                // 【修改】检查集数是否已在 known_episode_set 中
                 if sub.media_type != "movie" {
-                    if let Some(key) = episode_video_key(&file.name, sub.season) {
-                        if known_episode_set.contains(&key.1) {
-                            // 集数已转存，跳过
+                    if let Some(key) = episode_state_key_with_override(&file.name, sub.season, &sub.rules.episode_regex) {
+                        if transferred_episode_keys.contains(&key) {
+                            // 同季同集已转存，跳过
+                            return None;
+                        }
+                        if key.0 == primary_season && sub.known_episodes.contains(&key.1) {
+                            // 主季集数已记录，跳过
+                            return None;
+                        }
+                        // 单季订阅直接核对持久化的 `ep:N` 键（多集包拆单集
+                        // 发布时，只有这里能识别出「该集已随合集转存」）；
+                        // 多季订阅的旧 `ep:N` 键无季号语义，不参与判定。
+                        if !sub.is_multi_season()
+                            && sub.transferred_file_keys.contains(&format!("ep:{}", key.1))
+                        {
                             return None;
                         }
                     }
@@ -131,7 +144,7 @@ macro_rules! subscription_check_file_filter_methods {
                 (!file.is_dir
                     && Self::is_current_subscription_season_file(sub, file)
                     && !sub.known_file_keys.contains(&file.file_key)
-                    && !self.is_before_start_episode(sub, &file.name)
+                    && !self.is_before_start_episode(sub, &file.name, &file.parent_path)
                     && self.transfer_rule_skip_reason(sub, file).is_none())
                 .then_some(index)
             })
@@ -162,6 +175,14 @@ macro_rules! subscription_check_file_filter_methods {
             let episode = extract_episode_number(name);
             transfer_state_key(name, episode, sub.rules.ignore_extensions)
         }));
+        // 已转存证据按「季+集」解析（与 find_new_files 一致）；持久化的
+        // `ep:N` 键不含季号，只对主季生效，避免多季订阅跨季误判。
+        let transferred_episode_keys: HashSet<(i32, i32)> = sub
+            .transferred_files
+            .iter()
+            .filter_map(|name| episode_state_key_with_override(name, sub.season, &sub.rules.episode_regex))
+            .collect();
+        let primary_season = sub.season.max(1);
 
         if sub.media_type == "movie" {
             // 电影没有集数概念，但 known 未转存的视频文件同样要补转：
@@ -190,15 +211,31 @@ macro_rules! subscription_check_file_filter_methods {
             if file.is_dir || !Self::is_current_subscription_season_file(sub, file) {
                 continue;
             }
-            if self.is_before_start_episode(sub, &file.name) {
+            if self.is_before_start_episode(sub, &file.name, &file.parent_path) {
                 continue;
             }
             if self.transfer_rule_skip_reason(sub, file).is_some() {
                 continue;
             }
-            let episode = extract_episode_number(&file.name);
-            let key = transfer_state_key(&file.name, episode, sub.rules.ignore_extensions);
-            if !key.starts_with("ep:") || transferred_keys.contains(&key) {
+            let Some(key) = episode_state_key_with_override(&file.name, sub.season, &sub.rules.episode_regex) else {
+                // 特典没有集数槽位：只按文件名键补转，避免占用正片集数。
+                let episode = extract_episode_number(&file.name);
+                let name_key =
+                    transfer_state_key(&file.name, episode, sub.rules.ignore_extensions);
+                if transferred_keys.contains(&name_key)
+                    || sub.transferred_files.contains(&file.name)
+                {
+                    continue;
+                }
+                if seen.insert(file.name.clone()) {
+                    names.push(file.name.clone());
+                }
+                continue;
+            };
+            if transferred_episode_keys.contains(&key) {
+                continue;
+            }
+            if key.0 == primary_season && transferred_keys.contains(&format!("ep:{}", key.1)) {
                 continue;
             }
             if seen.insert(file.name.clone()) {
@@ -218,9 +255,9 @@ macro_rules! subscription_check_file_filter_methods {
             return None;
         }
 
-        let key = episode_video_key(&file.name, sub.season)?;
-        let episode = key.1;
-        if sub.known_episodes.contains(&episode) {
+        let key = episode_state_key_with_override(&file.name, sub.season, &sub.rules.episode_regex)?;
+        // known_episodes 只承载主季语义：其他季的同号集数不受其约束。
+        if key.0 == sub.season.max(1) && sub.known_episodes.contains(&key.1) {
             return Some("同集已记录");
         }
 
@@ -281,7 +318,8 @@ macro_rules! subscription_check_file_filter_methods {
             if !Self::is_current_subscription_season_file(sub, file) {
                 continue;
             }
-            let Some(key) = episode_video_key(&file.name, sub.season) else {
+            // 特典不参与同集择优分组：OVA02 与 EP02 不是同一集。
+            let Some(key) = episode_state_key_with_override(&file.name, sub.season, &sub.rules.episode_regex) else {
                 continue;
             };
 
@@ -319,12 +357,18 @@ macro_rules! subscription_check_file_filter_methods {
             return false;
         }
 
-        episode_video_key(&file.name, sub.season)
+        // 特典没有集数槽位，不参与同集择优（见 selected_episode_video_indices）。
+        episode_state_key_with_override(&file.name, sub.season, &sub.rules.episode_regex)
             .map(|_| selected_episode_videos.contains(&index))
             .unwrap_or(true)
     }
 
-    fn is_before_start_episode(&self, sub: &Subscription, file_name: &str) -> bool {
+    fn is_before_start_episode(
+        &self,
+        sub: &Subscription,
+        file_name: &str,
+        parent_path: &str,
+    ) -> bool {
         if sub.media_type == "movie" {
             return false;
         }
@@ -333,6 +377,13 @@ macro_rules! subscription_check_file_filter_methods {
             return false;
         };
         if start_episode <= 1 {
+            return false;
+        }
+
+        // 起始集数只约束订阅的起始季；后续季从第 1 集开始追，
+        // 不能被上一季设置的起始集数整季过滤掉。
+        let season = resolve_file_season(file_name, parent_path, sub.season, sub.is_multi_season());
+        if season != Some(sub.season.max(1)) {
             return false;
         }
 
@@ -354,7 +405,7 @@ macro_rules! subscription_check_file_filter_methods {
                 (!file.is_dir
                     && Self::is_current_subscription_season_file(sub, file)
                     && !sub.known_file_keys.contains(&file.file_key)
-                    && !self.is_before_start_episode(sub, &file.name)
+                    && !self.is_before_start_episode(sub, &file.name, &file.parent_path)
                     && self.known_episode_video_reason(sub, file).is_none()
                     && self.transfer_rule_skip_reason(sub, file).is_none())
                 .then_some(index)
@@ -381,7 +432,7 @@ macro_rules! subscription_check_file_filter_methods {
             } else if !Self::is_current_subscription_season_file(sub, file) {
                 details.skipped_other_season_count += 1;
                 ("skip", "非当前订阅季".to_string())
-            } else if self.is_before_start_episode(sub, &file.name) {
+            } else if self.is_before_start_episode(sub, &file.name, &file.parent_path) {
                 details.skipped_before_start_count += 1;
                 ("skip", "低于起始转存集数".to_string())
             } else if let Some(reason) = self.transfer_rule_skip_reason(sub, file) {
@@ -415,18 +466,65 @@ macro_rules! subscription_check_file_filter_methods {
         details
     }
 
-    /// 解析集数
-    fn parse_episodes(&self, file_names: &[String]) -> Vec<i32> {
+    /// 解析集数（主链路证据提取）。
+    ///
+    /// 与检查识别使用同一 override 语义；特典（SP/OVA/OAD）不产出集数证据，
+    /// 避免以 ep:N 的身份占用正片集数槽位。主季过滤的写入口径见
+    /// `primary_season_new_episodes`。
+    fn parse_episodes(&self, sub: &Subscription, file_names: &[String]) -> Vec<i32> {
         let mut episodes = Vec::new();
 
         for name in file_names {
-            if let Some(ep) = extract_episode_number(name) {
-                if !episodes.contains(&ep) {
-                    episodes.push(ep);
-                }
+            let Some((_, episode)) =
+                episode_state_key_with_override(name, sub.season, &sub.rules.episode_regex)
+            else {
+                continue;
+            };
+            if !episodes.contains(&episode) {
+                episodes.push(episode);
             }
         }
 
+        episodes.sort();
+        episodes
+    }
+
+    /// 从新增文件中提取「主季」集数，用于写入口径。
+    ///
+    /// `known_episodes` 是扁平集数列表（schema v1 无季号），只承载主季语义：
+    /// 多季订阅里其他季的集数不得写入，否则 S02 的集数会在后续检查中
+    /// 跨季误挡 S01 的同号文件。
+    fn primary_season_new_episodes(
+        &self,
+        sub: &Subscription,
+        probe_files: &[ProbeFile],
+        new_files: &[String],
+    ) -> Vec<i32> {
+        let primary = sub.season.max(1);
+        let new_set: HashSet<&str> = new_files.iter().map(String::as_str).collect();
+        let mut episodes = Vec::new();
+        for file in probe_files {
+            if !new_set.contains(file.name.as_str()) {
+                continue;
+            }
+            let season = resolve_file_season(
+                &file.name,
+                &file.parent_path,
+                sub.season,
+                sub.is_multi_season(),
+            );
+            if season != Some(primary) {
+                continue;
+            }
+            let Some((_, episode)) =
+                episode_state_key_with_override(&file.name, sub.season, &sub.rules.episode_regex)
+            else {
+                continue;
+            };
+            if !episodes.contains(&episode) {
+                episodes.push(episode);
+            }
+        }
         episodes.sort();
         episodes
     }

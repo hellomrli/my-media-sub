@@ -304,7 +304,14 @@ impl QuarkSaveClient {
             ])
             .send_observed_idempotent("quark", "夸克移动端 GET 请求")
             .await
-            .map_err(|e| AppError::Http(format!("夸克移动端 GET 请求失败: {}", e)))?;
+            // 错误消息统一脱敏：reqwest 的 Display 携带完整请求 URL，
+            // query 里有 kps/sign/vcode 等核心登录凭据。
+            .map_err(|e| {
+                AppError::Http(crate::utils::redact_sensitive(&format!(
+                    "夸克移动端 GET 请求失败: {}",
+                    e
+                )))
+            })?;
         ensure_upstream_status(&response, "夸克移动端 GET")?;
         response
             .json()
@@ -332,7 +339,12 @@ impl QuarkSaveClient {
             .json(payload)
             .send_observed("quark")
             .await
-            .map_err(|e| AppError::Http(format!("夸克移动端 POST 请求失败: {}", e)))?;
+            .map_err(|e| {
+                AppError::Http(crate::utils::redact_sensitive(&format!(
+                    "夸克移动端 POST 请求失败: {}",
+                    e
+                )))
+            })?;
         ensure_upstream_status(&response, "夸克移动端 POST")?;
         response
             .json()
@@ -428,6 +440,7 @@ impl QuarkSaveClient {
 
         let mut items = Vec::new();
         let mut seen = HashSet::new();
+        let mut truncated = false;
         for page in 1..=MAX_PAGES {
             let page_items = self.list_dir_page(parent_fid, page, PAGE_SIZE).await?;
             let count = page_items.len();
@@ -440,6 +453,19 @@ impl QuarkSaveClient {
             if count < PAGE_SIZE {
                 break;
             }
+            if page == MAX_PAGES {
+                // 目录超过分页上限：告警提示条目可能不完整。该结果被
+                // resolve_dir_path/ensure_dir_path 用于目标目录推导，
+                // 静默缺项会导致重复创建目录。
+                truncated = true;
+            }
+        }
+        if truncated {
+            tracing::warn!(
+                "网盘目录 {} 条目超过分页上限（{} 页），结果可能不完整",
+                parent_fid,
+                MAX_PAGES
+            );
         }
 
         Ok(items)

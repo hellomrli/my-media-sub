@@ -228,6 +228,39 @@ mod tests {
     }
 
     #[test]
+    fn proactive_callback_works_without_webhook_secret() {
+        // 回归：纯 long_polling 部署默认没有 webhook secret，
+        // 「继续下载/查看详情」等主动按钮此前会静默消失。
+        let mut polling_settings = settings();
+        polling_settings.telegram_chat_id = "42".to_string();
+        polling_settings.telegram_bot_token = "123456:test-bot-token".to_string();
+        polling_settings.telegram_bot_webhook_secret = String::new();
+        let expires = crate::utils::unix_now() + 60;
+        let data = telegram_prompt_callback_data(
+            &polling_settings,
+            "download",
+            "12345678-1234-1234-1234-123456789012",
+            expires,
+        )
+        .expect("long_polling 部署也应生成主动按钮");
+        let token = data.strip_prefix("prompt:").unwrap();
+        assert!(verify_prompt_callback_data(&polling_settings, token, 42, 42).is_ok());
+
+        // 完全没有密钥材料（无 token 也无 secret）时仍拒绝生成。
+        let mut no_secret_settings = settings();
+        no_secret_settings.telegram_chat_id = "42".to_string();
+        no_secret_settings.telegram_bot_token = String::new();
+        no_secret_settings.telegram_bot_webhook_secret = String::new();
+        assert!(telegram_prompt_callback_data(
+            &no_secret_settings,
+            "download",
+            "12345678-1234-1234-1234-123456789012",
+            expires,
+        )
+        .is_none());
+    }
+
+    #[test]
     fn proactive_callback_signature_binds_user_chat_and_expiry() {
         let mut settings = settings();
         settings.telegram_chat_id = "42".to_string();
@@ -395,5 +428,153 @@ mod tests {
             message.from.unwrap().id,
             &message.chat
         ));
+    }
+
+    fn search_session(user_id: i64, chat_id: i64, hits: Vec<SearchHit>) -> UserSession {
+        UserSession {
+            user_id,
+            chat_id,
+            expires_at: crate::utils::unix_now() + 600,
+            kind: SessionKind::Search { hits },
+        }
+    }
+
+    #[tokio::test]
+    async fn transfer_confirmation_binds_search_hit_snapshot() {
+        // 回归：确认期间会话被新搜索覆盖时，按旧序号执行必须被指纹
+        // 校验拦下，而不是静默转存新搜索的同序号结果。
+        let (service, context, dir) = test_service().await;
+        let hits = vec![
+            SearchHit {
+                title: "第一部剧".to_string(),
+                url: "https://pan.quark.cn/s/aaa".to_string(),
+                password: String::new(),
+            },
+            SearchHit {
+                title: "第二部剧".to_string(),
+                url: "https://pan.quark.cn/s/bbb".to_string(),
+                password: String::new(),
+            },
+        ];
+        service
+            .sessions
+            .lock()
+            .await
+            .put(search_session(42, 42, hits));
+        let confirmation = service
+            .transfer_prepare(Some("1"), 42, 42)
+            .await
+            .unwrap();
+        assert!(confirmation.resource_label.contains("第一部剧"));
+
+        // 同一用户再发一次搜索，会话被整体覆盖，序号 1 现在是另一条结果。
+        let replaced = vec![SearchHit {
+            title: "完全无关的资源".to_string(),
+            url: "https://pan.quark.cn/s/zzz".to_string(),
+            password: String::new(),
+        }];
+        service
+            .sessions
+            .lock()
+            .await
+            .put(search_session(42, 42, replaced));
+        let error = service
+            .execute_transfer(
+                42,
+                42,
+                &confirmation.resource,
+                &confirmation.resource_fingerprint,
+            )
+            .await
+            .unwrap_err();
+        assert!(error.contains("搜索结果已变化"));
+
+        // 会话恢复为确认时的结果后，指纹一致才允许执行。
+        let original = vec![
+            SearchHit {
+                title: "第一部剧".to_string(),
+                url: "https://pan.quark.cn/s/aaa".to_string(),
+                password: String::new(),
+            },
+            SearchHit {
+                title: "第二部剧".to_string(),
+                url: "https://pan.quark.cn/s/bbb".to_string(),
+                password: String::new(),
+            },
+        ];
+        service
+            .sessions
+            .lock()
+            .await
+            .put(search_session(42, 42, original));
+        context
+            .settings_store
+            .update(|settings| settings.quark_cookie = "test-cookie".to_string())
+            .await
+            .unwrap();
+        let ok = service
+            .execute_transfer(
+                42,
+                42,
+                &confirmation.resource,
+                &confirmation.resource_fingerprint,
+            )
+            .await
+            .unwrap();
+        assert!(ok.contains("转存任务已提交"));
+
+        service.job_queue.shutdown().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn subscribe_confirmation_binds_search_hit_snapshot() {
+        let (service, context, dir) = test_service().await;
+        let hits = vec![SearchHit {
+            title: "要订阅的剧".to_string(),
+            url: "https://pan.quark.cn/s/xyz".to_string(),
+            password: String::new(),
+        }];
+        service
+            .sessions
+            .lock()
+            .await
+            .put(search_session(42, 42, hits));
+        let confirmation = service
+            .subscribe_prepare(Some("1 1-2"), 42, 42)
+            .await
+            .unwrap();
+
+        let replaced = vec![SearchHit {
+            title: "另一个人搜的剧".to_string(),
+            url: "https://pan.quark.cn/s/ooo".to_string(),
+            password: String::new(),
+        }];
+        service
+            .sessions
+            .lock()
+            .await
+            .put(search_session(42, 42, replaced));
+        let error = service
+            .execute_subscribe(
+                42,
+                42,
+                &confirmation.resource,
+                &confirmation.resource_fingerprint,
+            )
+            .await
+            .unwrap_err();
+        assert!(error.contains("搜索结果已变化"));
+        assert!(
+            context
+                .subscription_store
+                .list()
+                .await
+                .iter()
+                .all(|sub| sub.url != "https://pan.quark.cn/s/ooo")
+        );
+
+        service.job_queue.shutdown().await;
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

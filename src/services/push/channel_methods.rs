@@ -137,7 +137,11 @@ macro_rules! push_channel_methods {
                     tracing::debug!("Telegram sendPhoto 失败，回退到文本消息");
                 }
                 Err(error) => {
-                    tracing::debug!("Telegram sendPhoto 请求失败，回退到文本消息: {}", error);
+                    // 原始 reqwest 错误的 Display 内嵌 bot token，必须先脱敏。
+                    tracing::debug!(
+                        "Telegram sendPhoto 请求失败，回退到文本消息: {}",
+                        sanitize_push_error(&error.to_string())
+                    );
                 }
             }
         }

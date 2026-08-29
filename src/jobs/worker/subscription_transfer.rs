@@ -25,13 +25,19 @@ impl JobWorker {
         }
 
         self.update_running(job_id, 35, "正在执行订阅转存").await?;
+        let subscription_id_snapshot = payload.subscription_id.clone();
+        let file_names_snapshot = payload.file_names.clone();
+        let force_transfer_snapshot = payload.force_transfer;
         match self
-            .transfer_service
-            .auto_transfer_new_files_with_options(
-                &payload.subscription_id,
-                &payload.file_names,
-                payload.force_transfer,
-            )
+            .run_with_heartbeat(job_id, async move {
+                self.transfer_service
+                    .auto_transfer_new_files_with_options(
+                        &subscription_id_snapshot,
+                        &file_names_snapshot,
+                        force_transfer_snapshot,
+                    )
+                    .await
+            })
             .await
         {
             Ok(result) => {

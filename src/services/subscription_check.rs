@@ -9,9 +9,9 @@ use crate::jobs::{JobQueue, SubscriptionTransferPayload};
 use crate::models::subscription::{CheckHistoryItem, ProbeFile, ProbeResult, Subscription};
 use crate::providers::CloudDriveProviderRegistry;
 use crate::services::episode::{
-    episode_video_key, is_better_episode_duplicate_candidate, is_video_name,
-    matches_subscription_season_range, normalize_duplicate_episode_strategy,
-    EpisodeDuplicateCandidate,
+    episode_state_key_with_override, episode_video_key, is_better_episode_duplicate_candidate,
+    is_video_name, matches_subscription_season_range, normalize_duplicate_episode_strategy,
+    resolve_file_season, EpisodeDuplicateCandidate,
 };
 use crate::services::notification::{
     add_notification, dispatch_push_event_for_notification, PushDispatchRequest,
@@ -388,7 +388,7 @@ impl SubscriptionCheckService {
         };
 
         // 3. 解析集数
-        let new_episodes = self.parse_episodes(&new_file_names);
+        let new_episodes = self.parse_episodes(&sub, &new_file_names);
         let details = self.build_check_details(&sub, &probe_result.files);
         crate::services::automation_events::record_stage_event(
             self.automation_event_store.as_ref(),
@@ -744,6 +744,8 @@ impl SubscriptionCheckService {
         details: &CheckDetails,
     ) -> Result<()> {
         let now = unix_now();
+        // known_episodes 只写主季集数（扁平列表无季号，跨季写入会误挡）。
+        let primary_new_episodes = self.primary_season_new_episodes(sub, &probe.files, new_files);
 
         self.subscription_store
             .update(&sub.id, |s| {
@@ -763,8 +765,9 @@ impl SubscriptionCheckService {
                     s.known_episodes.retain(|episode| *episode <= target);
                 }
 
-                // 更新已知集数
-                for ep in new_episodes {
+                // 更新已知集数（仅主季；其他季的集数证据由
+                // transferred_files/known_files 承载）
+                for ep in &primary_new_episodes {
                     if !s.known_episodes.contains(ep) {
                         s.known_episodes.push(*ep);
                     }
@@ -895,11 +898,14 @@ impl SubscriptionCheckService {
             })
             .await?;
 
-        // 发送失效通知
+        // 发送失效通知。失效通知只发一次：invalid_since 已设置说明上一轮
+        // 检查已经通知过，来源恢复（invalid_since 被清除）后再次失效才会
+        // 重新通知，避免 30 分钟一轮的检查每天重复推送几十条。
+        let already_notified = sub.invalid_since.is_some();
         let title = format!("订阅链接疑似失效: {}", sub.title);
         let message = error.to_string();
 
-        if sub.rules.notify_on_invalid {
+        if sub.rules.notify_on_invalid && !already_notified {
             let notification = add_notification(
                 &self.notification_store,
                 "warning",
@@ -1362,29 +1368,7 @@ fn merge_check_results(
     current.last_new_files = checked.last_new_files.clone();
     current.last_new_episodes = checked.last_new_episodes.clone();
     current.last_check_summary = checked.last_check_summary.clone();
-    current.last_probe = checked.last_probe.clone();
-    current.check_history = checked.check_history.clone();
-    current.source_failure_count = checked.source_failure_count;
-    current.total_episode_number = checked.total_episode_number;
-    current.source_candidates = checked.source_candidates.clone();
-    current.last_source_search_time = checked.last_source_search_time;
     current.updated_at = current.updated_at.max(checked.updated_at);
-
-    // 仅当本次检查确实改变了状态字段时才写回；否则保留当前值。
-    // 批量进行期间并发的转存任务可能刚把订阅置为已完结（或换源恢复为 active），
-    // 无条件写回快照值会把这些状态回退。
-    let status_changed_in_batch = original.is_none_or(|original| {
-        checked.status != original.status
-            || checked.completed != original.completed
-            || checked.invalid_since != original.invalid_since
-            || checked.last_error != original.last_error
-    });
-    if status_changed_in_batch {
-        current.status = checked.status.clone();
-        current.invalid_since = checked.invalid_since;
-        current.last_error = checked.last_error.clone();
-        current.completed = checked.completed;
-    }
 
     // 仅当批量检查期间确实发生了自动换源时，才同步换源相关字段；
     // 否则保留当前值，避免覆盖用户对分享链接的并发编辑。
@@ -1399,6 +1383,51 @@ fn merge_check_results(
         current.previous_share_links = checked.previous_share_links.clone();
         current.last_source_switch_at = checked.last_source_switch_at;
         current.source_switch_history = checked.source_switch_history.clone();
+    }
+
+    // last_probe/check_history/source_failure_count 是「针对当前来源 URL」的
+    // 证据：批量期间用户编辑了链接、或通过编辑/重置接口清掉了检查证据时，
+    // 快照里的旧证据不再有效，保留当前 Store 的值，等下一次检查重新积累。
+    // 注意换源不算：换源后立即重查，快照证据本来就属于新来源。
+    let evidence_invalidated_in_batch = original.is_some_and(|original| {
+        (current.url != original.url && !switched_in_batch)
+            || (current.check_history.is_empty() && !original.check_history.is_empty())
+    });
+    if !evidence_invalidated_in_batch {
+        current.last_probe = checked.last_probe.clone();
+        current.check_history = checked.check_history.clone();
+        current.source_failure_count = checked.source_failure_count;
+        current.source_candidates = checked.source_candidates.clone();
+        current.last_source_search_time = checked.last_source_search_time;
+    }
+
+    // 用户可编辑字段，也是元数据回填的目标：并发编辑/回填落盘的值优先，
+    // 快照值仅在当前缺失时补齐，避免吃掉批量进行期间的用户修改。
+    if current.total_episode_number.is_none() {
+        current.total_episode_number = checked.total_episode_number;
+    }
+
+    // 仅当本次检查确实改变了状态字段时才写回；否则保留当前值。
+    // 批量进行期间并发的转存任务可能刚把订阅置为已完结（或换源恢复为 active），
+    // 无条件写回快照值会把这些状态回退。
+    let status_changed_in_batch = original.is_none_or(|original| {
+        checked.status != original.status
+            || checked.completed != original.completed
+            || checked.invalid_since != original.invalid_since
+            || checked.last_error != original.last_error
+    });
+    if status_changed_in_batch {
+        // 完结证据（并发转存完成）不回退：转存任务刚把订阅置为已完结时，
+        // 批量快照里「来源失效 + 未完结」的旧状态不得覆盖它。
+        current.completed = checked.completed || current.completed;
+        if current.completed {
+            current.status = "completed".to_string();
+            current.invalid_since = None;
+        } else {
+            current.status = checked.status.clone();
+            current.invalid_since = checked.invalid_since;
+            current.last_error = checked.last_error.clone();
+        }
     }
 }
 

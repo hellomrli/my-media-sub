@@ -16,8 +16,10 @@ use super::model::{
 use super::store::JobStore;
 use super::worker::{JobWorker, RunningJobHandles, SHUTDOWN_GRACE_SECONDS};
 
-// JobStore 最多保留 500 条记录。恢复阶段在 Worker 启动前装入全部有效 queued
-// 信号，略大的容量可保证恢复不会因通道背压阻塞。
+// 信号通道容量只是一个批量优化值，不是正确性上界：恢复阶段接收端尚未
+// 运行，若 queued 任务数超过容量（truncate 在 live 任务无法淘汰时会允许
+// 总数超过 MAX_JOBS），send().await 会永久阻塞并挂死进程启动。因此恢复
+// 使用 try_send，溢出部分由 Worker 的空闲补扫重新发现。
 const JOB_SIGNAL_CAPACITY: usize = 512;
 
 pub struct JobQueue {
@@ -389,9 +391,17 @@ pub(crate) async fn recover_jobs(store: Arc<JobStore>, sender: mpsc::Sender<Stri
     queued.sort_by_key(|job| job.created_at);
     let queued_count = queued.len();
     for job in queued {
-        if sender.send(job.id.clone()).await.is_err() {
-            if let Err(e) = mark_queue_unavailable(&store, &job.id).await {
-                warn!("标记恢复任务 {} 失败: {}", job.id, e);
+        match sender.try_send(job.id.clone()) {
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                // 通道在恢复阶段没有接收端，绝不能等待；溢出的任务由
+                // Worker 空闲补扫按持久化状态重新发现。
+                warn!("恢复信号通道已满，任务 {} 将由 Worker 补扫重新入队", job.id);
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                if let Err(e) = mark_queue_unavailable(&store, &job.id).await {
+                    warn!("标记恢复任务 {} 失败: {}", job.id, e);
+                }
             }
         }
     }

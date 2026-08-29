@@ -73,6 +73,8 @@
   function createStore() {
     return {
     subscriptions: [],
+    /// 请求序号：SSE 联动、手动检查、顶栏刷新并发触发时丢弃过期响应。
+    subscriptionsRequestId: 0,
     lastCheckResult: null,
     checkingAllSubscriptions: false,
     scrapingAllMetadata: false,
@@ -137,6 +139,9 @@
     showTransferModal: false,
     transferingForSubscription: false,
     transferTargetResult: null,
+    /// 目录浏览请求序号：丢弃过期响应，防止列表与选中目录分裂。
+    transferBrowseRequestId: 0,
+    aria2DirRequestId: 0,
     transferTargetFid: '0',
     transferTargetPath: '根目录',
     transferBrowseItems: [],
@@ -1509,6 +1514,7 @@
     },
 
     async loadAria2Dir(path = '') {
+      const requestId = ++this.aria2DirRequestId;
       this.aria2DirLoading = true;
       this.aria2DirError = '';
       try {
@@ -1516,6 +1522,7 @@
         params.set('media_type', this.newSubscription.media_type || 'series');
         if (path) params.set('path', path);
         const result = await apiData(`/api/drive/aria2/browse?${params.toString()}`);
+        if (requestId !== this.aria2DirRequestId) return;
         if (result.success) {
           this.aria2DirItems = result.items || [];
           this.aria2DirRoot = result.root || '';
@@ -1526,10 +1533,13 @@
           this.aria2DirError = result.message || result.error || '读取 Aria2 下载目录失败';
         }
       } catch (error) {
+        if (requestId !== this.aria2DirRequestId) return;
         console.error('读取 Aria2 下载目录失败:', error);
         this.aria2DirError = this.apiErrorMessage(error, '读取 Aria2 下载目录失败');
       } finally {
-        this.aria2DirLoading = false;
+        if (requestId === this.aria2DirRequestId) {
+          this.aria2DirLoading = false;
+        }
       }
     },
 
@@ -1693,10 +1703,15 @@
     },
 
     async loadTransferBrowse(fid) {
+      // 请求序号：快速连续进入两层目录时丢弃过期响应，避免列表与
+      // transferTargetFid 指向不同目录，确认后转存到非预期位置。
+      const requestId = ++this.transferBrowseRequestId;
       try {
         const data = await apiData(`/api/drive?fid=${fid}`);
+        if (requestId !== this.transferBrowseRequestId) return;
         this.transferBrowseItems = data.list || [];
       } catch (error) {
+        if (requestId !== this.transferBrowseRequestId) return;
         console.error('加载目录失败:', error);
         this.showNotification('error', this.apiErrorMessage(error, '加载目录失败'));
       }
@@ -1737,42 +1752,13 @@
         return;
       }
 
+      // transferTargetResult 从未被赋值：转存弹窗只承担「订阅目标目录
+      // 选择器」职责，手动转存走搜索页的独立流程。此处保留空值守卫，
+      // 不实现不可达的手动转存分支，避免误导后续维护。
       if (!this.transferTargetResult) return;
 
       this.showTransferModal = false;
-
-      try {
-        this.showNotification('info', '正在转存到夸克网盘...');
-        const passcode = this.transferTargetResult.password
-          || this.transferTargetResult.passcode
-          || '';
-
-        const data = await apiData('/api/transfer', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-            url: this.transferTargetResult.url,
-            passcode,
-            target_fid: this.transferTargetFid
-          })
-        });
-
-        if (data.success) {
-          const msg = data.message || `转存任务已创建`;
-          this.showNotification('success', msg);
-        } else {
-          const msg = data.message || '转存失败';
-          this.showNotification('error', msg);
-        }
-        await this.loadJobs();
-        await this.loadNotifications();
-      } catch (error) {
-        console.error('转存失败:', error);
-        this.showNotification('error', this.apiErrorMessage(error, '转存失败'));
-      } finally {
-        this.transferTargetResult = null;
-        this.transferingForSubscription = false;
-      }
+      this.transferingForSubscription = false;
     },
 
     async selectQuickDir(dirType) {
@@ -1959,13 +1945,18 @@
     },
 
     async loadSubscriptions() {
+      // 请求序号：SSE 联动、手动检查、顶栏刷新并发触发时丢弃过期响应，
+      // 避免先发出的请求后返回把订阅列表回退到旧进度。
+      const requestId = ++this.subscriptionsRequestId;
       try {
         const response = await apiFetch('/api/subscriptions');
+        if (requestId !== this.subscriptionsRequestId) return;
         if (!response.ok) {
           const result = await response.json().catch(() => ({}));
           throw new Error(result.message || result.error || `加载订阅失败 (${response.status})`);
         }
         const data = await response.json();
+        if (requestId !== this.subscriptionsRequestId) return;
         this.subscriptions = data.data || [];
         if (typeof this.recoverRemoteImagesAfterDataRefresh === 'function') {
           this.recoverRemoteImagesAfterDataRefresh();
@@ -1977,6 +1968,7 @@
           this.replaceRouteState();
         }
       } catch (error) {
+        if (requestId !== this.subscriptionsRequestId) return;
         console.error('加载订阅失败:', error);
         this.showNotification('error', this.apiErrorMessage(error, '加载订阅失败'));
       }
@@ -2531,9 +2523,17 @@
       this.subscriptionBatchLoading = true;
       try {
         const run = id => this.checkSubscription(id, {silent:true, deferReload:true});
-        await (ux.runPool ? ux.runPool(ids, 3, run) : Promise.all(ids.map(run)));
+        const results = await (ux.runPool ? ux.runPool(ids, 3, run) : Promise.all(ids.map(run)));
         await Promise.all([this.loadSubscriptions(), this.loadJobs(), this.loadNotifications()]);
-        this.showNotification('success', `已检查 ${ids.length} 个订阅`);
+        // 失败计数：全失败时报错而不是固定报成功，让用户知道要重试。
+        const failedCount = results.filter(ok => ok === false).length;
+        if (failedCount === ids.length) {
+          this.showNotification('error', `批量检查失败：${failedCount} 个订阅全部失败，请稍后重试`);
+        } else if (failedCount > 0) {
+          this.showNotification('warning', `已检查 ${ids.length - failedCount} 个订阅，${failedCount} 个失败`);
+        } else {
+          this.showNotification('success', `已检查 ${ids.length} 个订阅`);
+        }
       } finally { this.subscriptionBatchLoading = false; }
     },
     async batchDeleteSelectedSubscriptions() {
