@@ -148,18 +148,30 @@ impl TransferMatchTargets {
     fn from_file_names(sub: &Subscription, file_names: &[String]) -> Self {
         Self {
             names: file_names.iter().cloned().collect(),
+            // 与检查链路同一识别口径（override + 特典排除）：特典只按
+            // 文件名匹配，不占用正片集数槽位。
             episode_keys: file_names
                 .iter()
-                .filter_map(|name| episode_video_key(name, sub.season))
+                .filter_map(|name| {
+                    crate::services::episode::episode_state_key_with_override(
+                        name,
+                        sub.season,
+                        &sub.rules.episode_regex,
+                    )
+                })
                 .collect(),
         }
     }
 
     fn matches_name(&self, sub: &Subscription, name: &str) -> bool {
         self.names.contains(name)
-            || episode_video_key(name, sub.season)
-                .map(|key| self.episode_keys.contains(&key))
-                .unwrap_or(false)
+            || crate::services::episode::episode_state_key_with_override(
+                name,
+                sub.season,
+                &sub.rules.episode_regex,
+            )
+            .map(|key| self.episode_keys.contains(&key))
+            .unwrap_or(false)
     }
 }
 
@@ -201,6 +213,10 @@ fn filter_already_transferred_files<'a>(
         .filter(|file| {
             if transferred_names.contains(file.name.as_str()) {
                 return false;
+            }
+            // 特典只按文件名匹配：不占用正片集数槽位，也不被正片集数挡掉。
+            if crate::services::episode::is_special_episode_name(&file.name) {
+                return true;
             }
             let episode = crate::services::detect_episode(&file.name).episode;
             let key = transfer_state_key(&file.name, episode, sub.rules.ignore_extensions);

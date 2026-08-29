@@ -1,5 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -109,6 +109,12 @@ struct PendingConfirmation {
     action: String,
     scope: String,
     resource: String,
+    /// 确认时目标资源的快照指纹。对依赖搜索会话序号间接引用的动作
+    /// （subscribe/transfer），执行时必须校验会话中的结果与确认时一致，
+    /// 防止确认期间会话被新搜索覆盖后转存/订阅到错误资源。
+    resource_fingerprint: String,
+    /// 确认弹窗展示用的人类可读目标描述（标题 + 链接摘要）。
+    resource_label: String,
     expires_at: i64,
     idempotency_key: String,
 }
@@ -148,6 +154,9 @@ pub struct TelegramBotService {
     confirmations: Mutex<HashMap<String, PendingConfirmation>>,
     command_rates: Mutex<CommandRateState>,
     sessions: Mutex<SessionStore>,
+    /// webhook 模式的并发上限：与 long polling 的 Semaphore(8) 同一背压，
+    /// 防止断线恢复后的 update 突发转化为无上限的并发任务。
+    update_semaphore: Arc<Semaphore>,
 }
 
 /// 分页列表的渲染结果，供翻页按钮与命令响应共用。
@@ -187,6 +196,7 @@ impl TelegramBotService {
             confirmations: Mutex::new(HashMap::new()),
             command_rates: Mutex::new(CommandRateState::default()),
             sessions: Mutex::new(SessionStore::default()),
+            update_semaphore: Arc::new(Semaphore::new(MAX_CONCURRENT_UPDATES)),
         }
     }
 
@@ -194,6 +204,14 @@ impl TelegramBotService {
         tokio::spawn(async move {
             self.run().await;
         });
+    }
+
+    /// webhook 入口的受并发上限保护的 update 处理。
+    pub async fn handle_update_bounded(&self, update: TelegramUpdate) {
+        // 服务关闭时信号量关闭：acquire 出错则直接丢弃，与停机语义一致。
+        if self.update_semaphore.acquire().await.is_ok() {
+            self.handle_update(update).await;
+        }
     }
 
     pub async fn diagnostics(&self) -> TelegramBotDiagnostics {
@@ -507,6 +525,12 @@ impl TelegramBotService {
             }
         }
         let Some(message) = callback.message.as_ref() else {
+            // 按钮所属消息过旧/不可用时 Telegram 可省略 message：
+            // 仍需应答 callback，避免用户端按钮永远转圈。
+            let settings = self.settings_store.get().await;
+            let _ = self
+                .answer_callback(&settings, &callback.id, "消息已过期，请重新操作", true)
+                .await;
             return;
         };
         let settings = self.settings_store.get().await;
@@ -800,7 +824,15 @@ impl TelegramBotService {
                     tokio::time::sleep(Duration::from_secs(5)).await;
                 }
                 "disabled" | "" => {
-                    configured_fingerprint.clear();
+                    // 切到 disabled 时撤销 Telegram 侧 webhook：否则 Telegram
+                    // 会持续 POST 得到 404 并指数退避重试，pending updates
+                    // 堆积到重新启用后集中涌入。
+                    if configured_fingerprint != "disabled" {
+                        if let Err(error) = self.delete_webhook(&settings).await {
+                            self.note_error(&error).await;
+                        }
+                        configured_fingerprint = "disabled".to_string();
+                    }
                     self.set_status("disabled").await;
                     tokio::time::sleep(Duration::from_secs(3)).await;
                 }
@@ -1418,11 +1450,21 @@ fn verify_prompt_callback_data(
 }
 
 fn telegram_callback_signature(settings: &Settings, material: &str) -> Option<String> {
-    let secret = settings.telegram_bot_webhook_secret.as_bytes();
-    if secret.len() < 24 {
-        return None;
-    }
-    let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, secret);
+    // 签名密钥优先使用 webhook secret；未配置（纯 long_polling 部署）时
+    // 回落到 Bot Token 派生密钥。否则「继续下载/查看详情」等主动按钮在
+    // 没有 webhook secret 的部署里会静默消失。Bot Token 本就是服务端
+    // 保密材料，只作为 HMAC 密钥参与签名，不产生额外暴露面。
+    let secret = match settings.telegram_bot_webhook_secret.trim() {
+        value if value.len() >= 24 => value.as_bytes().to_vec(),
+        _ => {
+            let token = settings.telegram_bot_token.trim();
+            if token.is_empty() {
+                return None;
+            }
+            format!("my-media-sub:telegram-callback:{token}").into_bytes()
+        }
+    };
+    let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &secret);
     let signature = URL_SAFE_NO_PAD.encode(ring::hmac::sign(&key, material.as_bytes()).as_ref());
     Some(signature.chars().take(8).collect())
 }
@@ -1567,10 +1609,18 @@ fn confirmation_prompt(confirmation: &PendingConfirmation) -> String {
         "read" => "标记已读",
         other => other,
     };
+    let target = if confirmation.resource_label.is_empty() {
+        confirmation.resource.clone()
+    } else {
+        format!(
+            "{}\n目标详情：{}",
+            confirmation.resource, confirmation.resource_label
+        )
+    };
     format!(
         "🔐 <b>请确认操作</b>\n\n动作：<b>{}</b>\n目标：<code>{}</code>\n最小权限：<code>{}</code>\n有效期：{} 秒\n\n确认仅对当前会话有效，且只能使用一次。",
         action_label,
-        tg_escape(&confirmation.resource),
+        tg_escape(&target),
         tg_escape(&confirmation.scope),
         CONFIRMATION_TTL_SECONDS
     )
@@ -1830,16 +1880,21 @@ fn sanitize_error_with_settings(value: &str, settings: &Settings) -> String {
 }
 
 fn sanitize_error(value: &str) -> String {
-    let token_re = Regex::new(r"(?i)bot[0-9]+:[A-Za-z0-9_-]+")
-        .expect("hard-coded Telegram token regex must compile");
-    let credential_re =
+    static TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)bot[0-9]+:[A-Za-z0-9_-]+")
+            .expect("hard-coded Telegram token regex must compile")
+    });
+    static CREDENTIAL_RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(cookie|token|password|secret|key|authorization)(\s*[:=]\s*)([^&\s,;]+)")
-            .expect("hard-coded credential regex must compile");
-    let bearer_re = Regex::new(r"(?i)bearer\s+[A-Za-z0-9._~+/-]+")
-        .expect("hard-coded bearer regex must compile");
-    let value = token_re.replace_all(value, "bot***");
-    let value = credential_re.replace_all(&value, "$1$2***");
-    let value = bearer_re.replace_all(&value, "Bearer ***");
+            .expect("hard-coded credential regex must compile")
+    });
+    static BEARER_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)bearer\s+[A-Za-z0-9._~+/-]+")
+            .expect("hard-coded bearer regex must compile")
+    });
+    let value = TOKEN_RE.replace_all(value, "bot***");
+    let value = CREDENTIAL_RE.replace_all(&value, "$1$2***");
+    let value = BEARER_RE.replace_all(&value, "Bearer ***");
     value.chars().take(300).collect()
 }
 

@@ -144,7 +144,11 @@ fn auth_rate_key(
     headers
         .get("x-forwarded-for")
         .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next())
+        // 常见反代（proxy_add_x_forwarded_for）是追加模式：最左侧一段是
+        // 客户端自带的、完全可控的头；最右侧一段由可信代理追加，才是
+        // 可信的客户端地址。取最右侧可避免攻击者轮换伪造 XFF 获得无限
+        // 个独立限流键绕过登录锁定。
+        .and_then(|value| value.rsplit(',').next())
         .map(str::trim)
         .filter(|value| !value.is_empty() && value.len() <= 128)
         .unwrap_or("direct-client")
@@ -688,11 +692,26 @@ mod tests {
     fn auth_rate_key_uses_forwarded_for_when_trusted() {
         let mut headers = HeaderMap::new();
         headers.insert("x-forwarded-for", "1.2.3.4, 5.6.7.8".parse().unwrap());
-        assert_eq!(auth_rate_key(&headers, None, true), "1.2.3.4");
+        // 追加模式下最右侧一段由可信代理写入，客户端伪造的最左段不参与限流。
+        assert_eq!(auth_rate_key(&headers, None, true), "5.6.7.8");
         assert_eq!(
             auth_rate_key(&HeaderMap::new(), None, true),
             "direct-client"
         );
+    }
+
+    #[test]
+    fn auth_rate_key_takes_rightmost_forwarded_entry() {
+        let mut headers = HeaderMap::new();
+        // 攻击者轮换伪造最左段不应产生新的限流键。
+        headers.insert(
+            "x-forwarded-for",
+            "6.6.6.6, 7.7.7.7, 203.0.113.9".parse().unwrap(),
+        );
+        assert_eq!(auth_rate_key(&headers, None, true), "203.0.113.9");
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "   ".parse().unwrap());
+        assert_eq!(auth_rate_key(&headers, None, true), "direct-client");
     }
 
     #[test]

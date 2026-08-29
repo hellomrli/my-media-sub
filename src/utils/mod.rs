@@ -127,9 +127,14 @@ pub fn quarantine_corrupt_file(path: &Path) {
 pub fn redact_sensitive(value: &str) -> String {
     use regex::Regex;
     use std::sync::LazyLock;
+    // 键前带可选的定界符（? & ; 空白 行首）避免 sign= 误伤 design= 之类
+    // 的普通单词；清单必须覆盖所有出现在 URL query 里的凭据参数：
+    // api_key（TMDB）、kps/vcode/sign（夸克移动端）、token/cookie 等。
     static KEY_VALUE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)(token|secret|password|passcode|cookie|authorization)=([^&\s]+)")
-            .expect("valid sensitive key regex")
+        Regex::new(
+            r"(?i)(?:^|[?&;=\s(])(api[_-]?key|apikey|kps|vcode|signature|sign|token|secret|password|passcode|cookie|authorization)=([^&\s]+)",
+        )
+        .expect("valid sensitive key regex")
     });
     static HEADER: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(cookie|authorization):\s*[^\r\n]+").expect("valid sensitive header regex")
@@ -299,6 +304,24 @@ mod tests {
 
         let _ = fs::remove_dir_all(dir);
     }
+    #[test]
+    fn redact_sensitive_covers_url_credential_params() {
+        // 回归：TMDB 的 api_key 与夸克移动端的 kps/vcode/sign 是核心凭据，
+        // reqwest 错误 Display 携带完整 URL 时不得带出。
+        let value = redact_sensitive(
+            "error sending request for url (https://api.themoviedb.org/3/search/tv?api_key=SECRET123&language=zh)",
+        );
+        assert!(!value.contains("SECRET123"));
+        let value = redact_sensitive(
+            "https://dl-cdn.quark.cn/1/growth/sign?pr=ucpro&kps=KPSVAL&sign=SIGNVAL&vcode=VCODEVAL",
+        );
+        assert!(!value.contains("KPSVAL"));
+        assert!(!value.contains("SIGNVAL"));
+        assert!(!value.contains("VCODEVAL"));
+        // 普通单词不受影响（design= 不是 sign=）
+        assert_eq!(redact_sensitive("design=modern"), "design=modern");
+    }
+
     #[test]
     fn redact_sensitive_hides_query_headers_and_share_ids() {
         let value = redact_sensitive("https://pan.quark.cn/s/abc123?token=secret&x=1 Cookie: k=v");

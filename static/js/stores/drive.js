@@ -47,6 +47,9 @@
   function createStore() {
     return {
     driveItems: [],
+    /// 请求序号：目录快速导航并发时丢弃过期响应，避免列表与面包屑指向
+    /// 不同的目录（随后的新建/转存会写到错误目录）。
+    driveLoadRequestId: 0,
     driveCurrentPath: '/',
     driveCurrentFid: '0',  // 当前目录的 fid
     driveFidStack: [{fid: '0', name: '根目录'}],  // 导航栈
@@ -112,7 +115,10 @@
     },
 
     async loadDrive(forceRefresh = false) {
-      if (this.driveLoading || this.driveRefreshing) return;
+      // 不做「加载中早退」：目录快速导航时第二次点击必须能取代第一次，
+      // 否则面包屑已指向新目录而列表还是旧目录的内容。过期响应由
+      // 请求序号丢弃。
+      const requestId = ++this.driveLoadRequestId;
       const hadItems = this.driveItems.length > 0;
       this.driveLoading = !hadItems;
       this.driveRefreshing = hadItems;
@@ -121,18 +127,22 @@
         const params = new URLSearchParams({fid: this.driveCurrentFid});
         if (forceRefresh) params.set('refresh', 'true');
         const data = await apiData(`/api/drive?${params.toString()}`);
+        if (requestId !== this.driveLoadRequestId) return;
         this.driveItems = data.list || [];
         this.driveLastLoadedAt = Date.now();
         this.driveVisibleLimit = 200;
         const visibleFids = new Set(this.driveItems.map(item => item.fid));
         this.driveSelectedItems = this.driveSelectedItems.filter(fid => visibleFids.has(fid));
       } catch (error) {
+        if (requestId !== this.driveLoadRequestId) return;
         console.error('加载网盘失败:', error);
         this.driveError = this.apiErrorMessage(error, '加载网盘失败');
         this.driveItems = [];
       } finally {
-        this.driveLoading = false;
-        this.driveRefreshing = false;
+        if (requestId === this.driveLoadRequestId) {
+          this.driveLoading = false;
+          this.driveRefreshing = false;
+        }
       }
     },
 

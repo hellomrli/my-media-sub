@@ -414,13 +414,19 @@ impl SubscriptionSourceSwitchService {
         subscription.last_check_summary = "已更换订阅资源，等待立即检查".to_string();
         subscription.source_failure_count = 0;
         subscription.last_source_switch_at = Some(now);
-        if subscription.media_type != "movie" && subscription.current_episode_number > 0 {
-            subscription.start_episode_number = Some(subscription.current_episode_number + 1);
-        }
+        let previous_start =
+            if subscription.media_type != "movie" && subscription.current_episode_number > 0 {
+                let previous = subscription.start_episode_number;
+                subscription.start_episode_number = Some(subscription.current_episode_number + 1);
+                previous
+            } else {
+                subscription.start_episode_number
+            };
         subscription.source_switch_history.insert(
             0,
             SourceSwitchHistoryItem {
                 id: format!("switch-{}-{}", now, candidate.id),
+                previous_start_episode_number: previous_start,
                 candidate_id: candidate.id.clone(),
                 from_url,
                 from_password,
@@ -454,6 +460,7 @@ impl SubscriptionSourceSwitchService {
             0,
             SourceSwitchHistoryItem {
                 id: format!("switch-failed-{}-{}", now, candidate.id),
+                previous_start_episode_number: None,
                 candidate_id: candidate.id.clone(),
                 from_url: subscription.url.clone(),
                 from_password: subscription.password.clone(),
@@ -495,11 +502,15 @@ impl SubscriptionSourceSwitchService {
         subscription.last_new_episodes.clear();
         subscription.last_check_summary = "已回滚到上一来源，等待立即检查".to_string();
         subscription.last_source_switch_at = Some(now);
+        // 恢复换源前的起始集：否则「从第 N 集补缺口」的订阅回滚后，
+        // 原来源的缺口补转被抬高的起始集永久挡住。
+        subscription.start_episode_number = history.previous_start_episode_number;
         subscription.source_switch_history[index].rolled_back_at = Some(now);
         subscription.source_switch_history.insert(
             0,
             SourceSwitchHistoryItem {
                 id: format!("switch-rollback-{}", now),
+                previous_start_episode_number: None,
                 candidate_id: history.candidate_id,
                 from_url: current_url,
                 from_password: current_password,

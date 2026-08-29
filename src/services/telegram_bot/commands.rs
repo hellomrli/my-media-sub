@@ -44,6 +44,8 @@ impl TelegramBotService {
             action: command.to_string(),
             scope: scope.to_string(),
             resource: resource.clone(),
+            resource_fingerprint: String::new(),
+            resource_label: String::new(),
             expires_at: crate::utils::unix_now() + CONFIRMATION_TTL_SECONDS,
             idempotency_key: format!(
                 "telegram:{scope}:{user_id}:{chat_id}:{command}:{resource}:{nonce}"
@@ -201,6 +203,7 @@ impl TelegramBotService {
                         confirmation.user_id,
                         confirmation.chat_id,
                         &confirmation.resource,
+                        &confirmation.resource_fingerprint,
                     )
                     .await
                     .map(|text| {
@@ -223,6 +226,7 @@ impl TelegramBotService {
                         confirmation.user_id,
                         confirmation.chat_id,
                         &confirmation.resource,
+                        &confirmation.resource_fingerprint,
                     )
                     .await
                     .map(|text| {
@@ -370,11 +374,15 @@ impl TelegramBotService {
         chat_id: i64,
         text: &str,
     ) -> Result<(), String> {
-        for part in split_message(text)
-            .into_iter()
-            .take(MAX_MESSAGES_PER_COMMAND)
-        {
+        let parts = split_message(text);
+        let truncated = parts.len() > MAX_MESSAGES_PER_COMMAND;
+        for part in parts.into_iter().take(MAX_MESSAGES_PER_COMMAND) {
             self.send_message(settings, chat_id, &part).await?;
+        }
+        if truncated {
+            // 明确告知内容被截断，而不是静默丢弃超出部分。
+            self.send_message(settings, chat_id, "…（内容过长，超出部分已省略）")
+                .await?;
         }
         Ok(())
     }

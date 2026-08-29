@@ -11,6 +11,8 @@
   function createStore() {
     return {
     jobs: [],
+    /// 请求序号：REST 整表替换与 SSE upsert/用户操作并发时丢弃过期响应。
+    jobsRequestId: 0,
     jobEvents: null,
     /// SSE 是否在正常推送。为 true 时活动轮询不再重复拉整个任务列表，
     /// 只补通知——通知没有 SSE 通道。断线后回落到全量轮询。
@@ -25,9 +27,12 @@
     },
 
     async loadJobs() {
+      // 请求序号：更早发出的整表加载后到时，不得覆盖刚 upsert 的任务状态。
+      const requestId = ++this.jobsRequestId;
       try {
         const response = await apiFetch('/api/jobs');
         const data = await response.json();
+        if (requestId !== this.jobsRequestId) return;
         this.jobs = data.data || [];
       } catch (error) {
         console.error('加载任务失败:', error);

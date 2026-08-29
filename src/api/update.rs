@@ -204,11 +204,30 @@ async fn apply_update(request: Option<Json<UpdateApplyRequest>>) -> Result<impl 
         .unwrap_or_else(|| "正在检查最新版本".to_string());
 
     try_begin_update_progress(message)?;
+    // panic 兜底：apply_update_inner 若异常中止，drop guard 会把 running
+    // 复位，否则升级进度互斥锁永久卡死，后续所有升级都被拒绝。
+    let _progress_reset_guard = UpdateProgressResetGuard;
     match apply_update_inner(target_tag).await {
         Ok(response) => Ok(Json(Response::ok(response))),
         Err(error) => {
             fail_update_progress(error.to_string());
             Err(error)
+        }
+    }
+}
+
+/// 升级进度复位 guard：正常路径（成功/失败）已显式结束进度；只有 panic
+/// 展开经过 drop 时 running 仍为 true，此处负责复位互斥状态。
+struct UpdateProgressResetGuard;
+
+impl Drop for UpdateProgressResetGuard {
+    fn drop(&mut self) {
+        if let Ok(mut progress) = UPDATE_PROGRESS.lock() {
+            if progress.running {
+                progress.running = false;
+                progress.error = Some("升级任务异常中止，请重试".to_string());
+                progress.updated_at = Utc::now().to_rfc3339();
+            }
         }
     }
 }
@@ -468,7 +487,13 @@ async fn fetch_latest_release() -> Result<GithubRelease> {
 
 async fn fetch_release_by_tag(tag: &str) -> Result<GithubRelease> {
     let tag = tag.trim().trim_start_matches('/').to_string();
-    if tag.is_empty() || tag.contains('/') {
+    // 只接受发布标签的合法字符，防止 `?`/`#` 等改写 GitHub API 请求语义。
+    let tag_is_valid = !tag.is_empty()
+        && !tag.contains('/')
+        && tag
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-' | '+'));
+    if !tag_is_valid {
         return Err(AppError::Validation("版本标签无效".to_string()));
     }
 
@@ -609,9 +634,14 @@ fn online_update_unavailable_message(runtime: &str) -> String {
     }
 }
 
+/// 升级包体积硬上限（期望大小的 3 倍，兼顾压缩包与异常大文件的容差）。
+const MAX_UPDATE_PACKAGE_BYTES: u64 = 3;
+
 async fn download_asset(url: &str, path: &Path, expected_size: u64) -> Result<()> {
     set_update_progress(10, "download", "正在连接 Release 下载地址");
-    let mut response = http_pool::default_client()
+    // 发布压缩包通常 10MB 以上，跨境下载经常超过 30 秒的总超时；
+    // 大文件下载使用流式客户端，避免慢链路下升级反复在下载阶段失败。
+    let mut response = http_pool::streaming_client()
         .get(url)
         .header(reqwest::header::USER_AGENT, "my-media-sub-self-update")
         .send()
@@ -620,16 +650,35 @@ async fn download_asset(url: &str, path: &Path, expected_size: u64) -> Result<()
 
     let fallback_total_bytes = (expected_size > 0).then_some(expected_size);
     let total_bytes = response.content_length().or(fallback_total_bytes);
+    if let Some(total) = total_bytes {
+        if total
+            > expected_size
+                .saturating_mul(MAX_UPDATE_PACKAGE_BYTES)
+                .max(64 * 1024 * 1024)
+        {
+            return Err(AppError::Validation(
+                "升级包体积异常，已取消下载".to_string(),
+            ));
+        }
+    }
+    let max_bytes = expected_size
+        .saturating_mul(MAX_UPDATE_PACKAGE_BYTES)
+        .max(64 * 1024 * 1024);
     let mut downloaded_bytes = 0u64;
     let mut file = tokio::fs::File::create(path)
         .await
         .map_err(|e| AppError::Internal(format!("创建升级包文件失败: {}", e)))?;
 
     while let Some(chunk) = response.chunk().await? {
+        downloaded_bytes += chunk.len() as u64;
+        if downloaded_bytes > max_bytes {
+            return Err(AppError::Validation(
+                "升级包体积异常，已取消下载".to_string(),
+            ));
+        }
         file.write_all(&chunk)
             .await
             .map_err(|e| AppError::Internal(format!("写入升级包失败: {}", e)))?;
-        downloaded_bytes += chunk.len() as u64;
         set_download_progress(downloaded_bytes, total_bytes);
     }
     file.flush()

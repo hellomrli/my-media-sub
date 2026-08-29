@@ -37,6 +37,15 @@ fn upstream_status_error(
             operation, retry_after
         )));
     }
+    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+        // 401/403 是「登录态/凭据失效」信号，与网络抖动有本质区别：
+        // 归为 Validation 类（不可重试）并在文案里直说，让用户知道该
+        // 更新 Cookie，而不是被当成临时故障反复重试。
+        return Some(AppError::Validation(format!(
+            "{} 上游返回 {}：登录态可能已失效，请更新夸克 Cookie",
+            operation, status
+        )));
+    }
     if !status.is_success() {
         return Some(AppError::UpstreamStatus {
             status,
@@ -88,6 +97,20 @@ mod tests {
                 assert!(message.contains("404 Not Found"));
             }
             other => panic!("expected upstream status error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn upstream_401_403_are_classified_as_credential_failure() {
+        // 401/403 意味着登录态失效，必须与临时网络故障区分开：
+        // 用户需要更新 Cookie，而不是无限重试。
+        for status in [
+            reqwest::StatusCode::UNAUTHORIZED,
+            reqwest::StatusCode::FORBIDDEN,
+        ] {
+            let error = upstream_status_error(status, None, "夸克转存").unwrap();
+            assert!(matches!(error, AppError::Validation(_)), "got {error:?}");
+            assert!(error.to_string().contains("Cookie"));
         }
     }
 }

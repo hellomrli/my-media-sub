@@ -258,6 +258,39 @@ async fn flush_digest_pending(
     notification_store: Arc<NotificationStore>,
     job_queue: Option<Arc<JobQueue>>,
 ) {
+    let settings = settings_store.get().await;
+
+    // 预检：安静时段/无可用路由时不领取。领取是终态操作，一旦领取后
+    // 被投递侧以「无渠道」跳过，这批摘要就永久丢失了。这里按待发内容
+    // 推导真实级别（error 级摘要可按设置绕过安静时段），只推迟冲刷，
+    // 定期重试直到安静时段结束。
+    let pending = notification_store
+        .list(true)
+        .await
+        .into_iter()
+        .filter(|item| {
+            item.meta
+                .get("digest_pending")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+        })
+        .collect::<Vec<_>>();
+    if pending.is_empty() {
+        return;
+    }
+    let level = if pending.iter().any(|item| item.level == "error") {
+        PushLevel::Error
+    } else {
+        PushLevel::Info
+    };
+    if PushService::new(settings.clone())
+        .channels_for_event(PushEvent::NotificationDigest, level)
+        .is_empty()
+    {
+        schedule_digest_flush(settings_store, notification_store, job_queue, 30);
+        return;
+    }
+
     let Ok(items) = notification_store.take_digest_pending().await else {
         return;
     };
@@ -271,13 +304,9 @@ async fn flush_digest_pending(
         .collect::<Vec<_>>()
         .join("\n");
     let title = format!("通知摘要（{} 条）", items.len());
-    let level = if items.iter().any(|item| item.level == "error") {
-        PushLevel::Error
-    } else {
-        PushLevel::Info
-    };
+    let taken_ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
     if let Some(queue) = job_queue {
-        let _ = queue
+        if let Err(error) = queue
             .submit_push_dispatch(PushDispatchPayload {
                 event: PushEvent::NotificationDigest.as_str().to_string(),
                 title,
@@ -289,9 +318,14 @@ async fn flush_digest_pending(
                 episode: None,
                 job_id: None,
             })
-            .await;
+            .await
+        {
+            // 投递入队失败必须回滚领取，否则这批摘要永久丢失。
+            warn!("提交摘要推送任务失败，回滚摘要领取: {}", error);
+            let _ = notification_store.restore_digest_pending(&taken_ids).await;
+        }
     } else {
-        let service = PushService::new(settings_store.get().await);
+        let service = PushService::new(settings);
         let _ = service
             .send_event_with_retry_detailed(
                 PushEvent::NotificationDigest,
@@ -358,6 +392,53 @@ mod digest_tests {
             None,
             1_440,
         ));
+        DIGEST_FLUSH_SCHEDULED.store(false, Ordering::SeqCst);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn digest_flush_without_channels_keeps_items_pending() {
+        // 回归：安静时段/无路由时冲刷只应推迟，不得领取后丢弃摘要内容。
+        let dir = std::env::temp_dir().join(format!(
+            "my-media-sub-digest-quiet-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let settings_store = Arc::new(SettingsStore::new(dir.join("settings.json")));
+        let notification_store = Arc::new(NotificationStore::new(dir.join("notifications.json")));
+
+        // 未配置任何推送渠道：digest 预检必然判空。
+        let notification = add_notification(
+            &notification_store,
+            "success",
+            PushEvent::DownloadCompleted.as_str(),
+            "下载完成: A.mkv",
+            "文件：A.mkv",
+            Default::default(),
+        )
+        .await
+        .unwrap();
+        notification_store
+            .mark_digest_pending(&notification.id)
+            .await
+            .unwrap();
+
+        DIGEST_FLUSH_SCHEDULED.store(false, Ordering::SeqCst);
+        flush_digest_pending(settings_store.clone(), notification_store.clone(), None).await;
+
+        // 内容仍在 pending 状态，未被消费丢弃；冲刷被重新排班。
+        let pending = notification_store
+            .list(true)
+            .await
+            .into_iter()
+            .filter(|item| {
+                item.meta
+                    .get("digest_pending")
+                    .and_then(serde_json::Value::as_bool)
+                    == Some(true)
+            })
+            .count();
+        assert_eq!(pending, 1, "摘要内容不得在无渠道时被领取丢弃");
         DIGEST_FLUSH_SCHEDULED.store(false, Ordering::SeqCst);
         let _ = std::fs::remove_dir_all(&dir);
     }

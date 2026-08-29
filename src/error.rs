@@ -141,7 +141,9 @@ impl From<serde_json::Error> for AppError {
 
 impl From<reqwest::Error> for AppError {
     fn from(err: reqwest::Error) -> Self {
-        AppError::Http(err.to_string())
+        // reqwest 的错误 Display 可能携带完整请求 URL（含 api_key=、kps=
+        // 等查询参数），入库前统一脱敏；AppError 的 Display 还会再兜底。
+        AppError::Http(crate::utils::redact_sensitive(&err.to_string()))
     }
 }
 

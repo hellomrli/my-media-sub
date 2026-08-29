@@ -549,6 +549,22 @@ fn public_settings(settings: crate::models::Settings) -> Result<serde_json::Valu
 
     if let Some(obj) = value.as_object_mut() {
         for key in SECRET_KEYS {
+            // browser_push_subscriptions 是结构化数组而非字符串密钥：
+            // 掩码写回会把字段类型破坏成空串。只上报 configured 标志，
+            // 原始数据整个移除，不进入公共视图。
+            if *key == "browser_push_subscriptions" {
+                let configured = obj
+                    .get(*key)
+                    .and_then(|v| v.as_array())
+                    .map(|items| !items.is_empty())
+                    .unwrap_or(false);
+                obj.insert(
+                    format!("{}_configured", key),
+                    serde_json::Value::Bool(configured),
+                );
+                obj.remove(*key);
+                continue;
+            }
             let configured = obj
                 .get(*key)
                 .and_then(|v| v.as_str())
@@ -649,6 +665,9 @@ fn setting_secret(settings: &crate::models::Settings, key: &str) -> Option<Strin
         "gotify_token" => &settings.gotify_token,
         "pushplus_token" => &settings.pushplus_token,
         "serverchan_key" => &settings.serverchan_key,
+        "webhook_secret" => &settings.webhook_secret,
+        "webhook_previous_secret" => &settings.webhook_previous_secret,
+        "browser_push_vapid_private_key" => &settings.browser_push_vapid_private_key,
         _ => return None,
     };
     Some(value.clone())

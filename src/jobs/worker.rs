@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use serde_json::json;
 use tokio::sync::{mpsc, watch};
 use tokio::task::{AbortHandle, JoinSet};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::error::{AppError, Result};
 use crate::models::{
@@ -83,6 +83,39 @@ impl Drop for AbortTaskOnDrop {
     }
 }
 
+/// 心跳包裹器的核心实现：在 future 执行期间按 interval 刷新任务的
+/// updated_at（不改 progress/message），future 返回后立即停止。
+pub(super) async fn with_job_heartbeat<F, T>(
+    store: Arc<JobStore>,
+    job_id: &str,
+    future: F,
+    interval: std::time::Duration,
+) -> T
+where
+    F: std::future::Future<Output = T>,
+{
+    tokio::pin!(future);
+    let mut ticker = tokio::time::interval(interval);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    ticker.tick().await; // interval 首个 tick 立即返回，直接消耗掉
+    loop {
+        tokio::select! {
+            result = &mut future => return result,
+            _ = ticker.tick() => {
+                // 任务已不在 Running（被取消/收尾）时停止刷新，让 future
+                // 自行收尾；store 不可写（磁盘故障）也不影响业务结果。
+                let _ = store.try_update(job_id, |job| {
+                    if job.status != JobStatus::Running {
+                        return Err(AppError::Validation("任务已不再运行".to_string()));
+                    }
+                    Ok(())
+                })
+                .await;
+            }
+        }
+    }
+}
+
 pub(crate) struct JobWorker {
     pub(crate) store: Arc<JobStore>,
     pub(crate) sender: mpsc::Sender<String>,
@@ -117,6 +150,11 @@ impl JobWorker {
                     break;
                 };
                 self.queue_pending_job(&mut scheduler, &job_id).await;
+            }
+            // 调度器排空且通道无信号时补扫一次持久化队列，兜底恢复阶段
+            // 信号溢出或其他极端情况下丢失唤醒信号的 queued 任务。
+            if scheduler.is_empty() {
+                self.reconcile_queued_jobs(&mut scheduler).await;
             }
 
             let settings = self.settings_store.get().await;
@@ -381,6 +419,30 @@ impl JobWorker {
             handle.abort();
         }
         count
+    }
+
+    /// 补扫持久化队列：调度器为空时重新发现 queued 任务，兜底恢复阶段
+    /// 信号溢出或丢失的唤醒信号。延迟重试任务仍由原有的休眠定时器唤醒，
+    /// 这里跳过以避免每秒重复生成休眠任务。
+    async fn reconcile_queued_jobs(&self, scheduler: &mut FairScheduler) {
+        let dropped = self
+            .store
+            .list()
+            .await
+            .into_iter()
+            .filter(|job| {
+                job.status == JobStatus::Queued
+                    && !job.next_attempt_at.is_some_and(|due| due > now())
+            })
+            .map(|job| job.id)
+            .collect::<Vec<_>>();
+        if dropped.is_empty() {
+            return;
+        }
+        debug!("补扫发现 {} 个排队任务重新入队", dropped.len());
+        for job_id in dropped {
+            self.queue_pending_job(scheduler, &job_id).await;
+        }
     }
 
     async fn queue_pending_job(&self, scheduler: &mut FairScheduler, job_id: &str) {
@@ -686,6 +748,20 @@ impl JobWorker {
         }
     }
 
+    /// 包裹单个长耗时外部调用：等待期间定期刷新任务心跳（updated_at），
+    /// 避免看门狗把「仍在正常执行、但内部没有中间进度点」的大批量转存
+    /// 误判为卡死 abort——远端可能已实际完成，重试会造成重复转存。
+    /// 心跳只在被包裹的 future 存续期间运行；任务各阶段之间没有心跳，
+    /// 「整体无任何进展」的卡死仍会被看门狗按原语义终止。
+    pub(super) async fn run_with_heartbeat<F, T>(&self, job_id: &str, future: F) -> T
+    where
+        F: std::future::Future<Output = T>,
+    {
+        // 看门狗阈值 30 分钟；心跳 5 分钟一次，留出 6 倍裕量。
+        const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(300);
+        with_job_heartbeat(self.store.clone(), job_id, future, HEARTBEAT_INTERVAL).await
+    }
+
     async fn update_running(&self, job_id: &str, progress: u8, message: &str) -> Result<()> {
         self.store
             .try_update(job_id, |job| {
@@ -936,6 +1012,69 @@ mod tests {
             .await
             .expect("inner task was detached instead of aborted")
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn heartbeat_refreshes_updated_at_during_long_future() {
+        use std::time::Duration;
+
+        let tmp = std::env::temp_dir().join(format!(
+            "my-media-sub-job-heartbeat-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let store = Arc::new(JobStore::new(&tmp));
+        store.load().await.unwrap();
+        store
+            .add(Job {
+                id: "long-transfer".to_string(),
+                kind: JobKind::ManualTransfer,
+                request_id: None,
+                correlation_id: None,
+                subscription_id: None,
+                priority: JobPriority::Normal,
+                attempt: 1,
+                next_attempt_at: None,
+                error_class: None,
+                status: JobStatus::Running,
+                progress: 45,
+                title: "手动转存".to_string(),
+                message: "正在转存文件".to_string(),
+                idempotency_key: None,
+                payload: json!({}),
+                result: None,
+                error: None,
+                created_at: 1,
+                updated_at: 1,
+                started_at: Some(1),
+                finished_at: None,
+            })
+            .await
+            .unwrap();
+
+        let result = with_job_heartbeat(
+            store.clone(),
+            "long-transfer",
+            async {
+                // 覆盖至少两个心跳周期，future 自身不产生任何 store 更新。
+                tokio::time::sleep(Duration::from_millis(120)).await;
+                "done"
+            },
+            Duration::from_millis(30),
+        )
+        .await;
+        assert_eq!(result, "done");
+
+        let job = store.get("long-transfer").await.unwrap();
+        assert_eq!(job.status, JobStatus::Running);
+        assert!(
+            job.updated_at > 1,
+            "心跳应刷新 updated_at，实际仍为 {}",
+            job.updated_at
+        );
+        assert_eq!(job.progress, 45, "心跳不得修改 progress/message");
+        assert_eq!(job.message, "正在转存文件");
+
+        let _ = std::fs::remove_file(tmp);
     }
 
     #[tokio::test]

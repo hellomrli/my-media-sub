@@ -39,10 +39,11 @@ async fn list_jobs(
     Query(query): Query<ListQuery>,
 ) -> Result<Json<Response<Vec<Job>>>> {
     let jobs = match query.limit {
+        // 与 archive 接口一致：显式 limit 钳制上限，避免异常请求拉取过量数据。
         Some(limit) => {
             state
                 .store
-                .list_paginated(query.offset.unwrap_or(0), limit)
+                .list_paginated(query.offset.unwrap_or(0), limit.min(500))
                 .await
         }
         None => state.store.list().await,

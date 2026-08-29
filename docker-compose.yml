@@ -6,6 +6,9 @@ services:
     #   context: .
     container_name: my-media-sub
     restart: unless-stopped
+    # 优雅停机需要 HTTP 排空(15s) + 任务落盘宽限(30s) 的串联预算；
+    # Docker 默认 10 秒会先发 SIGKILL，运行中任务只能靠重启恢复兜底。
+    stop_grace_period: 60s
     # 日志只写 stdout，json-file 驱动默认无上限；长期运行必须设轮转。
     logging:
       driver: json-file

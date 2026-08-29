@@ -136,6 +136,10 @@ pub struct SourceCandidate {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceSwitchHistoryItem {
     pub id: String,
+    /// 换源前的起始集数：回滚时恢复，避免「季中补集」的起始集设置
+    /// 被换源抬高后永久丢失。旧数据无此字段时为 None（保持不变）。
+    #[serde(default)]
+    pub previous_start_episode_number: Option<i32>,
     #[serde(default)]
     pub candidate_id: String,
     #[serde(default)]

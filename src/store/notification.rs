@@ -228,6 +228,34 @@ impl NotificationStore {
         }
         Ok(taken)
     }
+
+    /// 回滚一次 `take_digest_pending` 领取：冲刷在领取后投递失败时调用，
+    /// 把通知重新标记为待摘要，等下一个窗口重试，避免摘要内容永久丢失。
+    pub async fn restore_digest_pending(&self, ids: &[String]) -> Result<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let _guard = self.save_lock.lock().await;
+        let (restored, snapshot) = {
+            let items = self.items.read().await;
+            let mut snapshot = items.clone();
+            let mut restored = 0usize;
+            for item in &mut snapshot {
+                if ids.contains(&item.id) {
+                    item.meta
+                        .insert("digest_pending".to_string(), serde_json::json!(true));
+                    item.meta.remove("digest_consumed_at");
+                    restored += 1;
+                }
+            }
+            (restored, snapshot)
+        };
+        if restored > 0 {
+            self.save(&snapshot).await?;
+            *self.items.write().await = snapshot;
+        }
+        Ok(())
+    }
 }
 
 fn truncate_notifications(items: &mut Vec<Notification>) {
