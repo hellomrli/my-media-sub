@@ -325,6 +325,40 @@ pub fn matches_subscription_season_range(
     !has_non_current_collection_hint(parent_path)
 }
 
+/// 跳季订阅（季度集合）的文件季匹配：与区间版本同一口径，
+/// 命中季号时要求在集合内；无提示时排除明显非本季合集路径。
+pub fn matches_subscription_season_set(name: &str, parent_path: &str, seasons: &[i32]) -> bool {
+    if let Some(season) = season_hint_from_context(name, parent_path) {
+        return seasons.contains(&season);
+    }
+    !has_non_current_collection_hint(parent_path)
+}
+
+/// 「文件属于订阅覆盖的季」统一入口：集合（跳季）/区间两种语义在此分流。
+///
+/// 与 `matches_subscription_season_range` 同一口径：能从文件名/父路径识别
+/// 季号时必须落在订阅范围内；无季号提示时排除明显非本季合集路径后接受
+/// （多季回落按文件季号分组）。放在 services 层：models 不依赖 services
+/// （real_data_compat 等测试直接 include 模型文件）。
+pub fn subscription_file_matches_season(
+    sub: &crate::models::subscription::Subscription,
+    name: &str,
+    parent_path: &str,
+) -> bool {
+    if sub.media_type == "movie" {
+        return true;
+    }
+    if let Some(list) = sub.season_list.as_ref().filter(|list| !list.is_empty()) {
+        return matches_subscription_season_set(name, parent_path, list);
+    }
+    matches_subscription_season_range(
+        name,
+        parent_path,
+        sub.season_start(),
+        sub.season_end_inclusive(),
+    )
+}
+
 /// 解析文件所属季号：优先文件名/路径提示，否则回落到 `default_season`（多季通常为起始季）。
 pub fn resolve_file_season(
     name: &str,

@@ -21,7 +21,10 @@ use crate::services::subscription_source_switch::{
     SourceSwitchPreview, SourceSwitchRollbackResult, SubscriptionSourceSwitchService,
 };
 
-const AUTO_PROBE_CANDIDATE_LIMIT: usize = 5;
+/// 候选搜索响应里逐个探测有效性的数量上限。搜索本身截断到 20 个候选，
+/// 这里取同值做全量探测：用户要求换源列表只保留有效链接，只探前几个会
+/// 让失效链接继续留在列表里。全部并发执行，总耗时仍受单请求超时约束。
+const AUTO_PROBE_CANDIDATE_LIMIT: usize = 20;
 const AUTO_PROBE_TIMEOUT: Duration = Duration::from_secs(12);
 
 /// 获取订阅的换源候选列表
@@ -243,6 +246,19 @@ pub async fn trigger_source_search(
         now_ms,
     )
     .await;
+
+    // 有效性筛选：移除夸克探测明确失败的候选（失效分享/取消分享），
+    // 未探测成功的（超时/暂时错误）保留并由前端标注，避免误伤。
+    let (candidates, removed) =
+        SubscriptionSourceSwitchService::retain_valid_candidates(candidates);
+    if removed > 0 {
+        tracing::info!(
+            "订阅 {} 换源候选过滤：移除 {} 个失效链接，保留 {} 个",
+            sub.title,
+            removed,
+            candidates.len()
+        );
+    }
 
     let updated_candidates = candidates.clone();
     ctx.subscription_store

@@ -112,13 +112,7 @@ fn dedup_provider_episode_files<'a>(
 }
 
 fn provider_file_matches_subscription_season(sub: &Subscription, file: &ProviderFile) -> bool {
-    sub.media_type == "movie"
-        || crate::services::episode::matches_subscription_season_range(
-            &file.name,
-            &file.parent_path,
-            sub.season_start(),
-            sub.season_end_inclusive(),
-        )
+    crate::services::episode::subscription_file_matches_season(sub, &file.name, &file.parent_path)
 }
 
 fn has_rename_rules(rules: &TransferRules) -> bool {

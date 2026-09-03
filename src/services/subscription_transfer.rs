@@ -26,8 +26,8 @@ use crate::services::transfer_rule::{
     apply_rename, effective_rules, portable_filename, transfer_state_key,
 };
 use crate::services::{
-    episode::is_better_episode_duplicate_candidate, episode::matches_subscription_season_range,
-    episode::resolve_file_season, episode::EpisodeDuplicateCandidate,
+    episode::is_better_episode_duplicate_candidate, episode::resolve_file_season,
+    episode::EpisodeDuplicateCandidate,
 };
 use crate::store::{NotificationStore, SettingsStore, SubscriptionStore};
 use crate::utils::unix_now;
@@ -253,7 +253,7 @@ impl SubscriptionTransferService {
                 warn!("订阅 {} 跳过无法判定季号的文件: {}", sub.title, file.name);
                 continue;
             };
-            if season < sub.season_start() || season > sub.season_end_inclusive() {
+            if !sub.covers_season(season) {
                 continue;
             }
             groups.entry(season).or_default().push(file);
@@ -534,17 +534,13 @@ impl SubscriptionTransferService {
         for video_file in &rename_candidates {
             let mut final_file = video_file.clone();
             if sub.media_type != "movie"
-                && !matches_subscription_season_range(
+                && !crate::services::episode::subscription_file_matches_season(
+                    sub,
                     &video_file.name,
                     "",
-                    sub.season_start(),
-                    sub.season_end_inclusive(),
                 )
             {
-                info!(
-                    "文件 {} 不属于订阅第 {} 季，跳过重命名",
-                    video_file.name, sub.season
-                );
+                info!("文件 {} 不属于订阅季度范围，跳过重命名", video_file.name);
                 files.push(final_file);
                 continue;
             }
@@ -555,10 +551,26 @@ impl SubscriptionTransferService {
                 continue;
             }
 
+            // {season} 占位符按文件自身识别的季号填充：跳季/多季订阅的
+            // 手动修复命名不能把所有文件都写成 min 季（sub.season）。
+            let mut rename_sub = sub.clone();
+            if sub.media_type != "movie" {
+                let file_season = resolve_file_season(
+                    &video_file.name,
+                    "",
+                    sub.season_start(),
+                    sub.is_multi_season(),
+                );
+                if let Some(season) = file_season {
+                    rename_sub.season = season;
+                    rename_sub.season_end = None;
+                    rename_sub.season_list = None;
+                }
+            }
             let (new_name, rename_error) = apply_rename(
                 &video_file.name,
                 &sub.rules,
-                Some(sub),
+                Some(&rename_sub),
                 episode_info.episode,
             );
             if let Some(err) = rename_error {

@@ -32,7 +32,9 @@ mod metadata;
 mod source;
 mod status;
 
-use actions::{check_all_subscriptions, check_subscription, rename_existing_files};
+use actions::{
+    check_all_subscriptions, check_subscription, detect_subscription_seasons, rename_existing_files,
+};
 use crud::{
     create_subscription, delete_subscription, get_subscription, list_subscriptions,
     update_subscription,
@@ -72,7 +74,10 @@ pub struct CreateSubscriptionRequest {
     /// 多季订阅结束季（含）；例如 season=1, season_end=4 表示 1–4 季
     #[serde(default)]
     pub season_end: Option<i32>,
-    /// 季号文本（优先）：`1` / `1-4`
+    /// 跳季订阅的季度集合（如只订 S1+S3 → `[1, 3]`）；非连续时优先于区间
+    #[serde(default)]
+    pub season_list: Option<Vec<i32>>,
+    /// 季号文本（优先）：`1` / `1-4` / `1,3`
     #[serde(default)]
     pub season_spec: String,
     #[serde(default)]
@@ -118,6 +123,9 @@ pub struct UpdateSubscriptionRequest {
         skip_serializing_if = "Option::is_none"
     )]
     pub season_end: Option<Option<i32>>,
+    /// 季度集合（跳季订阅）；字段存在即生效（空数组清除集合回到区间语义）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub season_list: Option<Vec<i32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub season_spec: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -191,6 +199,8 @@ pub struct RenamePreviewRequest {
     pub season: Option<i32>,
     #[serde(default)]
     pub season_end: Option<i32>,
+    #[serde(default)]
+    pub season_list: Option<Vec<i32>>,
     #[serde(default)]
     pub season_spec: String,
     #[serde(default)]
@@ -345,12 +355,16 @@ fn preview_subscription(req: &RenamePreviewRequest, base: Option<&Subscription>)
             .or_else(|| base.map(|sub| sub.media_type.clone()))
             .unwrap_or_else(|| "series".to_string()),
         season: {
-            let (start, _) = resolve_preview_season_bounds(req, base);
+            let (start, _, _) = resolve_preview_season_fields(req, base);
             start
         },
         season_end: {
-            let (_, end) = resolve_preview_season_bounds(req, base);
+            let (_, end, _) = resolve_preview_season_fields(req, base);
             end
+        },
+        season_list: {
+            let (_, _, list) = resolve_preview_season_fields(req, base);
+            list
         },
         start_episode_number: normalize_start_episode_number(
             req.start_episode_number
@@ -492,21 +506,35 @@ impl From<Subscription> for SubscriptionListItem {
     }
 }
 
-fn resolve_preview_season_bounds(
+/// 预览订阅的季度输入解析：跳季集合（season_list / 逗号 spec）优先，
+/// 其余回落到区间字段。列表为空/单季/连续时折叠为区间语义。
+fn resolve_preview_season_fields(
     req: &RenamePreviewRequest,
     base: Option<&Subscription>,
-) -> (i32, Option<i32>) {
+) -> (i32, Option<i32>, Option<Vec<i32>>) {
     if !req.season_spec.trim().is_empty() {
-        return crate::models::subscription::parse_season_spec(&req.season_spec);
+        return crate::models::subscription::normalize_season_list(
+            crate::models::subscription::parse_season_spec_list(&req.season_spec),
+        );
     }
-    crate::models::subscription::normalize_season_bounds(
+    if let Some(list) = req.season_list.clone().filter(|list| !list.is_empty()) {
+        return crate::models::subscription::normalize_season_list(list);
+    }
+    if let Some(list) = base
+        .and_then(|sub| sub.season_list.clone())
+        .filter(|list| !list.is_empty())
+    {
+        return (base.map(|sub| sub.season).unwrap_or(1), None, Some(list));
+    }
+    let (season, season_end) = crate::models::subscription::normalize_season_bounds(
         req.season
             .or_else(|| base.map(|sub| sub.season))
             .filter(|season| *season > 0)
             .unwrap_or(1),
         req.season_end
             .or_else(|| base.and_then(|sub| sub.season_end)),
-    )
+    );
+    (season, season_end, None)
 }
 
 fn group_rename_preview_items(items: &[RenamePreviewItem]) -> Vec<RenamePreviewSeasonGroup> {
@@ -599,6 +627,10 @@ pub fn routes(
         .route(
             "/api/subscriptions/rename-preview",
             post(preview_subscription_rename),
+        )
+        .route(
+            "/api/subscriptions/seasons",
+            post(detect_subscription_seasons),
         )
         .route(
             "/api/subscriptions/metadata/scrape",

@@ -9,6 +9,7 @@ pub mod notification;
 pub mod post_transfer;
 pub mod push;
 pub mod quark_signin;
+pub mod season_detection;
 pub mod source_quality;
 pub mod storage;
 pub mod subscription_check;

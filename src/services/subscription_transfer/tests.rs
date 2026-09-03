@@ -36,6 +36,7 @@ mod tests {
             media_type: media_type.to_string(),
             season,
             season_end: None,
+            season_list: None,
             start_episode_number: None,
             current_episode_number: 0,
             total_episode_number: None,

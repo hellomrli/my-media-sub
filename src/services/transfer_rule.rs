@@ -408,17 +408,16 @@ pub fn build_transfer_plan(
         if raw.is_dir {
             item.skip_reason = "目录暂不规划转存".to_string();
         } else if subscription.media_type != "movie"
-            && !crate::services::episode::matches_subscription_season_range(
+            && !crate::services::episode::subscription_file_matches_season(
+                subscription,
                 name,
                 &raw.parent_path,
-                subscription.season_start(),
-                subscription.season_end_inclusive(),
             )
         {
             item.skip_reason = if multi_season {
                 "非订阅季范围".to_string()
             } else {
-                "非当前订阅季".to_string()
+                "不在订阅季度，暂不转存（编辑订阅可增加该季）".to_string()
             };
         } else if name.is_empty() {
             item.skip_reason = "文件名为空".to_string();
@@ -546,7 +545,7 @@ pub fn build_transfer_plan(
                 && i.skip_reason != "不含包含关键词"
                 && i.skip_reason != "命中排除关键词"
                 && i.skip_reason != "未命中匹配正则"
-                && i.skip_reason != "非当前订阅季"
+                && i.skip_reason != "不在订阅季度，暂不转存（编辑订阅可增加该季）"
                 && i.skip_reason != "剧集订阅仅处理视频文件"
                 && i.skip_reason != "未识别到有效集数"
                 && !i.skip_reason.starts_with("集数超过订阅总集数")
@@ -669,6 +668,7 @@ mod tests {
             media_type: "series".to_string(),
             season: 1,
             season_end: None,
+            season_list: None,
             start_episode_number: None,
             current_episode_number: 0,
             total_episode_number: None,
@@ -846,7 +846,10 @@ mod tests {
             plan.transfers[0].source_parent_path,
             "一人之下 第六季/第6季"
         );
-        assert_eq!(plan.skipped[0].skip_reason, "非当前订阅季");
+        assert_eq!(
+            plan.skipped[0].skip_reason,
+            "不在订阅季度，暂不转存（编辑订阅可增加该季）"
+        );
         assert_eq!(plan.skipped[1].skip_reason, "目录暂不规划转存");
     }
 

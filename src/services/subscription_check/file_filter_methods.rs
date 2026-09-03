@@ -265,13 +265,7 @@ macro_rules! subscription_check_file_filter_methods {
     }
 
     fn is_current_subscription_season_file(sub: &Subscription, file: &ProbeFile) -> bool {
-        sub.media_type == "movie"
-            || matches_subscription_season_range(
-                &file.name,
-                &file.parent_path,
-                sub.season_start(),
-                sub.season_end_inclusive(),
-            )
+        crate::services::episode::subscription_file_matches_season(sub, &file.name, &file.parent_path)
     }
 
     fn should_record_known_probe_file(&self, sub: &Subscription, file: &ProbeFile) -> bool {
@@ -431,7 +425,7 @@ macro_rules! subscription_check_file_filter_methods {
                 ("known", "已知文件".to_string())
             } else if !Self::is_current_subscription_season_file(sub, file) {
                 details.skipped_other_season_count += 1;
-                ("skip", "非当前订阅季".to_string())
+                ("skip", "不在订阅季度，暂不转存；编辑订阅勾选该季即可转存".to_string())
             } else if self.is_before_start_episode(sub, &file.name, &file.parent_path) {
                 details.skipped_before_start_count += 1;
                 ("skip", "低于起始转存集数".to_string())
