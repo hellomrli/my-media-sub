@@ -238,12 +238,12 @@
 
           <div>
             <label class="block text-sm font-medium text-text/80 mb-2">分享链接</label>
-            <input type="text" x-model="newSubscription.url" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="粘贴夸克分享链接" />
+            <input type="text" x-model="newSubscription.url" @change="detectSubscriptionSeasons()" @blur="detectSubscriptionSeasons()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="粘贴夸克分享链接" />
           </div>
 
           <div>
             <label class="block text-sm font-medium text-text/80 mb-2">提取码</label>
-            <input type="text" x-model="newSubscription.password" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="没有可留空" />
+            <input type="text" x-model="newSubscription.password" @change="detectSubscriptionSeasons()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="没有可留空" />
           </div>
 
           <div x-show="subscriptionEditingId && subscriptionSourceChanged()" class="app-panel-soft p-4 space-y-3">
@@ -312,9 +312,30 @@
           </div>
 
           <div x-show="newSubscription.media_type !== 'movie'">
-            <label class="block text-sm font-medium text-text/80 mb-2">季号</label>
-            <input type="text" x-model="newSubscription.season_input" @change="syncSeasonInputFromRemote()" @blur="syncSeasonInputFromRemote()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="1 或 1-4" />
-            <p class="text-xs text-muted/75 mt-1">单季填 <code class="text-text/80">1</code>；多季填 <code class="text-text/80">1-4</code>。多季时目标目录只写剧名，转存会按文件自动进入 Season 1…N。</p>
+            <div class="flex items-center justify-between gap-2 mb-2">
+              <label class="block text-sm font-medium text-text/80">季号</label>
+              <button type="button" @click="detectSubscriptionSeasons()" :disabled="subscriptionSeasonsDetecting" class="text-xs text-primary hover:text-primary disabled:opacity-50">
+                <span x-text="subscriptionSeasonsDetecting ? '探测中…' : (subscriptionSeasonsDetected ? '重新探测季度' : '探测该分享的季度')"></span>
+              </button>
+            </div>
+            <div x-show="subscriptionSeasonsDetected && subscriptionSeasons.length" class="flex flex-wrap gap-2 mb-2">
+              <template x-for="seasonItem in subscriptionSeasons" :key="seasonItem.season">
+                <button type="button" @click="toggleSubscriptionSeason(seasonItem.season)"
+                  :class="selectedSubscriptionSeasons.includes(seasonItem.season) ? 'btn-primary' : 'btn-secondary'"
+                  class="px-3 py-1.5 rounded-lg text-sm transition-colors"
+                  :title="'S' + String(seasonItem.season).padStart(2, '0') + '：' + seasonItem.file_count + ' 个视频文件'">
+                  <span x-text="'S' + String(seasonItem.season).padStart(2, '0')"></span>
+                  <span class="ml-1 text-xs opacity-75" x-text="seasonItem.file_count"></span>
+                </button>
+              </template>
+            </div>
+            <p x-show="subscriptionSeasonsDetected && subscriptionSeasons.length === 1 && !subscriptionSeasonsInferred" class="text-xs text-success mb-2" x-text="(subscriptionSeasonsMessage || '') + '，唯一季已自动选择，无需勾选'"></p>
+            <p x-show="subscriptionSeasonsDetected && subscriptionSeasonsInferred" class="text-xs text-warning mb-2">未检测到季度标记，已按第一季处理并选中；如果这个资源其实不是第一季，请手动填写季号。</p>
+            <p x-show="subscriptionSeasonsDetected && subscriptionSeasons.length > 1" class="text-xs text-muted/75 mb-2" x-text="subscriptionSeasonsMessage + '，点击勾选要订阅的季度（可跳季，如只选 S1 和 S3）' + (subscriptionSeasonsUnspecified > 0 ? '；另有 ' + subscriptionSeasonsUnspecified + ' 个未带季度标记的文件' : '')"></p>
+            <p x-show="subscriptionSeasonsDetected && !subscriptionSeasons.length" class="text-xs text-warning mb-2" x-text="subscriptionSeasonsMessage"></p>
+            <p x-show="subscriptionSeasonsError" class="text-xs text-danger mb-2" x-text="subscriptionSeasonsError"></p>
+            <input type="text" x-model="newSubscription.season_input" @change="syncSeasonInputFromRemote()" @blur="syncSeasonInputFromRemote()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="1 或 1-4（检测不到季度时手动填写）" />
+            <p class="text-xs text-muted/75 mt-1">勾选检测到的季度会自动覆盖手填值，支持跳季（只勾 S1、S3 时 S2 不会转存）；也可以手动填 <code class="text-text/80">1</code>、<code class="text-text/80">1-4</code> 或 <code class="text-text/80">1,3</code>。多季时目标目录只写剧名，转存按文件自动进入 Season N。</p>
           </div>
 
           <div x-show="subscriptionMode === 'continuous' || subscriptionEditingId" class="space-y-4">

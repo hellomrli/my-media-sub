@@ -209,6 +209,15 @@ pub struct Subscription {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub season_end: Option<i32>,
 
+    /// 跳季订阅的季度集合（如只订 S1+S3 → `[1, 3]`）。
+    ///
+    /// `Some(非空)` 时优先于 `season..season_end` 区间语义；`season`/`season_end`
+    /// 冗余存储为集合的最小/最大值，旧版本程序读到会把跳季当区间处理（多转
+    /// 中间季），升级到本版本后恢复精确集合语义。连续集合在规范化时折叠回
+    /// 区间（`season_list` 置 `None`），避免冗余。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub season_list: Option<Vec<i32>>,
+
     /// 起始转存集数；低于该集数的剧集文件会记为已知但不触发转存
     #[serde(default)]
     pub start_episode_number: Option<i32>,
@@ -384,10 +393,38 @@ impl Subscription {
 
     /// 是否覆盖多个季度
     pub fn is_multi_season(&self) -> bool {
-        self.season_end_inclusive() > self.season_start()
+        self.season_numbers().len() > 1
     }
 
-    /// 规范化 season / season_end 字段
+    /// 订阅覆盖的全部季号（升序、去重）。
+    ///
+    /// 集合语义（`season_list` 非空）返回集合；否则返回 `season..=season_end`
+    /// 连续区间。跳季订阅（如只订 S1+S3）在集合语义下不会放行中间的 S2。
+    pub fn season_numbers(&self) -> Vec<i32> {
+        if let Some(list) = self.season_list.as_ref().filter(|list| !list.is_empty()) {
+            let mut seasons = list.clone();
+            seasons.sort_unstable();
+            seasons.dedup();
+            return seasons;
+        }
+        (self.season_start()..=self.season_end_inclusive()).collect()
+    }
+
+    /// 订阅是否覆盖指定季号。
+    pub fn covers_season(&self, season: i32) -> bool {
+        match self.season_list.as_ref().filter(|list| !list.is_empty()) {
+            Some(list) => list.contains(&season),
+            None => {
+                let start = self.season_start();
+                season >= start && season <= self.season_end_inclusive()
+            }
+        }
+    }
+
+    /// 规范化 season / season_end / season_list 字段。
+    ///
+    /// 集合列表排序去重并 clamp 到 1–99；恰好构成连续区间的列表折叠为
+    /// 区间语义（`season_list = None`），避免冗余存储。
     pub fn normalize_season_range(&mut self) {
         self.season = self.season.max(1);
         if let Some(end) = self.season_end {
@@ -398,9 +435,24 @@ impl Subscription {
                 self.season_end = Some(end.min(99));
             }
         }
+
+        if let Some(list) = self.season_list.clone() {
+            let (season, season_end, season_list) = normalize_season_list(list);
+            self.season = season;
+            self.season_end = season_end;
+            self.season_list = season_list;
+        }
     }
 
     pub fn season_label(&self) -> String {
+        if let Some(list) = self.season_list.as_ref().filter(|list| list.len() > 1) {
+            let numbers = list
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            return format!("第 {numbers} 季");
+        }
         let start = self.season_start();
         let end = self.season_end_inclusive();
         if end > start {
@@ -456,45 +508,82 @@ impl Subscription {
 }
 
 /// 规范化创建/更新请求中的季范围
+/// 由季度列表构造规范化的 `(season, season_end, season_list)`。
+///
+/// 排序去重、clamp 到 1–99；单季或连续集合折叠为区间语义
+/// （`season_list = None`）；跳季集合保留列表，`season`/`season_end`
+/// 冗余存储为最小/最大值保持旧字段可读。
+pub fn normalize_season_list(list: Vec<i32>) -> (i32, Option<i32>, Option<Vec<i32>>) {
+    let mut list: Vec<i32> = list
+        .into_iter()
+        .filter(|season| (1..=99).contains(season))
+        .collect();
+    list.sort_unstable();
+    list.dedup();
+    if list.is_empty() {
+        return (1, None, None);
+    }
+    let start = list[0];
+    let end = list[list.len() - 1];
+    let contiguous = list.len() as i64 == (end as i64 - start as i64 + 1);
+    if contiguous {
+        (start, (end > start).then_some(end), None)
+    } else {
+        (start, Some(end), Some(list))
+    }
+}
+
+/// 解析季号输入为完整季号列表（升序去重）：
+/// `"1"` → `[1]`，`"1-4"` → `[1,2,3,4]`，`"1,3"` → `[1,3]`，`"1,3-5"` → `[1,3,4,5]`。
+pub fn parse_season_spec_list(value: &str) -> Vec<i32> {
+    let raw = value.trim();
+    if raw.is_empty() {
+        return vec![1];
+    }
+
+    let mut seasons = Vec::new();
+    for part in raw.split([',', '，', ' ', '\t']) {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let mut range_parsed = false;
+        for sep in ["-", "~", "～", "到", "至"] {
+            if let Some((left, right)) = part.split_once(sep) {
+                if !left.trim().is_empty() && !right.trim().is_empty() {
+                    if let (Some(a), Some(b)) =
+                        (parse_positive_season(left), parse_positive_season(right))
+                    {
+                        let start = a.min(b).clamp(1, 99);
+                        let end = a.max(b).clamp(1, 99);
+                        seasons.extend(start..=end);
+                        range_parsed = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if !range_parsed {
+            if let Some(season) = parse_positive_season(part) {
+                seasons.push(season.clamp(1, 99));
+            }
+        }
+    }
+    seasons.sort_unstable();
+    seasons.dedup();
+    if seasons.is_empty() {
+        vec![1]
+    } else {
+        seasons
+    }
+}
+
 pub fn normalize_season_bounds(start: i32, end: Option<i32>) -> (i32, Option<i32>) {
     let start = start.clamp(1, 99);
     let end = end
         .map(|value| value.clamp(1, 99))
         .filter(|value| *value > start);
     (start, end)
-}
-
-/// 解析 `"1"` / `"1-4"` / `"1~4"` / `"1到4"` / `"1,2,4"` 等季号输入。
-pub fn parse_season_spec(value: &str) -> (i32, Option<i32>) {
-    let raw = value.trim();
-    if raw.is_empty() {
-        return (1, None);
-    }
-
-    for sep in ["-", "~", "～", "到", "至"] {
-        if let Some((left, right)) = raw.split_once(sep) {
-            if !left.trim().is_empty() && !right.trim().is_empty() {
-                let a = parse_positive_season(left).unwrap_or(1);
-                let b = parse_positive_season(right).unwrap_or(a);
-                let start = a.min(b);
-                let end = a.max(b);
-                return normalize_season_bounds(start, Some(end));
-            }
-        }
-    }
-
-    let list: Vec<i32> = raw
-        .split([',', '，', ' ', '\t'])
-        .filter_map(parse_positive_season)
-        .collect();
-    if list.len() > 1 {
-        let start = *list.iter().min().unwrap_or(&1);
-        let end = *list.iter().max().unwrap_or(&start);
-        return normalize_season_bounds(start, Some(end));
-    }
-
-    let start = parse_positive_season(raw).unwrap_or(1);
-    normalize_season_bounds(start, None)
 }
 
 fn parse_positive_season(value: &str) -> Option<i32> {
@@ -523,17 +612,120 @@ fn default_status() -> String {
 }
 
 #[cfg(test)]
-mod tests {
+mod season_list_tests {
     use super::*;
 
-    #[test]
-    fn parse_season_spec_supports_ranges_and_lists() {
-        assert_eq!(parse_season_spec("1-4"), (1, Some(4)));
-        assert_eq!(parse_season_spec("2"), (2, None));
-        assert_eq!(parse_season_spec("4到1"), (1, Some(4)));
-        assert_eq!(parse_season_spec("1,3,4"), (1, Some(4)));
-        assert_eq!(parse_season_spec(""), (1, None));
+    fn sub_with_seasons(
+        season: i32,
+        season_end: Option<i32>,
+        list: Option<Vec<i32>>,
+    ) -> Subscription {
+        Subscription {
+            id: "sub".to_string(),
+            title: "Show".to_string(),
+            source_title: String::new(),
+            media_type: "series".to_string(),
+            season,
+            season_end,
+            season_list: list,
+            start_episode_number: None,
+            current_episode_number: 0,
+            total_episode_number: None,
+            source_group: String::new(),
+            tags: vec![],
+            metadata: None,
+            cloud_type: "quark".to_string(),
+            url: "https://pan.quark.cn/s/test".to_string(),
+            password: String::new(),
+            known_files: vec![],
+            known_file_keys: vec![],
+            known_episodes: vec![],
+            transferred_files: vec![],
+            transferred_file_keys: vec![],
+            last_probe: None,
+            last_plan_summary: String::new(),
+            notify_only: false,
+            sync_download_enabled: false,
+            sync_download_dir: String::new(),
+            sync_downloads: vec![],
+            enabled: true,
+            completed: false,
+            rules: TransferRules::default(),
+            rule_preset_id: String::new(),
+            created_at: 1,
+            updated_at: 1,
+            last_checked_at: 1,
+            last_new_files: vec![],
+            last_new_episodes: vec![],
+            last_check_summary: String::new(),
+            check_history: vec![],
+            status: "active".to_string(),
+            invalid_since: None,
+            last_error: String::new(),
+            rule_summary: String::new(),
+            source_candidates: vec![],
+            last_source_search_time: None,
+            previous_share_links: vec![],
+            source_failure_count: 0,
+            last_source_switch_at: None,
+            source_switch_history: vec![],
+        }
     }
+
+    #[test]
+    fn season_list_enables_skip_season_selection() {
+        // 跳季订阅 [1,3]：S2 被排除，S1/S3 保留；区间语义不变。
+        let sub = sub_with_seasons(1, Some(3), Some(vec![1, 3]));
+        assert_eq!(sub.season_numbers(), vec![1, 3]);
+        assert!(sub.covers_season(1));
+        assert!(!sub.covers_season(2));
+        assert!(sub.covers_season(3));
+        assert!(sub.is_multi_season());
+        assert_eq!(sub.season_label(), "第 1,3 季");
+        // covers_season 集合语义：S2 不在订阅范围内
+        assert!(sub.covers_season(1));
+        assert!(!sub.covers_season(2));
+        assert!(sub.covers_season(3));
+    }
+
+    #[test]
+    fn contiguous_season_list_folds_back_to_interval() {
+        let mut sub = sub_with_seasons(1, Some(4), Some(vec![1, 2, 3, 4]));
+        sub.normalize_season_range();
+        assert_eq!(sub.season_list, None);
+        assert_eq!((sub.season, sub.season_end), (1, Some(4)));
+        assert_eq!(sub.season_numbers(), vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn parse_season_spec_list_expands_ranges_and_sets() {
+        assert_eq!(parse_season_spec_list("1"), vec![1]);
+        assert_eq!(parse_season_spec_list("1-4"), vec![1, 2, 3, 4]);
+        assert_eq!(parse_season_spec_list("1,3"), vec![1, 3]);
+        assert_eq!(parse_season_spec_list("1, 3-5"), vec![1, 3, 4, 5]);
+        assert_eq!(parse_season_spec_list("3,1,3"), vec![1, 3]);
+        assert_eq!(parse_season_spec_list(""), vec![1]);
+        // 倒序区间与中文分隔符（承接已删除的 parse_season_spec 覆盖）
+        assert_eq!(parse_season_spec_list("4到1"), vec![1, 2, 3, 4]);
+        assert_eq!(parse_season_spec_list("2至4"), vec![2, 3, 4]);
+        assert_eq!(parse_season_spec_list("1～3"), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn normalize_season_list_normalizes_and_folds() {
+        assert_eq!(
+            normalize_season_list(vec![3, 1, 3]),
+            (1, Some(3), Some(vec![1, 3]))
+        );
+        assert_eq!(normalize_season_list(vec![2]), (2, None, None));
+        assert_eq!(normalize_season_list(vec![1, 2]), (1, Some(2), None));
+        assert_eq!(normalize_season_list(vec![]), (1, None, None));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
 
     #[test]
     fn test_subscription_serialize() {
@@ -544,6 +736,7 @@ mod tests {
             media_type: "anime".to_string(),
             season: 1,
             season_end: None,
+            season_list: None,
             start_episode_number: Some(5),
             current_episode_number: 12,
             total_episode_number: Some(24),

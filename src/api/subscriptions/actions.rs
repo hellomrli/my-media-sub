@@ -90,3 +90,38 @@ pub(super) async fn check_all_subscriptions(
 
     Ok(Json(Response::ok(responses)))
 }
+
+/// 季度探测请求
+#[derive(Debug, Deserialize)]
+pub struct DetectSeasonsRequest {
+    pub url: String,
+    #[serde(default)]
+    pub password: String,
+    #[serde(default)]
+    pub cloud_type: String,
+}
+
+/// 探测分享链接里的季度分布，供订阅编辑器做「勾选季度」。
+pub(super) async fn detect_subscription_seasons(
+    State(state): State<Arc<SubscriptionState>>,
+    Json(req): Json<DetectSeasonsRequest>,
+) -> Result<impl IntoResponse> {
+    let url = req.url.trim().to_string();
+    if url.is_empty() {
+        return Err(AppError::Validation("分享链接不能为空".to_string()));
+    }
+
+    let settings = state.settings_store.get().await;
+    let cookie = settings.quark_cookie;
+    if cookie.trim().is_empty() {
+        return Err(AppError::Validation(
+            "未配置夸克 Cookie，无法探测季度；请先在设置中填写".to_string(),
+        ));
+    }
+
+    let detection = state
+        .check_service
+        .detect_share_seasons(&url, &req.password, &req.cloud_type, &cookie)
+        .await?;
+    Ok(Json(Response::ok(detection)))
+}

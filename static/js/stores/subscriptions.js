@@ -32,6 +32,7 @@
       season: 1,
       season_input: '1',
       season_end: null,
+      season_list: null,
       source_title: '',
       target_path: '',
       target_fid: '0',
@@ -75,6 +76,17 @@
     subscriptions: [],
     /// 请求序号：SSE 联动、手动检查、顶栏刷新并发触发时丢弃过期响应。
     subscriptionsRequestId: 0,
+    /// 订阅编辑器的季度探测：把「手填季号」换成「勾选检测到的季度」。
+    subscriptionSeasons: [],
+    selectedSubscriptionSeasons: [],
+    subscriptionSeasonsDetected: false,
+    subscriptionSeasonsDetecting: false,
+    subscriptionSeasonsError: '',
+    subscriptionSeasonsMessage: '',
+    subscriptionSeasonsUnspecified: 0,
+    // 探测结果里的季号是推断的（分享无任何季度标记，按第一季处理）而非显式标注
+    subscriptionSeasonsInferred: false,
+    subscriptionSeasonsRequestId: 0,
     lastCheckResult: null,
     checkingAllSubscriptions: false,
     scrapingAllMetadata: false,
@@ -161,6 +173,7 @@
       season: 1,
       season_input: '1',
       season_end: null,
+      season_list: null,
       title: '示例剧集',
       rename_template: '{title}.S{season}E{episode}.{ext}',
       include_keywords_text: '',
@@ -233,6 +246,7 @@
 
     openBlankSubscriptionDialog() {
       this.resetSubscriptionForm();
+      this.resetSubscriptionSeasons();
       this.showSubscriptionDialog = true;
     },
 
@@ -365,6 +379,9 @@
       };
       this.showSubscriptionDialog = true;
       this.metadataResults = [];
+      this.resetSubscriptionSeasons();
+      // 分享链接已就绪：自动探测有哪些季度，供用户勾选。
+      this.detectSubscriptionSeasons();
       // 即使搜索结果带 display_title 也再次走权威清洗；上游旧缓存可能仍
       // 保留「4K 高码率」等后缀，直接使用会降低 TMDB 命中率。
       const initialTitle = this.newSubscription.title;
@@ -401,8 +418,17 @@
         original_start_episode_number: sub.start_episode_number || '',
         media_type: sub.media_type || 'series',
         season: seasonStart,
-        season_input: seasonEnd > seasonStart ? `${seasonStart}-${seasonEnd}` : String(seasonStart),
+        // 跳季集合优先显示为逗号语法（'1,3'）：仅回显区间会让一次普通
+        // 保存把集合静默改回全区间。
+        season_input: (function () {
+          const list = Array.isArray(sub.season_list)
+            ? sub.season_list.map(Number).filter(value => value > 0).sort((a, b) => a - b)
+            : null;
+          if (list && list.length > 1) return list.join(',');
+          return seasonEnd > seasonStart ? `${seasonStart}-${seasonEnd}` : String(seasonStart);
+        })(),
         season_end: sub.season_end != null ? seasonEnd : null,
+        season_list: Array.isArray(sub.season_list) && sub.season_list.length ? [...sub.season_list] : null,
         source_title: sub.source_title || '',
         target_dir_name: rules.target_dir || '',
         rename_template: rules.rename_template || '',
@@ -441,6 +467,9 @@
       };
       this.showSubscriptionDialog = true;
       this.metadataResults = [];
+      this.resetSubscriptionSeasons();
+      // 已有分享链接：自动探测有哪些季度，供用户勾选。
+      this.detectSubscriptionSeasons();
       this.previewSubscriptionRename(true);
     },
 
@@ -463,11 +492,36 @@
         let end = Math.max(1, Math.min(99, Number(range[2]) || start));
         if (end < start) [start, end] = [end, start];
         return end > start
-          ? {start, end, label: `${start}-${end}`, season_spec: `${start}-${end}`, multi_season: true}
-          : {start, end: null, label: String(start), season_spec: String(start), multi_season: false};
+          ? {start, end, label: `${start}-${end}`, season_spec: `${start}-${end}`, multi_season: true, seasons: Array.from({length: end - start + 1}, (_, index) => start + index)}
+          : {start, end: null, label: String(start), season_spec: String(start), multi_season: false, seasons: [start]};
+      }
+      // 逗号集合（含跳季）：'1,3' / '1, 3-5'；连续集合折叠为区间语义
+      const parts = raw.split(/[,，\s]+/).filter(Boolean);
+      if (parts.length > 1) {
+        const seasons = new Set();
+        for (const part of parts) {
+          const subRange = part.match(/^(\d{1,2})\s*[-~～到至]\s*(\d{1,2})$/);
+          if (subRange) {
+            let a = Math.max(1, Math.min(99, Number(subRange[1]) || 1));
+            let b = Math.max(1, Math.min(99, Number(subRange[2]) || 1));
+            if (b < a) [a, b] = [b, a];
+            for (let value = a; value <= b; value += 1) seasons.add(value);
+          } else {
+            seasons.add(Math.max(1, Math.min(99, Math.floor(Number(part) || 1))));
+          }
+        }
+        const values = [...seasons].sort((a, b) => a - b);
+        if (values.length > 1) {
+          const start = values[0];
+          const end = values[values.length - 1];
+          const contiguous = values.length === end - start + 1;
+          return contiguous
+            ? {start, end, label: `${start}-${end}`, season_spec: `${start}-${end}`, multi_season: true, seasons: values}
+            : {start, end, label: values.join(','), season_spec: values.join(','), multi_season: true, seasons: values};
+        }
       }
       const single = Math.max(1, Math.min(99, Math.floor(Number(raw) || 1)));
-      return {start: single, end: null, label: String(single), season_spec: String(single), multi_season: false};
+      return {start: single, end: null, label: String(single), season_spec: String(single), multi_season: false, seasons: [single]};
     },
 
     async parseSeasonRemote(value) {
@@ -483,7 +537,11 @@
           end: data.season_end == null ? null : Number(data.season_end),
           label: data.label || String(data.season || 1),
           season_spec: data.season_spec || raw || '1',
-          multi_season: !!data.multi_season
+          multi_season: !!data.multi_season,
+          seasons: Array.isArray(data.seasons) ? data.seasons.map(Number) : null,
+          season_list: Array.isArray(data.season_list) && data.season_list.length
+            ? data.season_list.map(Number)
+            : null
         };
       } catch (_) {
         return this.parseSeasonSpec(raw);
@@ -498,11 +556,123 @@
       this.newSubscription.season = parsed.start;
       this.newSubscription.season_end = parsed.end;
       this.newSubscription.season_input = parsed.season_spec || String(parsed.start);
-      return {
+      // 跳季集合从输入解析结果自足推导（'1,3' → [1,3]；连续/单季折叠为区间），
+      // 不依赖异步的远端解析是否已回写。
+      const seasons = Array.isArray(parsed.seasons) ? parsed.seasons : [];
+      const contiguous = seasons.length > 0
+        && (seasons.length === 1
+          || (parsed.end != null && seasons.length === parsed.end - parsed.start + 1));
+      const list = contiguous ? null : seasons;
+      this.newSubscription.season_list = list;
+      const payload = {
         season: parsed.start,
         season_end: parsed.end,
         season_spec: parsed.season_spec || (parsed.end ? `${parsed.start}-${parsed.end}` : String(parsed.start))
       };
+      if (list) payload.season_list = list;
+      return payload;
+    },
+
+    resetSubscriptionSeasons() {
+      this.subscriptionSeasons = [];
+      this.selectedSubscriptionSeasons = [];
+      this.subscriptionSeasonsDetected = false;
+      this.subscriptionSeasonsError = '';
+      this.subscriptionSeasonsMessage = '';
+      this.subscriptionSeasonsUnspecified = 0;
+      this.subscriptionSeasonsInferred = false;
+    },
+
+    /// 探测当前分享链接里有哪些季度（后端复用检查链路的探测与口径）。
+    async detectSubscriptionSeasons() {
+      const url = String(this.newSubscription.url || '').trim();
+      if (!url || this.subscriptionSeasonsDetecting) return;
+      const requestId = ++this.subscriptionSeasonsRequestId;
+      this.subscriptionSeasonsDetecting = true;
+      this.subscriptionSeasonsError = '';
+      try {
+        const data = await apiData('/api/subscriptions/seasons', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            url,
+            password: String(this.newSubscription.password || '')
+          })
+        });
+        if (requestId !== this.subscriptionSeasonsRequestId) return;
+        this.subscriptionSeasons = Array.isArray(data.seasons) ? data.seasons : [];
+        this.subscriptionSeasonsDetected = true;
+        this.subscriptionSeasonsMessage = String(data.message || '');
+        this.subscriptionSeasonsUnspecified = Number(data.unspecified_file_count || 0);
+        this.subscriptionSeasonsInferred = this.subscriptionSeasons.some(item => item && item.inferred);
+        this.applyDefaultSeasonSelection();
+      } catch (error) {
+        if (requestId !== this.subscriptionSeasonsRequestId) return;
+        this.subscriptionSeasons = [];
+        this.subscriptionSeasonsDetected = false;
+        this.subscriptionSeasonsInferred = false;
+        this.subscriptionSeasonsError = this.apiErrorMessage(error, '季度探测失败');
+      } finally {
+        if (requestId === this.subscriptionSeasonsRequestId) {
+          this.subscriptionSeasonsDetecting = false;
+        }
+      }
+    },
+
+    /// 预勾选当前订阅覆盖的季度：编辑时已存跳季集合精确回填；
+    /// 否则按 season..season_end 区间覆盖预勾选。
+    applyDefaultSeasonSelection() {
+      const storedList = Array.isArray(this.newSubscription.season_list)
+        ? this.newSubscription.season_list.filter(value => Number(value) > 0).map(Number)
+        : null;
+      if (storedList && storedList.length) {
+        this.selectedSubscriptionSeasons = this.subscriptionSeasons
+          .map(item => item.season)
+          .filter(season => storedList.includes(season))
+          .sort((a, b) => a - b);
+        return;
+      }
+      const start = this.normalizeSeason(this.newSubscription.season);
+      const end = this.newSubscription.season_end != null
+        ? this.normalizeSeason(this.newSubscription.season_end)
+        : start;
+      this.selectedSubscriptionSeasons = this.subscriptionSeasons
+        .map(item => item.season)
+        .filter(season => season >= start && season <= end)
+        .sort((a, b) => a - b);
+    },
+
+    /// 勾选/取消一个季度（集合语义，可跳季：S1+S3 不会带上 S2）。
+    /// 勾选结果回写 season_input（`1` / `1-4` / `1,3`）与 season_list。
+    toggleSubscriptionSeason(season) {
+      const selected = new Set(this.selectedSubscriptionSeasons);
+      if (selected.has(season)) {
+        selected.delete(season);
+      } else {
+        selected.add(season);
+      }
+      if (selected.size === 0) {
+        // 全部取消时保留原手填值，交给用户手动决定。
+        this.selectedSubscriptionSeasons = [];
+        return;
+      }
+      this.selectedSubscriptionSeasons = [...selected].sort((a, b) => a - b);
+      this.syncSeasonSelectionToInput();
+    },
+
+    syncSeasonSelectionToInput() {
+      const values = [...this.selectedSubscriptionSeasons].sort((a, b) => a - b);
+      if (!values.length) return;
+      const start = values[0];
+      const end = values[values.length - 1];
+      this.newSubscription.season = start;
+      this.newSubscription.season_end = end > start ? end : null;
+      // 非连续集合（跳季）显式保存 season_list；连续集合折叠为区间。
+      const contiguous = values.length === 1 || values.length === end - start + 1;
+      this.newSubscription.season_list = contiguous ? null : values;
+      this.newSubscription.season_input = contiguous
+        ? (end > start ? `${start}-${end}` : String(start))
+        : values.join(',');
     },
 
     async syncSeasonInputFromRemote() {
@@ -513,6 +683,13 @@
       this.newSubscription.season = parsed.start;
       this.newSubscription.season_end = parsed.end;
       this.newSubscription.season_input = parsed.season_spec || String(parsed.start);
+      // 逗号跳季输入（'1,3'）显式保存集合；连续/单季折叠为区间。
+      this.newSubscription.season_list = parsed.season_list || null;
+      if (Array.isArray(this.selectedSubscriptionSeasons) && parsed.seasons) {
+        this.selectedSubscriptionSeasons = parsed.seasons.filter(season =>
+          parsed.season_list ? parsed.season_list.includes(season) : true
+        );
+      }
       return parsed;
     },
 

@@ -29,6 +29,7 @@ mod tests {
             media_type: "series".to_string(),
             season: 1,
             season_end: None,
+            season_list: None,
             start_episode_number: None,
             current_episode_number: 0,
             total_episode_number: None,
@@ -971,6 +972,7 @@ mod tests {
             media_type: "series".to_string(),
             season: 1,
             season_end: None,
+            season_list: None,
             start_episode_number: None,
             current_episode_number: 11,
             total_episode_number: None,
@@ -1400,6 +1402,74 @@ mod tests {
 
         // SP01 不占用 EP01 槽位：正片 EP01 被 known 去重，特典正常入选。
         assert_eq!(new_names, vec!["Show SP01.mkv"]);
+    }
+
+    #[test]
+    fn test_expanding_season_set_discovers_previously_skipped_season() {
+        // 「暂不转存」语义：范围外季的文件不记为已知（不永不排除）；
+        // 编辑订阅加上该季后，下次检查即可发现并转存，且已转存的季不重复。
+        let (service, _, _) = make_service();
+        let mut sub = make_subscription();
+        sub.season = 1;
+        sub.season_end = Some(3);
+        sub.season_list = Some(vec![1, 3]);
+        sub.normalize_season_range();
+        let files = vec![
+            probe_video("Show S01E01.mkv", "s01e01", ""),
+            probe_video("Show S02E01.mkv", "s02e01", ""),
+            probe_video("Show S03E01.mkv", "s03e01", ""),
+        ];
+
+        // 第一轮 [1,3]：只出 S1/S3，S2 暂不转存
+        let first = service
+            .find_new_files(&sub, &files)
+            .into_iter()
+            .map(|file| file.name)
+            .collect::<Vec<_>>();
+        assert_eq!(first, vec!["Show S01E01.mkv", "Show S03E01.mkv"]);
+
+        // 模拟检查产物：S1/S3 记为已知+已转存；S2 未记录（这就是「暂不」的根据）
+        sub.known_file_keys = vec!["s01e01".to_string(), "s03e01".to_string()];
+        sub.transferred_files = vec!["Show S01E01.mkv".to_string(), "Show S03E01.mkv".to_string()];
+
+        // 编辑订阅：加上 S2（连续集合折叠为区间 [1,3]）
+        sub.season_list = Some(vec![1, 2, 3]);
+        sub.normalize_season_range();
+        assert_eq!(sub.season_list, None);
+
+        // 第二轮：S2 被发现；S1/S3 因已转存（按季+集去重）不重复
+        let second = service
+            .find_new_files(&sub, &files)
+            .into_iter()
+            .map(|file| file.name)
+            .collect::<Vec<_>>();
+        assert_eq!(second, vec!["Show S02E01.mkv"]);
+    }
+
+    #[test]
+    fn test_skip_season_set_excludes_middle_season_files() {
+        // 回归：跳季订阅（只订 S1+S3）不得把 S2 文件放进转存候选；
+        // 集合语义下 matches_file_season 不再放行区间内的中间季。
+        let (service, _, _) = make_service();
+        let mut sub = make_subscription();
+        sub.season = 1;
+        sub.season_end = Some(3);
+        sub.season_list = Some(vec![1, 3]);
+        sub.normalize_season_range();
+        assert_eq!(sub.season_list, Some(vec![1, 3]));
+        let files = vec![
+            probe_video("Show S01E01.mkv", "s01e01", ""),
+            probe_video("Show S02E01.mkv", "s02e01", ""),
+            probe_video("Show S03E01.mkv", "s03e01", ""),
+        ];
+
+        let new_names = service
+            .find_new_files(&sub, &files)
+            .into_iter()
+            .map(|file| file.name)
+            .collect::<Vec<_>>();
+
+        assert_eq!(new_names, vec!["Show S01E01.mkv", "Show S03E01.mkv"]);
     }
 
     #[test]

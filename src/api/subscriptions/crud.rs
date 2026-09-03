@@ -47,10 +47,20 @@ pub(super) async fn create_subscription(
 
     let now = unix_now();
 
-    let (season, season_end) = if !req.season_spec.trim().is_empty() {
-        crate::models::subscription::parse_season_spec(&req.season_spec)
+    // 季度输入统一解析为规范化列表：连续集合折叠为区间语义，
+    // 跳季集合（如 1,3）保留 season_list。
+    let (season, season_end, season_list) = if !req.season_spec.trim().is_empty() {
+        let list = crate::models::subscription::normalize_season_list(
+            crate::models::subscription::parse_season_spec_list(&req.season_spec),
+        );
+        (list.0, list.1, list.2)
+    } else if let Some(list) = req.season_list.clone() {
+        let list = crate::models::subscription::normalize_season_list(list);
+        (list.0, list.1, list.2)
     } else {
-        crate::models::subscription::normalize_season_bounds(req.season, req.season_end)
+        let (season, season_end) =
+            crate::models::subscription::normalize_season_bounds(req.season, req.season_end);
+        (season, season_end, None)
     };
     let media_type = if req.media_type.is_empty() {
         "series".to_string()
@@ -85,6 +95,7 @@ pub(super) async fn create_subscription(
         media_type,
         season,
         season_end,
+        season_list,
         start_episode_number,
         current_episode_number: 0,
         total_episode_number,
@@ -161,7 +172,6 @@ pub(super) async fn update_subscription(
         .store
         .update(&id, |sub| {
             let mut source_changed = false;
-            let mut content_changed = false;
             if let Some(title) = req.title {
                 sub.title = title;
             }
@@ -173,37 +183,70 @@ pub(super) async fn update_subscription(
                 source_changed |= password != sub.password;
                 sub.password = password;
             }
+            let mut media_type_changed = false;
             if let Some(media_type) = req.media_type {
-                content_changed |= media_type != sub.media_type;
+                media_type_changed = media_type != sub.media_type;
                 sub.media_type = media_type;
             }
+            let mut season_fields_changed = false;
+            let season_range_before = (sub.season, sub.season_end, sub.season_list.clone());
             if let Some(spec) = req
                 .season_spec
                 .as_deref()
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
             {
-                let (season, season_end) = crate::models::subscription::parse_season_spec(spec);
-                content_changed |= season != sub.season || season_end != sub.season_end;
+                let (season, season_end, season_list) =
+                    crate::models::subscription::normalize_season_list(
+                        crate::models::subscription::parse_season_spec_list(spec),
+                    );
                 sub.season = season;
                 sub.season_end = season_end;
+                sub.season_list = season_list;
+                season_fields_changed = true;
             } else {
                 if let Some(season) = req.season {
                     let season = season.max(1);
-                    content_changed |= season != sub.season;
                     sub.season = season;
+                    season_fields_changed = true;
                 }
                 if let Some(season_end) = req.season_end {
-                    content_changed |= season_end != sub.season_end;
                     sub.season_end = season_end;
+                    season_fields_changed = true;
+                }
+                // 季度集合：字段存在即生效；空数组清除集合回到区间语义。
+                if let Some(list) = req.season_list.clone() {
+                    if list.is_empty() {
+                        sub.season_list = None;
+                    } else {
+                        let (season, season_end, season_list) =
+                            crate::models::subscription::normalize_season_list(list);
+                        sub.season = season;
+                        sub.season_end = season_end;
+                        sub.season_list = season_list;
+                    }
+                    season_fields_changed = true;
                 }
             }
-            {
-                let before = (sub.season, sub.season_end);
+            if season_fields_changed {
                 sub.normalize_season_range();
-                content_changed |= before != (sub.season, sub.season_end);
+                let season_range_changed =
+                    season_range_before != (sub.season, sub.season_end, sub.season_list.clone());
+                if season_range_changed {
+                    // 季度范围调整是「暂不转存 → 随时可扩季」的语义：
+                    // 已转存/已知证据按「季+集」解析，扩季（如 [1,3] 加上 S2）
+                    // 后旧进度仍有效，新季文件会在下次检查中被发现并转存，
+                    // 已转存的季不会重复。只重置单季完结目标与完结状态：
+                    // 旧 total 属于原范围，多季订阅由证据（而非集数目标）协调完结。
+                    sub.total_episode_number = None;
+                    sub.completed = false;
+                    sub.status = "active".to_string();
+                    sub.invalid_since = None;
+                    sub.last_error.clear();
+                }
             }
-            if content_changed {
+            if media_type_changed {
+                // 媒体类型变化（剧集 ↔ 电影）语义完全不同，保留历史重置行为。
                 reset_progress_for_content_change(sub);
             }
             if let Some(start_episode_number) = req.start_episode_number {
@@ -259,7 +302,15 @@ pub(super) async fn update_subscription(
                 continue_from_current_episode,
             );
             if !has_explicit_total_episode_number {
-                if let Some(count) = episode_count_for_season(sub.metadata.as_ref(), sub.season) {
+                // 多季/跳季订阅没有单一总集数：把 min 季的单季集数写成完结
+                // 目标会在其他季集数超过该值时误判完结并封顶转存。
+                if sub.is_multi_season() {
+                    if sub.total_episode_number.is_none() {
+                        sub.total_episode_number = sub.rules.finish_after_episode;
+                    }
+                } else if let Some(count) =
+                    episode_count_for_season(sub.metadata.as_ref(), sub.season)
+                {
                     sub.total_episode_number = Some(count);
                 } else if sub.total_episode_number.is_none() {
                     sub.total_episode_number = sub.rules.finish_after_episode;

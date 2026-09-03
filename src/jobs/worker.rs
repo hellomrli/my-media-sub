@@ -868,6 +868,7 @@ mod tests {
             media_type: "series".to_string(),
             season: 1,
             season_end: None,
+            season_list: None,
             start_episode_number: None,
             current_episode_number: 178,
             total_episode_number: Some(178),

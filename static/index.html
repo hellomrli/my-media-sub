@@ -11,9 +11,9 @@
   <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%234f46e5%27/%3E%3Cpath d=%27M8 9h16v14H8zm4-4v22m8-22v22%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27/%3E%3C/svg%3E">
-  <script src="js/theme-init.js?v=2.6.1"></script>
-  <link rel="stylesheet" href="styles.css?v=2.6.1">
-  <script defer src="vendor/alpine.min.js?v=2.6.1"></script>
+  <script src="js/theme-init.js?v=2.7.0"></script>
+  <link rel="stylesheet" href="styles.css?v=2.7.0">
+  <script defer src="vendor/alpine.min.js?v=2.7.0"></script>
 </head>
 <body class="bg-app text-text/90 min-h-screen" x-data="app()" x-cloak>
 
@@ -1225,7 +1225,7 @@
 
             <div class="mt-5 space-y-3">
               <div x-show="sourceSwitchLoading" class="app-panel-soft p-6 text-center text-sm text-muted/75">正在读取候选...</div>
-              <div x-show="!sourceSwitchLoading && sourceSwitchCandidates.length === 0" class="app-panel-soft p-6 text-center text-sm text-muted/75">暂无候选</div>
+              <div x-show="!sourceSwitchLoading && sourceSwitchCandidates.length === 0" class="app-panel-soft p-6 text-center text-sm text-muted/75">暂无有效候选（探测失效的夸克链接已自动过滤，可稍后重试搜索）</div>
               <template x-for="(candidate, candidateIndex) in sourceSwitchCandidates" :key="'source-candidate-' + (candidate.id || 'missing') + '-' + candidateIndex">
                 <div class="border border-border rounded-lg bg-app p-4 space-y-3">
                   <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1234,6 +1234,7 @@
                         <span class="badge badge-primary" x-text="candidate.source || '来源'"></span>
                         <span class="badge" :class="sourceCandidateQuality(candidate).tone === 'danger' ? 'badge-danger' : 'badge-success'" x-text="sourceCandidateQuality(candidate).score + ' 分 · ' + sourceCandidateQuality(candidate).grade"></span>
                         <span class="badge badge-muted" x-text="sourceCandidateEpisodeRange(candidate)"></span>
+                        <span class="badge" :class="candidate.probe_info && candidate.probe_info.ok ? 'badge-success' : 'badge-muted'" x-text="candidate.probe_info && candidate.probe_info.ok ? ('探测有效 · ' + ((candidate.probe_info.files || []).length) + ' 文件') : '未验证（探测超时，可强制应用前先预览）'"></span>
                         <span class="text-xs text-muted/75" x-text="sourceCandidateMeta(candidate)"></span>
                       </div>
                       <div class="text-sm font-medium text-text break-all" x-text="sourceCandidateNote(candidate)"></div>
@@ -1313,7 +1314,7 @@
               <div class="stat-tile p-3"><div class="text-xs text-muted/75">新增</div><div class="mt-1 text-xl font-semibold text-success" x-text="lastCheckMetric('new_count')"></div></div>
               <div class="stat-tile p-3"><div class="text-xs text-muted/75">已知</div><div class="mt-1 text-xl font-semibold text-primary" x-text="lastCheckMetric('known_count')"></div></div>
               <div class="stat-tile p-3"><div class="text-xs text-muted/75">目录跳过</div><div class="mt-1 text-xl font-semibold text-text/80" x-text="lastCheckMetric('skipped_directory_count')"></div></div>
-              <div class="stat-tile p-3"><div class="text-xs text-muted/75">跨季跳过</div><div class="mt-1 text-xl font-semibold text-secondary" x-text="lastCheckMetric('skipped_other_season_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-muted/75">季度外暂不转存</div><div class="mt-1 text-xl font-semibold text-secondary" x-text="lastCheckMetric('skipped_other_season_count')"></div></div>
               <div class="stat-tile p-3"><div class="text-xs text-muted/75">起始集跳过</div><div class="mt-1 text-xl font-semibold text-warning" x-text="lastCheckMetric('skipped_before_start_count')"></div></div>
               <div class="stat-tile p-3"><div class="text-xs text-muted/75">同集跳过</div><div class="mt-1 text-xl font-semibold text-secondary" x-text="lastCheckMetric('skipped_duplicate_episode_count')"></div></div>
             </div>
@@ -2423,12 +2424,12 @@
 
           <div>
             <label class="block text-sm font-medium text-text/80 mb-2">分享链接</label>
-            <input type="text" x-model="newSubscription.url" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="粘贴夸克分享链接" />
+            <input type="text" x-model="newSubscription.url" @change="detectSubscriptionSeasons()" @blur="detectSubscriptionSeasons()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="粘贴夸克分享链接" />
           </div>
 
           <div>
             <label class="block text-sm font-medium text-text/80 mb-2">提取码</label>
-            <input type="text" x-model="newSubscription.password" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="没有可留空" />
+            <input type="text" x-model="newSubscription.password" @change="detectSubscriptionSeasons()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="没有可留空" />
           </div>
 
           <div x-show="subscriptionEditingId && subscriptionSourceChanged()" class="app-panel-soft p-4 space-y-3">
@@ -2497,9 +2498,30 @@
           </div>
 
           <div x-show="newSubscription.media_type !== 'movie'">
-            <label class="block text-sm font-medium text-text/80 mb-2">季号</label>
-            <input type="text" x-model="newSubscription.season_input" @change="syncSeasonInputFromRemote()" @blur="syncSeasonInputFromRemote()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="1 或 1-4" />
-            <p class="text-xs text-muted/75 mt-1">单季填 <code class="text-text/80">1</code>；多季填 <code class="text-text/80">1-4</code>。多季时目标目录只写剧名，转存会按文件自动进入 Season 1…N。</p>
+            <div class="flex items-center justify-between gap-2 mb-2">
+              <label class="block text-sm font-medium text-text/80">季号</label>
+              <button type="button" @click="detectSubscriptionSeasons()" :disabled="subscriptionSeasonsDetecting" class="text-xs text-primary hover:text-primary disabled:opacity-50">
+                <span x-text="subscriptionSeasonsDetecting ? '探测中…' : (subscriptionSeasonsDetected ? '重新探测季度' : '探测该分享的季度')"></span>
+              </button>
+            </div>
+            <div x-show="subscriptionSeasonsDetected && subscriptionSeasons.length" class="flex flex-wrap gap-2 mb-2">
+              <template x-for="seasonItem in subscriptionSeasons" :key="seasonItem.season">
+                <button type="button" @click="toggleSubscriptionSeason(seasonItem.season)"
+                  :class="selectedSubscriptionSeasons.includes(seasonItem.season) ? 'btn-primary' : 'btn-secondary'"
+                  class="px-3 py-1.5 rounded-lg text-sm transition-colors"
+                  :title="'S' + String(seasonItem.season).padStart(2, '0') + '：' + seasonItem.file_count + ' 个视频文件'">
+                  <span x-text="'S' + String(seasonItem.season).padStart(2, '0')"></span>
+                  <span class="ml-1 text-xs opacity-75" x-text="seasonItem.file_count"></span>
+                </button>
+              </template>
+            </div>
+            <p x-show="subscriptionSeasonsDetected && subscriptionSeasons.length === 1 && !subscriptionSeasonsInferred" class="text-xs text-success mb-2" x-text="(subscriptionSeasonsMessage || '') + '，唯一季已自动选择，无需勾选'"></p>
+            <p x-show="subscriptionSeasonsDetected && subscriptionSeasonsInferred" class="text-xs text-warning mb-2">未检测到季度标记，已按第一季处理并选中；如果这个资源其实不是第一季，请手动填写季号。</p>
+            <p x-show="subscriptionSeasonsDetected && subscriptionSeasons.length > 1" class="text-xs text-muted/75 mb-2" x-text="subscriptionSeasonsMessage + '，点击勾选要订阅的季度（可跳季，如只选 S1 和 S3）' + (subscriptionSeasonsUnspecified > 0 ? '；另有 ' + subscriptionSeasonsUnspecified + ' 个未带季度标记的文件' : '')"></p>
+            <p x-show="subscriptionSeasonsDetected && !subscriptionSeasons.length" class="text-xs text-warning mb-2" x-text="subscriptionSeasonsMessage"></p>
+            <p x-show="subscriptionSeasonsError" class="text-xs text-danger mb-2" x-text="subscriptionSeasonsError"></p>
+            <input type="text" x-model="newSubscription.season_input" @change="syncSeasonInputFromRemote()" @blur="syncSeasonInputFromRemote()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="1 或 1-4（检测不到季度时手动填写）" />
+            <p class="text-xs text-muted/75 mt-1">勾选检测到的季度会自动覆盖手填值，支持跳季（只勾 S1、S3 时 S2 不会转存）；也可以手动填 <code class="text-text/80">1</code>、<code class="text-text/80">1-4</code> 或 <code class="text-text/80">1,3</code>。多季时目标目录只写剧名，转存按文件自动进入 Season N。</p>
           </div>
 
           <div x-show="subscriptionMode === 'continuous' || subscriptionEditingId" class="space-y-4">
@@ -2805,29 +2827,29 @@
     </div>
   </div>
   <!-- Alpine.js 应用逻辑 -->
-  <script src="js/core/api.js?v=2.6.1"></script>
-  <script src="js/core/formatters.js?v=2.6.1"></script>
-  <script src="js/core/ux.js?v=2.6.1"></script>
-  <script src="js/features/search-results.js?v=2.6.1"></script>
-  <script src="js/features/subscription-detail.js?v=2.6.1"></script>
-  <script src="js/features/calendar.js?v=2.6.1"></script>
-  <script src="js/features/source-switch.js?v=2.6.1"></script>
-  <script src="js/features/automation-events.js?v=2.6.1"></script>
-  <script src="js/core/polling.js?v=2.6.1"></script>
-  <script src="js/core/router.js?v=2.6.1"></script>
-  <script src="js/core/notifications.js?v=2.6.1"></script>
-  <script src="js/stores/downloads.js?v=2.6.1"></script>
-  <script src="js/stores/drive.js?v=2.6.1"></script>
-  <script src="js/stores/jobs.js?v=2.6.1"></script>
-  <script src="js/stores/subscriptions.js?v=2.6.1"></script>
-  <script src="js/features/updates.js?v=2.6.1"></script>
-  <script src="js/features/settings.js?v=2.6.1"></script>
-  <script src="js/features/diagnostics.js?v=2.6.1"></script>
-  <script src="js/features/pwa.js?v=2.6.1"></script>
-  <script src="js/features/dashboard.js?v=2.6.1"></script>
-  <script src="js/features/search-page.js?v=2.6.1"></script>
-  <script src="js/features/calendar-page.js?v=2.6.1"></script>
-  <script src="js/core/shell.js?v=2.6.1"></script>
-  <script src="app.js?v=2.6.1"></script>
+  <script src="js/core/api.js?v=2.7.0"></script>
+  <script src="js/core/formatters.js?v=2.7.0"></script>
+  <script src="js/core/ux.js?v=2.7.0"></script>
+  <script src="js/features/search-results.js?v=2.7.0"></script>
+  <script src="js/features/subscription-detail.js?v=2.7.0"></script>
+  <script src="js/features/calendar.js?v=2.7.0"></script>
+  <script src="js/features/source-switch.js?v=2.7.0"></script>
+  <script src="js/features/automation-events.js?v=2.7.0"></script>
+  <script src="js/core/polling.js?v=2.7.0"></script>
+  <script src="js/core/router.js?v=2.7.0"></script>
+  <script src="js/core/notifications.js?v=2.7.0"></script>
+  <script src="js/stores/downloads.js?v=2.7.0"></script>
+  <script src="js/stores/drive.js?v=2.7.0"></script>
+  <script src="js/stores/jobs.js?v=2.7.0"></script>
+  <script src="js/stores/subscriptions.js?v=2.7.0"></script>
+  <script src="js/features/updates.js?v=2.7.0"></script>
+  <script src="js/features/settings.js?v=2.7.0"></script>
+  <script src="js/features/diagnostics.js?v=2.7.0"></script>
+  <script src="js/features/pwa.js?v=2.7.0"></script>
+  <script src="js/features/dashboard.js?v=2.7.0"></script>
+  <script src="js/features/search-page.js?v=2.7.0"></script>
+  <script src="js/features/calendar-page.js?v=2.7.0"></script>
+  <script src="js/core/shell.js?v=2.7.0"></script>
+  <script src="app.js?v=2.7.0"></script>
 </body>
 </html>

@@ -678,7 +678,10 @@ async fn create_subscription_cleans_quality_suffix_before_persisting_title() {
 }
 
 #[tokio::test]
-async fn changing_subscription_season_resets_previous_progress() {
+async fn changing_subscription_season_preserves_progress_and_reopens() {
+    // 「暂不转存」语义：调整季度范围是编辑扩季/缩季的常规操作，不得清空
+    // 已转存/已知进度（旧行为整体重置，扩季后会把已转存的季重复转存）。
+    // 只释放单季完结目标与完结状态，让新季文件在下次检查中被发现。
     let (ctx, dir) = test_context().await;
     let app = create_app(ctx.clone());
     let created = json_body(
@@ -727,23 +730,21 @@ async fn changing_subscription_season_resets_previous_progress() {
     .await;
 
     assert_eq!(updated["data"]["season"], 2);
-    assert_eq!(updated["data"]["current_episode_number"], 0);
-    assert!(updated["data"]["total_episode_number"].is_null());
-    assert!(updated["data"]["known_files"]
-        .as_array()
-        .unwrap()
-        .is_empty());
-    assert!(updated["data"]["known_episodes"]
-        .as_array()
-        .unwrap()
-        .is_empty());
-    assert!(updated["data"]["transferred_files"]
-        .as_array()
-        .unwrap()
-        .is_empty());
+    // 进度保留：范围调整不清理已转存/已知证据（按「季+集」解析，扩季仍有效）
+    assert_eq!(updated["data"]["current_episode_number"], 12);
+    assert_eq!(updated["data"]["known_files"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        updated["data"]["transferred_files"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
     assert!(updated["data"]
         .get("sync_downloads")
-        .is_none_or(|value| value.as_array().is_some_and(Vec::is_empty)));
+        .is_some_and(|value| value.as_array().is_some_and(|items| !items.is_empty())));
+    // 完结释放：S1 的旧完结目标不再适用，订阅回到追更中
+    assert!(updated["data"]["total_episode_number"].is_null());
     assert_eq!(updated["data"]["completed"], false);
     assert_eq!(updated["data"]["status"], "active");
 
@@ -2186,6 +2187,526 @@ async fn metadata_test_reports_missing_tmdb_key_without_network() {
         .as_str()
         .unwrap_or("")
         .contains("未配置 TMDB API Key"));
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+// ─── 季度探测（订阅编辑器勾选季度）────────────────────────────────────────
+
+#[tokio::test]
+async fn seasons_detection_reports_detected_seasons_from_share() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx.clone());
+
+    // mock fixture：带 Season 路径与 Sxx 文件名的分享内容
+    let fixture = std::env::temp_dir().join(format!(
+        "my-media-sub-seasons-fixture-{}.json",
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::write(
+        &fixture,
+        serde_json::json!({
+            "https://pan.quark.cn/s/seasons-detect": {
+                "ok": true,
+                "state": "ok",
+                "message": "",
+                "files": [
+                    {"name": "Show S01E01.mkv", "is_dir": false, "parent_path": "Season 1", "size": 1, "file_key": "f1"},
+                    {"name": "Show S01E02.mkv", "is_dir": false, "parent_path": "Season 1", "size": 1, "file_key": "f2"},
+                    {"name": "Show.S02E01.mkv", "is_dir": false, "parent_path": "", "size": 1, "file_key": "f3"},
+                    {"name": "海报.jpg", "is_dir": false, "parent_path": "Season 1", "size": 1, "file_key": "f4"}
+                ]
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let _fixture_guard = fixture_path_guard().await;
+    std::env::set_var("MOCK_QUARK_SHARE_FIXTURE", &fixture);
+    ctx.settings_store
+        .update(|settings| settings.quark_cookie = "test-cookie".to_string())
+        .await
+        .unwrap();
+
+    let (status, headers, body) = json_response(
+        &app,
+        Request::builder()
+            .method(Method::POST)
+            .uri("/api/subscriptions/seasons")
+            .header(
+                header::AUTHORIZATION,
+                basic_auth_header("admin", "test-secret-pw"),
+            )
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "url": "https://pan.quark.cn/s/seasons-detect",
+                    "password": ""
+                })
+                .to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_json_content_type(&headers);
+    assert_eq!(body["ok"], serde_json::json!(true));
+    let seasons = body["data"]["seasons"].as_array().unwrap();
+    let detected: Vec<i64> = seasons
+        .iter()
+        .map(|season| season["season"].as_i64().unwrap())
+        .collect();
+    assert_eq!(detected, vec![1, 2]);
+    assert_eq!(seasons[0]["file_count"], serde_json::json!(2));
+    assert_eq!(body["data"]["total_file_count"], serde_json::json!(3));
+    assert_eq!(body["data"]["unspecified_file_count"], serde_json::json!(0));
+
+    std::env::remove_var("MOCK_QUARK_SHARE_FIXTURE");
+    let _ = std::fs::remove_file(&fixture);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn seasons_detection_rejects_missing_url_and_empty_cookie() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx.clone());
+
+    // 未配置 Cookie：直接拒绝并给出可操作提示
+    let (status, _, body) = json_response(
+        &app,
+        Request::builder()
+            .method(Method::POST)
+            .uri("/api/subscriptions/seasons")
+            .header(
+                header::AUTHORIZATION,
+                basic_auth_header("admin", "test-secret-pw"),
+            )
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({"url": "https://pan.quark.cn/s/x"}).to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body["message"].as_str().unwrap().contains("Cookie"));
+
+    ctx.settings_store
+        .update(|settings| settings.quark_cookie = "test-cookie".to_string())
+        .await
+        .unwrap();
+    // 空 URL：参数校验失败
+    let (status, _, _) = json_response(
+        &app,
+        Request::builder()
+            .method(Method::POST)
+            .uri("/api/subscriptions/seasons")
+            .header(
+                header::AUTHORIZATION,
+                basic_auth_header("admin", "test-secret-pw"),
+            )
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(serde_json::json!({"url": " "}).to_string()))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn seasons_detection_infers_season_one_for_unmarked_share() {
+    // 很多资源不标季度，文件名就是 01/02。端到端确认这类分享被按第一季
+    // 处理并标记为 inferred，用户无需再手填季号。
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx.clone());
+
+    let fixture = std::env::temp_dir().join(format!(
+        "my-media-sub-seasons-plain-fixture-{}.json",
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::write(
+        &fixture,
+        serde_json::json!({
+            "https://pan.quark.cn/s/seasons-plain": {
+                "ok": true,
+                "state": "ok",
+                "message": "",
+                "files": [
+                    {"name": "01.mkv", "is_dir": false, "parent_path": "", "size": 1, "file_key": "f1"},
+                    {"name": "02.mkv", "is_dir": false, "parent_path": "", "size": 1, "file_key": "f2"},
+                    {"name": "03.mkv", "is_dir": false, "parent_path": "", "size": 1, "file_key": "f3"}
+                ]
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let _fixture_guard = fixture_path_guard().await;
+    std::env::set_var("MOCK_QUARK_SHARE_FIXTURE", &fixture);
+    ctx.settings_store
+        .update(|settings| settings.quark_cookie = "test-cookie".to_string())
+        .await
+        .unwrap();
+
+    let (status, headers, body) = json_response(
+        &app,
+        Request::builder()
+            .method(Method::POST)
+            .uri("/api/subscriptions/seasons")
+            .header(
+                header::AUTHORIZATION,
+                basic_auth_header("admin", "test-secret-pw"),
+            )
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "url": "https://pan.quark.cn/s/seasons-plain",
+                    "password": ""
+                })
+                .to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_json_content_type(&headers);
+    assert_eq!(body["ok"], serde_json::json!(true));
+    let seasons = body["data"]["seasons"].as_array().unwrap();
+    assert_eq!(seasons.len(), 1);
+    assert_eq!(seasons[0]["season"], serde_json::json!(1));
+    assert_eq!(seasons[0]["file_count"], serde_json::json!(3));
+    assert_eq!(seasons[0]["inferred"], serde_json::json!(true));
+    assert_eq!(body["data"]["unspecified_file_count"], serde_json::json!(0));
+    assert_eq!(body["data"]["total_file_count"], serde_json::json!(3));
+    assert!(body["data"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("按第一季处理"));
+
+    std::env::remove_var("MOCK_QUARK_SHARE_FIXTURE");
+    let _ = std::fs::remove_file(&fixture);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// 串行化对 MOCK_QUARK_SHARE_FIXTURE 环境变量的读写，避免并行测试互相覆盖。
+/// guard 需要跨 await 持有（覆盖 oneshot 请求期间），因此使用异步锁。
+async fn fixture_path_guard() -> tokio::sync::MutexGuard<'static, ()> {
+    static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    LOCK.lock().await
+}
+
+#[tokio::test]
+async fn subscription_create_roundtrips_skip_season_list() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx.clone());
+
+    // 创建跳季订阅（只订 S1+S3）
+    let (status, _, body) = json_response(
+        &app,
+        Request::builder()
+            .method(Method::POST)
+            .uri("/api/subscriptions")
+            .header(
+                header::AUTHORIZATION,
+                basic_auth_header("admin", "test-secret-pw"),
+            )
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "title": "跳季测试剧",
+                    "url": "https://pan.quark.cn/s/skip-season",
+                    "media_type": "series",
+                    "season_list": [1, 3]
+                })
+                .to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["data"]["season"], serde_json::json!(1));
+    assert_eq!(body["data"]["season_end"], serde_json::json!(3));
+    assert_eq!(
+        body["data"]["season_list"],
+        serde_json::json!([1, 3]),
+        "跳季集合应原样保留"
+    );
+
+    // 连续列表折叠为区间语义
+    let (status, _, body) = json_response(
+        &app,
+        Request::builder()
+            .method(Method::POST)
+            .uri("/api/subscriptions")
+            .header(
+                header::AUTHORIZATION,
+                basic_auth_header("admin", "test-secret-pw"),
+            )
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "title": "连续季测试剧",
+                    "url": "https://pan.quark.cn/s/contiguous-season",
+                    "media_type": "series",
+                    "season_list": [1, 2, 3]
+                })
+                .to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["data"]["season_list"], serde_json::Value::Null);
+    assert_eq!(body["data"]["season"], serde_json::json!(1));
+    assert_eq!(body["data"]["season_end"], serde_json::json!(3));
+
+    // 逗号 season_spec 等价于 season_list
+    let (status, _, body) = json_response(
+        &app,
+        Request::builder()
+            .method(Method::POST)
+            .uri("/api/subscriptions")
+            .header(
+                header::AUTHORIZATION,
+                basic_auth_header("admin", "test-secret-pw"),
+            )
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "title": "逗号语法测试剧",
+                    "url": "https://pan.quark.cn/s/comma-spec",
+                    "media_type": "series",
+                    "season_spec": "1,3"
+                })
+                .to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["data"]["season_list"], serde_json::json!([1, 3]));
+
+    // 更新：空数组清除集合回到区间语义
+    let sub_id = ctx
+        .subscription_store
+        .list()
+        .await
+        .into_iter()
+        .find(|sub| sub.url == "https://pan.quark.cn/s/skip-season")
+        .map(|sub| sub.id)
+        .unwrap();
+    let (status, _, body) = json_response(
+        &app,
+        Request::builder()
+            .method(Method::PUT)
+            .uri(format!("/api/subscriptions/{sub_id}"))
+            .header(
+                header::AUTHORIZATION,
+                basic_auth_header("admin", "test-secret-pw"),
+            )
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({"season_list": []}).to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["season_list"], serde_json::Value::Null);
+    assert_eq!(body["data"]["season"], serde_json::json!(1));
+    assert_eq!(body["data"]["season_end"], serde_json::json!(3));
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn parse_season_endpoint_supports_comma_set() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+
+    let (status, _, body) = json_response(
+        &app,
+        Request::builder()
+            .method(Method::POST)
+            .uri("/api/utils/parse-season")
+            .header(
+                header::AUTHORIZATION,
+                basic_auth_header("admin", "test-secret-pw"),
+            )
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({"season_spec": "1,3"}).to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["season"], serde_json::json!(1));
+    assert_eq!(body["data"]["season_end"], serde_json::json!(3));
+    assert_eq!(body["data"]["season_list"], serde_json::json!([1, 3]));
+    assert_eq!(body["data"]["seasons"], serde_json::json!([1, 3]));
+    assert_eq!(body["data"]["season_spec"], serde_json::json!("1,3"));
+    assert_eq!(body["data"]["label"], serde_json::json!("第 1,3 季"));
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn season_range_edit_preserves_transfer_progress() {
+    // 回归：编辑订阅增加季度（暂不转存 → 转存该季）不得清空已转存/已知
+    // 进度——旧行为会整体重置，扩季后已转存的季被重复转存。
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx.clone());
+
+    let (status, _, body) = json_response(
+        &app,
+        Request::builder()
+            .method(Method::POST)
+            .uri("/api/subscriptions")
+            .header(
+                header::AUTHORIZATION,
+                basic_auth_header("admin", "test-secret-pw"),
+            )
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "title": "扩季测试剧",
+                    "url": "https://pan.quark.cn/s/expand-season",
+                    "media_type": "series",
+                    "season_list": [1, 3]
+                })
+                .to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let sub_id = body["data"]["id"].as_str().unwrap().to_string();
+
+    // 预置检查进度（模拟已按 [1,3] 检查/转存过 S1、S3）
+    ctx.subscription_store
+        .update(&sub_id, |sub| {
+            sub.known_files = vec!["Show S01E01.mkv".to_string(), "Show S03E01.mkv".to_string()];
+            sub.known_file_keys = vec!["f1".to_string(), "f3".to_string()];
+            sub.transferred_files =
+                vec!["Show S01E01.mkv".to_string(), "Show S03E01.mkv".to_string()];
+            sub.transferred_file_keys = vec!["ep:1".to_string(), "ep:1".to_string()];
+            sub.completed = true;
+            sub.status = "completed".to_string();
+        })
+        .await
+        .unwrap();
+
+    // 编辑订阅：加上 S2（连续集合折叠为区间）
+    let (status, _, body) = json_response(
+        &app,
+        Request::builder()
+            .method(Method::PUT)
+            .uri(format!("/api/subscriptions/{sub_id}"))
+            .header(
+                header::AUTHORIZATION,
+                basic_auth_header("admin", "test-secret-pw"),
+            )
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({"season_list": [1, 2, 3]}).to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["season_list"], serde_json::Value::Null);
+    assert_eq!(body["data"]["season"], serde_json::json!(1));
+    assert_eq!(body["data"]["season_end"], serde_json::json!(3));
+
+    // 进度保留：已转存/已知记录原样存在，不因扩季被清空
+    let sub = ctx.subscription_store.get(&sub_id).await.unwrap();
+    assert_eq!(sub.known_files.len(), 2, "扩季不得清空已知文件");
+    assert_eq!(sub.transferred_files.len(), 2, "扩季不得清空已转存记录");
+    // 完结状态释放：扩季后订阅回到追更中，可继续检查新季
+    assert!(!sub.completed, "扩季应解除完结状态以便发现新季");
+    assert_eq!(sub.status, "active");
+    assert_eq!(
+        sub.total_episode_number, None,
+        "单季完结目标应随范围调整清除"
+    );
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn skip_season_subscription_does_not_backfill_single_season_total() {
+    // 回归：跳季/多季订阅的任意一次编辑都不得把 min 季的单季集数写成
+    // 完结目标——否则会误判完结并封顶其他季超过该集数的文件。
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx.clone());
+
+    let (status, _, body) = json_response(
+        &app,
+        Request::builder()
+            .method(Method::POST)
+            .uri("/api/subscriptions")
+            .header(
+                header::AUTHORIZATION,
+                basic_auth_header("admin", "test-secret-pw"),
+            )
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "title": "跳季回填测试剧",
+                    "url": "https://pan.quark.cn/s/skip-backfill",
+                    "media_type": "series",
+                    "season_list": [1, 3],
+                    "metadata": {
+                        "provider": "tmdb",
+                        "provider_id": "1",
+                        "title": "跳季回填测试剧",
+                        "media_type": "series",
+                        "number_of_episodes": 12,
+                        "number_of_seasons": 3,
+                        "seasons": [
+                            {"season_number": 1, "episode_count": 12, "name": "Season 1"}
+                        ]
+                    }
+                })
+                .to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let sub_id = body["data"]["id"].as_str().unwrap().to_string();
+
+    // 任意一次不带 total_episode_number 的编辑（改名）后：
+    // S1 的 12 集不得成为完结目标
+    let (status, _, body) = json_response(
+        &app,
+        Request::builder()
+            .method(Method::PUT)
+            .uri(format!("/api/subscriptions/{sub_id}"))
+            .header(
+                header::AUTHORIZATION,
+                basic_auth_header("admin", "test-secret-pw"),
+            )
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({"title": "跳季回填测试剧（改名）"}).to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["data"]["total_episode_number"],
+        serde_json::Value::Null,
+        "跳季订阅不得回填单季集数作为完结目标"
+    );
+    assert_eq!(body["data"]["completed"], serde_json::json!(false));
+    assert_eq!(body["data"]["season_list"], serde_json::json!([1, 3]));
 
     let _ = std::fs::remove_dir_all(dir);
 }

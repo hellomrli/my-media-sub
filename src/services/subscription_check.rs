@@ -10,13 +10,14 @@ use crate::models::subscription::{CheckHistoryItem, ProbeFile, ProbeResult, Subs
 use crate::providers::CloudDriveProviderRegistry;
 use crate::services::episode::{
     episode_state_key_with_override, episode_video_key, is_better_episode_duplicate_candidate,
-    is_video_name, matches_subscription_season_range, normalize_duplicate_episode_strategy,
-    resolve_file_season, EpisodeDuplicateCandidate,
+    is_video_name, normalize_duplicate_episode_strategy, resolve_file_season,
+    EpisodeDuplicateCandidate,
 };
 use crate::services::notification::{
     add_notification, dispatch_push_event_for_notification, PushDispatchRequest,
 };
 use crate::services::push::{PushEvent, PushLevel};
+use crate::services::season_detection::{analyze_seasons, SeasonDetection};
 use crate::services::subscription_progress::{
     completion_target_episode, reconcile_completed_subscription_status,
     reopen_completed_subscription_status, should_mark_completed_from_known_episodes,
@@ -685,6 +686,38 @@ impl SubscriptionCheckService {
         Ok(result)
     }
 
+    /// 探测分享链接里的季度分布：供订阅编辑器把「手填季号」换成
+    /// 「勾选检测到的季度」。复用检查链路的探测缓存与 mock fixture，
+    /// 季度识别与检查/转存的季度过滤完全同一口径。
+    pub async fn detect_share_seasons(
+        &self,
+        url: &str,
+        password: &str,
+        cloud_type: &str,
+        cookie: &str,
+    ) -> Result<SeasonDetection> {
+        let temp_sub: Subscription = serde_json::from_value(serde_json::json!({
+            "id": "season-detection",
+            "title": "季度探测",
+            "url": url,
+            "password": password,
+            "cloud_type": if cloud_type.trim().is_empty() { "quark" } else { cloud_type },
+            "created_at": 0,
+            "updated_at": 0,
+            "last_checked_at": 0
+        }))
+        .map_err(|error| AppError::Validation(format!("订阅探测参数无效: {error}")))?;
+
+        let probe = self.probe_share(&temp_sub, cookie).await?;
+        let mut detection = analyze_seasons(&probe.files);
+        detection.ok = probe.ok && detection.ok;
+        if !probe.ok {
+            // 探测失败（链接失效/需要提取码等）把原因透出给编辑器展示。
+            detection.message = probe.message;
+        }
+        Ok(detection)
+    }
+
     async fn probe_share_uncached(&self, sub: &Subscription, cookie: &str) -> Result<ProbeResult> {
         let uses_quark =
             sub.cloud_type.trim().is_empty() || sub.cloud_type.eq_ignore_ascii_case("quark");
@@ -1281,6 +1314,7 @@ mod due_check_tests {
             media_type: "series".into(),
             season: 1,
             season_end: None,
+            season_list: None,
             start_episode_number: None,
             current_episode_number: 0,
             total_episode_number: None,

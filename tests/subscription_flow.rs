@@ -101,7 +101,8 @@ fn season_and_start_episode_filters_are_applied_together() {
     assert_eq!(plan.transfer_count, 1);
     assert_eq!(plan.transfers[0].source_name, "Joy.of.Life.S02E05.mkv");
     assert!(plan.skipped.iter().any(|item| {
-        item.source_name == "Joy.of.Life.S01E05.mkv" && item.skip_reason == "非当前订阅季"
+        item.source_name == "Joy.of.Life.S01E05.mkv"
+            && item.skip_reason == "不在订阅季度，暂不转存（编辑订阅可增加该季）"
     }));
     assert!(plan.skipped.iter().any(|item| {
         item.source_name == "Joy.of.Life.S02E04.mkv"

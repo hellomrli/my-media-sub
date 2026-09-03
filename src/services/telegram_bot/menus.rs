@@ -1,5 +1,5 @@
 use crate::clients::pansou::{PanSouClient, SearchResult};
-use crate::models::subscription::parse_season_spec;
+use crate::models::subscription::{normalize_season_list, parse_season_spec_list};
 use crate::services::subscription_source_switch::SubscriptionSourceSwitchService;
 use crate::services::title_normalize::clean_media_title;
 use crate::utils::unix_now;
@@ -187,7 +187,7 @@ fn format_search_hits(keyword: &str, hits: &[SearchHit]) -> String {
     }
     lines.push(String::new());
     lines.push(
-        "订阅：/subscribe &lt;序号&gt; [季号]\n例如：/subscribe 1 或 /subscribe 1 1-4".to_string(),
+        "订阅：/subscribe &lt;序号&gt; [季号]\n例如：/subscribe 1、/subscribe 1 1-4 或 /subscribe 1 1,3（跳季）".to_string(),
     );
     lines.join("\n")
 }
@@ -225,7 +225,7 @@ fn format_switch_hits(sub: &Subscription, hits: &[SwitchHit]) -> String {
 }
 
 fn search_help_text() -> &'static str {
-    "🔍 <b>搜索资源</b>\n\n/search &lt;关键词&gt;\n例如：/search 庆余年\n\n找到结果后用：\n/subscribe &lt;序号&gt; [季号]\n例如：/subscribe 1 1-4"
+    "🔍 <b>搜索资源</b>\n\n/search &lt;关键词&gt;\n例如：/search 庆余年\n\n找到结果后用：\n/subscribe &lt;序号&gt; [季号]\n例如：/subscribe 1 1-4 或 /subscribe 1 1,3（跳季）"
 }
 
 fn switch_help_text() -> &'static str {
@@ -428,7 +428,7 @@ impl TelegramBotService {
         chat_id: i64,
     ) -> Result<PendingConfirmation, String> {
         let argument = argument.ok_or_else(|| {
-            "用法：/subscribe <序号> [季号]\n先用 /search <关键词>，再 /subscribe 1 1-4".to_string()
+            "用法：/subscribe <序号> [季号]\n先用 /search <关键词>，再 /subscribe 1 1-4 或 /subscribe 1 1,3（跳季）".to_string()
         })?;
         let mut parts = argument.split_whitespace();
         let index = parts
@@ -437,7 +437,7 @@ impl TelegramBotService {
             .filter(|value| *value > 0)
             .ok_or_else(|| "序号必须是从 1 开始的数字".to_string())?;
         let season_spec = parts.next().unwrap_or("1");
-        let _ = parse_season_spec(season_spec); // validate
+        let _ = parse_season_spec_list(season_spec); // validate
         let session = self
             .load_session(user_id, chat_id)
             .await
@@ -492,7 +492,9 @@ impl TelegramBotService {
             .filter(|value| *value > 0)
             .ok_or_else(|| "订阅参数无效".to_string())?;
         let season_spec = parts.next().unwrap_or("1");
-        let (season, season_end) = parse_season_spec(season_spec);
+        // 支持 "1" / "1-4" / "1,3"（跳季）语法；连续集合折叠为区间。
+        let (season, season_end, season_list) =
+            normalize_season_list(parse_season_spec_list(season_spec));
         let session = self
             .load_session(user_id, chat_id)
             .await
@@ -537,6 +539,7 @@ impl TelegramBotService {
             media_type: "series".to_string(),
             season,
             season_end,
+            season_list,
             start_episode_number: None,
             current_episode_number: 0,
             total_episode_number: None,

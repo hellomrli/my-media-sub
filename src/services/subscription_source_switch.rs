@@ -11,7 +11,7 @@ use crate::models::subscription::{
     ProbeResult, SourceCandidate, SourceSwitchHistoryItem, Subscription,
 };
 use crate::models::{Settings, SourceQuality};
-use crate::services::episode::{is_video_name, matches_subscription_season_range};
+use crate::services::episode::is_video_name;
 use crate::services::source_quality::{score_source, SourceQualityFile, SourceQualityInput};
 use crate::utils::unix_now;
 
@@ -87,6 +87,10 @@ impl SubscriptionSourceSwitchService {
             for result in search_results {
                 let url = result.url.trim().to_string();
                 let searchable = format!("{} {}", result.note, result.source).to_lowercase();
+                // PanSou 上游已明确标记失效的链接直接丢弃，不进入候选列表。
+                if result.is_valid == Some(false) {
+                    continue;
+                }
                 if url.is_empty()
                     || subscription
                         .rules
@@ -155,6 +159,28 @@ impl SubscriptionSourceSwitchService {
         });
         candidates.truncate(20);
         Ok(candidates)
+    }
+
+    /// 从候选列表中移除「探测明确失败」的无效夸克链接。
+    ///
+    /// 过滤规则：
+    /// - `probe_info` 存在且 `ok == false`：夸克探测确认失效（404/410、
+    ///   分享取消等），移除；
+    /// - `probe_info` 为 `None`：尚未探测，无法判定，保留并在前端标注
+    ///   「未探测」，不误伤慢响应或暂时探测失败的真实资源。
+    ///
+    /// 返回（保留的候选, 移除数量）。供候选搜索 API 在全量探测后调用，
+    /// 让换源列表只包含可访问的资源；自动换源读取持久化候选列表时同样受益。
+    pub fn retain_valid_candidates(
+        candidates: Vec<SourceCandidate>,
+    ) -> (Vec<SourceCandidate>, usize) {
+        let before = candidates.len();
+        let kept: Vec<SourceCandidate> = candidates
+            .into_iter()
+            .filter(|candidate| !candidate.probe_info.as_ref().is_some_and(|probe| !probe.ok))
+            .collect();
+        let removed = before - kept.len();
+        (kept, removed)
     }
 
     /// 探测候选项（验证链接有效性）
@@ -612,11 +638,10 @@ fn candidate_matches_season(subscription: &Subscription, candidate: &SourceCandi
     };
     probe.files.iter().any(|file| {
         is_video_name(&file.name)
-            && matches_subscription_season_range(
+            && crate::services::episode::subscription_file_matches_season(
+                subscription,
                 &file.name,
                 &file.parent_path,
-                subscription.season_start(),
-                subscription.season_end_inclusive(),
             )
     })
 }
@@ -733,6 +758,7 @@ mod tests {
             media_type: String::new(),
             season: 2,
             season_end: None,
+            season_list: None,
             start_episode_number: None,
             current_episode_number: 0,
             total_episode_number: None,
@@ -913,6 +939,65 @@ mod tests {
                 recommendation_reasons: vec!["综合质量优秀".to_string()],
             },
         }
+    }
+
+    fn candidate_with_probe(url: &str, probe_ok: bool, probed: bool) -> SourceCandidate {
+        let mut candidate = eligible_candidate();
+        candidate.url = url.to_string();
+        candidate.probe_info = if probed {
+            Some(ProbeResult {
+                ok: probe_ok,
+                state: if probe_ok { "success" } else { "failed" }.to_string(),
+                message: if probe_ok {
+                    String::new()
+                } else {
+                    "分享已失效".to_string()
+                },
+                files: vec![],
+            })
+        } else {
+            None
+        };
+        candidate
+    }
+
+    #[test]
+    fn retain_valid_candidates_removes_probe_failed_keeps_unprobed() {
+        // 回归：换源候选搜索要求过滤掉探测确认失效的夸克链接；
+        // 未探测成功的（超时/暂时错误）不能误伤，保留给前端标注。
+        let candidates = vec![
+            candidate_with_probe("https://pan.quark.cn/s/ok", true, true),
+            candidate_with_probe("https://pan.quark.cn/s/dead", false, true),
+            candidate_with_probe("https://pan.quark.cn/s/unknown", false, false),
+        ];
+
+        let (kept, removed) = SubscriptionSourceSwitchService::retain_valid_candidates(candidates);
+
+        assert_eq!(removed, 1);
+        let urls = kept
+            .iter()
+            .map(|candidate| candidate.url.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            urls,
+            vec![
+                "https://pan.quark.cn/s/ok",
+                "https://pan.quark.cn/s/unknown"
+            ]
+        );
+    }
+
+    #[test]
+    fn retain_valid_candidates_all_invalid_returns_empty() {
+        let candidates = vec![
+            candidate_with_probe("https://pan.quark.cn/s/dead-1", false, true),
+            candidate_with_probe("https://pan.quark.cn/s/dead-2", false, true),
+        ];
+
+        let (kept, removed) = SubscriptionSourceSwitchService::retain_valid_candidates(candidates);
+
+        assert_eq!(removed, 2);
+        assert!(kept.is_empty());
     }
 
     #[test]

@@ -139,7 +139,16 @@ impl JobWorker {
         self.subscription_store
             .update(subscription_id, |sub| {
                 sub.metadata = Some(merge_refreshed_metadata(sub.metadata.as_ref(), metadata));
-                if let Some(count) = episode_count_for_season(sub.metadata.as_ref(), sub.season) {
+                // 多季/跳季订阅不回填 min 季单季集数（与
+                // backfill_total_episode_from_metadata 同一口径），
+                // 否则会武装错误的完结目标并封顶其他季的转存。
+                if sub.is_multi_season() {
+                    if sub.total_episode_number.is_none() {
+                        sub.total_episode_number = sub.rules.finish_after_episode;
+                    }
+                } else if let Some(count) =
+                    episode_count_for_season(sub.metadata.as_ref(), sub.season)
+                {
                     sub.total_episode_number = Some(count);
                 } else if sub.total_episode_number.is_none() {
                     sub.total_episode_number = sub.rules.finish_after_episode;
