@@ -233,6 +233,7 @@ pub(super) async fn update_subscription(
                 let season_range_changed =
                     season_range_before != (sub.season, sub.season_end, sub.season_list.clone());
                 if season_range_changed {
+                    crate::services::episode::rebase_season_progress(sub, season_range_before.0);
                     // 季度范围调整是「暂不转存 → 随时可扩季」的语义：
                     // 已转存/已知证据按「季+集」解析，扩季（如 [1,3] 加上 S2）
                     // 后旧进度仍有效，新季文件会在下次检查中被发现并转存，

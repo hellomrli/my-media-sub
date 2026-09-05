@@ -18,6 +18,14 @@ use crate::utils::{set_file_mode, unix_now, write_file_atomic};
 const BACKUP_FORMAT_VERSION: u32 = 1;
 const DEFAULT_RETENTION: usize = 7;
 const MAX_FILES: usize = 4096;
+const PENDING_RESTORE: &str = "restore-pending.json";
+
+#[derive(Serialize, Deserialize)]
+struct PendingRestore {
+    archive: BackupArchive,
+    snapshot: String,
+    started: bool,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupArchive {
@@ -94,6 +102,7 @@ pub struct StoredBackup {
 #[derive(Debug, Clone, Serialize)]
 pub struct RestoreResult {
     pub restored_files: usize,
+    pub staged_files: usize,
     pub snapshot: String,
     pub restart_required: bool,
     pub message: String,
@@ -273,12 +282,6 @@ impl BackupService {
             .map_err(|error| AppError::Internal(format!("序列化恢复前快照失败: {error}")))?;
         write_file_atomic(&snapshot_path, &snapshot_bytes, 0o600)?;
 
-        let data_dir = self.data_dir.clone();
-        let files = decode_archive_files(archive)?;
-        let restored_files = tokio::task::spawn_blocking(move || restore_files(&data_dir, files))
-            .await
-            .map_err(|error| AppError::Internal(format!("恢复任务异常退出: {error}")))??;
-
         let restart_plan = serde_json::json!({
             "reason": "data_restore",
             "created_at": unix_now(),
@@ -289,13 +292,81 @@ impl BackupService {
             serde_json::to_vec_pretty(&restart_plan)?.as_slice(),
             0o600,
         )?;
-        self.metrics.increment_restore_success();
+        // Never replace live Store files. Old workers may still persist their
+        // snapshots until shutdown; apply the archive before loading any Store
+        // in the next process instead.
+        let pending = PendingRestore {
+            archive: archive.clone(),
+            snapshot: snapshot_name.clone(),
+            started: false,
+        };
+        write_file_atomic(
+            &self.backup_dir.join(PENDING_RESTORE),
+            &serde_json::to_vec(&pending)?,
+            0o600,
+        )?;
         Ok(RestoreResult {
-            restored_files,
+            restored_files: 0,
+            staged_files: archive.files.len(),
             snapshot: snapshot_name,
             restart_required: true,
-            message: "数据已原子恢复；当前进程仍持有旧内存快照，请安全重启服务".to_string(),
+            message: "备份已校验并暂存；请重启服务，启动时将恢复备份。重启前的后续修改会被备份覆盖"
+                .to_string(),
         })
+    }
+
+    /// Call only during startup, before constructing Stores, workers or routes.
+    /// A failed/interrupted restore leaves the request on disk and prevents startup.
+    pub async fn apply_pending_restore(&self) -> Result<()> {
+        let data_dir = self.data_dir.clone();
+        let backup_dir = self.backup_dir.clone();
+        let max_bytes = self.policy.max_archive_bytes;
+        let applied = tokio::task::spawn_blocking(move || -> Result<bool> {
+            let path = backup_dir.join(PENDING_RESTORE);
+            if !path.exists() {
+                return Ok(false);
+            }
+            let mut pending: PendingRestore = serde_json::from_slice(&std::fs::read(&path)?)?;
+            validate_archive(&pending.archive, max_bytes)?;
+            if !pending.snapshot.starts_with("backup-") || pending.snapshot.contains(['/', '\\']) {
+                return Err(AppError::Validation("恢复快照路径无效".to_string()));
+            }
+            let snapshot_path = backup_dir.join(&pending.snapshot);
+            if !pending.started {
+                // Include writes made while the old process was shutting down.
+                let snapshot = build_archive(&data_dir, max_bytes)?;
+                write_file_atomic(&snapshot_path, &serde_json::to_vec(&snapshot)?, 0o600)?;
+                pending.started = true;
+                write_file_atomic(&path, &serde_json::to_vec(&pending)?, 0o600)?;
+            }
+            let before: BackupArchive = serde_json::from_slice(&std::fs::read(snapshot_path)?)?;
+            validate_archive(&before, max_bytes)?;
+            let files = decode_archive_files(&pending.archive)?;
+            if let Err(error) = restore_files(&data_dir, files) {
+                restore_files(&data_dir, decode_archive_files(&before)?)?;
+                let original_paths: HashSet<_> =
+                    before.files.iter().map(|file| &file.path).collect();
+                for file in &pending.archive.files {
+                    if !original_paths.contains(&file.path) {
+                        let destination = data_dir.join(&file.path);
+                        if destination.is_file() {
+                            reject_symlink_ancestors(&data_dir, Path::new(&file.path))?;
+                            std::fs::remove_file(destination)?;
+                        }
+                    }
+                }
+                return Err(error);
+            }
+            std::fs::remove_file(path)?;
+            let _ = std::fs::remove_file(data_dir.join("restart-required.json"));
+            Ok(true)
+        })
+        .await
+        .map_err(|error| AppError::Internal(format!("恢复任务异常退出: {error}")))??;
+        if applied {
+            self.metrics.increment_restore_success();
+        }
+        Ok(())
     }
 
     pub async fn verify_latest_stored_backup(&self) -> Result<Option<BackupVerificationReport>> {
@@ -900,8 +971,42 @@ mod tests {
         std::fs::write(dir.join("notes.txt"), b"after").unwrap();
         let restored = service.restore(&archive, "RESTORE DATA").await.unwrap();
         assert!(restored.restart_required);
+        assert_eq!(restored.restored_files, 0);
+        assert_eq!(restored.staged_files, 2);
+        assert_eq!(std::fs::read(dir.join("notes.txt")).unwrap(), b"after");
+        // The live process can still write during shutdown; the archive is
+        // applied only before the next process loads its in-memory Stores.
+        std::fs::write(dir.join("notes.txt"), b"last live write").unwrap();
+        service.apply_pending_restore().await.unwrap();
         assert_eq!(std::fs::read(dir.join("notes.txt")).unwrap(), b"before");
         assert!(dir.join("backups").join(restored.snapshot).exists());
+        assert!(!dir.join("backups").join(PENDING_RESTORE).exists());
+        service.apply_pending_restore().await.unwrap();
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn failed_startup_restore_rolls_back_and_keeps_the_pending_archive() {
+        let dir = temp_dir("startup-failure");
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.txt", "m.txt", "z.txt"] {
+            std::fs::write(dir.join(name), b"archived").unwrap();
+        }
+        let service = service(&dir);
+        let archive = service.export_archive().await.unwrap();
+        std::fs::write(dir.join("a.txt"), b"live").unwrap();
+        std::fs::remove_file(dir.join("m.txt")).unwrap();
+        std::fs::remove_file(dir.join("z.txt")).unwrap();
+        std::fs::create_dir(dir.join("z.txt")).unwrap();
+        service.restore(&archive, "RESTORE DATA").await.unwrap();
+        assert!(service.apply_pending_restore().await.is_err());
+        assert_eq!(std::fs::read(dir.join("a.txt")).unwrap(), b"live");
+        assert!(!dir.join("m.txt").exists());
+        assert!(dir.join("backups").join(PENDING_RESTORE).exists());
+        std::fs::remove_dir(dir.join("z.txt")).unwrap();
+        service.apply_pending_restore().await.unwrap();
+        assert_eq!(std::fs::read(dir.join("a.txt")).unwrap(), b"archived");
+        assert_eq!(std::fs::read(dir.join("z.txt")).unwrap(), b"archived");
         let _ = std::fs::remove_dir_all(dir);
     }
 

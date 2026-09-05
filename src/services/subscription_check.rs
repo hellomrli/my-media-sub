@@ -9,9 +9,9 @@ use crate::jobs::{JobQueue, SubscriptionTransferPayload};
 use crate::models::subscription::{CheckHistoryItem, ProbeFile, ProbeResult, Subscription};
 use crate::providers::CloudDriveProviderRegistry;
 use crate::services::episode::{
-    episode_state_key_with_override, episode_video_key, is_better_episode_duplicate_candidate,
-    is_video_name, normalize_duplicate_episode_strategy, resolve_file_season,
-    EpisodeDuplicateCandidate,
+    episode_state_key_with_context, episode_state_key_with_override, episode_video_key,
+    is_better_episode_duplicate_candidate, is_video_name, normalize_duplicate_episode_strategy,
+    resolve_file_season, EpisodeDuplicateCandidate,
 };
 use crate::services::notification::{
     add_notification, dispatch_push_event_for_notification, PushDispatchRequest,
@@ -381,15 +381,20 @@ impl SubscriptionCheckService {
 
         // 2. 对比文件，找出新增文件
         let new_files = self.find_new_files(&sub, &probe_result.files);
-        let new_file_names: Vec<String> = new_files.iter().map(|f| f.name.clone()).collect();
+        let new_file_names: Vec<String> = new_files
+            .iter()
+            .map(|file| crate::services::episode::file_reference(&file.name, &file.parent_path))
+            .collect();
         let transfer_file_names = if auto_transfer_enabled.is_none() {
-            self.transfer_candidate_file_names(&sub, &probe_result.files, &new_file_names)
+            self.transfer_candidate_file_names(&sub, &probe_result.files)
         } else {
             new_file_names.clone()
         };
 
         // 3. 解析集数
         let new_episodes = self.parse_episodes(&sub, &new_file_names);
+        let primary_new_episodes =
+            self.primary_season_new_episodes(&sub, &probe_result.files, &new_file_names);
         let details = self.build_check_details(&sub, &probe_result.files);
         crate::services::automation_events::record_stage_event(
             self.automation_event_store.as_ref(),
@@ -448,14 +453,14 @@ impl SubscriptionCheckService {
         // 同步下载订阅同样按转存/发现证据判完结：下载监视器依赖 Aria2 的易失任务历史，
         // completed_at 常年填不上，把完结权全交给它会让订阅永远停在追更中。
         let became_completed = if sub.notify_only {
-            should_mark_completed_from_known_episodes(&sub, &new_episodes)
+            should_mark_completed_from_known_episodes(&sub, &primary_new_episodes)
         } else if transfer_file_names.is_empty() || auto_transfer_enabled.is_some() {
             // When the provider reports no new files and the known snapshot
             // already contains the configured final episode, completion can
             // be reconciled even if legacy transferred filenames lack a
             // parseable SxxExx marker. 自动转存被关闭时同理：这类订阅永远等不到
             // 转存证据，只能用已发现的集数判断完结。
-            should_mark_completed_from_known_episodes(&sub, &new_episodes)
+            should_mark_completed_from_known_episodes(&sub, &primary_new_episodes)
         } else {
             should_mark_completed_from_transferred_files(&sub, &[])
         };
@@ -788,7 +793,15 @@ impl SubscriptionCheckService {
                         continue;
                     }
                     if !s.known_file_keys.contains(&file.file_key) {
-                        s.known_files.push(file.name.clone());
+                        s.known_files.push(if s.media_type == "movie" {
+                            file.name.clone()
+                        } else {
+                            crate::services::episode::progress_file_reference(
+                                &file.name,
+                                &file.parent_path,
+                                s.season,
+                            )
+                        });
                         s.known_file_keys.push(file.file_key.clone());
                     }
                 }

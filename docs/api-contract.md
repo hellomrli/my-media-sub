@@ -154,7 +154,7 @@
 - `GET|POST /api/backups`：列出或立即创建服务器备份。
 - `POST /api/backups/preview`：返回格式版本、Store schema、安全路径、Base64、大小和 SHA-256 的逐项校验清单。
 - `GET|POST /api/backups/verification`：读取最近验证报告，或立即对最新服务器备份执行隔离目录恢复与逐文件哈希复核。
-- `POST /api/backups/restore`：请求体必须含 `confirmation: "RESTORE DATA"`；恢复前创建当前快照，响应要求安全重启。
+- `POST /api/backups/restore`：请求体必须含 `confirmation: "RESTORE DATA"`；校验后暂存备份并创建当前快照，返回 `staged_files`、`restored_files: 0` 和 `restart_required: true`。安全重启后，在加载任何 Store 和后台任务前应用备份；重启前的后续修改会被备份覆盖。启动恢复失败时回滚并拒绝启动，保留暂存备份供重试。
 
 所有响应包含 `X-Request-ID` 和 `X-Correlation-ID`；客户端可提供格式安全的同名请求头。连续五次认证失败后，同一来源在 60 秒窗口内收到 `429` 和 `Retry-After: 60`。
 
@@ -200,3 +200,10 @@
 - `GET /api/subscriptions/export` 返回版本化订阅信封；`POST /api/subscriptions/import/preview` 只读报告冲突，执行接口支持 skip/update/new_id、确认短语及 24 小时有界 Idempotency-Key 去重。
 - Webhook v1.0 提供 `version`、`event_id`、`occurred_at`、correlation/subscription/job 标识和 `data`，并发送版本头；签名继续覆盖原始正文，接收端应按 event_id 去重。
 - 可运行 curl、Python 和 GitHub Actions 示例见 `docs/automation-api.md`。
+
+### 跨季进度与文件标识
+
+- 订阅检查、任务载荷和已知/已转存文件允许使用含父目录的相对文件名（如 `Season 3/01.mkv`），避免同名文件跨季合并；没有季度标记的历史文件会在编辑季度时绑定到原季度。
+- 新转存记录使用 `s:<season>:ep:<episode>` 键，兼容读取旧 `ep:<episode>`（仅对应原主季）。编辑季度会先绑定旧进度，再计算新主季的进度；扩季保留旧季记录。
+- 订阅详情 `episodes` 的每项含 `season` 和 `episode`，两者共同标识一集。汇总计数覆盖所有选中季度；旧的整数集号数组保留用于兼容，跨季消费者应读取 `episodes`。
+- 日历为每个选中季度独立生成排期及处理状态，跳过未选季度。

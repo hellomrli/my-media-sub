@@ -1,6 +1,9 @@
 use crate::models::metadata::episode_count_for_season;
 use crate::models::Subscription;
-use crate::services::episode::{detect_episode, is_video_name};
+use crate::services::episode::{
+    detect_episode, episode_state_key_with_override, is_video_name, known_episode_keys,
+    transferred_episode_keys,
+};
 
 pub fn completion_target_episode(sub: &Subscription) -> Option<i32> {
     sub.rules
@@ -36,11 +39,10 @@ fn movie_source_ready<'a>(
 }
 
 pub fn progress_max_episode(sub: &Subscription) -> i32 {
-    let transferred_episodes = episode_numbers_from_file_names(sub.transferred_files.iter());
-    sub.known_episodes
-        .iter()
-        .copied()
-        .chain(transferred_episodes)
+    known_episode_keys(sub)
+        .into_iter()
+        .chain(transferred_episode_keys(sub))
+        .filter_map(|(season, episode)| sub.covers_season(season).then_some(episode))
         .chain(std::iter::once(sub.current_episode_number))
         .max()
         .unwrap_or(0)
@@ -51,10 +53,17 @@ fn has_reached_target_episode(sub: &Subscription, additional_episodes: &[i32]) -
         return false;
     };
 
-    sub.current_episode_number == target
-        || sub.known_episodes.contains(&target)
-        || additional_episodes.contains(&target)
-        || episode_numbers_from_file_names(sub.transferred_files.iter()).contains(&target)
+    let mut evidence = known_episode_keys(sub);
+    evidence.extend(transferred_episode_keys(sub));
+    evidence.extend(
+        additional_episodes
+            .iter()
+            .map(|episode| (sub.season_start(), *episode)),
+    );
+    evidence.insert((sub.season_start(), sub.current_episode_number));
+    sub.season_numbers()
+        .iter()
+        .all(|season| evidence.contains(&(*season, target)))
 }
 
 pub fn should_reopen_completed_subscription(sub: &Subscription) -> bool {
@@ -169,7 +178,15 @@ pub fn should_mark_completed_from_file_names(sub: &Subscription, file_names: &[S
         return false;
     };
 
-    episode_numbers_from_file_names(file_names.iter()).contains(&target_episode)
+    let evidence: std::collections::BTreeSet<_> = file_names
+        .iter()
+        .filter_map(|name| {
+            episode_state_key_with_override(name, sub.season, &sub.rules.episode_regex)
+        })
+        .collect();
+    sub.season_numbers()
+        .iter()
+        .all(|season| evidence.contains(&(*season, target_episode)))
 }
 
 #[cfg(test)]

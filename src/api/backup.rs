@@ -80,7 +80,7 @@ async fn restore_backup(
         .await?;
     Ok(Json(ApiResponse::with_message(
         result,
-        "恢复完成，必须重启服务后再继续操作",
+        "备份已暂存，重启服务后生效",
     )))
 }
 

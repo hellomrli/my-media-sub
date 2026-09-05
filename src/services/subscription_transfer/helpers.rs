@@ -64,7 +64,7 @@ fn dedup_provider_episode_files<'a>(
         if !provider_file_matches_subscription_season(sub, file) {
             continue;
         }
-        let Some(key) = crate::services::episode::episode_video_key(&file.name, sub.season) else {
+        let Some(key) = crate::services::episode::episode_state_key_with_context(&file.name, &file.parent_path, sub.season, &sub.rules.episode_regex) else {
             continue;
         };
 
@@ -103,7 +103,7 @@ fn dedup_provider_episode_files<'a>(
             if !provider_file_matches_subscription_season(sub, file) {
                 return false;
             }
-            crate::services::episode::episode_video_key(&file.name, sub.season)
+            crate::services::episode::episode_state_key_with_context(&file.name, &file.parent_path, sub.season, &sub.rules.episode_regex)
                 .map(|_| selected.contains(index))
                 .unwrap_or(true)
         })
@@ -157,10 +157,12 @@ impl TransferMatchTargets {
         }
     }
 
-    fn matches_name(&self, sub: &Subscription, name: &str) -> bool {
-        self.names.contains(name)
-            || crate::services::episode::episode_state_key_with_override(
+    fn matches_name(&self, sub: &Subscription, name: &str, parent_path: &str) -> bool {
+        self.names.contains(&crate::services::episode::file_reference(name, parent_path))
+            || self.names.contains(name)
+            || crate::services::episode::episode_state_key_with_context(
                 name,
+                parent_path,
                 sub.season,
                 &sub.rules.episode_regex,
             )
@@ -178,14 +180,13 @@ fn filter_transfer_candidates_by_targets<'a>(
         .into_iter()
         .filter(|file| {
             provider_file_matches_subscription_season(sub, file)
-                && targets.matches_name(sub, &file.name)
+                && targets.matches_name(sub, &file.name, &file.parent_path)
         })
         .collect()
 }
 
 /// 执行前过滤已转存文件（业务级幂等）：任务重试/重放时不把已成功的批次再转一遍。
-/// 名称与 `name:` 键匹配对所有类型安全；`ep:` 集数键不含季号，仅单季订阅启用，
-/// 避免把多季订阅中未转存的 S02E05 误判成已转存的 S01E05。
+/// 正片按季与集匹配；旧 `ep:` 键仅归属主季，特典按季与文件名匹配。
 fn filter_already_transferred_files<'a>(
     sub: &Subscription,
     files: Vec<&'a ProviderFile>,
@@ -193,31 +194,26 @@ fn filter_already_transferred_files<'a>(
     if !sub.rules.skip_existing_transferred {
         return (files, 0);
     }
-    let transferred_names: HashSet<&str> =
-        sub.transferred_files.iter().map(String::as_str).collect();
-    let transferred_keys: HashSet<&str> = sub
-        .transferred_file_keys
-        .iter()
-        .map(String::as_str)
-        .collect();
-    let episode_keys_usable = !sub.is_multi_season();
+    let transferred_episodes = crate::services::episode::transferred_episode_keys(sub);
     let before = files.len();
-    let kept: Vec<&ProviderFile> = files
-        .into_iter()
-        .filter(|file| {
-            if transferred_names.contains(file.name.as_str()) {
-                return false;
+    let kept: Vec<&ProviderFile> = files.into_iter().filter(|file| {
+        let season = resolve_file_season(&file.name, &file.parent_path, sub.season, sub.is_multi_season()).unwrap_or(sub.season);
+        if sub.media_type != "movie" {
+            if let Some(key) = crate::services::episode::episode_state_key_with_context(
+                &file.name, &file.parent_path, sub.season, &sub.rules.episode_regex,
+            ) {
+                return !transferred_episodes.contains(&key);
             }
-            // 特典只按文件名匹配：不占用正片集数槽位，也不被正片集数挡掉。
-            if crate::services::episode::is_special_episode_name(&file.name) {
-                return true;
-            }
-            let episode = crate::services::detect_episode(&file.name).episode;
-            let key = transfer_state_key(&file.name, episode, sub.rules.ignore_extensions);
-            let key_usable = episode_keys_usable || key.starts_with("name:");
-            !(key_usable && transferred_keys.contains(key.as_str()))
-        })
-        .collect();
+        }
+        let reference = crate::services::episode::progress_file_reference(&file.name, &file.parent_path, season);
+        if sub.transferred_files.iter().any(|name| {
+            if sub.media_type == "movie" { name == &file.name }
+            else { crate::services::episode::progress_file_reference(name, "", sub.season) == reference }
+        }) { return false; }
+        let name_key = transfer_state_key(&file.name, None, sub.rules.ignore_extensions);
+        !sub.transferred_file_keys.contains(&format!("s:{season}:{name_key}"))
+            && !(season == sub.season && sub.transferred_file_keys.contains(&name_key))
+    }).collect();
     let skipped = before - kept.len();
     (kept, skipped)
 }

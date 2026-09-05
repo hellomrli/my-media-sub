@@ -8,7 +8,7 @@ use crate::models::{
     CalendarSourceAlert, CalendarStatus, MediaCalendar, MediaCalendarItem, MediaCalendarSummary,
     Notification, Settings, Subscription,
 };
-use crate::services::subscription_status::{build_subscription_detail, EpisodeStatusItem};
+use crate::services::subscription_status::{build_season_detail, EpisodeStatusItem};
 
 pub const CALENDAR_TIMEZONE: &str = "Asia/Shanghai";
 pub const MAX_CALENDAR_RANGE_DAYS: i64 = 366;
@@ -67,38 +67,54 @@ pub fn build_media_calendar(
             continue;
         }
 
-        let detail =
-            build_subscription_detail(subscription.clone(), settings, jobs, notifications, events);
-        let mut progress = CalendarSubscriptionProgress {
-            latest_discovered_episode: detail.summary.latest_discovered_episode,
-            latest_transferred_episode: detail.summary.latest_transferred_episode,
-            source_overdue_days: None,
-        };
-        if let Some(alert) = source_change_alert(&subscription, progress, query.today) {
-            progress.source_overdue_days = Some(alert.overdue_days);
-            source_alerts.push(alert);
-        }
-        let episode_states = detail
-            .episodes
-            .iter()
-            .map(|item| (item.episode, item))
-            .collect::<BTreeMap<_, _>>();
-        let candidates = metadata_schedule_candidates(&subscription, query.from, query.to);
+        for season in subscription.season_numbers() {
+            // The public detail payload caps its combined episode grid at 500
+            // items. Build a per-season projection here so a large earlier
+            // season cannot hide state for later seasons in the calendar.
+            let detail =
+                build_season_detail(&subscription, season, settings, jobs, notifications, events);
+            let subscription = &detail.subscription;
+            let mut progress = CalendarSubscriptionProgress {
+                latest_discovered_episode: detail.summary.latest_discovered_episode,
+                latest_transferred_episode: detail.summary.latest_transferred_episode,
+                source_overdue_days: None,
+            };
+            if let Some(alert) = source_change_alert(subscription, progress, query.today) {
+                progress.source_overdue_days = Some(alert.overdue_days);
+                source_alerts.push(alert);
+            }
+            let episode_states = detail
+                .episodes
+                .iter()
+                .filter(|item| item.season == season)
+                .map(|item| (item.episode, item))
+                .collect::<BTreeMap<_, _>>();
+            let candidates = metadata_schedule_candidates(subscription, query.from, query.to);
 
-        match candidates {
-            Some(candidates) => {
-                for candidate in candidates {
-                    let state = candidate
-                        .episode
-                        .and_then(|episode| episode_states.get(&episode).copied());
-                    let item = build_item(
-                        &subscription,
-                        candidate,
-                        state,
-                        query.today,
-                        week_end,
-                        progress,
-                    );
+            match candidates {
+                Some(candidates) => {
+                    for candidate in candidates {
+                        let state = candidate
+                            .episode
+                            .and_then(|episode| episode_states.get(&episode).copied());
+                        let item = build_item(
+                            subscription,
+                            candidate,
+                            state,
+                            query.today,
+                            week_end,
+                            progress,
+                        );
+                        if query
+                            .status
+                            .is_none_or(|status| item.statuses.contains(&status))
+                        {
+                            items.push(item);
+                        }
+                    }
+                }
+                None => {
+                    let item = unknown_schedule_item(subscription, progress);
                     if query
                         .status
                         .is_none_or(|status| item.statuses.contains(&status))
@@ -107,18 +123,8 @@ pub fn build_media_calendar(
                     }
                 }
             }
-            None => {
-                let item = unknown_schedule_item(&subscription, progress);
-                if query
-                    .status
-                    .is_none_or(|status| item.statuses.contains(&status))
-                {
-                    items.push(item);
-                }
-            }
         }
     }
-
     items.sort_by(|left, right| {
         left.scheduled_date
             .is_none()
@@ -847,6 +853,39 @@ mod tests {
         assert_eq!(calendar.items.len(), 2);
         assert_eq!(calendar.items[0].episode, Some(1));
         assert_eq!(calendar.items[1].episode, Some(2));
+    }
+
+    #[test]
+    fn later_season_calendar_state_survives_a_large_first_season_grid() {
+        let mut sub = subscription();
+        sub.season_end = Some(3);
+        sub.season_list = Some(vec![1, 3]);
+        sub.known_files = vec!["Season 3/01.mkv".into()];
+        sub.transferred_files = vec!["Season 3/01.mkv".into()];
+        sub.metadata = Some(
+            serde_json::from_value(json!({
+                "provider": "tmdb", "provider_id": "1", "title": "Example",
+                "seasons": [
+                    {"season_number": 1, "episode_count": 500},
+                    {"season_number": 3, "episode_count": 1}
+                ],
+                "episodes": [{"season_number": 3, "episode_number": 1, "air_date": "2026-09-05"}]
+            }))
+            .unwrap(),
+        );
+        let calendar = build_media_calendar(
+            vec![sub],
+            &Settings::default(),
+            &[],
+            &[],
+            &[],
+            &query("2026-09-05", "2026-09-05", "2026-09-05"),
+        );
+        let third = calendar.items.iter().find(|item| item.season == 3).unwrap();
+        assert_eq!(third.episode, Some(1));
+        assert!(third.discovered);
+        assert!(third.transferred);
+        assert_eq!(third.latest_transferred_episode, Some(1));
     }
 
     #[test]

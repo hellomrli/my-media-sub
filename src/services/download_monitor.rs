@@ -503,14 +503,28 @@ impl DownloadMonitorService {
                 .sync_downloads
                 .iter()
                 .filter(|record| record.completed_at.is_some())
-                .map(|record| record.file_name.clone())
-                .filter(|file_name| !file_name.trim().is_empty())
+                .filter(|record| !record.file_name.trim().is_empty())
+                .map(|record| {
+                    crate::services::episode::file_reference(&record.file_name, &record.target_dir)
+                })
                 .collect::<Vec<_>>();
             completed_files.extend(completed_subscription_download_files(
                 &history,
                 &subscription_id,
                 &completed_gids,
             ));
+            if sub.media_type != "movie" {
+                completed_files = completed_files
+                    .into_iter()
+                    .filter_map(|name| {
+                        crate::services::episode::historical_episode_key(&sub, &name, "").map(
+                            |(season, _)| {
+                                crate::services::episode::progress_file_reference(&name, "", season)
+                            },
+                        )
+                    })
+                    .collect();
+            }
             completed_files.sort();
             completed_files.dedup();
             if !should_mark_completed_from_file_names(&sub, &completed_files) {
@@ -1034,9 +1048,17 @@ pub(crate) fn completed_subscription_download_files(
                 .map(|gid| completed_gids.contains(gid))
                 .unwrap_or(false)
         })
-        .filter_map(|item| item.get("file_name").and_then(Value::as_str))
-        .filter(|file_name| !file_name.trim().is_empty())
-        .map(ToString::to_string)
+        .filter_map(|item| {
+            let name = item.get("file_name").and_then(Value::as_str)?.trim();
+            if name.is_empty() {
+                return None;
+            }
+            let parent = item
+                .get("download_dir")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            Some(crate::services::episode::file_reference(name, parent))
+        })
         .collect::<Vec<_>>();
     files.sort();
     files.dedup();
@@ -1131,6 +1153,112 @@ mod tests {
         assert!(!cache.contains("gid:retry"));
         assert!(!cache.contains("file:retry"));
         assert!(cache.order.is_empty());
+    }
+
+    #[tokio::test]
+    async fn same_named_downloads_complete_only_their_own_selected_seasons() {
+        use crate::app::AppContext;
+        use crate::config::{Config, ServerConfig};
+        let dir =
+            std::env::temp_dir().join(format!("mms-download-seasons-{}", uuid::Uuid::new_v4()));
+        let context = AppContext::new(&Config {
+            server: ServerConfig {
+                host: "127.0.0.1".into(),
+                port: 0,
+            },
+            data_dir: dir.clone(),
+        })
+        .await
+        .unwrap();
+        let sub = serde_json::from_value(json!({
+            "id":"download-seasons", "title":"Example", "url":"https://pan.quark.cn/s/test",
+            "media_type":"series", "season":2, "total_episode_number":1,
+            "sync_download_enabled":true,
+            "known_files":["Season 1/01.mkv"], "transferred_files":["Season 1/01.mkv"],
+            "sync_downloads":[{"gid":"gid-1", "file_name":"01.mkv", "download_dir":"/downloads",
+                "target_dir":"/series/Example/Season 1", "submitted_at":1}],
+            "created_at":1,"updated_at":1,"last_checked_at":1
+        }))
+        .unwrap();
+        context.subscription_store.create(sub).await.unwrap();
+        // Legacy notifications carry a basename and must not reassign S1 to S2.
+        context
+            .notification_store
+            .add(Notification {
+                id: "old-transfer".into(),
+                level: "success".into(),
+                event: "subscription_transferred".into(),
+                title: "Example".into(),
+                message: String::new(),
+                read: false,
+                created_at: 1,
+                meta: HashMap::from([
+                    ("subscription_id".into(), json!("download-seasons")),
+                    (
+                        "sync_downloads".into(),
+                        json!([{"gid":"gid-1", "file_name":"01.mkv"}]),
+                    ),
+                ]),
+            })
+            .await
+            .unwrap();
+        context
+            .download_monitor
+            .complete_subscription_for_download(&task_with("gid-1", "01.mkv", "complete"))
+            .await
+            .unwrap();
+        let sub = context
+            .subscription_store
+            .get("download-seasons")
+            .await
+            .unwrap();
+        assert!(sub.sync_downloads[0].completed_at.is_some());
+        assert!(!sub.completed);
+        context
+            .subscription_store
+            .update("download-seasons", |sub| {
+                sub.season = 1;
+                sub.season_end = Some(3);
+                sub.season_list = Some(vec![1, 3]);
+                sub.sync_downloads.push(SyncDownloadRecord {
+                    gid: "gid-3".into(),
+                    file_name: "01.mkv".into(),
+                    download_dir: "/downloads/Season 3".into(),
+                    target_dir: "/series/Example/Season 3".into(),
+                    submitted_at: 2,
+                    completed_at: None,
+                });
+            })
+            .await
+            .unwrap();
+        context
+            .download_monitor
+            .complete_subscription_for_download(&task_with("gid-1", "01.mkv", "complete"))
+            .await
+            .unwrap();
+        assert!(
+            !context
+                .subscription_store
+                .get("download-seasons")
+                .await
+                .unwrap()
+                .completed
+        );
+        context
+            .download_monitor
+            .complete_subscription_for_download(&task_with("gid-3", "01.mkv", "complete"))
+            .await
+            .unwrap();
+        assert!(
+            context
+                .subscription_store
+                .get("download-seasons")
+                .await
+                .unwrap()
+                .completed
+        );
+        context.job_queue.shutdown().await;
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]

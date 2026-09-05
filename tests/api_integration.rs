@@ -681,7 +681,7 @@ async fn create_subscription_cleans_quality_suffix_before_persisting_title() {
 async fn changing_subscription_season_preserves_progress_and_reopens() {
     // 「暂不转存」语义：调整季度范围是编辑扩季/缩季的常规操作，不得清空
     // 已转存/已知进度（旧行为整体重置，扩季后会把已转存的季重复转存）。
-    // 只释放单季完结目标与完结状态，让新季文件在下次检查中被发现。
+    // 按季保留历史证据；新季计数与完结目标不沿用旧季。
     let (ctx, dir) = test_context().await;
     let app = create_app(ctx.clone());
     let created = json_body(
@@ -730,8 +730,16 @@ async fn changing_subscription_season_preserves_progress_and_reopens() {
     .await;
 
     assert_eq!(updated["data"]["season"], 2);
-    // 进度保留：范围调整不清理已转存/已知证据（按「季+集」解析，扩季仍有效）
-    assert_eq!(updated["data"]["current_episode_number"], 12);
+    // 历史证据保留，但 S1E12 不能算作 S2 的当前进度。
+    assert_eq!(updated["data"]["current_episode_number"], 0);
+    assert!(updated["data"]["known_episodes"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert!(updated["data"]["transferred_file_keys"]
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("s:1:ep:12")));
     assert_eq!(updated["data"]["known_files"].as_array().unwrap().len(), 1);
     assert_eq!(
         updated["data"]["transferred_files"]
@@ -2708,5 +2716,166 @@ async fn skip_season_subscription_does_not_backfill_single_season_total() {
     assert_eq!(body["data"]["completed"], serde_json::json!(false));
     assert_eq!(body["data"]["season_list"], serde_json::json!([1, 3]));
 
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn season_edits_keep_historical_evidence_without_completing_the_new_season() {
+    let (ctx, dir) = test_context().await;
+    let sub = serde_json::from_value(serde_json::json!({
+        "id":"season-edit-review", "title":"Review Show", "url":"https://pan.quark.cn/s/review",
+        "media_type":"series", "season":1, "total_episode_number":2,
+        "known_episodes":[2], "current_episode_number":2,
+        "known_files":["02.mkv"], "known_file_keys":["ep:2"],
+        "transferred_files":["02.mkv"], "transferred_file_keys":["ep:2"],
+        "last_new_files":["02.mkv"], "last_new_episodes":[2],
+        "last_probe":{"ok":true,"state":"ok","message":"","files":[
+            {"name":"02.mkv","file_key":"file-2","size":1,"is_dir":false}
+        ]},
+        "completed":true, "status":"completed", "created_at":1, "updated_at":1, "last_checked_at":1,
+        "metadata":{"provider":"tmdb", "provider_id":"review", "title":"Review Show", "number_of_seasons":2,
+            "seasons":[{"season_number":1,"episode_count":2},{"season_number":2,"episode_count":2}]}
+    })).unwrap();
+    ctx.subscription_store.create(sub).await.unwrap();
+    let app = create_app(ctx.clone());
+    let path = "/api/subscriptions/season-edit-review";
+    let updated = json_body(&app, auth_put(path, serde_json::json!({"season_spec":"2"}))).await;
+    assert_eq!(updated["ok"], true);
+    assert_eq!(updated["data"]["completed"], false);
+    assert_eq!(updated["data"]["current_episode_number"], 0);
+    assert_eq!(updated["data"]["total_episode_number"], 2);
+    assert_eq!(
+        updated["data"]["transferred_files"],
+        serde_json::json!(["Season 1/02.mkv"])
+    );
+    let detail = json_body(
+        &app,
+        auth_get("/api/subscriptions/season-edit-review/status"),
+    )
+    .await;
+    assert_eq!(detail["data"]["summary"]["transferred_count"], 0);
+    assert_eq!(detail["data"]["summary"]["discovered_count"], 0);
+    // Switching back recovers the retained S1 evidence, rather than retransferring it.
+    let back = json_body(&app, auth_put(path, serde_json::json!({"season_spec":"1"}))).await;
+    assert_eq!(back["data"]["completed"], true);
+    let expanded = json_body(
+        &app,
+        auth_put(path, serde_json::json!({"season_spec":"1-2"})),
+    )
+    .await;
+    assert_eq!(expanded["data"]["completed"], false);
+    let narrowed = json_body(&app, auth_put(path, serde_json::json!({"season_spec":"2"}))).await;
+    assert_eq!(narrowed["data"]["completed"], false);
+    ctx.job_queue.shutdown().await;
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn multi_season_details_and_calendar_keep_selected_seasons_separate() {
+    let (ctx, dir) = test_context().await;
+    let sub = serde_json::from_value(serde_json::json!({
+        "id":"multi-review", "title":"Review Show", "url":"https://pan.quark.cn/s/review",
+        "media_type":"series", "season":1, "season_end":3, "season_list":[1,3],
+        "known_files":["Season 1/01.mkv", "Season 2/01.mkv", "Season 3/01.mkv"],
+        "transferred_files":["Season 1/01.mkv"], "transferred_file_keys":["s:1:ep:1"],
+        "created_at":1, "updated_at":1, "last_checked_at":1,
+        "metadata":{"provider":"tmdb", "provider_id":"review", "title":"Review Show", "number_of_seasons":3,
+            "seasons":[{"season_number":1,"episode_count":1},{"season_number":2,"episode_count":1},{"season_number":3,"episode_count":1}],
+            "episodes":[
+                {"season_number":1,"episode_number":1,"air_date":"2026-09-05"},
+                {"season_number":2,"episode_number":1,"air_date":"2026-09-05"},
+                {"season_number":3,"episode_number":1,"air_date":"2026-09-05"}
+            ]}
+    })).unwrap();
+    ctx.subscription_store.create(sub).await.unwrap();
+    let app = create_app(ctx.clone());
+    let detail = json_body(&app, auth_get("/api/subscriptions/multi-review/status")).await;
+    assert_eq!(detail["data"]["summary"]["discovered_count"], 2);
+    assert_eq!(detail["data"]["summary"]["transferred_count"], 1);
+    assert_eq!(detail["data"]["summary"]["pending_transfer_count"], 1);
+    let episodes = detail["data"]["episodes"].as_array().unwrap();
+    assert_eq!(episodes.len(), 2);
+    assert_eq!(episodes[0]["season"], 1);
+    assert_eq!(episodes[1]["season"], 3);
+    assert_eq!(episodes[1]["transferred"], false);
+    let calendar = json_body(
+        &app,
+        auth_get("/api/calendar?from=2026-09-05&to=2026-09-05&subscription=multi-review"),
+    )
+    .await;
+    let items = calendar["data"]["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    let third = items.iter().find(|item| item["season"] == 3).unwrap();
+    assert_eq!(third["episode"], 1);
+    assert_eq!(third["transferred"], false);
+    assert_ne!(items[0]["id"], items[1]["id"]);
+    ctx.job_queue.shutdown().await;
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn backup_restore_is_applied_before_new_stores_load_despite_old_process_writes() {
+    let (ctx, dir) = test_context().await;
+    let sub = serde_json::from_value(serde_json::json!({
+        "id":"restore-review", "title":"Archived Title", "url":"https://pan.quark.cn/s/review",
+        "created_at":1,"updated_at":1,"last_checked_at":1
+    }))
+    .unwrap();
+    ctx.subscription_store.create(sub).await.unwrap();
+    let archive = ctx.backup_service.export_archive().await.unwrap();
+    ctx.subscription_store
+        .update("restore-review", |sub| sub.title = "Newer Title".into())
+        .await
+        .unwrap();
+    let app = create_app(ctx.clone());
+    let staged = json_body(
+        &app,
+        auth_post(
+            "/api/backups/restore",
+            serde_json::json!({
+                "archive":archive, "confirmation":"RESTORE DATA"
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(staged["ok"], true);
+    assert_eq!(staged["data"]["restored_files"], 0);
+    let response = json_body(
+        &app,
+        auth_put(
+            "/api/subscriptions/restore-review",
+            serde_json::json!({"enabled":false}),
+        ),
+    )
+    .await;
+    assert_eq!(response["ok"], true);
+    ctx.job_queue.shutdown().await;
+    drop(app);
+    drop(ctx);
+    let config = Config {
+        server: my_media_sub::config::ServerConfig {
+            host: "127.0.0.1".into(),
+            port: 0,
+        },
+        data_dir: dir.clone(),
+    };
+    let restarted = AppContext::new(&config).await.unwrap();
+    let restored = restarted
+        .subscription_store
+        .get("restore-review")
+        .await
+        .unwrap();
+    assert_eq!(restored.title, "Archived Title");
+    assert!(restored.enabled);
+    assert!(!dir.join("backups/restore-pending.json").exists());
+    restarted
+        .subscription_store
+        .update("restore-review", |sub| sub.enabled = false)
+        .await
+        .unwrap();
+    let on_disk: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.join("subscriptions.json")).unwrap()).unwrap();
+    assert_eq!(on_disk["data"][0]["title"], "Archived Title");
+    restarted.job_queue.shutdown().await;
     let _ = std::fs::remove_dir_all(dir);
 }

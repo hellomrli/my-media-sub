@@ -497,13 +497,13 @@ mod tests {
         let service =
             SubscriptionTransferService::new(subscriptions.clone(), settings, notifications);
         service
-            .mark_files_as_transferred(&sub, &["178-4k.mkv".to_string()])
+            .mark_files_as_transferred(&sub, &["178-4k.mkv".to_string()], sub.season)
             .await
             .unwrap();
 
         let updated = subscriptions.get("sub").await.unwrap();
-        assert_eq!(updated.transferred_files, vec!["178-4k.mkv".to_string()]);
-        assert_eq!(updated.transferred_file_keys, vec!["ep:178".to_string()]);
+        assert_eq!(updated.transferred_files, vec!["Season 1/178-4k.mkv".to_string()]);
+        assert_eq!(updated.transferred_file_keys, vec!["s:1:ep:178".to_string(), "ep:178".to_string()]);
     }
 
     #[tokio::test]
@@ -765,8 +765,56 @@ mod tests {
         assert_eq!(result.transferred_count, 1);
         // 转存状态已经持久化，下轮检查不会重复转存同一文件。
         let updated = subscriptions.get("sub").await.unwrap();
-        assert_eq!(updated.transferred_files, vec!["Episode.01.mkv".to_string()]);
-        assert_eq!(updated.transferred_file_keys, vec!["ep:1".to_string()]);
+        assert_eq!(updated.transferred_files, vec!["Season 1/Episode.01.mkv".to_string()]);
+        assert_eq!(updated.transferred_file_keys, vec!["s:1:ep:1".to_string(), "ep:1".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn same_named_directory_episodes_transfer_both_seasons_and_survive_reload() {
+        use crate::providers::{MockCloudDriveProvider, ProviderProbeResult};
+        let store_path = test_path("directory_seasons");
+        let subscriptions = Arc::new(SubscriptionStore::new(&store_path));
+        let settings = Arc::new(SettingsStore::new(test_path("directory_settings")));
+        settings.update(|value| value.quark_save_enabled = true).await.unwrap();
+        let notifications = Arc::new(NotificationStore::new(test_path("directory_notifications")));
+        let mut sub = subscription("series", 1);
+        sub.cloud_type = "mock".into();
+        sub.season_end = Some(3);
+        sub.season_list = Some(vec![1, 3]);
+        sub.rules.target_dir = "/Review".into();
+        subscriptions.create(sub).await.unwrap();
+        let mock = Arc::new(MockCloudDriveProvider::new());
+        mock.set_probe_result(ProviderProbeResult {
+            ok: true, state: "ok".into(), message: String::new(),
+            files: [1, 3].into_iter().map(|season| ProviderFile {
+                id: format!("source-{season}"), name: "01.mkv".into(), is_dir: false,
+                size: 1, updated_at: None, parent_path: format!("Season {season}"),
+            }).collect(),
+        });
+        for season in [1, 3] {
+            let target = format!("mock:Review/Season {season}");
+            mock.set_items(target.clone(), vec![DriveItem {
+                id: format!("target-{season}"), parent_id: target, name: "01.mkv".into(),
+                is_dir: false, size: 1, updated_at: String::new(),
+            }]);
+        }
+        let service = SubscriptionTransferService::new(subscriptions.clone(), settings, notifications)
+            .with_provider_registry(Arc::new(CloudDriveProviderRegistry::new().with_provider(mock.clone())));
+        let names = vec!["Season 1/01.mkv".into(), "Season 3/01.mkv".into()];
+        let first = service.auto_transfer_new_files_with_options("sub", &names, true).await.unwrap();
+        assert_eq!(first.transferred_count, 2);
+        let requests = mock.transfer_requests();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0].file_ids, vec!["source-1"]);
+        assert_eq!(requests[1].file_ids, vec!["source-3"]);
+        subscriptions.load().await.unwrap();
+        let saved = subscriptions.get("sub").await.unwrap();
+        assert_eq!(saved.transferred_files, names);
+        assert!(saved.transferred_file_keys.contains(&"s:3:ep:1".into()));
+        let retry = service.auto_transfer_new_files_with_options("sub", &names, true).await.unwrap();
+        assert!(retry.skipped);
+        assert_eq!(mock.transfer_requests().len(), 2);
+        let _ = std::fs::remove_file(store_path);
     }
 
 }

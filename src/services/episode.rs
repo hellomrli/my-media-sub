@@ -384,9 +384,14 @@ pub fn episode_video_key(name: &str, default_season: i32) -> Option<(i32, i32)> 
         return None;
     }
 
+    let (parent, name) = name.rsplit_once('/').unwrap_or(("", name));
     let info = detect_episode(name);
     let episode = info.episode?;
-    let season = info.season.unwrap_or(default_season).max(1);
+    let season = info
+        .season
+        .or_else(|| season_hint_from_context(name, parent))
+        .unwrap_or(default_season)
+        .max(1);
     Some((season, episode))
 }
 
@@ -422,6 +427,7 @@ pub fn episode_state_key_with_override(
     default_season: i32,
     override_regex: &str,
 ) -> Option<(i32, i32)> {
+    let (parent, name) = name.rsplit_once('/').unwrap_or(("", name));
     if is_special_episode_name(name) {
         return None;
     }
@@ -433,8 +439,171 @@ pub fn episode_state_key_with_override(
         Err(_) => detect_episode_explained(name),
     };
     let episode = detected.episode?;
-    let season = detected.season.unwrap_or(default_season).max(1);
+    let season = detected
+        .season
+        .or_else(|| season_hint_from_context(name, parent))
+        .unwrap_or(default_season)
+        .max(1);
     Some((season, episode))
+}
+
+/// Preserve directory season hints across checking, queued jobs and persisted progress.
+pub fn file_reference(name: &str, parent_path: &str) -> String {
+    if parent_path.trim_matches('/').is_empty() {
+        name.to_string()
+    } else {
+        format!("{}/{}", parent_path.trim_end_matches('/'), name)
+    }
+}
+
+pub fn episode_state_key_with_context(
+    name: &str,
+    parent_path: &str,
+    default_season: i32,
+    override_regex: &str,
+) -> Option<(i32, i32)> {
+    episode_state_key_with_override(
+        &file_reference(name, parent_path),
+        default_season,
+        override_regex,
+    )
+}
+
+/// Unmarked filenames must keep their original season even if the subscription is edited later.
+pub fn progress_file_reference(name: &str, parent_path: &str, season: i32) -> String {
+    let reference = file_reference(name, parent_path);
+    let (parent, base) = reference.rsplit_once('/').unwrap_or(("", &reference));
+    if season_hint_from_context(base, parent).is_some() {
+        reference
+    } else {
+        format!("Season {}/{reference}", season.max(1))
+    }
+}
+
+pub fn scoped_episode_key(season: i32, episode: i32) -> String {
+    format!("s:{}:ep:{}", season.max(1), episode)
+}
+
+pub fn parse_episode_key(key: &str, legacy_season: i32) -> Option<(i32, i32)> {
+    let (season, episode) = if let Some(scoped) = key.strip_prefix("s:") {
+        let (season, episode) = scoped.split_once(":ep:")?;
+        (season.parse().ok()?, episode.parse().ok()?)
+    } else {
+        (legacy_season.max(1), key.strip_prefix("ep:")?.parse().ok()?)
+    };
+    (season > 0 && episode > 0).then_some((season, episode))
+}
+
+pub fn transferred_episode_keys(
+    sub: &crate::models::Subscription,
+) -> std::collections::BTreeSet<(i32, i32)> {
+    sub.transferred_file_keys
+        .iter()
+        .filter_map(|key| parse_episode_key(key, sub.season))
+        .chain(sub.transferred_files.iter().filter_map(|name| {
+            episode_state_key_with_override(name, sub.season, &sub.rules.episode_regex)
+        }))
+        .collect()
+}
+
+pub fn known_episode_keys(
+    sub: &crate::models::Subscription,
+) -> std::collections::BTreeSet<(i32, i32)> {
+    sub.known_file_keys
+        .iter()
+        .filter_map(|key| parse_episode_key(key, sub.season))
+        .chain(sub.known_files.iter().filter_map(|name| {
+            episode_state_key_with_override(name, sub.season, &sub.rules.episode_regex)
+        }))
+        .chain(
+            sub.known_episodes
+                .iter()
+                .copied()
+                .filter(|episode| *episode > 0)
+                .map(|episode| (sub.season.max(1), episode)),
+        )
+        .collect()
+}
+
+/// Resolve historical basenames against persisted evidence before using the
+/// current primary season. Ambiguous cross-season basenames prove no progress.
+pub fn historical_episode_key(
+    sub: &crate::models::Subscription,
+    name: &str,
+    parent: &str,
+) -> Option<(i32, i32)> {
+    let reference = file_reference(name, parent);
+    let (directory, basename) = reference.rsplit_once('/').unwrap_or(("", &reference));
+    if season_hint_from_context(basename, directory).is_some() {
+        return episode_state_key_with_override(&reference, sub.season, &sub.rules.episode_regex);
+    }
+    let evidence = sub
+        .known_files
+        .iter()
+        .chain(&sub.transferred_files)
+        .filter(|file| file.rsplit('/').next() == Some(basename))
+        .filter_map(|file| {
+            episode_state_key_with_override(file, sub.season, &sub.rules.episode_regex)
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    match evidence.len() {
+        0 => episode_state_key_with_override(name, sub.season, &sub.rules.episode_regex),
+        1 => evidence.into_iter().next(),
+        _ => None,
+    }
+}
+
+/// Bind legacy unscoped evidence to the *old* primary season before recomputing
+/// the editable primary-season counters. Historical seasons remain available.
+pub fn rebase_season_progress(sub: &mut crate::models::Subscription, old_season: i32) {
+    for names in [
+        &mut sub.known_files,
+        &mut sub.transferred_files,
+        &mut sub.last_new_files,
+    ] {
+        for name in names {
+            *name = progress_file_reference(name, "", old_season);
+        }
+    }
+    for keys in [&mut sub.known_file_keys, &mut sub.transferred_file_keys] {
+        for key in keys {
+            if key.starts_with("ep:") || key.starts_with("name:") {
+                *key = format!("s:{}:{key}", old_season.max(1));
+            }
+        }
+    }
+    if let Some(probe) = &mut sub.last_probe {
+        for file in &mut probe.files {
+            if season_hint_from_context(&file.name, &file.parent_path).is_none() {
+                file.parent_path =
+                    file_reference(&file.parent_path, &format!("Season {}", old_season.max(1)))
+                        .trim_end_matches('/')
+                        .to_string();
+            }
+        }
+    }
+    for episode in sub
+        .known_episodes
+        .iter()
+        .copied()
+        .chain(std::iter::once(sub.current_episode_number))
+    {
+        if episode > 0 {
+            let key = scoped_episode_key(old_season, episode);
+            if !sub.known_file_keys.contains(&key) {
+                sub.known_file_keys.push(key);
+            }
+        }
+    }
+    sub.known_episodes.clear();
+    sub.known_episodes = known_episode_keys(sub)
+        .into_iter()
+        .filter_map(|(season, episode)| (season == sub.season_start()).then_some(episode))
+        .collect();
+    sub.current_episode_number = sub.known_episodes.iter().copied().max().unwrap_or(0);
+    if old_season != sub.season_start() {
+        sub.last_new_episodes.clear();
+    }
 }
 
 pub fn normalize_duplicate_episode_strategy(strategy: &str) -> &'static str {

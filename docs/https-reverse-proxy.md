@@ -28,7 +28,7 @@ server {
 - 使用至少 12 位、非默认且唯一的 `SERVER_PASSWORD`；推荐 16 位以上并混合字符类型。
 - 仅信任由反向代理覆盖的 `X-Forwarded-For`，防火墙应阻止客户端绕过代理直连应用。
 - 备份包含 Cookie、Token 等完整业务配置，应加密保存并限制访问。
-- `/api/backups/restore` 需要精确确认文本 `RESTORE DATA`；恢复后必须安全重启服务。
+- `/api/backups/restore` 需要精确确认文本 `RESTORE DATA`；备份经校验后暂存，安全重启时在加载数据前完成恢复。重启前的后续修改会被备份覆盖。
 - 网盘删除需要与文件 ID/批量数量匹配的确认文本，订阅删除需要确认参数与订阅 ID 一致。
 - CSP、`nosniff`、拒绝 iframe、Referrer Policy 和 Permissions Policy 由应用统一返回。
 - CI 使用 RustSec 审计依赖；发现高危公告后应先升级依赖再发布。

@@ -7,7 +7,10 @@ use crate::jobs::{Job, JobKind, JobStatus};
 use crate::models::{
     AutomationEvent, AutomationStage, AutomationStatus, Notification, Settings, Subscription,
 };
-use crate::services::detect_episode;
+use crate::services::episode::{
+    episode_state_key_with_context, episode_state_key_with_override, file_reference,
+    known_episode_keys, progress_file_reference, transferred_episode_keys,
+};
 
 const MAX_EPISODE_GRID_ITEMS: usize = 500;
 const MAX_ACTIVITY_ITEMS: usize = 30;
@@ -47,6 +50,7 @@ pub struct SubscriptionStatusSummary {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct EpisodeStatusItem {
+    pub season: i32,
     pub episode: i32,
     pub discovered: bool,
     pub transferred: bool,
@@ -75,11 +79,165 @@ struct EpisodeFiles {
 
 pub fn build_subscription_detail(
     subscription: Subscription,
+    settings: &Settings,
+    jobs: &[Job],
+    notifications: &[Notification],
+    events: &[AutomationEvent],
+) -> SubscriptionDetail {
+    let mut details = subscription.season_numbers().into_iter().map(|season| {
+        build_season_detail(&subscription, season, settings, jobs, notifications, events)
+    });
+    let mut detail = details
+        .next()
+        .expect("subscriptions always include a season");
+    for mut season in details {
+        let summary = &mut detail.summary;
+        let other = season.summary;
+        summary.expected_count += other.expected_count;
+        summary.discovered_count += other.discovered_count;
+        summary.transferred_count += other.transferred_count;
+        summary.downloaded_count += other.downloaded_count;
+        summary.missing_count += other.missing_count;
+        summary.pending_transfer_count += other.pending_transfer_count;
+        summary.pending_download_count += other.pending_download_count;
+        summary.range_end = summary.range_end.max(other.range_end);
+        summary.data_inferred |= other.data_inferred;
+        summary.grid_truncated |= other.grid_truncated;
+        detail.episodes.append(&mut season.episodes);
+        detail.missing_episodes.append(&mut season.missing_episodes);
+        detail
+            .pending_transfer_episodes
+            .append(&mut season.pending_transfer_episodes);
+        detail
+            .pending_download_episodes
+            .append(&mut season.pending_download_episodes);
+    }
+    if subscription.is_multi_season() {
+        detail.summary.target_episode = None;
+        let count = if subscription.sync_download_enabled {
+            detail.summary.downloaded_count
+        } else {
+            detail.summary.transferred_count
+        };
+        detail.summary.completion_percent = if detail.summary.expected_count == 0 {
+            0.0
+        } else {
+            count as f64 / detail.summary.expected_count as f64 * 100.0
+        };
+    }
+    let downloads = detail
+        .episodes
+        .iter()
+        .filter(|item| item.download_status == "queued")
+        .enumerate()
+        .map(|(index, _)| (index as i32, "queued"))
+        .collect();
+    detail.pipeline = build_pipeline(
+        &subscription,
+        &detail.summary,
+        &detail.recent_jobs,
+        &detail.recent_notifications,
+        &downloads,
+        &detail.recent_events,
+    );
+    detail.summary.grid_truncated |= detail.episodes.len() > MAX_EPISODE_GRID_ITEMS;
+    detail.episodes.truncate(MAX_EPISODE_GRID_ITEMS);
+    detail.subscription = subscription;
+    detail
+}
+
+/// Project a subscription onto one season without assigning another season's
+/// legacy counters or filenames to it. Shared by the detail view and calendar.
+pub fn subscription_for_season(original: &Subscription, season: i32) -> Subscription {
+    let mut sub = original.clone();
+    sub.season = season;
+    sub.season_end = None;
+    sub.season_list = None;
+    let belongs = |name: &str, parent: &str| {
+        episode_state_key_with_context(name, parent, original.season, &original.rules.episode_regex)
+            .is_some_and(|key| key.0 == season)
+    };
+    if original.media_type != "movie" {
+        for names in [&mut sub.known_files, &mut sub.transferred_files] {
+            names.retain(|name| belongs(name, ""));
+            for name in names {
+                *name = progress_file_reference(name, "", original.season);
+            }
+        }
+    }
+    sub.known_episodes = known_episode_keys(original)
+        .into_iter()
+        .filter_map(|(s, episode)| (s == season).then_some(episode))
+        .collect();
+    sub.transferred_file_keys = transferred_episode_keys(original)
+        .into_iter()
+        .filter(|(s, _)| *s == season)
+        .map(|(_, episode)| format!("ep:{episode}"))
+        .collect();
+    if season != original.season_start() {
+        sub.current_episode_number = sub.known_episodes.iter().copied().max().unwrap_or(0);
+        sub.start_episode_number = None;
+    }
+    if !original.last_new_files.is_empty() || season != original.season_start() {
+        sub.last_new_episodes = original
+            .last_new_files
+            .iter()
+            .filter_map(|name| {
+                episode_state_key_with_override(
+                    name,
+                    original.season,
+                    &original.rules.episode_regex,
+                )
+                .filter(|key| key.0 == season)
+                .map(|key| key.1)
+            })
+            .collect();
+    }
+    if let Some(probe) = &mut sub.last_probe {
+        probe
+            .files
+            .retain(|file| belongs(&file.name, &file.parent_path));
+        for file in &mut probe.files {
+            file.name = file_reference(&file.name, &file.parent_path);
+            file.parent_path.clear();
+        }
+    }
+    sub.sync_downloads.retain(|record| {
+        historical_notification_episode(original, season, &record.file_name, &record.target_dir)
+            .is_some()
+    });
+    for record in &mut sub.sync_downloads {
+        record.file_name = progress_file_reference(&record.file_name, &record.target_dir, season);
+    }
+    if original.is_multi_season() {
+        sub.total_episode_number = original.rules.finish_after_episode.or_else(|| {
+            crate::models::metadata::episode_count_for_season(original.metadata.as_ref(), season)
+        });
+    }
+    sub
+}
+
+pub(crate) fn build_season_detail(
+    original: &Subscription,
+    season: i32,
     _settings: &Settings,
     jobs: &[Job],
     notifications: &[Notification],
     events: &[AutomationEvent],
 ) -> SubscriptionDetail {
+    let subscription = subscription_for_season(original, season);
+    let legacy_season = original.season_start();
+    let episode_number = |name: &str| {
+        episode_state_key_with_override(name, legacy_season, &subscription.rules.episode_regex)
+            .filter(|key| key.0 == subscription.season)
+            .map(|key| key.1)
+    };
+    let record_file =
+        |files: &mut BTreeMap<i32, EpisodeFiles>, name: &str, updated: Option<&str>| {
+            if let Some(episode) = episode_number(name) {
+                add_episode_file(files, episode, name, updated);
+            }
+        };
     let subscription_id = subscription.id.as_str();
     let recent_jobs = jobs
         .iter()
@@ -116,7 +274,7 @@ pub fn build_subscription_detail(
     }
 
     for name in &subscription.known_files {
-        add_episode_file(&mut files_by_episode, name, None);
+        record_file(&mut files_by_episode, name, None);
         if let Some(episode) = episode_number(name) {
             discovered.insert(episode);
         }
@@ -126,7 +284,7 @@ pub fn build_subscription_detail(
             if file.is_dir {
                 continue;
             }
-            add_episode_file(
+            record_file(
                 &mut files_by_episode,
                 &file.name,
                 file.updated_at.as_deref(),
@@ -144,7 +302,7 @@ pub fn build_subscription_detail(
         .filter(|episode| *episode > 0)
         .collect::<BTreeSet<_>>();
     for name in &subscription.transferred_files {
-        add_episode_file(&mut files_by_episode, name, None);
+        record_file(&mut files_by_episode, name, None);
         if let Some(episode) = episode_number(name) {
             transferred.insert(episode);
             discovered.insert(episode);
@@ -184,7 +342,7 @@ pub fn build_subscription_detail(
     // 新版本把 Aria2 关联作为订阅业务状态持久化；通知仅作为旧数据兼容
     // 和展示审计来源，清空通知不会再让下载进度消失。
     for record in &subscription.sync_downloads {
-        add_episode_file(&mut files_by_episode, &record.file_name, None);
+        record_file(&mut files_by_episode, &record.file_name, None);
         let Some(episode) = episode_number(&record.file_name) else {
             continue;
         };
@@ -197,6 +355,13 @@ pub fn build_subscription_detail(
     }
 
     for event in &recent_events {
+        // Unscoped historical events remain in the timeline, but cannot prove
+        // which season was transferred or downloaded.
+        if event.metadata.get("season").and_then(Value::as_i64)
+            != Some(i64::from(subscription.season))
+        {
+            continue;
+        }
         let Some(episode) = event.episode.filter(|episode| *episode > 0) else {
             continue;
         };
@@ -221,8 +386,8 @@ pub fn build_subscription_detail(
         }
         let file_names = meta_string_array(&notification.meta, "file_names");
         for name in &file_names {
-            add_episode_file(&mut files_by_episode, name, None);
-            if let Some(episode) = episode_number(name) {
+            if let Some(episode) = historical_notification_episode(original, season, name, "") {
+                add_episode_file(&mut files_by_episode, episode, name, None);
                 discovered.insert(episode);
                 transferred.insert(episode);
             }
@@ -237,16 +402,32 @@ pub fn build_subscription_detail(
                 let Some(file_name) = item.get("file_name").and_then(Value::as_str) else {
                     continue;
                 };
-                let Some(episode) = episode_number(file_name) else {
+                let gid = item.get("gid").and_then(Value::as_str).unwrap_or_default();
+                let record = original
+                    .sync_downloads
+                    .iter()
+                    .find(|record| !gid.is_empty() && record.gid == gid);
+                let (name, parent) = if let Some(record) = record {
+                    (record.file_name.as_str(), record.target_dir.as_str())
+                } else {
+                    (
+                        file_name,
+                        item.get("download_dir")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default(),
+                    )
+                };
+                let Some(episode) = historical_notification_episode(original, season, name, parent)
+                else {
                     continue;
                 };
-                let gid = item.get("gid").and_then(Value::as_str).unwrap_or_default();
-                let status =
-                    if completed_gids.contains(gid) || completed_file_names.contains(file_name) {
-                        "completed"
-                    } else {
-                        "queued"
-                    };
+                let status = if completed_gids.contains(gid)
+                    || (gid.is_empty() && completed_file_names.contains(file_name))
+                {
+                    "completed"
+                } else {
+                    "queued"
+                };
                 set_episode_status(&mut download_status, episode, status);
             }
         }
@@ -336,6 +517,7 @@ pub fn build_subscription_detail(
             };
             let files = files_by_episode.remove(&episode).unwrap_or_default();
             EpisodeStatusItem {
+                season: subscription.season,
                 episode,
                 discovered: discovered.contains(&episode),
                 transferred: transferred_episode,
@@ -415,14 +597,25 @@ pub fn build_subscription_detail(
     }
 }
 
+// Old notifications may only have basenames. Prefer their persisted history
+// when it identifies a season; ambiguous names cannot prove cross-season state.
+fn historical_notification_episode(
+    subscription: &Subscription,
+    season: i32,
+    name: &str,
+    parent: &str,
+) -> Option<i32> {
+    crate::services::episode::historical_episode_key(subscription, name, parent)
+        .filter(|key| key.0 == season)
+        .map(|key| key.1)
+}
+
 fn add_episode_file(
     files_by_episode: &mut BTreeMap<i32, EpisodeFiles>,
+    episode: i32,
     name: &str,
     updated_at: Option<&str>,
 ) {
-    let Some(episode) = episode_number(name) else {
-        return;
-    };
     let entry = files_by_episode.entry(episode).or_default();
     if !name.trim().is_empty() {
         entry.names.insert(name.to_string());
@@ -432,10 +625,6 @@ fn add_episode_file(
             entry.updated_at = Some(updated_at.to_string());
         }
     }
-}
-
-fn episode_number(name: &str) -> Option<i32> {
-    detect_episode(name).episode.filter(|episode| *episode > 0)
 }
 
 fn set_episode_status(
@@ -749,6 +938,56 @@ mod tests {
         assert_eq!(detail.episodes[0].download_status, "completed");
         assert_eq!(detail.episodes[1].download_status, "queued");
         assert!(detail.episodes[3].recent);
+    }
+
+    #[test]
+    fn completed_download_with_same_basename_does_not_complete_another_season() {
+        let mut sub = subscription();
+        sub.season_end = Some(3);
+        sub.season_list = Some(vec![1, 3]);
+        sub.transferred_files = vec!["Season 1/01.mkv".into(), "Season 3/01.mkv".into()];
+        sub.sync_downloads = [1, 3]
+            .into_iter()
+            .map(|season| crate::models::SyncDownloadRecord {
+                gid: format!("gid-{season}"),
+                file_name: "01.mkv".into(),
+                download_dir: format!("/downloads/Season {season}"),
+                target_dir: format!("/series/Example/Season {season}"),
+                submitted_at: 1,
+                completed_at: (season == 3).then_some(2),
+            })
+            .collect();
+        let transfer = notification(
+            "subscription_transferred",
+            json!({
+                "subscription_id": "sub-1",
+                "file_names": ["Season 1/01.mkv", "Season 3/01.mkv"],
+                "sync_downloads": [
+                    {"gid":"gid-1", "file_name":"01.mkv"},
+                    {"gid":"gid-3", "file_name":"01.mkv"}
+                ]
+            }),
+        );
+        let completed = notification(
+            "download_completed",
+            json!({
+                "gid": "gid-3", "file_name": "01.mkv"
+            }),
+        );
+        let detail =
+            build_subscription_detail(sub, &Settings::default(), &[], &[transfer, completed], &[]);
+        let first = detail
+            .episodes
+            .iter()
+            .find(|item| item.season == 1 && item.episode == 1)
+            .unwrap();
+        let third = detail
+            .episodes
+            .iter()
+            .find(|item| item.season == 3 && item.episode == 1)
+            .unwrap();
+        assert_eq!(first.download_status, "queued");
+        assert_eq!(third.download_status, "completed");
     }
 
     #[test]

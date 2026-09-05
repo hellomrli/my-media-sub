@@ -107,21 +107,14 @@ macro_rules! subscription_check_file_filter_methods {
         // (season, episode)。否则多季订阅里 S02E01 会被 S01 的记录挡掉，
         // 第二季从此静默停更。
         let primary_season = sub.season.max(1);
-        let transferred_episode_keys: HashSet<(i32, i32)> = if sub.media_type == "movie" {
-            HashSet::new()
-        } else {
-            sub.transferred_files
-                .iter()
-                .filter_map(|name| episode_state_key_with_override(name, sub.season, &sub.rules.episode_regex))
-                .collect()
-        };
+        let transferred_episode_keys = crate::services::episode::transferred_episode_keys(sub);
 
         let eligible_indices: Vec<usize> = files
             .iter()
             .enumerate()
             .filter_map(|(index, file)| {
                 if sub.media_type != "movie" {
-                    if let Some(key) = episode_state_key_with_override(&file.name, sub.season, &sub.rules.episode_regex) {
+                    if let Some(key) = episode_state_key_with_context(&file.name, &file.parent_path, sub.season, &sub.rules.episode_regex) {
                         if transferred_episode_keys.contains(&key) {
                             // 同季同集已转存，跳过
                             return None;
@@ -130,14 +123,7 @@ macro_rules! subscription_check_file_filter_methods {
                             // 主季集数已记录，跳过
                             return None;
                         }
-                        // 单季订阅直接核对持久化的 `ep:N` 键（多集包拆单集
-                        // 发布时，只有这里能识别出「该集已随合集转存」）；
-                        // 多季订阅的旧 `ep:N` 键无季号语义，不参与判定。
-                        if !sub.is_multi_season()
-                            && sub.transferred_file_keys.contains(&format!("ep:{}", key.1))
-                        {
-                            return None;
-                        }
+
                     }
                 }
 
@@ -165,24 +151,16 @@ macro_rules! subscription_check_file_filter_methods {
         &self,
         sub: &Subscription,
         files: &[ProbeFile],
-        new_file_names: &[String],
     ) -> Vec<String> {
-        let mut names = new_file_names.to_vec();
-        let mut seen = names.iter().cloned().collect::<HashSet<_>>();
-        let mut transferred_keys: HashSet<String> =
-            sub.transferred_file_keys.iter().cloned().collect();
-        transferred_keys.extend(sub.transferred_files.iter().map(|name| {
-            let episode = extract_episode_number(name);
-            transfer_state_key(name, episode, sub.rules.ignore_extensions)
-        }));
-        // 已转存证据按「季+集」解析（与 find_new_files 一致）；持久化的
-        // `ep:N` 键不含季号，只对主季生效，避免多季订阅跨季误判。
-        let transferred_episode_keys: HashSet<(i32, i32)> = sub
-            .transferred_files
-            .iter()
-            .filter_map(|name| episode_state_key_with_override(name, sub.season, &sub.rules.episode_regex))
-            .collect();
-        let primary_season = sub.season.max(1);
+        let mut names = Vec::new();
+        let mut seen = HashSet::new();
+        let mut transferred_keys: HashSet<String> = sub.transferred_file_keys.iter().cloned().collect();
+        if sub.media_type == "movie" {
+            transferred_keys.extend(sub.transferred_files.iter().map(|name| {
+                transfer_state_key(name, extract_episode_number(name), sub.rules.ignore_extensions)
+            }));
+        }
+        let transferred_episode_keys = crate::services::episode::transferred_episode_keys(sub);
 
         if sub.media_type == "movie" {
             // 电影没有集数概念，但 known 未转存的视频文件同样要补转：
@@ -200,8 +178,9 @@ macro_rules! subscription_check_file_filter_methods {
                 if transferred_keys.contains(&key) {
                     continue;
                 }
-                if seen.insert(file.name.clone()) {
-                    names.push(file.name.clone());
+                let reference = crate::services::episode::file_reference(&file.name, &file.parent_path);
+                if seen.insert(reference.clone()) {
+                    names.push(reference);
                 }
             }
             return names;
@@ -217,29 +196,29 @@ macro_rules! subscription_check_file_filter_methods {
             if self.transfer_rule_skip_reason(sub, file).is_some() {
                 continue;
             }
-            let Some(key) = episode_state_key_with_override(&file.name, sub.season, &sub.rules.episode_regex) else {
+            let Some(key) = episode_state_key_with_context(&file.name, &file.parent_path, sub.season, &sub.rules.episode_regex) else {
                 // 特典没有集数槽位：只按文件名键补转，避免占用正片集数。
-                let episode = extract_episode_number(&file.name);
-                let name_key =
-                    transfer_state_key(&file.name, episode, sub.rules.ignore_extensions);
-                if transferred_keys.contains(&name_key)
-                    || sub.transferred_files.contains(&file.name)
+                let name_key = transfer_state_key(&file.name, None, sub.rules.ignore_extensions);
+                let season = resolve_file_season(&file.name, &file.parent_path, sub.season, sub.is_multi_season()).unwrap_or(sub.season);
+                let saved_reference = crate::services::episode::progress_file_reference(&file.name, &file.parent_path, season);
+                if transferred_keys.contains(&format!("s:{season}:{name_key}"))
+                    || (season == sub.season && transferred_keys.contains(&name_key))
+                    || sub.transferred_files.iter().any(|name| crate::services::episode::progress_file_reference(name, "", sub.season) == saved_reference)
                 {
                     continue;
                 }
-                if seen.insert(file.name.clone()) {
-                    names.push(file.name.clone());
+                let reference = crate::services::episode::file_reference(&file.name, &file.parent_path);
+                if seen.insert(reference.clone()) {
+                    names.push(reference);
                 }
                 continue;
             };
             if transferred_episode_keys.contains(&key) {
                 continue;
             }
-            if key.0 == primary_season && transferred_keys.contains(&format!("ep:{}", key.1)) {
-                continue;
-            }
-            if seen.insert(file.name.clone()) {
-                names.push(file.name.clone());
+            let reference = crate::services::episode::file_reference(&file.name, &file.parent_path);
+            if seen.insert(reference.clone()) {
+                names.push(reference);
             }
         }
 
@@ -255,7 +234,7 @@ macro_rules! subscription_check_file_filter_methods {
             return None;
         }
 
-        let key = episode_state_key_with_override(&file.name, sub.season, &sub.rules.episode_regex)?;
+        let key = episode_state_key_with_context(&file.name, &file.parent_path, sub.season, &sub.rules.episode_regex)?;
         // known_episodes 只承载主季语义：其他季的同号集数不受其约束。
         if key.0 == sub.season.max(1) && sub.known_episodes.contains(&key.1) {
             return Some("同集已记录");
@@ -313,7 +292,7 @@ macro_rules! subscription_check_file_filter_methods {
                 continue;
             }
             // 特典不参与同集择优分组：OVA02 与 EP02 不是同一集。
-            let Some(key) = episode_state_key_with_override(&file.name, sub.season, &sub.rules.episode_regex) else {
+            let Some(key) = episode_state_key_with_context(&file.name, &file.parent_path, sub.season, &sub.rules.episode_regex) else {
                 continue;
             };
 
@@ -352,7 +331,7 @@ macro_rules! subscription_check_file_filter_methods {
         }
 
         // 特典没有集数槽位，不参与同集择优（见 selected_episode_video_indices）。
-        episode_state_key_with_override(&file.name, sub.season, &sub.rules.episode_regex)
+        episode_state_key_with_context(&file.name, &file.parent_path, sub.season, &sub.rules.episode_regex)
             .map(|_| selected_episode_videos.contains(&index))
             .unwrap_or(true)
     }
@@ -498,7 +477,8 @@ macro_rules! subscription_check_file_filter_methods {
         let new_set: HashSet<&str> = new_files.iter().map(String::as_str).collect();
         let mut episodes = Vec::new();
         for file in probe_files {
-            if !new_set.contains(file.name.as_str()) {
+            let reference = crate::services::episode::file_reference(&file.name, &file.parent_path);
+            if !new_set.contains(reference.as_str()) && !new_set.contains(file.name.as_str()) {
                 continue;
             }
             let season = resolve_file_season(
@@ -511,7 +491,7 @@ macro_rules! subscription_check_file_filter_methods {
                 continue;
             }
             let Some((_, episode)) =
-                episode_state_key_with_override(&file.name, sub.season, &sub.rules.episode_regex)
+                episode_state_key_with_context(&file.name, &file.parent_path, sub.season, &sub.rules.episode_regex)
             else {
                 continue;
             };

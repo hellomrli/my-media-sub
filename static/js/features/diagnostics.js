@@ -152,13 +152,13 @@
           this.showNotification('warning', '请输入 RESTORE DATA 以确认恢复');
           return;
         }
-        if (this.requestDangerConfirmation && !await this.requestDangerConfirmation({title:'恢复完整备份', message:'恢复会覆盖业务数据并要求立即重启。', phrase:'RESTORE DATA'})) return;
+        if (this.requestDangerConfirmation && !await this.requestDangerConfirmation({title:'恢复完整备份', message:'备份将在重启时覆盖业务数据。确认后请重启，期间的后续修改不会保留。', phrase:'RESTORE DATA'})) return;
         try {
           const result = await apiData('/api/backups/restore', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({archive: this.backupArchive, confirmation: this.restoreConfirmation})
           });
-          this.showNotification('success', result.message || '恢复完成，请重启服务');
+          this.showNotification('success', result.message || '备份已暂存，请重启服务完成恢复');
         } catch (error) {
           this.showNotification('error', getApiErrorMessage(error, '恢复失败'));
         }
