@@ -87,6 +87,7 @@
     // 探测结果里的季号是推断的（分享无任何季度标记，按第一季处理）而非显式标注
     subscriptionSeasonsInferred: false,
     subscriptionSeasonsRequestId: 0,
+    subscriptionSeasonsRequestKey: '',
     lastCheckResult: null,
     checkingAllSubscriptions: false,
     scrapingAllMetadata: false,
@@ -574,6 +575,9 @@
     },
 
     resetSubscriptionSeasons() {
+      ++this.subscriptionSeasonsRequestId;
+      this.subscriptionSeasonsRequestKey = '';
+      this.subscriptionSeasonsDetecting = false;
       this.subscriptionSeasons = [];
       this.selectedSubscriptionSeasons = [];
       this.subscriptionSeasonsDetected = false;
@@ -586,20 +590,30 @@
     /// 探测当前分享链接里有哪些季度（后端复用检查链路的探测与口径）。
     async detectSubscriptionSeasons() {
       const url = String(this.newSubscription.url || '').trim();
-      if (!url || this.subscriptionSeasonsDetecting) return;
+      const password = String(this.newSubscription.password || '');
+      if (!url) {
+        this.resetSubscriptionSeasons();
+        return;
+      }
+      const requestKey = JSON.stringify([url, password]);
+      if (this.subscriptionSeasonsDetecting && this.subscriptionSeasonsRequestKey === requestKey) return;
       const requestId = ++this.subscriptionSeasonsRequestId;
+      this.subscriptionSeasonsRequestKey = requestKey;
       this.subscriptionSeasonsDetecting = true;
       this.subscriptionSeasonsError = '';
+      const isCurrent = () => requestId === this.subscriptionSeasonsRequestId
+        && url === String(this.newSubscription.url || '').trim()
+        && password === String(this.newSubscription.password || '');
       try {
         const data = await apiData('/api/subscriptions/seasons', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
             url,
-            password: String(this.newSubscription.password || '')
+            password
           })
         });
-        if (requestId !== this.subscriptionSeasonsRequestId) return;
+        if (!isCurrent()) return;
         this.subscriptionSeasons = Array.isArray(data.seasons) ? data.seasons : [];
         this.subscriptionSeasonsDetected = true;
         this.subscriptionSeasonsMessage = String(data.message || '');
@@ -607,7 +621,7 @@
         this.subscriptionSeasonsInferred = this.subscriptionSeasons.some(item => item && item.inferred);
         this.applyDefaultSeasonSelection();
       } catch (error) {
-        if (requestId !== this.subscriptionSeasonsRequestId) return;
+        if (!isCurrent()) return;
         this.subscriptionSeasons = [];
         this.subscriptionSeasonsDetected = false;
         this.subscriptionSeasonsInferred = false;
@@ -615,6 +629,7 @@
       } finally {
         if (requestId === this.subscriptionSeasonsRequestId) {
           this.subscriptionSeasonsDetecting = false;
+          this.subscriptionSeasonsRequestKey = '';
         }
       }
     },
@@ -2088,7 +2103,7 @@
 
     subscriptionEpisodeTitle(episode) {
       const files = (episode && episode.files) || [];
-      const parts = [`第 ${episode.episode} 集`, this.subscriptionEpisodeLabel(episode)];
+      const parts = [`第 ${episode.season || 1} 季 · 第 ${episode.episode} 集`, this.subscriptionEpisodeLabel(episode)];
       if (episode.download_status && episode.download_status !== 'disabled') parts.push(`下载: ${episode.download_status}`);
       if (files.length) parts.push(files.slice(0, 3).join(' / '));
       return parts.join(' · ');
@@ -2745,6 +2760,22 @@
         (this.subscriptionDetail && this.subscriptionDetail.episodes) || [],
         this.subscriptionEpisodeFilter
       );
+    },
+
+    get visibleSubscriptionEpisodeGroups() {
+      const groups = new Map();
+      for (const episode of this.visibleSubscriptionEpisodes) {
+        const season = Number(episode.season || 1);
+        if (!groups.has(season)) groups.set(season, {season, episodes: []});
+        groups.get(season).episodes.push(episode);
+      }
+      return [...groups.values()].sort((left, right) => left.season - right.season);
+    },
+
+    get subscriptionMissingEpisodeLabels() {
+      return ((this.subscriptionDetail && this.subscriptionDetail.episodes) || [])
+        .filter(item => item.missing).slice(0, 8)
+        .map(item => `S${item.season || 1}E${item.episode}`).join(' · ');
     },
 
     get subscriptionDetailActivity() {

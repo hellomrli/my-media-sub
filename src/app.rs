@@ -43,6 +43,9 @@ pub struct AppContext {
 
 impl AppContext {
     pub async fn new(config: &Config) -> Result<Arc<Self>> {
+        let metrics = global_metrics();
+        let backup_service = Arc::new(BackupService::new(&config.data_dir, metrics.clone()));
+        backup_service.apply_pending_restore().await?;
         crate::utils::cleanup_stale_tmp_files(&config.data_dir);
 
         let subscription_store = Arc::new(SubscriptionStore::new(
@@ -89,8 +92,6 @@ impl AppContext {
 
         let metadata_service = Arc::new(MetadataService::new());
         tracing::info!("✅ Clients initialized");
-        let metrics = global_metrics();
-        let backup_service = Arc::new(BackupService::new(&config.data_dir, metrics.clone()));
         let provider_registry = Arc::new(CloudDriveProviderRegistry::new());
 
         let transfer_service = Arc::new(

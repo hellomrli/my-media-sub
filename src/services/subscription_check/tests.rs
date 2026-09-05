@@ -459,7 +459,7 @@ mod tests {
             },
         ];
 
-        let candidates = service.transfer_candidate_file_names(&sub, &files, &[]);
+        let candidates = service.transfer_candidate_file_names(&sub, &files);
 
         assert_eq!(candidates, vec!["147.mp4".to_string()]);
     }
@@ -500,7 +500,7 @@ mod tests {
         ];
 
         // 电影转存链路断过一次后（文件已 known 但未转存），检查必须重新入选补转。
-        let candidates = service.transfer_candidate_file_names(&sub, &files, &[]);
+        let candidates = service.transfer_candidate_file_names(&sub, &files);
 
         assert_eq!(candidates, vec!["阿凡达.mkv".to_string()]);
     }
@@ -1382,6 +1382,30 @@ mod tests {
 
         // 起始集数只约束起始季；第二季从第 1 集开始追。
         assert_eq!(new_names, vec!["Show S02E03.mkv"]);
+    }
+
+    #[test]
+    fn directory_seasons_keep_same_named_episodes_distinct_in_checks_and_jobs() {
+        let (service, _, _) = make_service();
+        let mut sub = make_subscription();
+        sub.season = 1;
+        sub.season_end = Some(3);
+        sub.season_list = Some(vec![1, 3]);
+        let files = vec![
+            probe_video("01.mkv", "s1", "Season 1"),
+            probe_video("01.mkv", "s2", "Season 2"),
+            probe_video("01.mkv", "s3", "Season 3"),
+        ];
+        let found = service.find_new_files(&sub, &files);
+        assert_eq!(found.iter().map(|file| file.file_key.as_str()).collect::<Vec<_>>(), vec!["s1", "s3"]);
+        let candidates = service.transfer_candidate_file_names(&sub, &files);
+        assert_eq!(candidates, vec!["Season 1/01.mkv", "Season 3/01.mkv"]);
+        sub.transferred_files = vec!["Season 1/01.mkv".into()];
+        sub.transferred_file_keys = vec!["s:1:ep:1".into(), "ep:1".into()];
+        let remaining = service.find_new_files(&sub, &files);
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].file_key, "s3");
+        assert_eq!(service.transfer_candidate_file_names(&sub, &files), vec!["Season 3/01.mkv"]);
     }
 
     #[test]

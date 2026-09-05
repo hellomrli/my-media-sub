@@ -1,8 +1,8 @@
 use crate::models::{Subscription, TransferRules};
 use crate::services::episode::{
-    detect_episode_with_override, episode_video_key, is_better_episode_duplicate_candidate,
-    is_video_name, normalize_duplicate_episode_strategy, season_hint_from_context, split_words,
-    EpisodeDuplicateCandidate,
+    detect_episode_with_override, episode_state_key_with_context,
+    is_better_episode_duplicate_candidate, is_video_name, normalize_duplicate_episode_strategy,
+    season_hint_from_context, split_words, EpisodeDuplicateCandidate,
 };
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -138,7 +138,12 @@ fn apply_duplicate_episode_strategy(
         if item.action != "transfer" {
             continue;
         }
-        let Some(key) = episode_video_key(&item.source_name, subscription.season) else {
+        let Some(key) = episode_state_key_with_context(
+            &item.source_name,
+            &item.source_parent_path,
+            subscription.season,
+            &rules.episode_regex,
+        ) else {
             continue;
         };
 
@@ -162,7 +167,13 @@ fn apply_duplicate_episode_strategy(
     let skip_reason = duplicate_episode_skip_reason(&rules.duplicate_episode_strategy);
     for (index, item) in items.iter_mut().enumerate() {
         if item.action == "transfer"
-            && episode_video_key(&item.source_name, subscription.season).is_some()
+            && episode_state_key_with_context(
+                &item.source_name,
+                &item.source_parent_path,
+                subscription.season,
+                &rules.episode_regex,
+            )
+            .is_some()
             && !selected.contains(&index)
         {
             item.action = "skip".to_string();
@@ -335,6 +346,13 @@ pub fn build_transfer_plan(
     let transferred = transferred_keys
         .cloned()
         .unwrap_or_else(|| subscription.transferred_file_keys.iter().cloned().collect());
+    let transferred_episodes: HashSet<_> = transferred
+        .iter()
+        .filter_map(|key| crate::services::episode::parse_episode_key(key, subscription.season))
+        .chain(crate::services::episode::transferred_episode_keys(
+            subscription,
+        ))
+        .collect();
     let existing: HashSet<String> = target_existing_files
         .map(|e| {
             e.iter()
@@ -461,13 +479,43 @@ pub fn build_transfer_plan(
 
         // 通过过滤，检查转存条件
         if item.skip_reason.is_empty() {
-            if rules.skip_existing_transferred && transferred.contains(&key) {
+            let already_transferred = if subscription.media_type == "movie" {
+                transferred.contains(&key)
+            } else {
+                episode_state_key_with_context(
+                    name,
+                    &raw.parent_path,
+                    subscription.season,
+                    &rules.episode_regex,
+                )
+                .map(|episode| transferred_episodes.contains(&episode))
+                .unwrap_or_else(|| {
+                    let season = season.unwrap_or(subscription.season).max(1);
+                    let name_key = transfer_state_key(name, None, rules.ignore_extensions);
+                    let reference = crate::services::episode::progress_file_reference(
+                        name,
+                        &raw.parent_path,
+                        season,
+                    );
+                    transferred.contains(&format!("s:{season}:{name_key}"))
+                        || (season == subscription.season && transferred.contains(&name_key))
+                        || subscription.transferred_files.iter().any(|file| {
+                            crate::services::episode::progress_file_reference(
+                                file,
+                                "",
+                                subscription.season,
+                            ) == reference
+                        })
+                })
+            };
+            if rules.skip_existing_transferred && already_transferred {
                 item.skip_reason = "已转存记录中存在".to_string();
             } else {
                 let mut rename_sub = subscription.clone();
                 if let Some(file_season) = season {
                     rename_sub.season = file_season.max(1);
                     rename_sub.season_end = None;
+                    rename_sub.season_list = None;
                 }
                 if multi_season {
                     if let Some(file_season) = season {
@@ -722,6 +770,35 @@ mod tests {
             parent_path: String::new(),
             updated_at: None,
         }
+    }
+
+    #[test]
+    fn preview_deduplicates_and_skips_transferred_files_within_each_directory_season() {
+        let mut sub = make_sub("Example", TransferRules::default());
+        sub.season_end = Some(3);
+        sub.season_list = Some(vec![1, 3]);
+        let files = [1, 3]
+            .into_iter()
+            .flat_map(|season| {
+                ["01.mkv", "SP01.mkv"]
+                    .into_iter()
+                    .map(move |name| ProbeFile {
+                        parent_path: format!("Season {season}"),
+                        ..make_file(name)
+                    })
+            })
+            .collect::<Vec<_>>();
+        let plan = build_transfer_plan(&sub, Some(&files), None, None, None);
+        assert_eq!(plan.transfer_count, 4);
+        sub.transferred_files = vec!["Season 1/01.mkv".into(), "Season 1/SP01.mkv".into()];
+        sub.transferred_file_keys = vec!["ep:1".into()];
+        let plan = build_transfer_plan(&sub, Some(&files), None, None, None);
+        assert_eq!(plan.transfer_count, 2);
+        assert!(plan
+            .items
+            .iter()
+            .filter(|item| item.action == "transfer")
+            .all(|item| item.season == Some(3)));
     }
 
     #[test]

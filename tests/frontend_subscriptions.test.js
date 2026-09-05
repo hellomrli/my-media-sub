@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 // 默认桩返回空对象：未显式配置桩的用例里，偶发的后台请求保持无害。
 let apiDataStub = async () => ({});
 global.MediaSubApi = {apiData: (...args) => apiDataStub(...args)};
+global.MediaSubSubscriptionDetail = require('../static/js/features/subscription-detail.js');
 
 const subscriptions = require('../static/js/stores/subscriptions.js');
 
@@ -353,4 +354,73 @@ test('edit dialog restores stored skip-season set', () => {
   state.subscriptionSeasonsDetected = true;
   state.applyDefaultSeasonSelection();
   assert.deepEqual(state.selectedSubscriptionSeasons, [1, 3]);
+});
+
+test('season detection keeps the newest URL and ignores a late previous response', async () => {
+  const pending = [];
+  apiDataStub = (_url, options) => new Promise(resolve => pending.push({resolve, body: JSON.parse(options.body)}));
+  const state = store();
+  state.newSubscription.url = 'https://pan.quark.cn/s/old';
+  const oldRequest = state.detectSubscriptionSeasons();
+  state.newSubscription.url = 'https://pan.quark.cn/s/new';
+  const newRequest = state.detectSubscriptionSeasons();
+  assert.equal(pending.length, 2);
+  pending[1].resolve({seasons: [{season: 3}], message: 'new'});
+  await newRequest;
+  pending[0].resolve({seasons: [{season: 1}], message: 'old'});
+  await oldRequest;
+  assert.deepEqual(state.subscriptionSeasons, [{season: 3}]);
+  assert.equal(state.subscriptionSeasonsMessage, 'new');
+  assert.equal(state.subscriptionSeasonsDetecting, false);
+  apiDataStub = async () => ({});
+});
+
+test('resetting the editor invalidates requests and allows a new password probe immediately', async () => {
+  const pending = [];
+  apiDataStub = (_url, options) => new Promise((resolve, reject) => pending.push({resolve, reject, body: JSON.parse(options.body)}));
+  const state = store();
+  state.newSubscription.url = 'https://pan.quark.cn/s/same';
+  const oldRequest = state.detectSubscriptionSeasons();
+  state.resetSubscriptionSeasons();
+  state.newSubscription.password = 'new-code';
+  const newRequest = state.detectSubscriptionSeasons();
+  assert.equal(pending.length, 2);
+  assert.equal(pending[1].body.password, 'new-code');
+  pending[0].reject(new Error('outdated request'));
+  await oldRequest;
+  assert.equal(state.subscriptionSeasonsDetecting, true);
+  assert.equal(state.subscriptionSeasonsError, '');
+  pending[1].resolve({seasons: [{season: 2}]});
+  await newRequest;
+  assert.deepEqual(state.subscriptionSeasons, [{season: 2}]);
+  apiDataStub = async () => ({});
+});
+
+test('clearing a URL prevents an in-flight season result from restoring the old choices', async () => {
+  let resolve;
+  apiDataStub = () => new Promise(done => { resolve = done; });
+  const state = store();
+  state.newSubscription.url = 'https://pan.quark.cn/s/old';
+  const request = state.detectSubscriptionSeasons();
+  state.newSubscription.url = '';
+  await state.detectSubscriptionSeasons();
+  resolve({seasons: [{season: 9}]});
+  await request;
+  assert.deepEqual(state.subscriptionSeasons, []);
+  assert.equal(state.subscriptionSeasonsDetected, false);
+  assert.equal(state.subscriptionSeasonsDetecting, false);
+  apiDataStub = async () => ({});
+});
+
+test('episode groups and missing labels distinguish the same episode in different seasons', () => {
+  const state = store();
+  state.subscriptionDetail = {episodes: [
+    {season: 1, episode: 1, transferred: true},
+    {season: 3, episode: 1, missing: true}
+  ]};
+  const groups = state.visibleSubscriptionEpisodeGroups;
+  assert.deepEqual(groups.map(group => group.season), [1, 3]);
+  assert.equal(groups[0].episodes[0].transferred, true);
+  assert.equal(groups[1].episodes[0].missing, true);
+  assert.equal(state.subscriptionMissingEpisodeLabels, 'S3E1');
 });

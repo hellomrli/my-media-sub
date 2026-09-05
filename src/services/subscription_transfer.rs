@@ -318,13 +318,21 @@ impl SubscriptionTransferService {
                 .map(|file| file.name.clone())
                 .collect();
             // 转存成功后立即持久化，避免后续重命名失败导致重复转存。
-            self.mark_files_as_transferred(&sub, &batch_names).await?;
-            transfer_file_names.extend(batch_names.iter().cloned());
+            self.mark_files_as_transferred(&sub, &batch_names, season)
+                .await?;
+            transfer_file_names.extend(batch_names.iter().map(|name| {
+                if sub.media_type == "movie" {
+                    name.clone()
+                } else {
+                    crate::services::episode::progress_file_reference(name, "", season)
+                }
+            }));
             target_dirs.push(target_dir.clone());
 
             let mut season_sub = sub.clone();
             season_sub.season = season;
             season_sub.season_end = None;
+            season_sub.season_list = None;
             let fallback_drive_items = provider_files_to_drive_items(&season_files, &target_fid);
             let (batch_renamed, mut batch_files) = if has_rename_rules(&sub.rules) {
                 match self
@@ -889,6 +897,7 @@ impl SubscriptionTransferService {
         &self,
         sub: &Subscription,
         file_names: &[String],
+        file_season: i32,
     ) -> Result<()> {
         /// 单个多集包最多记录的集数键数（检测器本身已把区间限制在 ≤100）。
         const MAX_EPISODE_KEYS_PER_FILE: usize = 100;
@@ -903,9 +912,25 @@ impl SubscriptionTransferService {
                     Ok(detected) => detected,
                     Err(_) => crate::services::episode::detect_episode_explained(name),
                 };
-                let season = detected.season.unwrap_or(sub.season).max(1);
+                let season = detected.season.unwrap_or(file_season).max(1);
                 let primary = season == sub.season.max(1)
                     && !crate::services::episode::is_special_episode_name(name);
+                let mut scoped: Vec<String> =
+                    if crate::services::episode::is_special_episode_name(name) {
+                        vec![format!(
+                            "s:{season}:{}",
+                            transfer_state_key(name, None, sub.rules.ignore_extensions)
+                        )]
+                    } else {
+                        detected
+                            .episodes
+                            .iter()
+                            .take(MAX_EPISODE_KEYS_PER_FILE)
+                            .map(|episode| {
+                                crate::services::episode::scoped_episode_key(season, *episode)
+                            })
+                            .collect()
+                    };
                 if primary {
                     // 多集包（E01-E12）按区间记录全部集数键：分享方后续把
                     // 合集拆成单集发布时，不会被误判为新文件重复转存。
@@ -918,19 +943,28 @@ impl SubscriptionTransferService {
                     if keys.is_empty() {
                         keys.push(transfer_state_key(name, None, sub.rules.ignore_extensions));
                     }
-                    keys
+                    scoped.extend(keys);
                 } else {
                     // 特典与其他季的文件退回 `name:` 键，不占用正片集数槽位。
-                    vec![transfer_state_key(name, None, sub.rules.ignore_extensions)]
+                    scoped.push(format!(
+                        "s:{season}:{}",
+                        transfer_state_key(name, None, sub.rules.ignore_extensions)
+                    ));
                 }
+                scoped
             })
             .collect();
 
         self.subscription_store
             .update(&sub.id, |sub| {
                 for name in file_names {
-                    if !sub.transferred_files.contains(name) {
-                        sub.transferred_files.push(name.clone());
+                    let reference = if sub.media_type == "movie" {
+                        name.clone()
+                    } else {
+                        crate::services::episode::progress_file_reference(name, "", file_season)
+                    };
+                    if !sub.transferred_files.contains(&reference) {
+                        sub.transferred_files.push(reference);
                     }
                 }
                 for key in &file_keys {

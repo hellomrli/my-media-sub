@@ -57,7 +57,7 @@
                   <div><span>已发现</span><strong x-text="subscriptionDetailSummary.discovered_count"></strong><small x-text="subscriptionDetailSummary.expected_count ? ('共 ' + subscriptionDetailSummary.expected_count + ' 集') : '按当前来源统计'"></small></div>
                   <div><span>已转存</span><strong x-text="subscriptionDetailSummary.transferred_count"></strong><small x-text="subscriptionDetailSummary.pending_transfer_count + ' 集待转存'"></small></div>
                   <div><span>已下载</span><strong x-text="subscriptionDetailSummary.downloaded_count"></strong><small x-text="selectedSubscription.sync_download_enabled ? (subscriptionDetailSummary.pending_download_count + ' 集待完成') : '未启用 Aria2 同步'"></small></div>
-                  <div :class="subscriptionDetailSummary.missing_count ? 'has-warning' : ''"><span>缺集</span><strong x-text="subscriptionDetailSummary.missing_count"></strong><small x-text="subscriptionDetailSummary.missing_count ? subscriptionDetail.missing_episodes.slice(0, 8).map(item => 'E' + item).join(' · ') : '当前目标范围完整'"></small></div>
+                  <div :class="subscriptionDetailSummary.missing_count ? 'has-warning' : ''"><span>缺集</span><strong x-text="subscriptionDetailSummary.missing_count"></strong><small x-text="subscriptionDetailSummary.missing_count ? subscriptionMissingEpisodeLabels : '当前目标范围完整'"></small></div>
                 </div>
 
                 <div class="subscription-detail-main-grid">
@@ -75,18 +75,25 @@
                       <button @click="setSubscriptionEpisodeFilter('recent')" :class="subscriptionEpisodeFilter === 'recent' ? 'is-active' : ''">最近新增 <span x-text="subscriptionEpisodeFilterCount('recent')"></span></button>
                     </div>
 
-                    <div x-show="visibleSubscriptionEpisodes.length > 0" class="subscription-episode-grid">
-                      <template x-for="episode in visibleSubscriptionEpisodes" :key="episode.episode">
-                        <button :class="subscriptionEpisodeClass(episode)" :title="subscriptionEpisodeTitle(episode)">
-                          <span class="subscription-episode-number" x-text="'E' + String(episode.episode).padStart(2, '0')"></span>
-                          <strong x-text="subscriptionEpisodeLabel(episode)"></strong>
-                          <div class="subscription-episode-signals">
-                            <i :class="episode.discovered ? 'is-on' : ''" title="已发现"></i>
-                            <i :class="episode.transferred ? 'is-on' : ''" title="已转存"></i>
-                            <i :class="episode.download_status === 'completed' ? 'is-on' : (['queued','pending'].includes(episode.download_status) ? 'is-active' : '')" title="下载"></i>
+                    <div x-show="visibleSubscriptionEpisodes.length > 0" class="space-y-4">
+                      <template x-for="group in visibleSubscriptionEpisodeGroups" :key="group.season">
+                        <section>
+                          <h4 class="text-sm text-muted mb-2" x-text="'第 ' + group.season + ' 季'"></h4>
+                          <div class="subscription-episode-grid">
+                            <template x-for="episode in group.episodes" :key="episode.season + ':' + episode.episode">
+                              <button :class="subscriptionEpisodeClass(episode)" :title="subscriptionEpisodeTitle(episode)">
+                                <span class="subscription-episode-number" x-text="'E' + String(episode.episode).padStart(2, '0')"></span>
+                                <strong x-text="subscriptionEpisodeLabel(episode)"></strong>
+                                <div class="subscription-episode-signals">
+                                  <i :class="episode.discovered ? 'is-on' : ''" title="已发现"></i>
+                                  <i :class="episode.transferred ? 'is-on' : ''" title="已转存"></i>
+                                  <i :class="episode.download_status === 'completed' ? 'is-on' : (['queued','pending'].includes(episode.download_status) ? 'is-active' : '')" title="下载"></i>
+                                </div>
+                                <em x-show="episode.recent">NEW</em>
+                              </button>
+                            </template>
                           </div>
-                          <em x-show="episode.recent">NEW</em>
-                        </button>
+                        </section>
                       </template>
                     </div>
                     <div x-show="visibleSubscriptionEpisodes.length === 0" class="subscription-episode-empty">
