@@ -28,29 +28,36 @@ fn hardcoded_regex(pattern: &str) -> Regex {
 }
 
 /// 集数提取正则模式。明确格式优先，裸数字只作为兜底并过滤年份/清晰度。
+///
+/// `reject_year` 对所有模式一律开启：真实集号不会落在 `is_plausible_year`
+/// 的 1900..=2099 区间，而这些模式都会紧邻四位数字误吞年份。历史上只给
+/// `bracket_number` 开了该开关，`special_marker` 的 `OVA 2024`/`SP 2023`
+/// 因此被识别成第 2024/2023 集：未设总集数的订阅会把它当正片转存并按
+/// `{episode}` 重命名，设了总集数则被"集数超过订阅总集数"静默跳过并给出
+/// 误导性原因。特典的真实编号（`SP01`、`OVA02`）不受影响。
 static EPISODE_PATTERNS: LazyLock<Vec<EpisodePattern>> = LazyLock::new(|| {
     vec![
         EpisodePattern {
             id: "season_episode",
             regex: hardcoded_regex(r"(?i)S(?P<season>\d{1,2})[._\-\s]*E(?P<episode>\d{1,4})"),
-            reject_year: false,
+            reject_year: true,
         },
         EpisodePattern {
             id: "episode_marker",
             regex: hardcoded_regex(r"(?i)(?:^|[^\p{L}\d])EP?[._\-\s]*(?P<episode>\d{1,4})"),
-            reject_year: false,
+            reject_year: true,
         },
         EpisodePattern {
             id: "special_marker",
             regex: hardcoded_regex(
                 r"(?i)(?:^|[^\p{L}\d])(?:SP|OVA|OAD)[._\-\s]*(?P<episode>\d{1,4})(?:$|[^\p{L}\d])",
             ),
-            reject_year: false,
+            reject_year: true,
         },
         EpisodePattern {
             id: "chinese_episode",
             regex: hardcoded_regex(r"第\s*(?P<episode>\d{1,4})\s*[集话話期]"),
-            reject_year: false,
+            reject_year: true,
         },
         EpisodePattern {
             id: "bracket_number",
@@ -1226,6 +1233,45 @@ mod episode_misdetection_tests {
         assert_eq!(detected.episode, Some(5));
         let detected = detect_episode_explained("Show.[2024].mkv");
         assert_eq!(detected.episode, None);
+    }
+
+    #[test]
+    fn explicit_marker_years_are_not_episodes() {
+        // 回归：年份排除原先只加在 bracket_number 上，其余明确模式照单全收，
+        // `OVA 2024` 因此被识别成第 2024 集——未设总集数的订阅会把它当正片
+        // 转存并按 {episode} 重命名，设了总集数则被"集数超过订阅总集数"跳过
+        // 并给出误导性原因（真实原因是识别错了集数）。
+        for name in [
+            "动画 OVA 2024 [1080p].mkv",
+            "[Group] Show SP 2023 [BDRip].mkv",
+            "某剧 OAD 2022.mkv",
+            "Show S01E1998.mkv",
+            "Show.E2024.1080p.mkv",
+            "某剧 第2024集.mkv",
+        ] {
+            assert_eq!(
+                detect_episode_explained(name).episode,
+                None,
+                "年份被当成集数: {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn year_rejection_keeps_real_specials_and_season_episodes() {
+        // 年份排除不得波及真实特典编号，也不得影响"年份 + 季集"共存的常见命名。
+        let detected = detect_episode_explained("动画 OVA02 BDRip.mkv");
+        assert_eq!(detected.episode, Some(2));
+        assert_eq!(detected.special_kind, Some("ova"));
+        assert_eq!(detect_episode_explained("Show SP01.mkv").episode, Some(1));
+        assert_eq!(
+            detect_episode_explained("Show.2024.S01E05.1080p.mkv").episode,
+            Some(5)
+        );
+        assert_eq!(
+            detect_episode_explained("Show.2024.EP05.1080p.mkv").episode,
+            Some(5)
+        );
     }
 
     #[test]

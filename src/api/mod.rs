@@ -162,7 +162,12 @@ async fn basic_auth(State(state): State<AuthState>, req: Request<Body>, next: Ne
         return next.run(req).await;
     }
     if is_cross_site_state_change(&req) {
-        tracing::warn!("拒绝跨站状态修改请求: {} {}", req.method(), req.uri());
+        // webhook 已在上方短路，这里仍然脱敏，避免将来调整顺序时泄漏路径密钥。
+        tracing::warn!(
+            "拒绝跨站状态修改请求: {} {}",
+            req.method(),
+            crate::utils::redact_log_path(&req.uri().to_string())
+        );
         return forbidden_response();
     }
 
@@ -446,7 +451,8 @@ async fn request_context(mut req: Request<Body>, next: Next) -> Response {
         request_header_id(req.headers(), "x-correlation-id").unwrap_or_else(|| request_id.clone());
     req.extensions_mut().insert(request_id.clone());
     let method = req.method().clone();
-    let path = req.uri().path().to_string();
+    // Webhook 路径段本身是凭据，日志与 span 只能记录脱敏后的形态。
+    let path = crate::utils::redact_log_path(req.uri().path());
     let context = crate::observability::LogContext {
         request_id: Some(request_id.clone()),
         correlation_id: Some(correlation_id.clone()),

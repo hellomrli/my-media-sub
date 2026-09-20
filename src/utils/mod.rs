@@ -151,6 +151,22 @@ pub fn redact_url(value: &str) -> String {
     redact_sensitive(value)
 }
 
+/// 日志与追踪用的路径脱敏，输入可以是请求路径或完整 URI。
+///
+/// Telegram Webhook 把一半凭据放在路径段里
+/// （`/api/telegram/webhook/{path_secret}`），而 `request_context` 中间件
+/// 位于 `basic_auth` 外层，会在后者的 webhook 短路之前记录完整路径与
+/// `http.path` span 字段——不在这里抹掉，每次投递（以及任何 404 探测）
+/// 都会把路径密钥写进 INFO 日志。
+pub fn redact_log_path(path_or_uri: &str) -> String {
+    const TELEGRAM_WEBHOOK_PREFIX: &str = "/api/telegram/webhook/";
+    if path_or_uri.starts_with(TELEGRAM_WEBHOOK_PREFIX) {
+        // 只保留前缀用于定位，路径段本身（含可能的额外子路径或 query）一律丢弃。
+        return format!("{TELEGRAM_WEBHOOK_PREFIX}<redacted>");
+    }
+    path_or_uri.to_string()
+}
+
 pub fn constant_time_eq(left: &str, right: &str) -> bool {
     let left = left.as_bytes();
     let right = right.as_bytes();
@@ -265,6 +281,37 @@ mod tests {
         assert!(!constant_time_eq("abcdef", "abcdeg"));
         assert!(!constant_time_eq("abcdef", "abc"));
         assert!(!constant_time_eq("abc", "abcdef"));
+    }
+
+    #[test]
+    fn redact_log_path_hides_telegram_webhook_secret() {
+        // 路径密钥不得出现在日志、追踪 span 或诊断里。
+        assert_eq!(
+            redact_log_path("/api/telegram/webhook/0123456789abcdef0123456789abcdef"),
+            "/api/telegram/webhook/<redacted>"
+        );
+        // 额外子路径与 query 一并丢弃，不能让密钥从任何形式漏出。
+        assert_eq!(
+            redact_log_path("/api/telegram/webhook/secret/extra?token=secret"),
+            "/api/telegram/webhook/<redacted>"
+        );
+        assert_eq!(
+            redact_log_path("/api/telegram/webhook/"),
+            "/api/telegram/webhook/<redacted>"
+        );
+        // 前缀相似但并非 webhook 的路径必须原样保留，否则会丢诊断信息。
+        assert_eq!(
+            redact_log_path("/api/telegram/audits"),
+            "/api/telegram/audits"
+        );
+        assert_eq!(
+            redact_log_path("/api/telegram/webhook"),
+            "/api/telegram/webhook"
+        );
+        assert_eq!(
+            redact_log_path("/api/subscriptions?limit=10"),
+            "/api/subscriptions?limit=10"
+        );
     }
 
     #[test]
