@@ -46,6 +46,24 @@ jobs:
       - name: Check OpenAPI route and compatibility contract
         run: python3 scripts/check-openapi.py
 
+      - name: Check documentation version consistency
+        # release.yml 的同名检查只告警不阻断，漂移进了 main 要等下次发布才暴露；
+        # 这里把四个版本面硬性对齐。README 的「版本说明」段与文档索引链接是历史上
+        # 真正漂移过的地方（后者曾停留在 v2.5.1 连续三个发布未更新）。
+        run: |
+          set -euo pipefail
+          VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          echo "Cargo.toml version: $VERSION"
+          grep -Fqx "### $VERSION" README.md \
+            || { echo "❌ README.md 缺少 '### $VERSION' 版本说明段" >&2; exit 1; }
+          grep -Fqx "## $VERSION" CHANGELOG.md \
+            || { echo "❌ CHANGELOG.md 缺少 '## $VERSION' 段" >&2; exit 1; }
+          test -s "docs/upgrade-v$VERSION.md" \
+            || { echo "❌ docs/upgrade-v$VERSION.md 缺失或为空" >&2; exit 1; }
+          grep -Fq -- "- 当前版本：[v$VERSION 升级指南](docs/upgrade-v$VERSION.md)" README.md \
+            || { echo "❌ README.md 文档索引的「当前版本」链接未指向 v$VERSION" >&2; exit 1; }
+          echo "✅ 版本说明段 / CHANGELOG / upgrade 文档 / 文档索引链接均与 $VERSION 一致"
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 

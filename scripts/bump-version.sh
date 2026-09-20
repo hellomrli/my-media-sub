@@ -40,6 +40,16 @@ TEMPLATE="## 版本说明
 
 sed -i "s/## 版本说明/$(escape_sed_replacement "$TEMPLATE")/" README.md
 
+# 2b. README 文档索引里的「当前版本」链接指向升级指南。它不在「版本说明」段内，
+#     上面的替换覆盖不到；漏改会让 README 长期指向旧版本（v2.5.1 那次漏了，
+#     之后 3 次发布都沿用了旧链接）。CI 的文档一致性检查会兜住这一行。
+echo "2b. Updating README documentation index link..."
+if grep -qF -- "- 当前版本：[v$CURRENT_VERSION 升级指南](docs/upgrade-v$CURRENT_VERSION.md)" README.md; then
+  sed -i "s|^- 当前版本：\[v$CURRENT_VERSION 升级指南\](docs/upgrade-v$CURRENT_VERSION\.md)|- 当前版本：[v$NEW_VERSION 升级指南](docs/upgrade-v$NEW_VERSION.md)|" README.md
+else
+  echo "⚠️  README 中未找到「当前版本」链接（v$CURRENT_VERSION），请手动核对该行" >&2
+fi
+
 # 3. 更新 CHANGELOG.md - 添加新版本模板
 echo "3. Updating CHANGELOG.md..."
 CHANGELOG_TEMPLATE="升级步骤见对应的 [\`docs/upgrade-v*.md\`](docs/)；当前版本发布说明摘要也写在 [\`README.md\`](README.md) 的「版本说明」中。
