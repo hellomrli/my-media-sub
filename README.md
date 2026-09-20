@@ -1,270 +1,223 @@
-# My Media Sub
+<p align="center">
+  <img src="./static/icons/icon-512.png" width="180" alt="my-media-sub 应用图标">
+</p>
 
-> 夸克网盘上的媒体追更工作台：搜索、订阅、转存、重命名、下载与通知，一条链路跑通。
+<h1 align="center">My Media Sub</h1>
 
-[![CI](https://github.com/hellomrli/my-media-sub/actions/workflows/ci.yml/badge.svg)](https://github.com/hellomrli/my-media-sub/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/hellomrli/my-media-sub?display_name=tag)](https://github.com/hellomrli/my-media-sub/releases)
-[![Container](https://img.shields.io/badge/GHCR-my--media--sub-blue?logo=docker)](https://github.com/hellomrli/my-media-sub/pkgs/container/my-media-sub)
-[![Rust](https://img.shields.io/badge/Rust-2021-orange?logo=rust)](https://www.rust-lang.org/)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+<p align="center">面向夸克网盘的自托管追更服务：把资源发现、订阅检查、自动转存、模板重命名、可选下载与通知串成一条可审计的自动化链路。</p>
 
-追剧不必反复点开分享链接。My Media Sub 把「发现资源 → 盯住更新 → 自动转存 → 整理命名 → 可选下载 → 及时通知」收成一个可自托管的小服务：
+<p align="center">
+  <a href="https://github.com/hellomrli/my-media-sub/actions/workflows/ci.yml"><img src="https://github.com/hellomrli/my-media-sub/actions/workflows/ci.yml/badge.svg" alt="CI 状态"></a>
+  <a href="https://github.com/hellomrli/my-media-sub/releases"><img src="https://img.shields.io/github/v/release/hellomrli/my-media-sub?display_name=tag" alt="最新发布版本"></a>
+  <a href="https://github.com/hellomrli/my-media-sub/pkgs/container/my-media-sub"><img src="https://img.shields.io/badge/GHCR-my--media--sub-blue?logo=docker" alt="GHCR 容器镜像"></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-2021-orange?logo=rust" alt="Rust 2021"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT 许可证"></a>
+</p>
 
-- **Rust + Axum** 单二进制后端，无外部数据库，数据落在本地 JSON（原子写入 + 自动备份）；
-- **无打包器 WebUI**（Alpine.js + Tailwind，Cinema Slate 视觉），可安装为 PWA；
-- **Docker 一键拉起**，容器非 root，默认拒绝弱密码。
+## 它解决什么问题
 
----
+追更的麻烦不在于找不到资源，而在于每次更新都要把同一套动作重做一遍：点开分享链接、翻有没有新集、挑一个版本、转存、改名，可能还要丢给下载器。订阅一多，这件事就变成负担。
 
-## 功能总览
+my-media-sub 把这段流程交给一个常驻服务：你给一个分享链接和季集范围，它按设定的间隔去检查，命中新集后按规则转存到自己的网盘、按模板重命名，需要时再交给 Aria2 下到本地，并把结果推到手机上。整个过程有持久化任务队列、稳定幂等键和审计记录，失败可重试、可回溯。
 
-| 你想解决的事 | 它怎么做 |
+它面向单实例、单管理员的家庭自托管场景，不是多租户平台：没有外部数据库，业务状态写在本地的版本化 JSON 里，一个二进制加一个 WebUI 就能跑起来。
+
+## 核心亮点
+
+| 亮点 | 说明 |
 |---|---|
-| 自动追更 | 定时/手动检查分享；按季与起始集过滤；同集多版本择优；识别缺集与完结；分享探测分页拉全并显式标记截断 |
-| 自动转存 | 业务级幂等（重试不重复转存）；电影/剧集/动画目录归类；规则过滤、模板重命名、批量修复命名 |
-| 分享失效 | 失效计数、候选评分、进度校验、冷却与自动换源，全程可回滚审计 |
-| 找资源 | PanSou 聚合搜索、夸克分享探测与质量评分、TMDB 元数据（海报、年份、评分、总集数） |
-| 看排期 | 上海时区周/月/列表日历；按元数据推断排期；逐集处理状态一目了然 |
-| 下到本地 | Aria2 幂等提交、批量分批、退避重试 |
-| 心里有数 | 持久化任务队列、真实取消、心跳看门狗、优雅停机、SSE 实时状态、结构化自动化事件流水线 |
-| 消息触达 | 企业微信 / Telegram / Bark / Gotify / WxPusher / PushPlus / Server 酱；Browser Push；签名 Webhook；安静时段与摘要聚合 |
-| 手机遥控 | Telegram Bot：白名单、写操作二次确认、限流与审计 |
-| 敢上生产 | 原子 JSON Store、损坏隔离 + 显式告警、自动备份与恢复验证、关联日志、Prometheus 指标 |
+| 定时检查与自动转存 | 调度器按订阅各自的间隔触发检查，命中的新集进入持久化 JobQueue 幂等转存；重试、并发与进程重启都不会重复入账 |
+| 分享失效自动换源 | 候选按质量评分排序，换源前校验进度避免倒退，带冷却、完整审计与回滚入口 |
+| 九种通知渠道 | 企业微信、WxPusher、Telegram、Bark、Gotify、PushPlus、Server 酱、Browser Push 与签名 Webhook，支持安静时段和摘要聚合 |
+| 手机遥控 | Telegram Bot 提供白名单、写操作二次确认、限流与脱敏审计；粘贴豆瓣链接即可搜索、订阅或转存 |
+| 不引入数据库也能安全落盘 | `schema_version` JSON 信封、临时文件加 `fsync` 再原子 rename、`0600` 权限、损坏文件自动隔离并在诊断页持续告警 |
+| 在线更新 | 校验 SHA256 后把二进制与整个 WebUI 作为同一事务切换，保留多份回滚副本，等后台任务优雅停机后才重启进程 |
 
----
+## 架构
 
-## 快速开始
+```text
+┌────────────────────────────────────────────────────────────────────────┐
+│  入口    浏览器  Basic Auth + 同源 CSRF                                │
+│          自动化客户端  scoped Bearer Token                             │
+│          Telegram Bot  随机路径 + Header Secret                        │
+└────────────────┬───────────────────────────────────────────────────────┘
+                │
+                ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│  src/api/       路由 · 认证 · CSRF · 登录限流 · 统一响应信封           │
+└────────────────┬───────────────────────────────────────────────────────┘
+                │
+                ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│  src/services/  检查 · 转存 · 换源 · 日历 · 通知 · 下载监控 · 备份     │
+└────────────────┬──────────────────────────────────────┬────────────────┘
+                │                                      │
+                ▼                                      ▼
+┌──────────────────────────────┐    ┌────────────────────────────────────┐
+│  src/jobs/                   │    │  src/providers/ · src/clients/     │
+│  持久化队列 · 优先级 · 取消  │    │  Quark · PanSou · Aria2 · TMDB     │
+│  重试 · 重启恢复             │    └────────────────────────────────────┘
+└────────────────┬─────────────┘
+                │
+                ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│  src/store/     schema_version JSON · 原子落盘 · 0600 · 损坏隔离       │
+└────────────────────────────────────────────────────────────────────────┘
+```
 
-### 方式一：Docker Compose（推荐）
+HTTP、调度器、Job Worker 与 Telegram 命令复用同一套 Service 与 Store 合同，不在适配层复制业务规则。云盘能力由 `CloudDriveProvider` 抽象，生产只注册夸克，Mock 实现用于确定性测试。完整分层说明见[架构文档](docs/architecture.md)。
+
+## 使用示例
+
+下面这条链路对应「订阅一部剧，检查后看到转存结果」。所有请求使用 HTTP Basic Auth，响应统一为 `{"ok": true, "data": ...}` 信封。
 
 ```bash
-mkdir -p my-media-sub/{data,runtime} && cd my-media-sub
-curl -LO https://raw.githubusercontent.com/hellomrli/my-media-sub/main/docker-compose.yml
+# 1. 创建订阅（季号支持 "1"、"1-4"、"1,3" 这类写法）
+curl -u admin:"$SERVER_PASSWORD" -X POST http://127.0.0.1:56001/api/subscriptions \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "title": "葬送的芙莉莲",
+        "url": "https://pan.quark.cn/s/替换为真实分享",
+        "password": "",
+        "media_type": "series",
+        "season_spec": "1",
+        "target_dir": "/追更"
+      }'
 
-# 同目录写入管理员密码（必需，勿使用 change-me）
-printf 'SERVER_PASSWORD=replace-with-a-strong-password\nTZ=Asia/Shanghai\n' > .env
+# 2. 立即检查该订阅，返回新增文件与集数
+curl -u admin:"$SERVER_PASSWORD" -X POST \
+  http://127.0.0.1:56001/api/subscriptions/替换为订阅ID/check
+
+# 3. 查看任务队列与通知
+curl -u admin:"$SERVER_PASSWORD" http://127.0.0.1:56001/api/jobs
+curl -u admin:"$SERVER_PASSWORD" http://127.0.0.1:56001/api/notifications
+```
+
+检查接口返回 `new_files`、`new_episodes` 与逐文件识别明细；转存作为 Job 异步执行，可在 `GET /api/jobs` 或 `GET /api/jobs/events`（SSE）观察进度。
+
+自动化脚本可以改用最小权限的 Bearer Token，不必携带管理员密码：
+
+```bash
+# 轮换出一个只读订阅的 Token，明文只在本次响应中返回一次
+curl -u admin:"$SERVER_PASSWORD" -X POST http://127.0.0.1:56001/api/automation-token \
+  -H 'Content-Type: application/json' \
+  -d '{"scopes": ["subscriptions:read"], "expires_days": 30}'
+
+# 之后用 Token 访问
+curl -H "Authorization: Bearer 替换为Token" http://127.0.0.1:56001/api/subscriptions
+```
+
+设置、Token 管理、备份恢复、存储清理与在线升级不对任何 Token scope 开放，只能使用管理员凭据。可用 scope 以 `GET /api/automation-token/scopes` 为准。
+
+## 快速安装
+
+推荐 Docker Compose。需要 Docker 与 Compose v2，容器以 uid/gid `1000` 运行。
+
+```bash
+mkdir -p my-media-sub/data my-media-sub/runtime && cd my-media-sub
+
+curl -LO https://raw.githubusercontent.com/hellomrli/my-media-sub/main/docker-compose.yml
+printf 'SERVER_PASSWORD=替换为至少12位的强密码\nTZ=Asia/Shanghai\n' > .env
 docker compose up -d
 ```
 
-浏览器打开 `http://服务器地址:56001`，用户名默认 `admin`。
+`SERVER_PASSWORD` 是必填项：未在 `.env` 里设置时 compose 会直接拒绝启动。数据写在 `./data`，可在线更新的二进制与 WebUI 写在 `./runtime`，两者都不受容器重建影响。
 
-> **从 v2.0.0 起，默认密码不可登录。** 必须通过 `SERVER_PASSWORD` / `APP_PASSWORD` 或系统设置配置真实密码。
-
-容器以 uid/gid `1000` 运行；入口脚本会自动修正挂载目录属主。业务数据位于 `data/`，可在线更新的二进制和 WebUI 位于独立的 `runtime/`，容器重启或重建后仍会保留。
-
-首次从旧镜像迁移到支持 Docker 在线更新的版本，仍需先执行一次镜像升级。之后可在「系统设置 → 维护 → 在线更新」直接切换 Release；升级器会校验 SHA256、同时替换二进制与完整 WebUI，并在后台任务优雅停机后重启进程。
-
-常用运维命令：
+不使用 Docker 时可以直接跑发布二进制。当前发布产物只提供 **linux-x86_64**：
 
 ```bash
-docker compose ps            # 状态
-docker compose logs -f       # 日志
-docker compose pull && docker compose up -d   # 更新基础镜像和系统库
-docker compose down          # 停止
+VERSION=2.7.1
+curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/v$VERSION/my-media-sub-v$VERSION-linux-x86_64.tar.gz"
+curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/v$VERSION/my-media-sub-v$VERSION-linux-x86_64.tar.gz.sha256"
+sha256sum -c "my-media-sub-v$VERSION-linux-x86_64.tar.gz.sha256"
+tar -xzf "my-media-sub-v$VERSION-linux-x86_64.tar.gz"
+cd "my-media-sub-v$VERSION-linux-x86_64"
+
+SERVER_PASSWORD='替换为至少12位的强密码' \
+DATA_DIR=./data SERVER_PORT=56001 ./my-media-sub
 ```
 
-Compose 默认限制容器日志为 `10m × 3`（json-file 驱动）。日志只写 stdout，不设上限的话长期运行会在宿主机上无界增长。
+手工升级时必须同时替换二进制与整个 `static/` 目录，只换二进制会继续运行旧的 WebUI。
 
-### 方式二：Docker Run
+## 快速开始
+
+打开 `http://服务器地址:56001`，用 `admin`（或你设置的 `SERVER_USERNAME`）与 `SERVER_PASSWORD` 登录。默认密码 `change-me` 会被服务端拒绝，必须配置真实密码。
+
+1. 进入系统设置，填入**夸克 Cookie**——没有它无法探测分享或执行转存，检查接口会直接返回「未配置夸克 Cookie」。
+2. 按需填入 PanSou 地址、TMDB API Key、Aria2 RPC 与至少一个通知渠道；每个集成在设置页都有对应的测试按钮。
+3. 到资源搜索或订阅管理新增订阅：粘贴夸克分享链接后，编辑器会探测该分享包含哪些季度，勾选要追的季即可。
+4. 保存后点「立即检查」验证链路：命中新集会出现 Job 与通知，转存结果出现在你的夸克网盘目标目录。
+
+想先确认服务活着，可以不登录直接探测健康检查，它返回状态与当前版本：
 
 ```bash
-docker run -d \
-  --name my-media-sub \
-  --restart unless-stopped \
-  -p 56001:56001 \
-  -v "$(pwd)/data:/app/data" \
-  -v "$(pwd)/runtime:/app/runtime" \
-  -e SERVER_USERNAME=admin \
-  -e SERVER_PASSWORD='replace-with-a-strong-password' \
-  -e TZ=Asia/Shanghai \
-  ghcr.io/hellomrli/my-media-sub:latest
+curl http://127.0.0.1:56001/health
+# {"status":"ok","version":"2.7.1"}
 ```
 
-生产环境请钉死版本标签。每个发布会同时打补丁与次版本标签（例如 `2.2.15` 与 `2.2`）：
+## 配置与集成
 
-```bash
-docker pull ghcr.io/hellomrli/my-media-sub:2.2.15
-docker image inspect ghcr.io/hellomrli/my-media-sub:2.2.15 --format '{{.RepoDigests}}'
-```
+配置有两个来源：进程环境变量，以及 WebUI 里写入 `settings.json` 的设置。环境变量在启动时覆盖设置文件，适合容器化部署。完整清单见 [`.env.example`](.env.example)。
 
-`:latest` 只在 CI 全绿后才会更新——镜像发布工作流以 CI 成功为前置条件，并构建通过了 CI 的那个提交。
-
-### 方式三：Linux 二进制
-
-从 [GitHub Releases](https://github.com/hellomrli/my-media-sub/releases) 下载并校验：
-
-```bash
-VERSION=v2.2.15
-curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz"
-curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/${VERSION}/my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
-sha256sum -c "my-media-sub-${VERSION}-linux-x86_64.tar.gz.sha256"
-tar -xzf "my-media-sub-${VERSION}-linux-x86_64.tar.gz"
-cd "my-media-sub-${VERSION}-linux-x86_64"
-
-SERVER_PASSWORD='replace-with-a-strong-password' ./my-media-sub
-```
-
-运行目录需保留完整 `static/`。业务数据默认写在 `./data`，可用 `DATA_DIR` 改路径。
-
----
-
-## 第一次打开时
-
-1. 进入「系统设置」，确认管理员密码足够强。
-2. 填入夸克 Cookie，用连接测试确认可用。
-3. 配置电影、剧集、动画（以及你需要的自定义分类）目标目录。
-4. 按需打开 PanSou、TMDB、Aria2 与推送渠道。
-5. 在资源搜索里创建订阅，或直接粘贴分享链接。
-6. 设定检查周期、并发、自动转存与换源策略。
-7. 若前面有可信反向代理，再开启 `trust_proxy_headers`，登录限流才会按 `X-Forwarded-For` 计真实客户端；直连部署请保持关闭（默认）。
-
----
-
-## 一条检查会经历什么
-
-```text
-定时器 / 手动检查
-  → 批量互斥 + 同订阅互斥 + 并发限制
-  → 分享探测（分页拉全，截断显式标记 partial）
-  → 规则过滤 → 季度匹配 → 同集择优
-  → 检查结果按字段合并回写（不踩并发转存、完结状态与用户编辑）
-  → 幂等 SubscriptionTransfer Job（高 / 中 / 低加权公平）
-  → 夸克转存（执行前按已转存状态过滤，成功即落盘）
-  → 重命名 → 可选 Aria2 → 通知
-  → AutomationEvent 流水线审计
-```
-
-设计上偏「宁可慢一点，也不要悄悄写错」：
-
-- 转存具备业务级幂等：任务重试/重放会跳过已转存文件，不在网盘制造重复内容。
-- 可重试错误最多 3 次指数退避（带抖动）；连续临时故障会熔断，冷却后再探测恢复。
-- 心跳看门狗：超过 30 分钟毫无进度才判卡死；取消会真正中止任务并立刻释放并发槽。
-- SIGTERM / Ctrl+C：拒收新任务，给运行中任务约 30 秒落盘，残留收敛为可手动重试的中断态。
-- 通知支持路由、最低级别、安静时段（主机时区）、限频与延迟摘要；摘要可跨重启；失效的浏览器推送端点会自动清理。
-
----
-
-## 配置
-
-日常配置优先走 WebUI。环境变量更适合容器启动参数与初始账号：只覆盖非空值，不会用空字符串把已保存的密钥冲掉。
-
-### 基础环境变量
-
-| 变量 | 默认 | 说明 |
-|---|---:|---|
-| `SERVER_HOST` | `0.0.0.0` | 监听地址 |
-| `SERVER_PORT` | `56001` | HTTP 端口 |
-| `SERVER_USERNAME` | `admin` | 初始管理员账号 |
-| `SERVER_PASSWORD` | 无（必填） | 管理员密码；未设置或仍为默认值时拒绝登录 |
-| `DATA_DIR` | `./data` | JSON 数据、备份与运行状态 |
-| `SELF_UPDATE_ENABLED` | Docker 为 `true` | 是否开放当前运行目录的在线更新能力 |
-| `SELF_UPDATE_BACKUP_RETENTION` | `3` | 在线更新二进制和 `static/` 各自保留的回滚副本数（1–20） |
-| `APP_RUNTIME_DIR` | Docker 为 `/app/runtime` | Docker 可写二进制与更新元数据目录；高级部署项 |
-| `STATIC_DIR` | `./static`；Docker 为 `/app/runtime/static` | WebUI 静态资源目录 |
-| `BACKUP_INTERVAL_HOURS` | `24` | 自动备份间隔；`0` 关闭 |
-| `BACKUP_VERIFY_INTERVAL_HOURS` | `24` | 备份隔离恢复验证间隔；`0` 关闭 |
-| `BACKUP_EXTERNAL_DIR` | 空 | 校验后原子复制到外部目录 |
-| `BACKUP_RETENTION` | `7` | 服务器侧保留份数 |
-| `RUST_LOG` | `info` | 日志过滤 |
-| `LOG_FORMAT` | `text` | `json` 时输出带关联上下文的 JSON 日志 |
-| `SLOW_OPERATION_MS` | `1000` | 慢操作阈值（100–300000 ms） |
-| `TZ` | 系统时区 | 容器建议 `Asia/Shanghai` |
-
-保留策略（`RETENTION_*`）与备份容量（`BACKUP_MAX_*`、`STORE_GROWTH_WARNING_MB`）见 [`.env.example`](.env.example)。
-
-### 常见集成变量
-
-| 类型 | 变量 |
+| 变量 | 作用 |
 |---|---|
-| 夸克 | `QUARK_COOKIE`、`QUARK_SIGNIN_COOKIE`、`QUARK_SIGNIN_ENABLED`、`QUARK_SIGNIN_HOUR` |
-| 搜索 | `PANSOU_API_URL` |
-| Aria2 | `ARIA2_RPC_URL`、`ARIA2_SECRET`、`ARIA2_MOVIE_DIR`、`ARIA2_SERIES_DIR`、`ARIA2_ANIME_DIR` |
-| TMDB | `TMDB_API_KEY`、`TMDB_LANGUAGE` |
-| 推送 | `WECOM_BOT_URL`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID`、`WXPUSHER_APP_TOKEN`、`WXPUSHER_UIDS`、`BARK_URL`、`GOTIFY_URL`、`GOTIFY_TOKEN`、`PUSHPLUS_TOKEN`、`SERVERCHAN_KEY` |
-| Telegram Bot | `TELEGRAM_BOT_MODE`、`TELEGRAM_BOT_ALLOWED_USER_IDS`、`TELEGRAM_BOT_ALLOWED_CHAT_IDS`、`TELEGRAM_BOT_PRIVATE_ONLY`、`TELEGRAM_BOT_WEBHOOK_PUBLIC_URL`、`TELEGRAM_BOT_WEBHOOK_PATH_SECRET`、`TELEGRAM_BOT_WEBHOOK_SECRET` |
+| `SERVER_HOST` / `SERVER_PORT` | 监听地址与端口，默认 `0.0.0.0:56001` |
+| `SERVER_USERNAME` / `SERVER_PASSWORD` | 管理凭据；密码为空的部署会拒绝所有请求 |
+| `DATA_DIR` | 业务数据目录，默认 `./data` |
+| `TZ` | 进程时区，影响推送免打扰时段等基于本地时间的功能 |
+| `QUARK_COOKIE` / `QUARK_SIGNIN_COOKIE` | 夸克凭据与签到专用 Cookie |
+| `PANSOU_API_URL` | PanSou 聚合搜索地址，留空则不启用聚合搜索 |
+| `ARIA2_RPC_URL` / `ARIA2_SECRET` / `ARIA2_*_DIR` | Aria2 提交地址、密钥与电影/剧集/动画分类下载目录 |
+| `TMDB_API_KEY` / `TMDB_LANGUAGE` | 元数据、海报与总集数来源 |
+| `TELEGRAM_BOT_*` | 推送与 Bot 接入；`TELEGRAM_BOT_MODE` 取 `disabled`、`long_polling` 或 `webhook` |
+| `BACKUP_INTERVAL_HOURS` / `BACKUP_RETENTION` | 自动备份间隔与保留份数，间隔设为 0 可关闭定时备份 |
+| `SELF_UPDATE_ENABLED` / `SELF_UPDATE_BACKUP_RETENTION` | 在线更新开关与回滚副本数量 |
+| `RUST_LOG` / `LOG_FORMAT` | 日志级别与输出格式，`LOG_FORMAT=json` 输出结构化日志 |
 
-### 只能通过设置 API 配置的功能
+## 数据、备份与升级
 
-以下能力后端完整可用，但**目前没有 WebUI 入口**，需要直接 `POST /api/settings`：
-
-| 功能 | 设置项 | 说明 |
-|---|---|---|
-| 反代信任 | `trust_proxy_headers` | 见「安全与部署建议」 |
-
-这是部署级设置，按部署环境一次配好即可，不计划提供界面入口。
-
----
-
-## 安全与部署建议
-
-v2.x 默认基线：
-
-- 拒绝默认密码；未配置密码无法登录。
-- 登录限流默认按连接对端 IP；`X-Forwarded-For` 仅在显式开启 `trust_proxy_headers` 后信任。自动化 Token 认证失败同样计入限流。
-- 自动化 Token 最小 scope + 读路径白名单，未列出的接口默认拒绝。
-- 容器非 root；密钥在 UI 中固定长度掩码。
-- 浏览器写请求有同源 / CSRF 防护；默认启用 CSP 与安全响应头。
-
-请务必：
-
-- 不要把 `data/`、Cookie、Token、`.env` 提交进 Git。
-- 公网访问放在反向代理 + HTTPS 之后，参见 [HTTPS 反向代理指南](docs/https-reverse-proxy.md)。
-- 出事前先在「系统诊断」里下载完整备份；恢复前可用预览与脱敏诊断包。
-
----
-
-## 数据放在哪里
+业务数据位于 `DATA_DIR`，每个 Store 都是带 `schema_version` 的 JSON 信封：
 
 ```text
-data/
-├── settings.json
-├── subscriptions.json
-├── notifications.json
-├── jobs.json
-├── jobs.archive.json
-├── automation_events.json
-├── telegram_bot.json
-└── backups/
-    └── verification.json
+DATA_DIR/
+  settings.json          subscriptions.json     notifications.json
+  jobs.json              jobs.archive.json      automation_events.json
+  automation-token.json  telegram_bot.json      backups/
 ```
 
-存储是带 `schema_version` 的 JSON 信封：临时文件写入 → `fsync` → 原子 rename；写盘成功后才替换内存；Unix 上文件权限 `0600`。损坏文件会被隔离为 `*.json.corrupt-*` 并**显式告警**：启动时发站内通知，`/api/diagnostics` 数据一致性检查会持续报告，直到你核对备份并清理隔离文件。任务裁剪只淘汰终态任务，排队与运行中的不会被顺手清掉。
+写入采用临时文件加 `fsync` 再原子 rename，落盘成功后才替换内存状态，Unix 上权限为 `0600`。损坏文件会被隔离为 `*.json.corrupt-*` 并在诊断页持续报告，直到你核对备份后清理。
 
-完整备份恢复会先校验并暂存，**重启服务时**在加载 Store 和后台任务之前应用，避免旧进程的内存覆盖恢复结果。提交恢复后请及时重启；重启前的后续修改会被备份覆盖。启动恢复失败会回滚并停止启动，暂存文件保留以便排除故障后重试。
+备份恢复需要精确确认文本 `RESTORE DATA`。归档先校验并暂存，在**下一次重启**时、加载任何 Store 与后台任务之前应用；应用失败会回滚并停止启动，保留暂存文件供排查后重试。提交恢复后请尽快重启，重启前的后续修改会被备份覆盖。
 
-Docker 的 `runtime/` 不属于业务数据备份，包含当前二进制、完整 `static/`、版本标记和升级回滚副本。它必须保持 uid/gid `1000` 可写；详细的初始化、镜像/在线更新优先级与恢复方式见 [Docker 在线更新说明](docs/docker-online-update.md)。
+Docker 部署可以在系统设置的维护页直接切换 Release。更新器会校验 SHA256、把二进制与完整 WebUI 作为同一事务切换，并等待优雅停机后重启；细节与回滚方式见 [Docker 在线更新](docs/docker-online-update.md)。
 
----
+## 安全与部署
+
+服务使用 HTTP Basic Auth，**生产环境必须由可信反向代理终止 HTTPS，不要把 56001 直接暴露到公网**。Nginx 示例与完整要求见 [HTTPS 反向代理](docs/https-reverse-proxy.md)。
+
+- 密码需至少 12 位且非默认值；登录失败按来源 IP 限流，默认不信任 `X-Forwarded-For`，只有显式开启 `trust_proxy_headers` 后才按真实客户端计数。
+- 自动化使用最小 scope 的 Bearer Token，明文只在创建时返回一次，服务端只保存 SHA-256 与前缀。
+- 跨站状态修改按 `Origin` 与 `Sec-Fetch-Site` 校验并失败关闭；CSP、`nosniff`、拒绝 iframe 与 Referrer Policy 由应用统一返回。
+- 备份包含 Cookie 与 Token，等同完整凭据集合，应加密保存并限制访问。
+- 依赖由 CI 的 RustSec 审计把关，已知例外记录在[依赖审计策略](docs/security-audit.md)。
 
 ## API 与可观测性
 
 | 用途 | 入口 |
 |---|---|
-| 存活 | `GET /health` |
-| 指标 | `GET /metrics`（Prometheus）；JSON 指标快照包含在 `GET /api/diagnostics` 的 `metrics` 字段中 |
-| 日志过滤 | `GET\|PUT /api/observability/log-filter` |
-| 诊断 | `GET /api/diagnostics`、`GET /api/diagnostics/export` |
-| 备份 | `GET /api/backups/export`、`POST /api/backups/preview`、`GET\|POST /api/backups/verification`、`POST /api/backups/restore` |
-| 存储清理 | `GET\|POST /api/storage/cleanup`、`GET /api/storage/decision` |
-| 自动化 Token | `GET\|POST\|DELETE /api/automation-token` |
-| 订阅交换 | `GET /api/subscriptions/export`、`POST /api/subscriptions/import/preview\|import` |
-| 实时任务 | `GET /api/jobs/events`（SSE） |
-| 日历 / 流水线 | `GET /api/calendar`、`GET /api/automation/events` |
+| 存活与版本 | `GET /health`（免认证） |
+| Prometheus 指标 | `GET /metrics` |
+| 诊断快照与导出 | `GET /api/diagnostics`、`GET /api/diagnostics/export` |
+| 在线 API 文档 | `GET /api-docs.html` |
+| 任务实时事件 | `GET /api/jobs/events`（SSE） |
+| 备份与恢复 | `GET /api/backups/export`、`POST /api/backups/restore` |
+| 存储清理与门槛 | `GET`/`POST /api/storage/cleanup`、`GET /api/storage/decision` |
 
-响应统一信封：
-
-```json
-{"ok": true, "data": {}}
-{"ok": false, "error": "validation_error", "message": "..."}
-```
-
-路由表与 `static/openapi.json` 由 `scripts/check-openapi.py` 双向强制同步：缺失、未注册和破坏性变更都会让 CI 失败，规范版本号也必须与 `Cargo.toml` 一致。完整契约见 [`docs/api-contract.md`](docs/api-contract.md)，以及运行中的 OpenAPI 页面 `/api-docs.html`。
-
----
+`static/openapi.json` 与路由表由 `scripts/check-openapi.py` 双向强制同步：缺失、未注册或破坏性变更都会让 CI 失败，规范版本号必须与 `Cargo.toml` 一致。当前契约覆盖 94 个路径、106 个操作，响应信封与错误码约定见 [API 契约](docs/api-contract.md)。
 
 ## 从源码构建
 
-需要：Rust stable（edition 2021）、Node.js（前端测试、lint 与模板组装）。可选 Docker、Tailwind standalone CLI（改样式）、Graphviz（重绘架构图）。
+需要 Rust stable（edition 2021）与 Node.js。前端不使用打包器，`static/index.html` 由模板与 partials 拼装生成，**不要手改**。
 
 ```bash
 cp .env.example .env
@@ -274,135 +227,51 @@ cargo run --release
 与 CI 一致的完整检查：
 
 ```bash
-# 前端：产物新鲜度 → 语法 → 测试 → lint
-node scripts/build-frontend.mjs --check
+node scripts/build-frontend.mjs --check          # 前端产物是否过期
 find static -type f -name '*.js' -print0 | sort -z | xargs -0 -n1 node --check
-node --test tests/frontend_*.test.js
-npx --yes eslint@10.8.0 'static/**/*.js'
+node --test tests/frontend_*.test.js             # 120 项前端测试
+npx --yes eslint@10.8.0 'static/**/*.js'         # no-undef 是原生 JS 的静态安全网
 
-# 契约
-python3 scripts/check-openapi.py
+python3 scripts/check-openapi.py                 # 路由与规范双向契约
 
-# 后端
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features --locked -- -D warnings
-cargo test --all --locked
-
+cargo test --all --locked                        # 641 项 Rust 测试
 cargo build --release --locked
-docker build -t my-media-sub:dev .
 ```
 
-ESLint 的 `no-undef` 是这套原生 JS 的静态安全网：模块作用域里的裸标识符在 `'use strict'` 下要等用户点击才抛 `ReferenceError`，`node --check` 和单元测试都抓不到。
+改动任何静态资源后要同步提升 `static/service-worker.js` 的 `CACHE_VERSION`，否则 PWA 客户端可能继续命中旧缓存。
 
-冒烟脚本（`scripts/smoke-*.sh`）覆盖 release 二进制、Docker 入口、稳定性 soak、版本升级和真实浏览器 E2E。浏览器冒烟会断言 Alpine 真的完成了水合（`x-cloak` 全部被摘除、`x-show` 写入了行内样式），并把 console 的 `Uncaught` 与资源加载失败视为失败。
+## 文档
 
-前端产物由脚本生成，**不要手改** `static/index.html` / `static/styles.css`：
-
-```bash
-node scripts/build-frontend.mjs          # index.html ← 模板 + partials
-node scripts/build-frontend.mjs --check  # 校验产物是否过期（CI 会跑）
-TAILWIND_BIN=/path/to/tailwindcss scripts/build-css.sh
-```
-
-改动任何静态资源后，同步 bump `static/service-worker.js` 的 `CACHE_VERSION`，否则 PWA 客户端可能继续命中旧缓存。
-
-### 仓库结构（精简）
-
-```text
-src/
-├── api/           HTTP 路由与响应契约
-├── clients/       PanSou / 夸克 / Aria2
-├── jobs/          持久化队列、调度与 Handler
-├── models/        领域模型
-├── services/      检查、转存、换源、日历、通知…
-├── store/         原子 JSON Store
-└── utils/         时间、文件、指标、正则缓存、脱敏
-
-static/
-├── index.tmpl.html + partials/   源模板
-├── index.html / styles.css       生成物（勿手改）
-└── js/                           core · stores · features
-```
-
----
-
-## 文档索引
-
-- [架构](docs/architecture.md) · [API 契约](docs/api-contract.md) · [自动化事件](docs/automation-events.md)
-- [自动化 API / Token / 导入导出](docs/automation-api.md) · [Telegram Bot](docs/telegram-bot.md)
-- [媒体日历](docs/media-calendar.md) · [资源质量与换源](docs/source-quality.md)
-- [HTTPS 与安全部署](docs/https-reverse-proxy.md) · [Docker 在线更新](docs/docker-online-update.md) · [PWA](docs/pwa.md)
-- [存储扩展与 SQLite 决策](docs/storage-scaling.md)
-- 代码评审：[工程质量](docs/code-review-2026-07-26.md) · [界面与功能设计](docs/frontend-design-review-2026-07-26.md)
-- 当前版本：[v2.5.1 升级指南](docs/upgrade-v2.5.1.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
-
-各版本升级步骤在 `docs/upgrade-v*.md`；变更历史统一写在 [CHANGELOG.md](CHANGELOG.md)。
-
----
-
-## 升级
-
-```bash
-# Docker 应用版本：WebUI「系统设置 → 维护 → 在线更新」
-# Docker 基础镜像 / 系统库：
-docker compose pull && docker compose up -d
-
-# 二进制：备份 DATA_DIR → 校验新包
-#        → 同时替换二进制与整个 static/ → 保留 data/ → 检查 /health
-```
-
-在线更新会把二进制与完整 `static/` 作为同一个可回滚升级事务处理，并分别通过同目录 rename 原子切换。手工升级时仍然**不要只换二进制却留着旧的 `static/`**。Docker 在线更新只覆盖应用载荷，Debian 基础镜像与系统库仍应定期拉取新镜像。细节与回滚见对应版本的升级指南。
-
----
+| 主题 | 内容 | 链接 |
+|---|---|---|
+| 开始使用 | 分层结构、请求与认证边界、扩展接入点 | [架构](docs/architecture.md) |
+| 接口对接 | 响应信封、错误码、SSE 与例外登记 | [API 契约](docs/api-contract.md) |
+| 自动化集成 | scoped Token、幂等合同与调用示例 | [自动化 API](docs/automation-api.md) |
+| 事件流水线 | 结构化自动化事件的字段与投影规则 | [自动化事件](docs/automation-events.md) |
+| 手机遥控 | Bot 命令、白名单、二次确认与审计 | [Telegram Bot](docs/telegram-bot.md) |
+| 排期视图 | 日历的时区口径、推断规则与状态 | [媒体日历](docs/media-calendar.md) |
+| 换源策略 | 候选评分、进度校验与自动切换 | [资源质量与换源](docs/source-quality.md) |
+| 部署加固 | HTTPS 反代、安全要求与凭据保管 | [HTTPS 反向代理](docs/https-reverse-proxy.md) |
+| 容器运维 | 运行载荷卷、镜像与在线更新的优先级 | [Docker 在线更新](docs/docker-online-update.md) |
+| 容量规划 | JSON 性能基线与 SQLite 决策门槛 | [存储扩展](docs/storage-scaling.md) |
+| 移动端 | PWA 壳层、缓存策略与安装 | [PWA](docs/pwa.md) |
+| 发布流程 | 版本面门禁与发布检查清单 | [发布流程](docs/release-workflow.md) |
 
 ## 版本说明
 
 ### 2.7.1
 
-- 修复备份恢复后被旧进程内存覆盖的问题：备份先校验并暂存，重启时在加载数据前应用；恢复失败会回滚并停止启动，保留待恢复备份供重试。提交恢复后请及时重启，期间的后续修改会被备份覆盖。
-- 修复切换季度后沿用旧季进度、误判新季完结的问题；保留历史记录，按新季重新计算进度。
-- 修复不同季度目录内同名文件被合并、漏转存的问题：检查、预览、任务和转存记录统一按「季＋集」识别，重试与重启后仍能正确去重。
-- 订阅详情和日历按选中季度分别展示；下载完成记录与通知不再串季，较长的第一季不会挤掉后续季度的日历状态。
-- 修复季度探测请求竞态：快速切换分享链接或密码时，旧请求不再覆盖当前编辑器结果。
+- 备份恢复改为「校验并暂存，重启时在加载数据前应用」，修掉旧进程内存覆盖恢复结果的问题；失败会回滚、停止启动并保留暂存归档。
+- 检查、预览、任务载荷与持久化记录统一按「季 + 集」识别，不同季度目录下的同名文件不再互相顶掉或漏转存。
+- 切换季度后按新季重算进度，不再沿用旧季完结记录；详情与日历按选中季度分别展示。
+- 季度探测按链接与密码标识在途请求，快速切换时旧结果不会覆盖当前编辑器。
 
-### 2.7.0
+- 当前版本：[v2.7.1 升级指南](docs/upgrade-v2.7.1.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
 
-- 新增**跳季订阅**：订阅可以只覆盖不连续的季度（例如只订 S1 与 S3，跳过 S2）。检查、转存、重命名与换源全链路按季度集合过滤，被跳过的季不会转存；连续季度仍按区间语义存储。
-- 新增**分享季度探测**（`POST /api/subscriptions/seasons`）：订阅编辑器粘贴链接后自动探测该分享里有哪些季、每季多少个视频文件，把「手填季号」变成「勾选季度」，识别口径与检查/转存完全一致；整个分享都没有季度标记（文件名只有 `01`、`02`）时按第一季处理并自动选中，UI 会标注这个季号是推断的。季号输入支持 `1`、`1-4`、`1,3`、`1,3-5`，Telegram `/subscribe 1 1,3` 同步支持跳季。
-- 换源候选列表只保留可访问的资源：探测上限由 5 提升到 20 并并发全量探测，明确失效的候选直接移除，尚未探测成功的保留并标注，避免误伤慢响应。
-- 修复多季/跳季订阅回填错误的单季总集数、批量修复命名把所有文件写成最小季的问题。
+各版本升级步骤在 `docs/upgrade-v*.md`。
 
-### 2.6.1
+## 许可证
 
-修复代码评审发现的批量缺陷：多季订阅第二季停更、Telegram 转存确认可能错位、批次合并下载通知丢失、`trust_proxy_headers` 限流键可被伪造等；纯修复发布，无 schema 与 API 兼容性变更。
-
-### 2.6.0
-
-- Telegram 新增豆瓣链接「转存」能力：搜索结果增加「转存 N」按钮（与「订阅 N」并存），点选后二次确认转存到夸克网盘根目录；转存完成后推送带「继续下载」按钮的通知，二次确认后提交 Aria2 下载到本地。支持 `/transfer <序号>` 命令，原有订阅能力不变。
-- 移除已下线（自 v2.2.0）的 STRM 残留：删除 `strm.rs` 服务与 `strm_*` 配置字段，前端同步移除相关入口；历史 `data/` 可直接复用，旧数据中的 STRM 字段会被自动忽略。
-
-### 2.5.1
-
-- 修复夸克分享 token 或文件列表返回 HTTP 404/410 时被误判为临时网络故障的问题；现在会将来源标记为失效并按订阅通知设置发送 `subscription_invalid` 推送。
-- 继续将网络错误、429 限流和 5xx 上游故障视为临时故障，避免误报失效。
-- 增加上游状态码、探测分类与失效通知回归测试。
-
-### 2.5.0
-
-- 修复同批下载的合并通知重复发送：同一批次在同一轮扫描中出现多个已完成任务时，只发一条「下载完成」通知；升级前旧版本已逐文件通知过的批次也不会在升级后合并补发。
-- 下载完成后按匹配到的 TMDB 元数据写入媒体库元数据文件（实验性，默认关闭）：剧集生成 `tvshow.nfo`、`poster.jpg`、`backdrop.jpg` 与每季 `season.nfo`/季海报，电影生成 `movie.nfo`/`poster.jpg`/`backdrop.jpg`，供 Jellyfin/Emby/Kodi 刮削。设置页「媒体元数据」可开关。
-
-### 2.4.0
-
-- 默认下载目录的剧名年份统一为半角括号（`聪明镇 (2026)/Season 1`）。
-- 打开项目时自动检测夸克账号状态，无需手动刷新。
-- 系统设置新增「测试 TMDB API」，可一键校验 TMDB Key。
-- Telegram 推送支持缩略图；同批下载文件全部完成后合并通知，下载失败立即通知。
-
-更早版本的详细说明见 [CHANGELOG.md](CHANGELOG.md) 与 [GitHub Releases](https://github.com/hellomrli/my-media-sub/releases)。
-
----
-
-## License
-
-MIT，见 [LICENSE](LICENSE)。
+本项目基于 [MIT 许可证](./LICENSE) 发布。
