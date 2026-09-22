@@ -26,6 +26,10 @@ jobs:
     # Keep the release binary compatible with the Debian bookworm runtime used by
     # the Docker image. ubuntu-latest can produce binaries requiring newer glibc.
     runs-on: ubuntu-22.04
+    env:
+      # 在 job 级把 secret 中转成 env：step 级 `if` 里既不能引用 `secrets` 上下文
+      # （工作流文件直接解析失败），也读不到 step 自身声明的 env。
+      MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
 
     steps:
       - name: Checkout
@@ -148,11 +152,8 @@ jobs:
         # 未配置 Secret 时本步骤跳过并告警：签名是可选的，但**一旦**发布端签名且
         # 客户端配置了公钥，签名就是强制的（缺签名会拒绝安装）。
         #
-        # 条件直接读 secrets 上下文：step 级 `if` 允许引用 secrets，而 step 自身
-        # 声明的 env 在求值 `if` 时**尚不可用**（那会让本步骤永远被跳过）。
-        env:
-          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
-        if: ${{ secrets.MINISIGN_SECRET_KEY != '' }}
+        # 条件读 job 级 env（见上方 job.env 的说明）。
+        if: ${{ env.MINISIGN_SECRET_KEY != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -171,7 +172,7 @@ jobs:
           echo "✅ 已生成 minisign 签名 ${{ env.archive }}.minisig"
 
       - name: Warn when release is unsigned
-        if: ${{ secrets.MINISIGN_SECRET_KEY == '' }}
+        if: ${{ env.MINISIGN_SECRET_KEY == '' }}
         run: |
           echo "::warning::未配置 MINISIGN_SECRET_KEY，本次 Release 没有 .minisig 签名文件。客户端若设置了 SELF_UPDATE_PUBLIC_KEY 将拒绝安装本版本；配置方式见本文件注释与 docs/docker-online-update.md。"
 
