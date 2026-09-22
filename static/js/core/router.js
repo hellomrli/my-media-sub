@@ -175,7 +175,8 @@
       if (this.currentTab === 'downloads' || this.currentTab === 'dashboard') {
         if (this.aria2Configured()) {
           this.loadDownloads(this.currentTab === 'dashboard');
-          this.startDownloadsPolling();
+          // 用 sync 而不是 start：它会按「活动 / 空闲」选择 2s 或 15s 间隔。
+          this.syncDownloadsPolling();
         } else {
           this.stopDownloadsPolling();
           this.downloads = {active: [], waiting: [], stopped: []};
@@ -208,6 +209,15 @@
       // 更新日历已并入工作台：进入工作台就刷新排期，避免看到上次的旧数据。
       if (this.currentTab === 'dashboard' && !this.calendarLoading) {
         this.loadCalendar();
+      }
+
+      // 进入订阅页先刷新列表，否则作业推进的进度不会体现在卡片上。
+      // 加 5 秒 TTL 避免频繁切页时重复拉取。
+      if (this.currentTab === 'subscriptions') {
+        const lastLoadedAt = Number(this.subscriptionsLastLoadedAt || 0);
+        // loadSubscriptions 自带请求序号去重（后发请求胜出），因此这里
+        // 只需要 TTL，不需要额外的 in-flight 标志。
+        if (Date.now() - lastLoadedAt > 5000) this.loadSubscriptions();
       }
 
       if (this.currentTab === 'subscriptions' && this.selectedSubscriptionId) {

@@ -271,7 +271,14 @@
           if (['succeeded', 'failed', 'canceled'].includes(job.status)) {
             await this.loadNotifications();
           }
-          if (job.kind === 'metadata_scrape' && job.status === 'succeeded') {
+          // 元数据抓取会改写订阅的季/集信息；转存与手动转存会推进进度。
+          // 旧实现只处理前者，导致自动转存完成后订阅卡片上的集数/进度
+          // 长期停留在旧值（日历与通知中心却会更新），看起来像订阅卡住了。
+          const refreshesSubscriptions =
+            (job.kind === 'metadata_scrape' && job.status === 'succeeded')
+            || (['subscription_transfer', 'manual_transfer'].includes(job.kind)
+              && ['succeeded', 'failed', 'canceled'].includes(job.status));
+          if (refreshesSubscriptions) {
             await this.loadSubscriptions();
           }
         } catch (error) {

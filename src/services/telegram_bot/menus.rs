@@ -137,12 +137,12 @@ fn map_menu_text(text: &str) -> Option<&'static str> {
 /// 搜索结果快照指纹：绑定确认时的 url/password/title，
 /// 防止确认期间会话被新搜索覆盖后按旧序号执行到新结果。
 fn search_hit_fingerprint(hit: &SearchHit) -> String {
-    format!("{:x}", md5::compute(format!(
+    crate::utils::stable_id(format!(
         "{}|{}|{}",
         hit.url.trim(),
         hit.password.trim(),
         hit.title.trim()
-    )))
+    ))
 }
 
 fn verify_search_hit_fingerprint(hit: &SearchHit, fingerprint: &str) -> Result<(), String> {
@@ -514,7 +514,7 @@ impl TelegramBotService {
         } else {
             hit.title.clone()
         };
-        let id = format!("{:x}", md5::compute(format!("{}:{}", hit.url, title)));
+        let id = crate::utils::stable_id(format!("{}:{}", hit.url, title));
         let id = id[..12].to_string();
         let now = unix_now();
         let mut rules = crate::models::rules::TransferRules::default();
@@ -554,6 +554,8 @@ impl TelegramBotService {
             known_episodes: vec![],
             transferred_files: vec![],
             transferred_file_keys: vec![],
+            pending_transfers: Vec::new(),
+            pending_downloads: Vec::new(),
             last_probe: None,
             last_plan_summary: String::new(),
             notify_only: false,

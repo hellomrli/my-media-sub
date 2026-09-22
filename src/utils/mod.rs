@@ -108,20 +108,82 @@ pub fn set_file_mode(path: &Path, mode: u32) -> Result<()> {
     Ok(())
 }
 
-pub fn quarantine_corrupt_file(path: &Path) {
-    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
-        return;
-    };
-    let quarantine = path.with_file_name(format!("{}.corrupt-{}", file_name, unix_now()));
+/// 把损坏的 Store 文件改名隔离，返回隔离后的路径。
+///
+/// 两个细节是刻意的：
+/// - 文件名带纳秒级随机后缀。旧实现只用 1 秒分辨率的 `unix_now()`，同一秒内对
+///   同一文件再次隔离会**静默覆盖**第一份副本（`rename` 的语义是替换），
+///   而隔离文件往往是唯一的数据副本。
+/// - 隔离后对父目录做一次 `fsync`，保证"文件已从原位置移走"这件事本身落盘。
+/// 进程级环境变量读写的串行化锁。
+///
+/// 环境变量是**进程全局**状态，而 `cargo test` 默认多线程：两个测试同时读写
+/// 同一个变量会互相污染。凡是读写环境变量的测试都应先取这把锁。
+///
+/// 用 tokio 的 Mutex 是因为调用方都是 async 测试（`#[tokio::test]`）。
+#[doc(hidden)]
+pub fn env_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    &LOCK
+}
+
+pub fn quarantine_corrupt_file(path: &Path) -> Option<std::path::PathBuf> {
+    let file_name = path.file_name().and_then(|name| name.to_str())?;
+    let unique = uuid::Uuid::new_v4().simple().to_string();
+    let quarantine = path.with_file_name(format!(
+        "{}.corrupt-{}-{}",
+        file_name,
+        unix_now(),
+        &unique[..8]
+    ));
     if let Err(error) = fs::rename(path, &quarantine) {
         tracing::error!("隔离损坏文件 {} 失败: {}", path.display(), error);
-    } else {
-        tracing::error!(
-            "已隔离损坏文件 {} 到 {}（原始字节已保留，恢复备份后可还原）",
-            path.display(),
-            quarantine.display()
-        );
+        return None;
     }
+    if let Some(parent) = quarantine.parent() {
+        if let Ok(directory) = File::open(parent) {
+            let _ = directory.sync_all();
+        }
+    }
+    tracing::error!(
+        "已隔离损坏文件 {} 到 {}（原始字节已保留，恢复备份后可还原）",
+        path.display(),
+        quarantine.display()
+    );
+    Some(quarantine)
+}
+
+/// 隔离损坏 Store 之后，是否允许继续启动。
+///
+/// 默认**不允许**。损坏的业务 Store 被替换成空集合后，服务会"看起来正常"，
+/// 但订阅、作业、通知等全部消失，而且首次写入会生成一个全新的文件（原文件只剩
+/// `.corrupt-*` 副本），用户很难意识到发生了什么。设置存储一直是中止启动的，
+/// 这里把同一策略推广到其余业务 Store。
+///
+/// 需要"先把服务起来再手工修复"时，设 `ALLOW_QUARANTINE_STARTUP=true` 放行，
+/// 届时会以警告级别提示当前处于降级状态。
+pub fn ensure_quarantine_startup_allowed(
+    store_label: &str,
+    original: &Path,
+    quarantined: Option<&Path>,
+    error: &str,
+) -> Result<()> {
+    let quarantined_hint = quarantined
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| format!("{}.corrupt-<时间戳>", original.display()));
+    if std::env::var("ALLOW_QUARANTINE_STARTUP")
+        .is_ok_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+    {
+        tracing::warn!(
+            "ALLOW_QUARANTINE_STARTUP 已启用：{} 将以空数据继续运行（原文件已隔离到 {}），             请尽快手工修复后重启",
+            store_label,
+            quarantined_hint
+        );
+        return Ok(());
+    }
+    Err(AppError::Database(format!(
+        "{store_label} 解析失败，已隔离到 {quarantined_hint}（原始字节已保留）。         继续启动会把{store_label}替换为空数据，因此这里中止启动。         请修复该文件或从备份恢复后重启；确需以空数据启动，         可设置环境变量 ALLOW_QUARANTINE_STARTUP=true。解析错误：{error}"
+    )))
 }
 
 pub fn redact_sensitive(value: &str) -> String {
@@ -165,6 +227,75 @@ pub fn redact_log_path(path_or_uri: &str) -> String {
         return format!("{TELEGRAM_WEBHOOK_PREFIX}<redacted>");
     }
     path_or_uri.to_string()
+}
+
+// 标识符派生已下移到无依赖叶子模块 `crate::stable_id`（`jobs/model.rs` 会被
+// 集成测试以 #[path] 直接编译，那条路径上没有 `utils`）。这里再导出，
+// 既有的 `crate::utils::stable_id` 调用点保持不变。
+pub use crate::stable_id::{stable_id, stable_id_bytes};
+
+/// 监督一个长驻后台任务：panic 之后记录并重启，而不是永久静默死亡。
+///
+/// 背景：`src/` 里多处 `tokio::spawn(async move { loop { .. } })` 丢弃了
+/// `JoinHandle`。tokio 会捕获任务内的 panic，但**没有人观察那个 JoinHandle**，
+/// 于是循环永久消失，直到进程重启——下载监控、Telegram 长轮询、自动化事件投影、
+/// 定时备份都属于这一类，静默死亡对自托管服务是不可接受的。
+///
+/// `make` 每次被调用都应返回一个全新的循环 future（通常通过克隆 `Arc` 捕获
+/// 依赖），因为上一轮的 future 在 panic 时已被丢弃。
+///
+/// 行为约定：
+/// - 循环**正常返回**：视为主动退出（例如通道关闭），不再重启；
+/// - 循环 **panic**：ERROR 记录后等待 `restart_delay` 再重启；
+/// - 重启不会无限加速：固定延迟，避免 panic 风暴打满 CPU。
+pub fn spawn_supervised<F, Fut>(label: &'static str, mut make: F) -> tokio::task::JoinHandle<()>
+where
+    F: FnMut() -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    tokio::spawn(async move {
+        loop {
+            match tokio::spawn(make()).await {
+                Ok(()) => {
+                    tracing::info!("{} 已正常结束，不再重启", label);
+                    return;
+                }
+                Err(error) => {
+                    // JoinError::is_panic 区分 panic 与取消；取消（例如运行时关闭）
+                    // 不应重启。
+                    if error.is_cancelled() {
+                        tracing::info!("{} 被取消，不再重启", label);
+                        return;
+                    }
+                    tracing::error!("{} 异常退出（panic），5 秒后重启: {}", label, error);
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                }
+            }
+        }
+    })
+}
+
+/// 安装全局 panic hook，把 panic 连同位置写进结构化日志。
+///
+/// 默认 hook 只往 stderr 打印，容器里会和普通日志混在一起且没有级别；更关键的
+/// 是没有任何一处代码在观察后台任务的 `JoinHandle`，panic 导致的"某个功能永久
+/// 停止工作"在日志里几乎不可见。这里把 panic 提升为 ERROR 并带上文件:行号。
+pub fn install_panic_hook() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let location = info
+            .location()
+            .map(|location| format!("{}:{}", location.file(), location.line()))
+            .unwrap_or_else(|| "未知位置".to_string());
+        let payload = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|value| (*value).to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "非字符串 panic payload".to_string());
+        tracing::error!(target: "panic", "线程 panic @ {}: {}", location, payload);
+        previous(info);
+    }));
 }
 
 pub fn constant_time_eq(left: &str, right: &str) -> bool {
@@ -270,6 +401,62 @@ pub fn format_bytes(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 回归测试：循环 panic 之后必须被重启，而不是永久消失。
+    ///
+    /// 全部长驻后台任务（下载监控、Telegram 长轮询、自动化事件投影、定时备份）
+    /// 都靠这个语义；没有它时 tokio 会静默吞掉 panic，功能永久停止工作。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn supervised_task_restarts_after_panic() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let counter = attempts.clone();
+        let handle = spawn_supervised("测试任务", move || {
+            let counter = counter.clone();
+            async move {
+                let attempt = counter.fetch_add(1, Ordering::SeqCst);
+                if attempt == 0 {
+                    panic!("第一次迭代故意 panic");
+                }
+                // 第二次正常返回：监督器应视为主动退出并结束，不再重启。
+            }
+        });
+
+        tokio::time::timeout(std::time::Duration::from_secs(20), handle)
+            .await
+            .expect("监督任务应在超时前结束")
+            .expect("监督任务本身不应 panic");
+
+        assert!(
+            attempts.load(Ordering::SeqCst) >= 2,
+            "panic 之后必须重启，实际只运行了 {} 次",
+            attempts.load(Ordering::SeqCst)
+        );
+    }
+
+    /// 正常返回的循环不应被重启（否则会把"主动退出"变成死循环）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn supervised_task_does_not_restart_after_clean_exit() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let counter = attempts.clone();
+        let handle = spawn_supervised("干净退出", move || {
+            let counter = counter.clone();
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+
+        tokio::time::timeout(std::time::Duration::from_secs(20), handle)
+            .await
+            .expect("监督任务应在超时前结束")
+            .expect("监督任务本身不应 panic");
+        assert_eq!(attempts.load(Ordering::SeqCst), 1, "正常返回不应触发重启");
+    }
 
     fn temp_path(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("my-media-sub-{}-{}", name, uuid::Uuid::new_v4()))

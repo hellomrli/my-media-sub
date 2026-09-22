@@ -4,7 +4,8 @@ use std::path::PathBuf;
 use tokio::sync::{Mutex, RwLock};
 
 use crate::error::{AppError, Result};
-use crate::utils::{constant_time_eq, set_file_mode, unix_now, write_json_atomic_async};
+use crate::store::schema::{decode_store_json, write_versioned_json_atomic_async, StoreKind};
+use crate::utils::{constant_time_eq, set_file_mode, unix_now};
 
 pub const TOKEN_SCOPES: &[&str] = &[
     "read",
@@ -63,10 +64,21 @@ impl AutomationTokenStore {
         let bytes = std::fs::read(&self.path)
             .map_err(|e| AppError::Database(format!("读取自动化 Token 失败: {e}")))?;
         set_file_mode(&self.path, 0o600)?;
-        *self.record.write().await = Some(
-            serde_json::from_slice(&bytes)
-                .map_err(|e| AppError::Database(format!("解析自动化 Token 失败: {e}")))?,
-        );
+
+        // 与其他 Store 一致走 schema_version 信封（`decode_store_json` 同时兼容
+        // 旧的无信封裸记录，并会在读到旧格式时标记需要回写）。
+        let content = String::from_utf8_lossy(&bytes);
+        let decoded =
+            decode_store_json::<AutomationTokenRecord>(&content, StoreKind::AutomationToken)
+                .map_err(|error| AppError::Database(format!("解析自动化 Token 失败: {error}")))?;
+        let needs_write = decoded.needs_write;
+        *self.record.write().await = Some(decoded.data);
+        if needs_write {
+            let _guard = self.save_lock.lock().await;
+            if let Some(record) = self.record.read().await.clone() {
+                self.save_locked(&record).await?;
+            }
+        }
         Ok(())
     }
 
@@ -118,8 +130,7 @@ impl AutomationTokenStore {
         // 读-改-写交错：否则 authenticate 可能把旧记录（含 last_used_at）
         // 覆写回盘，新 token 在重启后凭空消失。
         let _guard = self.save_lock.lock().await;
-        self.save_locked(&record).await?;
-        *self.record.write().await = Some(record);
+        self.commit_locked(record).await?;
         Ok((token, self.status().await))
     }
 
@@ -129,8 +140,7 @@ impl AutomationTokenStore {
             return Err(AppError::NotFound("尚未配置自动化 Token".into()));
         };
         record.revoked_at = Some(unix_now());
-        self.save_locked(&record).await?;
-        *self.record.write().await = Some(record);
+        self.commit_locked(record).await?;
         Ok(self.status().await)
     }
 
@@ -162,8 +172,27 @@ impl AutomationTokenStore {
     }
 
     /// 在持有 save_lock 的前提下落盘（阻塞的 fsync/rename 放到 spawn_blocking）。
+    /// 提交参数记录：**先更新内存，再落盘**，失败时回滚内存。调用方须已持
+    /// `save_lock`。
+    ///
+    /// 理由同 `SubscriptionStore::commit`：落盘走 spawn_blocking 不可取消，
+    /// 「先落盘再改内存」在 future 被 abort（例如撤销请求被中断）时会留下
+    /// 「磁盘已撤销、内存仍有效」，而内存是鉴权时读取的来源，下一次
+    /// `authenticate` 的写回会把撤销状态覆盖掉——**撤销静默失效**。
+    async fn commit_locked(&self, record: AutomationTokenRecord) -> Result<()> {
+        let previous = self.record.read().await.clone();
+        *self.record.write().await = Some(record.clone());
+        match self.save_locked(&record).await {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                *self.record.write().await = previous;
+                Err(error)
+            }
+        }
+    }
+
     async fn save_locked(&self, record: &AutomationTokenRecord) -> Result<()> {
-        write_json_atomic_async(&self.path, record, 0o600).await
+        write_versioned_json_atomic_async(&self.path, record, 0o600).await
     }
 }
 
@@ -174,15 +203,58 @@ fn token_hash(token: &str) -> String {
         .map(|b| format!("{b:02x}"))
         .collect()
 }
+
+/// scope 必须**精确匹配**。
+///
+/// 旧实现写成 `scope == "read" && required.ends_with(":read") || scope == required`，
+/// 按优先级等价于 `(read && ends_with(":read")) || exact`，于是只授 `read` 的 Token
+/// 可以满足任意以 `:read` 结尾的 scope——包括 `diagnostics:read`，而
+/// `/api/telegram/audits` 的 `target` 字段记录的是 Telegram 命令的原始参数，
+/// 里面就有用户粘贴的分享链接与提取码。`TOKEN_SCOPES` 把 `read` 与
+/// `diagnostics:read` 并列为独立选项，因此这是与设计意图不符的隐性提权。
+///
+/// 若将来确实需要「超级只读」scope，必须新增一个显式名字并同时从
+/// `TOKEN_SCOPES` 移除 `diagnostics:read`，不能靠后缀匹配隐式扩大授权。
 fn scope_allows(scopes: &[String], required: &str) -> bool {
-    scopes
-        .iter()
-        .any(|scope| scope == "read" && required.ends_with(":read") || scope == required)
+    scopes.iter().any(|scope| scope == required)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 回归测试：`read` 不得隐式满足任何 `*:read` scope。
+    ///
+    /// 修复前 `scope_allows` 是 `(read && required.ends_with(":read")) || exact`，
+    /// 于是只授 `read` 的 Token 拿到 `diagnostics:read`，可读 `/api/telegram/audits`
+    /// ——其中的 `target` 就是用户粘贴的分享链接与提取码。
+    #[test]
+    fn read_scope_does_not_imply_namespaced_read_scopes() {
+        let read_only = vec!["read".to_string()];
+        assert!(scope_allows(&read_only, "read"));
+        for escalated in [
+            "diagnostics:read",
+            "jobs:read",
+            "notifications:read",
+            "subscriptions:read",
+        ] {
+            assert!(
+                !scope_allows(&read_only, escalated),
+                "scope `read` 不应满足 `{escalated}`"
+            );
+        }
+    }
+
+    #[test]
+    fn scopes_require_exact_match() {
+        let scopes = vec!["jobs:read".to_string()];
+        assert!(scope_allows(&scopes, "jobs:read"));
+        assert!(!scope_allows(&scopes, "jobs:write"));
+        assert!(!scope_allows(&scopes, "diagnostics:read"));
+        assert!(!scope_allows(&scopes, "read"));
+        assert!(!scope_allows(&[], "read"));
+    }
+
     #[tokio::test]
     async fn token_is_hashed_scoped_and_revocable() {
         let path =
@@ -242,8 +314,16 @@ mod tests {
         let (final_token, _) = store.rotate(vec!["read".into()], None).await.unwrap();
         assert!(store.authenticate(&final_token, "read").await);
 
-        let persisted: AutomationTokenRecord =
-            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        // 磁盘现在是 schema_version 信封，必须走同一个解码器读取。
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let persisted =
+            decode_store_json::<AutomationTokenRecord>(&raw, StoreKind::AutomationToken)
+                .unwrap()
+                .data;
+        assert!(
+            raw.contains("\"schema_version\""),
+            "Token 存储应与其他 Store 一样带 schema_version 信封: {raw}"
+        );
         let memory = store.record.read().await.clone().unwrap();
         assert_eq!(
             persisted.hash, memory.hash,

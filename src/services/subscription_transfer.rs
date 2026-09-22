@@ -34,6 +34,10 @@ use crate::utils::unix_now;
 
 const MAX_SYNC_DOWNLOAD_RECORDS: usize = 1_000;
 
+/// 「已转存但未成功提交下载」的最大重试次数。
+/// 超过后保留记录但不再重试，避免永久静默重试；`attempts` 字段可在订阅详情中排查。
+const MAX_PENDING_DOWNLOAD_ATTEMPTS: u32 = 10;
+
 include!("subscription_transfer/helpers.rs");
 include!("subscription_transfer/notification_methods.rs");
 
@@ -296,6 +300,82 @@ impl SubscriptionTransferService {
                     AppError::Http(format!("创建/查找目标目录 {target_dir} 失败: {error}"))
                 })?
             };
+
+            // ── 先对账上一次未确认的转存意图 ────────────────────────────────
+            //
+            // 转存不可撤销也不幂等。上一次尝试可能在「云端已成功」与「本地已记录」
+            // 之间中断（HTTP 响应丢失、进程被杀、取消打断），此时
+            // `transferred_file_keys` 没有写入，下一次检查会重新选出同一批文件，
+            // 在用户网盘里留下重复副本。
+            //
+            // 判据必须同时满足两个条件：①有意图记录（说明确实发起过转存）；
+            // ②目标目录出现了同名文件。只满足②是不够的——用户网盘里本来就可能
+            // 有同名文件（手动转存过、或不同来源的同名剧集），那样会静默跳过
+            // 合法转存。（这一点由 `same_named_directory_episodes_...` 回归测试守着。）
+            let mut season_files = season_files;
+            if let Some(intent) = self.pending_transfer_intent(&sub.id, season).await {
+                match provider.list(&target_fid).await {
+                    Ok(items) => {
+                        let existing: std::collections::HashSet<String> =
+                            items.into_iter().map(|item| item.name).collect();
+                        let confirmed: Vec<String> = intent
+                            .file_names
+                            .iter()
+                            .filter(|name| existing.contains(*name))
+                            .cloned()
+                            .collect();
+                        let outstanding: Vec<String> = intent
+                            .file_names
+                            .iter()
+                            .filter(|name| !existing.contains(*name))
+                            .cloned()
+                            .collect();
+                        if !confirmed.is_empty() {
+                            warn!(
+                                "上次转存已在云端成功但未落本地记录，补记并跳过重复转存: {}",
+                                confirmed.join(", ")
+                            );
+                            self.mark_files_as_transferred(&sub, &confirmed, season)
+                                .await?;
+                            transfer_file_names.extend(confirmed.iter().map(|name| {
+                                if sub.media_type == "movie" {
+                                    name.clone()
+                                } else {
+                                    crate::services::episode::progress_file_reference(
+                                        name, "", season,
+                                    )
+                                }
+                            }));
+                            target_dirs.push(target_dir.clone());
+                            let confirmed_set: std::collections::HashSet<&String> =
+                                confirmed.iter().collect();
+                            season_files.retain(|file| !confirmed_set.contains(&file.name));
+                        }
+                        if outstanding.is_empty() {
+                            self.clear_pending_transfer(&sub.id, season).await?;
+                        } else {
+                            self.replace_pending_transfer(&sub.id, season, &outstanding)
+                                .await?;
+                        }
+                    }
+                    Err(error) => {
+                        // 列目录失败时**不能**照常转存：这正是「上次其实已成功」
+                        // 的可能场景，盲转会制造重复副本——而重复副本无法自动撤销。
+                        // 保留意图、跳过本季，下一次检查再对账。
+                        warn!(
+                            "对账转存意图时列目录失败，跳过本季转存等待下轮对账: {}",
+                            error
+                        );
+                        continue;
+                    }
+                }
+            }
+            if season_files.is_empty() {
+                continue;
+            }
+
+            let selected_names: Vec<String> =
+                season_files.iter().map(|file| file.name.clone()).collect();
             let selected_ids: Vec<String> =
                 season_files.iter().map(|file| file.id.clone()).collect();
             info!(
@@ -304,6 +384,11 @@ impl SubscriptionTransferService {
                 target_dir,
                 season
             );
+
+            // 记录意图：必须在调用云端**之前**落盘，否则崩溃窗口依然存在。
+            self.record_pending_transfer(&sub.id, season, &target_dir, &selected_names)
+                .await?;
+
             let transfer_outcome = provider
                 .transfer(TransferRequest {
                     share_url: sub.url.clone(),
@@ -320,6 +405,8 @@ impl SubscriptionTransferService {
             // 转存成功后立即持久化，避免后续重命名失败导致重复转存。
             self.mark_files_as_transferred(&sub, &batch_names, season)
                 .await?;
+            // 已确认成功：清掉意图，下一次不必再对账。
+            self.clear_pending_transfer(&sub.id, season).await?;
             transfer_file_names.extend(batch_names.iter().map(|name| {
                 if sub.media_type == "movie" {
                     name.clone()
@@ -398,8 +485,18 @@ impl SubscriptionTransferService {
                     )
                     .await
                 {
+                    // 先记录成功项，再据此结算「已转存但未提交下载」的差集。
                     self.record_sync_downloads(&sub.id, &target_dir, &report)
                         .await?;
+                    self.settle_pending_downloads(
+                        &sub.id,
+                        &target_dir,
+                        season,
+                        &download_dir,
+                        &batch_files,
+                        &report,
+                    )
+                    .await?;
                     season_sync_reports.push(report);
                 }
             }
@@ -890,6 +987,266 @@ impl SubscriptionTransferService {
     /// 确定目标目录
     fn determine_target_directory(&self, sub: &Subscription, settings: &Settings) -> String {
         determine_subscription_target_directory(sub, settings)
+    }
+
+    /// 结算「已转存但尚未提交下载」的差集。
+    ///
+    /// 转存成功会把文件写进 `transferred_file_keys`，之后的检查不会再选中它；
+    /// 如果紧接着的 Aria2 提交失败又不留记录，这一集就永远不会下载到本地，
+    /// 而界面仍显示"已转存"。这里把**未出现在 `report.items` 里的文件**记进
+    /// `pending_downloads`，已成功提交的则从中移除，交由
+    /// [`Self::reconcile_pending_downloads`] 周期性重试。
+    async fn settle_pending_downloads(
+        &self,
+        subscription_id: &str,
+        target_dir: &str,
+        season: i32,
+        download_dir: &str,
+        batch_files: &[DriveItem],
+        report: &SyncDownloadReport,
+    ) -> Result<()> {
+        use std::collections::HashSet;
+
+        let submitted: HashSet<String> = report
+            .items
+            .iter()
+            .map(|item| item.file_name.to_lowercase())
+            .collect();
+        let candidates: Vec<(&str, &str)> = batch_files
+            .iter()
+            .filter(|file| !file.is_dir && !file.id.trim().is_empty())
+            .map(|file| (file.id.as_str(), file.name.as_str()))
+            .collect();
+        if candidates.is_empty() {
+            return Ok(());
+        }
+
+        let now = unix_now();
+        self.subscription_store
+            .update(subscription_id, |sub| {
+                // 已成功提交的：清掉待下载记录
+                sub.pending_downloads
+                    .retain(|item| !submitted.contains(&item.file_name.to_lowercase()));
+                // 未成功的：登记或累加尝试次数
+                for (fid, name) in &candidates {
+                    if submitted.contains(&name.to_lowercase()) {
+                        continue;
+                    }
+                    if let Some(existing) = sub
+                        .pending_downloads
+                        .iter_mut()
+                        .find(|item| item.fid == *fid)
+                    {
+                        existing.attempts = existing.attempts.saturating_add(1);
+                        existing.download_dir = download_dir.to_string();
+                    } else {
+                        sub.pending_downloads
+                            .push(crate::models::subscription::PendingDownload {
+                                fid: (*fid).to_string(),
+                                file_name: (*name).to_string(),
+                                target_dir: target_dir.to_string(),
+                                season,
+                                download_dir: download_dir.to_string(),
+                                attempts: 1,
+                                created_at: now,
+                            });
+                    }
+                }
+                sub.updated_at = now;
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// 重试提交「已转存但尚未成功下载」的文件。
+    ///
+    /// 由订阅检查流程周期性调用：下载直链会过期，因此这里用保存的 fid 重新换
+    /// 直链再提交。返回本次成功提交的条目数。
+    ///
+    /// 超过 [`MAX_PENDING_DOWNLOAD_ATTEMPTS`] 次仍失败的条目会被保留但不再重试，
+    /// 并通过 `attempts` 字段暴露出来，避免"永远静默重试"。
+    pub async fn reconcile_pending_downloads(&self, subscription_id: &str) -> Result<usize> {
+        let Some(sub) = self.subscription_store.get(subscription_id).await else {
+            return Ok(0);
+        };
+        if sub.pending_downloads.is_empty() {
+            return Ok(0);
+        }
+        let settings = self.settings_store.get().await;
+        if !sub.sync_download_enabled || settings.aria2_rpc_url.trim().is_empty() {
+            return Ok(0);
+        }
+
+        let retryable: Vec<(String, String, String)> = sub
+            .pending_downloads
+            .iter()
+            .filter(|item| item.attempts < MAX_PENDING_DOWNLOAD_ATTEMPTS)
+            .map(|item| {
+                let dir = if item.download_dir.trim().is_empty() {
+                    resolve_sync_download_dir_for_season(&sub, &settings, item.season)
+                } else {
+                    item.download_dir.clone()
+                };
+                (item.fid.clone(), item.file_name.clone(), dir)
+            })
+            .collect();
+        if retryable.is_empty() {
+            return Ok(0);
+        }
+
+        let provider = match self
+            .provider_registry
+            .resolve_with_quark_cookie(&sub.cloud_type, &settings.quark_cookie)
+        {
+            Ok(provider) => provider,
+            Err(error) => {
+                warn!("待下载对账无法解析 Provider（{}），跳过本轮", error);
+                return Ok(0);
+            }
+        };
+
+        let mut fids: Vec<String> = retryable.iter().map(|item| item.0.clone()).collect();
+        fids.sort();
+        fids.dedup();
+        let infos = match provider.download_info(&fids).await {
+            Ok(infos) => infos,
+            Err(error) => {
+                warn!("待下载对账获取下载直链失败，下轮重试: {}", error);
+                return Ok(0);
+            }
+        };
+
+        let mut submitted = 0usize;
+        for (fid, name, dir) in &retryable {
+            let Some(info) = infos.iter().find(|info| info.id == *fid) else {
+                continue;
+            };
+            let aria2 = Aria2Client::new(
+                settings.aria2_rpc_url.clone(),
+                settings.aria2_secret.clone(),
+                dir.clone(),
+            );
+            match aria2
+                .add_uri(&info.download_url, Some(&info.file_name), &info.headers)
+                .await
+            {
+                Ok(gid) => {
+                    info!("待下载对账已重新提交 {}（gid {}）", name, gid);
+                    self.subscription_store
+                        .update(subscription_id, |sub| {
+                            // 必须在 retain 之前取出 target_dir：下载监控用它匹配
+                            // 完成记录（file_reference），为空会让重试成功的下载
+                            // 永远无法被识别为完成。
+                            let target_dir = sub
+                                .pending_downloads
+                                .iter()
+                                .find(|item| item.fid == *fid)
+                                .map(|item| item.target_dir.clone())
+                                .unwrap_or_default();
+                            sub.pending_downloads.retain(|item| item.fid != *fid);
+                            sub.sync_downloads.push(
+                                crate::models::subscription::SyncDownloadRecord {
+                                    gid: gid.clone(),
+                                    file_name: info.file_name.clone(),
+                                    download_dir: dir.clone(),
+                                    target_dir,
+                                    submitted_at: unix_now(),
+                                    completed_at: None,
+                                },
+                            );
+                        })
+                        .await?;
+                    submitted += 1;
+                }
+                Err(error) => {
+                    warn!("待下载对账重新提交 {} 失败: {}", name, error);
+                    self.subscription_store
+                        .update(subscription_id, |sub| {
+                            if let Some(item) = sub
+                                .pending_downloads
+                                .iter_mut()
+                                .find(|item| item.fid == *fid)
+                            {
+                                item.attempts = item.attempts.saturating_add(1);
+                            }
+                        })
+                        .await?;
+                }
+            }
+        }
+        Ok(submitted)
+    }
+
+    /// 读取指定季尚未确认的转存意图。
+    async fn pending_transfer_intent(
+        &self,
+        subscription_id: &str,
+        season: i32,
+    ) -> Option<crate::models::subscription::PendingTransfer> {
+        self.subscription_store
+            .get(subscription_id)
+            .await?
+            .pending_transfers
+            .into_iter()
+            .find(|intent| intent.season == season)
+    }
+
+    /// 在调用云端**之前**落盘转存意图。
+    ///
+    /// 这是让重试幂等的关键：云端成功与本地记录之间的任何中断，都会由这条记录
+    /// 在下次检查时被识别出来。
+    async fn record_pending_transfer(
+        &self,
+        subscription_id: &str,
+        season: i32,
+        target_dir: &str,
+        file_names: &[String],
+    ) -> Result<()> {
+        let intent = crate::models::subscription::PendingTransfer {
+            season,
+            target_dir: target_dir.to_string(),
+            file_names: file_names.to_vec(),
+            created_at: unix_now(),
+        };
+        self.subscription_store
+            .update(subscription_id, |sub| {
+                sub.pending_transfers.retain(|item| item.season != season);
+                sub.pending_transfers.push(intent.clone());
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// 对账后仍有未成功的文件：用剩余列表替换意图内容。
+    async fn replace_pending_transfer(
+        &self,
+        subscription_id: &str,
+        season: i32,
+        file_names: &[String],
+    ) -> Result<()> {
+        self.subscription_store
+            .update(subscription_id, |sub| {
+                sub.pending_transfers.retain(|item| item.season != season);
+                sub.pending_transfers
+                    .push(crate::models::subscription::PendingTransfer {
+                        season,
+                        target_dir: String::new(),
+                        file_names: file_names.to_vec(),
+                        created_at: unix_now(),
+                    });
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// 确认成功后清除意图。
+    async fn clear_pending_transfer(&self, subscription_id: &str, season: i32) -> Result<()> {
+        self.subscription_store
+            .update(subscription_id, |sub| {
+                sub.pending_transfers.retain(|item| item.season != season);
+            })
+            .await?;
+        Ok(())
     }
 
     /// 标记文件为已转存

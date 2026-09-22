@@ -87,9 +87,20 @@ pub fn build_subscription_detail(
     let mut details = subscription.season_numbers().into_iter().map(|season| {
         build_season_detail(&subscription, season, settings, jobs, notifications, events)
     });
-    let mut detail = details
-        .next()
-        .expect("subscriptions always include a season");
+    // 不再用 expect 依赖「`season_numbers()` 恒非空」这条远端不变式：它成立
+    // 只因为 `season_end_inclusive()` 末尾有个 `.max(self.season_start())`。
+    // 那个 `.max()` 一旦被重构掉，订阅详情页就会直接 500。退化为按订阅自身
+    // 季号构造一条，行为与旧代码在正常输入下完全一致。
+    let Some(mut detail) = details.next() else {
+        return build_season_detail(
+            &subscription,
+            subscription.season_start(),
+            settings,
+            jobs,
+            notifications,
+            events,
+        );
+    };
     for mut season in details {
         let summary = &mut detail.summary;
         let other = season.summary;

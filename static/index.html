@@ -11,9 +11,9 @@
   <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%234f46e5%27/%3E%3Cpath d=%27M8 9h16v14H8zm4-4v22m8-22v22%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27/%3E%3C/svg%3E">
-  <script src="js/theme-init.js?v=2.7.1"></script>
-  <link rel="stylesheet" href="styles.css?v=2.7.1">
-  <script defer src="vendor/alpine.min.js?v=2.7.1"></script>
+  <script src="js/theme-init.js?v=2.7.2"></script>
+  <link rel="stylesheet" href="styles.css?v=2.7.2">
+  <script defer src="vendor/alpine.min.js?v=2.7.2"></script>
 </head>
 <body class="bg-app text-text/90 min-h-screen" x-data="app()" x-cloak>
 
@@ -262,10 +262,10 @@
                     <button @click="setCalendarView('month')" :class="calendarView === 'month' ? 'is-active' : ''">月</button>
                     <button @click="setCalendarView('list')" :class="calendarView === 'list' ? 'is-active' : ''">列表</button>
                   </div>
-                  <select x-model="calendarStatusFilter" @change="loadCalendar()" class="app-select">
+                  <select x-model="calendarStatusFilter" @change="loadCalendar()" aria-label="按状态筛选日历" class="app-select">
                     <template x-for="option in calendarStatusOptions" :key="option.id"><option :value="option.id" x-text="option.name"></option></template>
                   </select>
-                  <select x-model="calendarMediaFilter" @change="loadCalendar()" class="app-select">
+                  <select x-model="calendarMediaFilter" @change="loadCalendar()" aria-label="按媒体类型筛选日历" class="app-select">
                     <option value="all">全部类型</option>
                     <option value="series">剧集</option>
                     <option value="anime">动画</option>
@@ -298,7 +298,7 @@
                       <div class="calendar-day-items">
                         <template x-for="(item, itemIndex) in day.items" :key="'calendar-week-' + (item.id || 'missing') + '-' + itemIndex">
                           <article :class="calendarItemClass(item)" class="calendar-item is-row">
-                            <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-item-title"><img x-show="item.thumbnail_url" :src="remoteImageUrl(item.thumbnail_url)" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" class="calendar-thumbnail is-week"><span class="calendar-item-copy"><strong x-text="item.subscription_title"></strong><small x-text="calendarCardDayLabel(item)"></small><small x-text="calendarCardSavedLabel(item)"></small></span></button>
+                            <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-item-title"><img x-show="item.thumbnail_url" :src="remoteImageUrl(item.thumbnail_url)" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" class="calendar-thumbnail is-week"><span class="calendar-item-copy"><strong x-text="item.subscription_title"></strong><small x-text="calendarCardDayLabel(item)"></small><small x-text="calendarCardSavedLabel(item)"></small><small class="calendar-item-status" x-text="calendarStatusLabel(item.primary_status)"></small></span></button>
                           </article>
                         </template>
                         <div x-show="day.items.length === 0" class="calendar-day-empty">暂无排期</div>
@@ -316,7 +316,7 @@
                       <div class="calendar-month-date"><strong x-text="day.day"></strong><small x-show="day.items.length" x-text="day.items.length"></small></div>
                       <div class="calendar-month-items">
                         <template x-for="(item, itemIndex) in day.items.slice(0, 3)" :key="'calendar-month-' + (item.id || 'missing') + '-' + itemIndex">
-                          <button @click="openSubscriptionDetail(item.subscription_id)" :class="calendarItemClass(item)" :title="calendarTransferProgressLabel(item)"><img x-show="item.thumbnail_url" :src="remoteImageUrl(item.thumbnail_url)" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" class="calendar-thumbnail is-month"><span class="calendar-month-copy"><strong x-text="item.subscription_title"></strong><small x-text="item.episode ? 'E' + item.episode + ' · ' + calendarTransferProgressLabel(item, true) : calendarTransferProgressLabel(item, true)"></small></span></button>
+                          <button @click="openSubscriptionDetail(item.subscription_id)" :class="calendarItemClass(item)" :title="calendarTransferProgressLabel(item)"><img x-show="item.thumbnail_url" :src="remoteImageUrl(item.thumbnail_url)" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" class="calendar-thumbnail is-month"><span class="calendar-month-copy"><strong x-text="item.subscription_title"></strong><small x-text="item.episode ? 'E' + item.episode + ' · ' + calendarTransferProgressLabel(item, true) : calendarTransferProgressLabel(item, true)"></small><small class="calendar-item-status" x-text="calendarStatusLabel(item.primary_status)"></small></span></button>
                         </template>
                         <button x-show="day.items.length > 3" @click="setCalendarView('list')" class="calendar-month-more" x-text="'还有 ' + (day.items.length - 3) + ' 项'"></button>
                       </div>
@@ -385,7 +385,7 @@
             <div class="search-command-row">
               <div class="search-input-shell">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5.2-5.2m2.2-5.3a7.5 7.5 0 11-15 0 7.5 7.5 0 0115 0z"/></svg>
-                <input type="text" x-ref="globalSearchInput" x-model="searchQuery" @keyup.enter="search()" placeholder="例如：沙丘 2 4K、葬送的芙莉莲 S01..." list="searchHistoryList" />
+                <input type="text" x-ref="globalSearchInput" aria-label="搜索影视资源" x-model="searchQuery" @keyup.enter="search()" placeholder="例如：沙丘 2 4K、葬送的芙莉莲 S01..." list="searchHistoryList" />
               </div>
               <datalist id="searchHistoryList">
                 <template x-for="item in searchHistory" :key="item"><option :value="item"></option></template>
@@ -559,7 +559,7 @@
 
           <!-- 搜索结果预览与创建入口 -->
           <div x-show="showSearchResultPreview" @click.self="closeSearchResultPreview()" @keydown.escape.window="closeSearchResultPreview()" class="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50" style="display: none;">
-            <div class="app-panel dialog-panel search-preview-dialog" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="资源预览与添加" tabindex="-1">
+            <div class="app-panel dialog-panel search-preview-dialog" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="资源预览与添加" tabindex="-1" x-effect="if (showSearchResultPreview) $nextTick(() => $el.focus())">
               <template x-if="selectedSearchResult">
                 <div>
                   <div class="search-preview-header">
@@ -688,7 +688,7 @@
 
             <div class="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(260px,1fr)_auto_auto] xl:items-center">
               <div class="relative">
-                <input x-model.debounce.150ms="driveSearchQuery" class="w-full px-4 py-2 pl-10 bg-surface-2 border border-border rounded-lg text-text" placeholder="搜索当前目录" />
+                <input x-model.debounce.150ms="driveSearchQuery" aria-label="在网盘中搜索文件" class="w-full px-4 py-2 pl-10 bg-surface-2 border border-border rounded-lg text-text" placeholder="搜索当前目录" />
                 <svg class="w-4 h-4 absolute left-3 top-3 text-muted/75" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
               </div>
               <div class="segmented-control">
@@ -698,7 +698,7 @@
                 <button @click="driveFilterType = 'other'" :class="driveFilterType === 'other' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">其他</button>
               </div>
               <div class="control-row">
-                <select x-model="driveSortBy" class="px-3 py-2 bg-surface-2 border border-border rounded-lg text-sm text-text/80">
+                <select x-model="driveSortBy" aria-label="网盘排序方式" class="px-3 py-2 bg-surface-2 border border-border rounded-lg text-sm text-text/80">
                   <option value="name">名称</option>
                   <option value="size">大小</option>
                   <option value="time">时间</option>
@@ -745,7 +745,7 @@
                 </div>
                 <template x-for="(item, itemIndex) in visibleDriveItems" :key="'drive-item-' + (item.fid || 'missing') + '-' + itemIndex">
                   <div class="data-table-row grid grid-cols-[auto_minmax(0,1fr)] gap-3 px-4 py-3 hover:bg-surface-2 transition-colors lg:grid-cols-[44px_minmax(220px,1fr)_120px_120px_180px] lg:items-center">
-                    <input type="checkbox" :checked="isDriveItemSelected(item)" @change="toggleDriveItemSelection(item)" class="rounded mt-3 lg:mt-0" />
+                    <input type="checkbox" :checked="isDriveItemSelected(item)" @change="toggleDriveItemSelection(item)" :aria-label="'选择 ' + item.name" class="rounded mt-3 lg:mt-0" />
                     <button @click="driveItemClick(item)" class="min-w-0 flex items-center gap-3 text-left">
                       <span :class="driveItemIconClass(item)" class="w-10 h-10 rounded-lg border flex items-center justify-center shrink-0">
                         <svg x-show="!item.file" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
@@ -775,7 +775,7 @@
               <template x-for="(item, itemIndex) in visibleDriveItems" :key="'drive-item-' + (item.fid || 'missing') + '-' + itemIndex">
                 <div class="border border-border rounded-lg p-3 hover:bg-surface-2 transition-colors">
                   <div class="flex items-start gap-3">
-                    <input type="checkbox" :checked="isDriveItemSelected(item)" @change="toggleDriveItemSelection(item)" class="rounded mt-2" />
+                    <input type="checkbox" :checked="isDriveItemSelected(item)" @change="toggleDriveItemSelection(item)" :aria-label="'选择 ' + item.name" class="rounded mt-2" />
                     <button @click="driveItemClick(item)" class="min-w-0 flex-1 text-left">
                       <div :class="driveItemIconClass(item)" class="w-12 h-12 rounded-lg border flex items-center justify-center mb-3">
                         <svg x-show="!item.file" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
@@ -1212,7 +1212,7 @@
         </div>
         <!-- 换源候选弹窗 -->
         <div x-show="showSourceSwitchDialog" @click.self="closeSourceSwitchDialog()" @keydown.escape.window="closeSourceSwitchDialog()" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
-          <div class="app-panel dialog-panel p-6 max-w-3xl w-full max-h-[92vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="换源候选" tabindex="-1">
+          <div class="app-panel dialog-panel p-6 max-w-3xl w-full max-h-[92vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="换源候选" tabindex="-1" x-effect="if (showSourceSwitchDialog) $nextTick(() => $el.focus())">
             <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div class="min-w-0">
                 <h3 class="text-xl font-bold text-text">换源候选</h3>
@@ -1256,7 +1256,7 @@
                       <button @click="applySourceCandidate(candidate)" :disabled="sourceCandidateApplyState(candidate).disabled" class="btn-primary px-3 py-2 rounded text-sm whitespace-nowrap disabled:opacity-50" x-text="sourceCandidateApplyState(candidate).label"></button>
                     </div>
                   </div>
-                  <div x-show="sourceSwitchPreview && sourceSwitchPreview.candidate && sourceSwitchPreview.candidate.id === candidate.id" class="rounded border border-border bg-panel p-3 space-y-2 text-xs">
+                  <div x-show="sourceSwitchPreview && sourceSwitchPreview.candidate && sourceSwitchPreview.candidate.id === candidate.id" class="rounded border border-border bg-surface-2 p-3 space-y-2 text-xs">
                     <div class="grid grid-cols-2 gap-2 sm:grid-cols-4"><span>当前 <strong x-text="sourceSwitchPreview && sourceSwitchPreview.current_quality ? sourceSwitchPreview.current_quality.score : 0"></strong> 分</span><span>候选 <strong x-text="sourceSwitchPreview && sourceSwitchPreview.candidate && sourceSwitchPreview.candidate.quality ? sourceSwitchPreview.candidate.quality.score : 0"></strong> 分</span><span>分差 <strong x-text="sourceSwitchPreview ? sourceSwitchPreview.score_delta : 0"></strong></span><span :class="sourceSwitchPreview && sourceSwitchPreview.can_apply ? 'text-success' : (sourceSwitchPreview && sourceSwitchPreview.probe_ok && sourceSwitchPreview.season_matches ? 'text-warning' : 'text-danger')" x-text="sourceSwitchPreview && sourceSwitchPreview.can_apply ? '可安全应用' : (sourceSwitchPreview && sourceSwitchPreview.probe_ok && sourceSwitchPreview.season_matches ? '可强制应用' : (sourceSwitchPreview && !sourceSwitchPreview.season_matches ? '季度不匹配' : '探测失败'))"></span></div>
                     <div class="flex flex-wrap gap-1"><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.probe_ok ? 'badge-success' : 'badge-danger'">链接探测</span><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.season_matches ? 'badge-success' : 'badge-danger'">季度匹配（强制也不可越过）</span><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.covers_progress ? 'badge-success' : 'badge-danger'">进度覆盖</span><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.auto_eligible ? 'badge-success' : 'badge-muted'">自动策略</span></div>
                     <div x-show="sourceSwitchPreview && sourceSwitchPreview.warnings && sourceSwitchPreview.warnings.length" class="rounded border border-warning/40 bg-warning/10 p-2 text-warning break-all" x-text="sourceSwitchPreview && sourceSwitchPreview.warnings ? sourceSwitchPreview.warnings.join('；') : ''"></div>
@@ -1356,7 +1356,7 @@
               </div>
             </div>
             <div class="p-4 border-b border-border grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto_auto] gap-3">
-              <input type="search" x-model="activityQuery" placeholder="搜索任务、通知、错误或事件" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" />
+              <input type="search" x-model="activityQuery" aria-label="搜索任务、通知、错误或事件" placeholder="搜索任务、通知、错误或事件" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" />
               <div class="filter-chip-row flex gap-2 overflow-x-auto">
                 <template x-for="filter in activityFilters" :key="filter.id">
                   <button @click="activityFilter = filter.id" :class="activityFilter === filter.id ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm transition-colors whitespace-nowrap">
@@ -1450,9 +1450,9 @@
               </div>
             </div>
           </template>
-          <section class="app-panel p-5 space-y-4"><div><h3 class="section-title">恢复数据</h3><p class="text-sm text-danger/80 mt-1">备份校验后暂存，重启服务时应用。请及时重启，期间的后续修改会被备份覆盖。</p></div><input type="file" accept="application/json,.json" @change="selectBackupFile($event)" class="block w-full text-sm text-muted" />
+          <section class="app-panel p-5 space-y-4"><div><h3 class="section-title">恢复数据</h3><p class="text-sm text-danger/80 mt-1">备份校验后暂存，重启服务时应用。请及时重启，期间的后续修改会被备份覆盖。</p></div><input type="file" accept="application/json,.json" @change="selectBackupFile($event)" aria-label="选择要恢复的备份文件" class="block w-full text-sm text-muted" />
             <template x-if="backupPreview"><div class="app-panel-soft p-4 text-sm"><p>有效备份：<strong x-text="backupPreview.file_count"></strong> 个文件，<strong x-text="diagnosticBytes(backupPreview.total_bytes)"></strong></p><p class="text-muted mt-1" x-text="'应用 ' + backupPreview.app_version + ' · Schema v' + backupPreview.schema_version"></p><div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2"><template x-for="(check, checkIndex) in backupPreview.checks || []" :key="'backup-check-' + (check.code || 'missing') + '-' + checkIndex"><div class="text-xs"><strong :class="check.status === 'passed' ? 'text-success' : 'text-warning'" x-text="check.label + ' · ' + check.status"></strong><p class="text-muted" x-text="check.message"></p></div></template></div></div></template>
-            <div x-show="backupPreview" class="flex flex-col sm:flex-row gap-2"><input x-model="restoreConfirmation" class="flex-1 px-3 py-2 bg-app border border-danger/40 rounded" placeholder="输入 RESTORE DATA" /><button @click="restoreBackup()" class="btn-danger">暂存备份，重启后恢复</button></div>
+            <div x-show="backupPreview" class="flex flex-col sm:flex-row gap-2"><input x-model="restoreConfirmation" aria-label="恢复确认短语" class="flex-1 px-3 py-2 bg-app border border-danger/40 rounded" placeholder="输入 RESTORE DATA" /><button @click="restoreBackup()" class="btn-danger">暂存备份，重启后恢复</button></div>
           </section>
         </div>
         <!-- 设置页面 -->
@@ -1496,11 +1496,11 @@
               <div class="app-panel-soft p-4 space-y-4">
                 <h3 class="section-title">Aria2 配置</h3>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label class="field-label">RPC URL</label><input type="text" x-model="settings.aria2_rpc_url" placeholder="http://localhost:6800/jsonrpc" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                  <div><label class="field-label" for="field-settings-aria2-rpc-url">RPC URL</label><input type="text" x-model="settings.aria2_rpc_url" placeholder="http://localhost:6800/jsonrpc" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-aria2-rpc-url"/></div>
                   <div>
-                    <label class="field-label">Secret</label>
+                    <label class="field-label" for="field-settings-aria2-secret">Secret</label>
                     <div class="setting-input-action">
-                      <input type="text" x-model="settings.aria2_secret" @focus="prepareSecretInput('aria2_secret')" placeholder="留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                      <input type="text" x-model="settings.aria2_secret" @focus="prepareSecretInput('aria2_secret')" placeholder="留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-aria2-secret"/>
                       <button type="button" @click="toggleSettingSecret('aria2_secret')" :disabled="secretToggleDisabled('aria2_secret')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('aria2_secret')"></button>
                     </div>
                   </div>
@@ -1508,15 +1508,15 @@
                 <div class="space-y-4">
                   <h4 class="text-sm font-medium text-text/80">目录配置</h4>
                   <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div><label class="field-label">电影下载目录</label><input type="text" x-model="settings.aria2_movie_dir" placeholder="/downloads/电影" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
-                    <div><label class="field-label">连续剧下载目录</label><input type="text" x-model="settings.aria2_series_dir" placeholder="/downloads/连续剧" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
-                    <div><label class="field-label">动画下载目录</label><input type="text" x-model="settings.aria2_anime_dir" placeholder="/downloads/动画" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                    <div><label class="field-label" for="field-settings-aria2-movie-dir">电影下载目录</label><input type="text" x-model="settings.aria2_movie_dir" placeholder="/downloads/电影" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-aria2-movie-dir"/></div>
+                    <div><label class="field-label" for="field-settings-aria2-series-dir">连续剧下载目录</label><input type="text" x-model="settings.aria2_series_dir" placeholder="/downloads/连续剧" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-aria2-series-dir"/></div>
+                    <div><label class="field-label" for="field-settings-aria2-anime-dir">动画下载目录</label><input type="text" x-model="settings.aria2_anime_dir" placeholder="/downloads/动画" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-aria2-anime-dir"/></div>
                   </div>
                   <div class="space-y-3" x-show="settings.custom_categories && settings.custom_categories.length > 0">
                     <template x-for="category in settings.custom_categories" :key="category.id">
                       <div>
-                        <label class="field-label" x-text="(category.name || '自定义类别') + '下载目录'"></label>
-                        <input type="text" x-model="category.aria2_dir" placeholder="/downloads/自定义类别" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                        <label class="field-label" x-text="(category.name || '自定义类别') + '下载目录'" for="field-category-aria2-dir"></label>
+                        <input type="text" x-model="category.aria2_dir" placeholder="/downloads/自定义类别" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-category-aria2-dir"/>
                       </div>
                     </template>
                   </div>
@@ -1527,21 +1527,21 @@
                 <h3 class="section-title">媒体元数据</h3>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <label class="field-label">提供方</label>
-                    <select x-model="settings.metadata_provider" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text">
+                    <label class="field-label" for="field-settings-metadata-provider">提供方</label>
+                    <select x-model="settings.metadata_provider" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" id="field-settings-metadata-provider">
                       <option value="tmdb">TMDB</option>
                       <option value="douban">豆瓣</option>
                       <option value="none">关闭</option>
                     </select>
                   </div>
                   <div>
-                    <label class="field-label">TMDB API Key</label>
+                    <label class="field-label" for="field-settings-tmdb-api-key">TMDB API Key</label>
                     <div class="setting-input-action">
-                      <input type="text" x-model="settings.tmdb_api_key" @focus="prepareSecretInput('tmdb_api_key')" placeholder="留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                      <input type="text" x-model="settings.tmdb_api_key" @focus="prepareSecretInput('tmdb_api_key')" placeholder="留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-tmdb-api-key"/>
                       <button type="button" @click="toggleSettingSecret('tmdb_api_key')" :disabled="secretToggleDisabled('tmdb_api_key')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('tmdb_api_key')"></button>
                     </div>
                   </div>
-                  <div><label class="field-label">TMDB 语言</label><input type="text" x-model="settings.tmdb_language" placeholder="zh-CN" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                  <div><label class="field-label" for="field-settings-tmdb-language">TMDB 语言</label><input type="text" x-model="settings.tmdb_language" placeholder="zh-CN" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-tmdb-language"/></div>
                 </div>
                 <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer">
                   <input type="checkbox" x-model="settings.media_metadata_files_enabled" class="rounded" />
@@ -1559,9 +1559,9 @@
               <div class="app-panel-soft p-4 space-y-4">
                 <h3 class="section-title">夸克配置</h3>
                 <div>
-                  <label class="field-label">夸克 Cookie</label>
+                  <label class="field-label" for="field-settings-quark-cookie">夸克 Cookie</label>
                   <div class="setting-input-action">
-                    <input type="text" x-model="settings.quark_cookie" @focus="prepareSecretInput('quark_cookie')" placeholder="粘贴夸克 Cookie，留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                    <input type="text" x-model="settings.quark_cookie" @focus="prepareSecretInput('quark_cookie')" placeholder="粘贴夸克 Cookie，留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-quark-cookie"/>
                     <button type="button" @click="toggleSettingSecret('quark_cookie')" :disabled="secretToggleDisabled('quark_cookie')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('quark_cookie')"></button>
                   </div>
                 </div>
@@ -1620,18 +1620,18 @@
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div class="md:col-span-2">
-                    <label class="field-label">签到 Cookie</label>
+                    <label class="field-label" for="field-settings-quark-signin-cookie">签到 Cookie</label>
                     <div class="setting-input-action">
-                      <input type="text" x-model="settings.quark_signin_cookie" @focus="prepareSecretInput('quark_signin_cookie')" placeholder="粘贴移动端 Cookie 或 reward 请求 URL，留空使用上方夸克 Cookie" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                      <input type="text" x-model="settings.quark_signin_cookie" @focus="prepareSecretInput('quark_signin_cookie')" placeholder="粘贴移动端 Cookie 或 reward 请求 URL，留空使用上方夸克 Cookie" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-quark-signin-cookie"/>
                       <button type="button" @click="toggleSettingSecret('quark_signin_cookie')" :disabled="secretToggleDisabled('quark_signin_cookie')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('quark_signin_cookie')"></button>
                     </div>
                     <p class="text-xs text-muted/75 mt-2">可粘贴 <code class="text-text/80">kps=...; sign=...; vcode=...</code>，也可直接粘贴手机端抓包到的 <code class="text-text/80">drive-m.quark.cn/.../act/growth/reward</code> 整段 URL。</p>
                   </div>
                   <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.quark_signin_enabled" class="rounded" />启用每日自动签到</label>
                   <div>
-                    <label class="field-label">执行时间</label>
+                    <label class="field-label" for="field-settings-quark-signin-hour">执行时间</label>
                     <div class="flex items-center gap-2">
-                      <input type="number" x-model.number="settings.quark_signin_hour" min="0" max="23" step="1" @change="sanitizeQuarkSigninHour()" class="w-28 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                      <input type="number" x-model.number="settings.quark_signin_hour" min="0" max="23" step="1" @change="sanitizeQuarkSigninHour()" class="w-28 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-quark-signin-hour"/>
                       <span class="text-sm text-muted">:00</span>
                     </div>
                   </div>
@@ -1647,20 +1647,20 @@
                   </button>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div><label class="field-label">电影目录</label><input type="text" x-model="settings.quark_save_movie_dir" placeholder="/电影" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
-                  <div><label class="field-label">连续剧目录</label><input type="text" x-model="settings.quark_save_series_dir" placeholder="/连续剧" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
-                  <div><label class="field-label">动画目录</label><input type="text" x-model="settings.quark_save_anime_dir" placeholder="/动画" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                  <div><label class="field-label" for="field-settings-quark-save-movie-dir">电影目录</label><input type="text" x-model="settings.quark_save_movie_dir" placeholder="/电影" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-quark-save-movie-dir"/></div>
+                  <div><label class="field-label" for="field-settings-quark-save-series-dir">连续剧目录</label><input type="text" x-model="settings.quark_save_series_dir" placeholder="/连续剧" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-quark-save-series-dir"/></div>
+                  <div><label class="field-label" for="field-settings-quark-save-anime-dir">动画目录</label><input type="text" x-model="settings.quark_save_anime_dir" placeholder="/动画" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-quark-save-anime-dir"/></div>
                 </div>
                 <div class="space-y-3" x-show="settings.custom_categories && settings.custom_categories.length > 0">
                   <template x-for="(category, index) in settings.custom_categories" :key="category.id">
                     <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] gap-3 md:items-end">
                       <div>
-                        <label class="field-label">类别名称</label>
-                        <input type="text" x-model="category.name" placeholder="纪录片" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                        <label class="field-label" for="field-category-name">类别名称</label>
+                        <input type="text" x-model="category.name" placeholder="纪录片" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-category-name"/>
                       </div>
                       <div>
-                        <label class="field-label">目录</label>
-                        <input type="text" x-model="category.dir" placeholder="/纪录片" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                        <label class="field-label" for="field-category-dir">目录</label>
+                        <input type="text" x-model="category.dir" placeholder="/纪录片" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-category-dir"/>
                       </div>
                       <button type="button" @click="removeCustomCategory(index)" class="btn-secondary h-10 px-3 rounded-lg grid place-items-center transition-colors" aria-label="删除自定义类别" title="删除自定义类别">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 13h8l1-13" /></svg>
@@ -1693,14 +1693,14 @@
               <div class="app-panel-soft p-4 space-y-4">
                 <div><h3 class="section-title">通知策略</h3><p class="mt-1 text-xs text-muted">模板变量：{{title}}、{{message}}、{{event}}、{{level}}；事件渠道路由也可通过设置 API 配置。</p></div>
                 <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  <div><label class="field-label">最低级别</label><select x-model="settings.push_min_level" class="app-select w-full"><option value="info">信息</option><option value="success">成功</option><option value="warning">警告</option><option value="error">错误</option></select></div>
-                  <div><label class="field-label">安静开始（时）</label><input type="number" min="0" max="23" x-model.number="settings.push_quiet_start_hour" class="app-input w-full" /></div>
-                  <div><label class="field-label">安静结束（时）</label><input type="number" min="0" max="23" x-model.number="settings.push_quiet_end_hour" class="app-input w-full" /></div>
-                  <div><label class="field-label">重复限频（秒）</label><input type="number" min="0" max="86400" x-model.number="settings.push_dedup_window_seconds" class="app-input w-full" /></div>
+                  <div><label class="field-label" for="field-settings-push-min-level">最低级别</label><select x-model="settings.push_min_level" class="app-select w-full" id="field-settings-push-min-level"><option value="info">信息</option><option value="success">成功</option><option value="warning">警告</option><option value="error">错误</option></select></div>
+                  <div><label class="field-label" for="field-settings-push-quiet-start-hour">安静开始（时）</label><input type="number" min="0" max="23" x-model.number="settings.push_quiet_start_hour" class="app-input w-full"  id="field-settings-push-quiet-start-hour"/></div>
+                  <div><label class="field-label" for="field-settings-push-quiet-end-hour">安静结束（时）</label><input type="number" min="0" max="23" x-model.number="settings.push_quiet_end_hour" class="app-input w-full"  id="field-settings-push-quiet-end-hour"/></div>
+                  <div><label class="field-label" for="field-settings-push-dedup-window-seconds">重复限频（秒）</label><input type="number" min="0" max="86400" x-model.number="settings.push_dedup_window_seconds" class="app-input w-full"  id="field-settings-push-dedup-window-seconds"/></div>
                 </div>
                 <div class="grid gap-3 sm:grid-cols-2">
-                  <div><label class="field-label">标题模板</label><input x-model="settings.push_title_template" class="app-input w-full" /></div>
-                  <div><label class="field-label">正文模板</label><input x-model="settings.push_message_template" class="app-input w-full" /></div>
+                  <div><label class="field-label" for="field-settings-push-title-template">标题模板</label><input x-model="settings.push_title_template" class="app-input w-full"  id="field-settings-push-title-template"/></div>
+                  <div><label class="field-label" for="field-settings-push-message-template">正文模板</label><input x-model="settings.push_message_template" class="app-input w-full"  id="field-settings-push-message-template"/></div>
                 </div>
                 <div class="flex flex-wrap gap-4 text-sm">
                   <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.push_quiet_hours_enabled" />启用安静时段</label>
@@ -1718,9 +1718,9 @@
                 <details class="bg-surface-2 rounded-lg p-4">
                   <summary class="cursor-pointer font-medium text-text">企业微信</summary>
                   <div class="mt-3">
-                    <label class="field-label">Webhook URL</label>
+                    <label class="field-label" for="field-settings-wecom-bot-url">Webhook URL</label>
                     <div class="setting-input-action">
-                      <input type="text" x-model="settings.wecom_bot_url" @focus="prepareSecretInput('wecom_bot_url')" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                      <input type="text" x-model="settings.wecom_bot_url" @focus="prepareSecretInput('wecom_bot_url')" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-wecom-bot-url"/>
                       <button type="button" @click="toggleSettingSecret('wecom_bot_url')" :disabled="secretToggleDisabled('wecom_bot_url')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('wecom_bot_url')"></button>
                     </div>
                   </div>
@@ -1731,36 +1731,36 @@
                   <summary class="cursor-pointer font-medium text-text">Telegram</summary>
                   <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label class="field-label">Bot Token</label>
+                      <label class="field-label" for="field-settings-telegram-bot-token">Bot Token</label>
                       <div class="setting-input-action">
-                        <input type="text" x-model="settings.telegram_bot_token" @focus="prepareSecretInput('telegram_bot_token')" placeholder="123456:ABC-DEF..." class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                        <input type="text" x-model="settings.telegram_bot_token" @focus="prepareSecretInput('telegram_bot_token')" placeholder="123456:ABC-DEF..." class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-telegram-bot-token"/>
                         <button type="button" @click="toggleSettingSecret('telegram_bot_token')" :disabled="secretToggleDisabled('telegram_bot_token')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('telegram_bot_token')"></button>
                       </div>
                     </div>
-                    <div><label class="field-label">Chat ID（推送目标）</label><input type="text" x-model="settings.telegram_chat_id" placeholder="你的 Chat ID" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                    <div><label class="field-label" for="field-settings-telegram-chat-id">Chat ID（推送目标）</label><input type="text" x-model="settings.telegram_chat_id" placeholder="你的 Chat ID" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-telegram-chat-id"/></div>
                     <div>
-                      <label class="field-label">主动控制接入模式</label>
-                      <select x-model="settings.telegram_bot_mode" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text">
+                      <label class="field-label" for="field-settings-telegram-bot-mode">主动控制接入模式</label>
+                      <select x-model="settings.telegram_bot_mode" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" id="field-settings-telegram-bot-mode">
                         <option value="disabled">关闭（默认）</option>
                         <option value="long_polling">Long polling</option>
                         <option value="webhook">Webhook</option>
                       </select>
                     </div>
-                    <div><label class="field-label">允许的 User ID（逗号分隔）</label><input type="text" :value="(settings.telegram_bot_allowed_user_ids || []).join(',')" @input="settings.telegram_bot_allowed_user_ids = $event.target.value.split(',').map(v => v.trim()).filter(Boolean).map(Number).filter(Number.isSafeInteger)" placeholder="123456789" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
-                    <div><label class="field-label">允许的 Chat ID（逗号分隔）</label><input type="text" :value="(settings.telegram_bot_allowed_chat_ids || []).join(',')" @input="settings.telegram_bot_allowed_chat_ids = $event.target.value.split(',').map(v => v.trim()).filter(Boolean).map(Number).filter(Number.isSafeInteger)" placeholder="123456789" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                    <div><label class="field-label" for="field-user-id">允许的 User ID（逗号分隔）</label><input type="text" :value="(settings.telegram_bot_allowed_user_ids || []).join(',')" @input="settings.telegram_bot_allowed_user_ids = $event.target.value.split(',').map(v = id="field-user-id"> v.trim()).filter(Boolean).map(Number).filter(Number.isSafeInteger)" placeholder="123456789" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                    <div><label class="field-label" for="field-chat-id">允许的 Chat ID（逗号分隔）</label><input type="text" :value="(settings.telegram_bot_allowed_chat_ids || []).join(',')" @input="settings.telegram_bot_allowed_chat_ids = $event.target.value.split(',').map(v = id="field-chat-id"> v.trim()).filter(Boolean).map(Number).filter(Number.isSafeInteger)" placeholder="123456789" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
                     <label class="flex items-center gap-2 text-sm text-text"><input type="checkbox" x-model="settings.telegram_bot_private_only" class="rounded border-border text-primary focus:ring-primary" /><span>仅允许私聊（推荐）</span></label>
                     <div x-show="settings.telegram_bot_mode === 'webhook'" class="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div class="md:col-span-2"><label class="field-label">Webhook 公网 HTTPS 根地址</label><input type="url" x-model="settings.telegram_bot_webhook_public_url" placeholder="https://media.example.com" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                      <div class="md:col-span-2"><label class="field-label" for="field-settings-telegram-bot-webhook-public-url">Webhook 公网 HTTPS 根地址</label><input type="url" x-model="settings.telegram_bot_webhook_public_url" placeholder="https://media.example.com" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-telegram-bot-webhook-public-url"/></div>
                       <div>
-                        <label class="field-label">随机路径 Secret</label>
-                        <div class="setting-input-action"><input type="text" x-model="settings.telegram_bot_webhook_path_secret" @focus="prepareSecretInput('telegram_bot_webhook_path_secret')" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg text-text" /><button type="button" @click="toggleSettingSecret('telegram_bot_webhook_path_secret')" :disabled="secretToggleDisabled('telegram_bot_webhook_path_secret')" class="btn-secondary px-3 py-2 rounded-lg text-sm" x-text="secretButtonLabel('telegram_bot_webhook_path_secret')"></button></div>
+                        <label class="field-label" for="field-settings-telegram-bot-webhook-path-secret">随机路径 Secret</label>
+                        <div class="setting-input-action"><input type="text" x-model="settings.telegram_bot_webhook_path_secret" @focus="prepareSecretInput('telegram_bot_webhook_path_secret')" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg text-text"  id="field-settings-telegram-bot-webhook-path-secret"/><button type="button" @click="toggleSettingSecret('telegram_bot_webhook_path_secret')" :disabled="secretToggleDisabled('telegram_bot_webhook_path_secret')" class="btn-secondary px-3 py-2 rounded-lg text-sm" x-text="secretButtonLabel('telegram_bot_webhook_path_secret')"></button></div>
                       </div>
                       <div>
-                        <label class="field-label">Header Secret</label>
-                        <div class="setting-input-action"><input type="text" x-model="settings.telegram_bot_webhook_secret" @focus="prepareSecretInput('telegram_bot_webhook_secret')" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg text-text" /><button type="button" @click="toggleSettingSecret('telegram_bot_webhook_secret')" :disabled="secretToggleDisabled('telegram_bot_webhook_secret')" class="btn-secondary px-3 py-2 rounded-lg text-sm" x-text="secretButtonLabel('telegram_bot_webhook_secret')"></button></div>
+                        <label class="field-label" for="field-settings-telegram-bot-webhook-secret">Header Secret</label>
+                        <div class="setting-input-action"><input type="text" x-model="settings.telegram_bot_webhook_secret" @focus="prepareSecretInput('telegram_bot_webhook_secret')" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg text-text"  id="field-settings-telegram-bot-webhook-secret"/><button type="button" @click="toggleSettingSecret('telegram_bot_webhook_secret')" :disabled="secretToggleDisabled('telegram_bot_webhook_secret')" class="btn-secondary px-3 py-2 rounded-lg text-sm" x-text="secretButtonLabel('telegram_bot_webhook_secret')"></button></div>
                       </div>
                     </div>
-                    <p class="md:col-span-2 text-xs text-text-muted">授权只使用 Telegram 数字 user/chat ID，不使用用户名。Long polling 与 Webhook 只能选择一种。</p>
+                    <p class="md:col-span-2 text-xs text-muted">授权只使用 Telegram 数字 user/chat ID，不使用用户名。Long polling 与 Webhook 只能选择一种。</p>
                   </div>
                 </details>
 
@@ -1769,13 +1769,13 @@
                   <summary class="cursor-pointer font-medium text-text">WxPusher</summary>
                   <div class="mt-3 space-y-3">
                     <div>
-                      <label class="field-label">App Token</label>
+                      <label class="field-label" for="field-settings-wxpusher-app-token">App Token</label>
                       <div class="setting-input-action">
-                        <input type="text" x-model="settings.wxpusher_app_token" @focus="prepareSecretInput('wxpusher_app_token')" placeholder="AT_xxx" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                        <input type="text" x-model="settings.wxpusher_app_token" @focus="prepareSecretInput('wxpusher_app_token')" placeholder="AT_xxx" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-wxpusher-app-token"/>
                         <button type="button" @click="toggleSettingSecret('wxpusher_app_token')" :disabled="secretToggleDisabled('wxpusher_app_token')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('wxpusher_app_token')"></button>
                       </div>
                     </div>
-                    <div><label class="field-label">用户 UIDs（多个用逗号分隔）</label><input type="text" x-model="settings.wxpusher_uids" placeholder="UID_xxx,UID_yyy" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                    <div><label class="field-label" for="field-settings-wxpusher-uids">用户 UIDs（多个用逗号分隔）</label><input type="text" x-model="settings.wxpusher_uids" placeholder="UID_xxx,UID_yyy" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-wxpusher-uids"/></div>
                   </div>
                 </details>
 
@@ -1784,31 +1784,31 @@
                   <summary class="cursor-pointer font-medium text-text">其他渠道</summary>
                   <div class="mt-3 space-y-3">
                     <div>
-                      <label class="field-label">Bark URL</label>
+                      <label class="field-label" for="field-settings-bark-url">Bark URL</label>
                       <div class="setting-input-action">
-                        <input type="text" x-model="settings.bark_url" @focus="prepareSecretInput('bark_url')" placeholder="https://api.day.app/your_key" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                        <input type="text" x-model="settings.bark_url" @focus="prepareSecretInput('bark_url')" placeholder="https://api.day.app/your_key" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-bark-url"/>
                         <button type="button" @click="toggleSettingSecret('bark_url')" :disabled="secretToggleDisabled('bark_url')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('bark_url')"></button>
                       </div>
                     </div>
                     <div>
-                      <label class="field-label">Server酱 SendKey</label>
+                      <label class="field-label" for="field-settings-serverchan-key">Server酱 SendKey</label>
                       <div class="setting-input-action">
-                        <input type="text" x-model="settings.serverchan_key" @focus="prepareSecretInput('serverchan_key')" placeholder="SCTxxxxxx" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                        <input type="text" x-model="settings.serverchan_key" @focus="prepareSecretInput('serverchan_key')" placeholder="SCTxxxxxx" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-serverchan-key"/>
                         <button type="button" @click="toggleSettingSecret('serverchan_key')" :disabled="secretToggleDisabled('serverchan_key')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('serverchan_key')"></button>
                       </div>
                     </div>
-                    <div><label class="field-label">Gotify URL</label><input type="text" x-model="settings.gotify_url" placeholder="https://gotify.example.com" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                    <div><label class="field-label" for="field-settings-gotify-url">Gotify URL</label><input type="text" x-model="settings.gotify_url" placeholder="https://gotify.example.com" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-gotify-url"/></div>
                     <div>
-                      <label class="field-label">Gotify Token</label>
+                      <label class="field-label" for="field-settings-gotify-token">Gotify Token</label>
                       <div class="setting-input-action">
-                        <input type="text" x-model="settings.gotify_token" @focus="prepareSecretInput('gotify_token')" placeholder="A..." class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                        <input type="text" x-model="settings.gotify_token" @focus="prepareSecretInput('gotify_token')" placeholder="A..." class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-gotify-token"/>
                         <button type="button" @click="toggleSettingSecret('gotify_token')" :disabled="secretToggleDisabled('gotify_token')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('gotify_token')"></button>
                       </div>
                     </div>
                     <div>
-                      <label class="field-label">PushPlus Token</label>
+                      <label class="field-label" for="field-settings-pushplus-token">PushPlus Token</label>
                       <div class="setting-input-action">
-                        <input type="text" x-model="settings.pushplus_token" @focus="prepareSecretInput('pushplus_token')" placeholder="pushplus token" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                        <input type="text" x-model="settings.pushplus_token" @focus="prepareSecretInput('pushplus_token')" placeholder="pushplus token" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-pushplus-token"/>
                         <button type="button" @click="toggleSettingSecret('pushplus_token')" :disabled="secretToggleDisabled('pushplus_token')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('pushplus_token')"></button>
                       </div>
                     </div>
@@ -1838,7 +1838,7 @@
                 <h3 class="section-title">订阅自动化</h3>
                 <div class="space-y-3">
                   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                    <label class="field-label mb-0">检查周期</label>
+                    <div class="field-label mb-0">检查周期</div>
                     <span class="text-xs text-muted/75" x-text="'当前每 ' + checkIntervalLabel(settings.subscription_check_interval_minutes) + ' 检查一次'"></span>
                   </div>
                   <div class="flex flex-wrap gap-2">
@@ -1847,26 +1847,26 @@
                     </template>
                   </div>
                   <div>
-                    <label class="field-label">自定义分钟数</label>
-                    <input type="number" x-model.number="settings.subscription_check_interval_minutes" min="5" step="5" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                    <label class="field-label" for="field-settings-subscription-check-interval-minutes">自定义分钟数</label>
+                    <input type="number" x-model.number="settings.subscription_check_interval_minutes" min="5" step="5" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-subscription-check-interval-minutes"/>
                     <p class="text-xs text-muted/75 mt-2">最小 5 分钟，保存后调度器会按新的周期重新加载。</p>
                   </div>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div><label class="field-label">订阅检查最大并发</label><input type="number" min="1" max="32" x-model.number="settings.subscription_check_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg" /></div>
-                  <div><label class="field-label">外部 API 最大并发</label><input type="number" min="1" max="64" x-model.number="settings.external_api_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg" /></div>
-                  <div><label class="field-label">Aria2 单批提交大小</label><input type="number" min="1" max="100" x-model.number="settings.aria2_batch_submit_limit" class="w-full px-4 py-2 bg-app border border-border rounded-lg" title="每批向夸克/Aria2 提交的文件数，超出部分会自动分批继续提交" /></div>
+                  <div><label class="field-label" for="field-settings-subscription-check-max-concurrency">订阅检查最大并发</label><input type="number" min="1" max="32" x-model.number="settings.subscription_check_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg"  id="field-settings-subscription-check-max-concurrency"/></div>
+                  <div><label class="field-label" for="field-settings-external-api-max-concurrency">外部 API 最大并发</label><input type="number" min="1" max="64" x-model.number="settings.external_api_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg"  id="field-settings-external-api-max-concurrency"/></div>
+                  <div><label class="field-label" for="field-settings-aria2-batch-submit-limit">Aria2 单批提交大小</label><input type="number" min="1" max="100" x-model.number="settings.aria2_batch_submit_limit" class="w-full px-4 py-2 bg-app border border-border rounded-lg" title="每批向夸克/Aria2 提交的文件数，超出部分会自动分批继续提交"  id="field-settings-aria2-batch-submit-limit"/></div>
                 </div>
                 <div>
                   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-3">
-                    <label class="field-label mb-0">后台任务分层并发</label>
+                    <div class="field-label mb-0">后台任务分层并发</div>
                     <span class="text-xs text-muted/75">类别上限同时受全局上限约束；同一订阅始终串行</span>
                   </div>
                   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                    <div><label class="field-label">全局</label><input type="number" min="1" max="32" x-model.number="settings.job_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg" /></div>
-                    <div><label class="field-label">转存</label><input type="number" min="1" max="32" x-model.number="settings.job_transfer_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg" /></div>
-                    <div><label class="field-label">元数据</label><input type="number" min="1" max="32" x-model.number="settings.job_metadata_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg" /></div>
-                    <div><label class="field-label">推送</label><input type="number" min="1" max="32" x-model.number="settings.job_push_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg" /></div>
+                    <div><label class="field-label" for="field-settings-job-max-concurrency">全局</label><input type="number" min="1" max="32" x-model.number="settings.job_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg"  id="field-settings-job-max-concurrency"/></div>
+                    <div><label class="field-label" for="field-settings-job-transfer-max-concurrency">转存</label><input type="number" min="1" max="32" x-model.number="settings.job_transfer_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg"  id="field-settings-job-transfer-max-concurrency"/></div>
+                    <div><label class="field-label" for="field-settings-job-metadata-max-concurrency">元数据</label><input type="number" min="1" max="32" x-model.number="settings.job_metadata_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg"  id="field-settings-job-metadata-max-concurrency"/></div>
+                    <div><label class="field-label" for="field-settings-job-push-max-concurrency">推送</label><input type="number" min="1" max="32" x-model.number="settings.job_push_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg"  id="field-settings-job-push-max-concurrency"/></div>
                   </div>
                   <label class="mt-3 flex items-center gap-2 text-sm text-warning cursor-pointer"><input type="checkbox" x-model="settings.job_maintenance_mode" class="rounded" />维护模式：暂停认领新后台任务，运行中任务继续完成</label>
                 </div>
@@ -1882,11 +1882,11 @@
                 </div>
                 <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.auto_source_switch_enabled" class="rounded" />允许系统自动应用候选来源</label>
                 <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  <div><label class="field-label">运行模式</label><select x-model="settings.auto_source_switch_mode" class="app-select w-full"><option value="search_only">仅搜索</option><option value="apply">满足策略时自动应用</option></select></div>
-                  <div><label class="field-label">候选最低分</label><input type="number" min="0" max="100" x-model.number="settings.source_switch_min_score" class="app-input w-full" /></div>
-                  <div><label class="field-label">最低分差</label><input type="number" min="0" max="100" x-model.number="settings.source_switch_min_score_delta" class="app-input w-full" /></div>
-                  <div><label class="field-label">连续失效次数</label><input type="number" min="1" max="20" x-model.number="settings.source_switch_failure_threshold" class="app-input w-full" /></div>
-                  <div><label class="field-label">冷却时间（小时）</label><input type="number" min="1" max="720" x-model.number="settings.source_switch_cooldown_hours" class="app-input w-full" /></div>
+                  <div><label class="field-label" for="field-settings-auto-source-switch-mode">运行模式</label><select x-model="settings.auto_source_switch_mode" class="app-select w-full" id="field-settings-auto-source-switch-mode"><option value="search_only">仅搜索</option><option value="apply">满足策略时自动应用</option></select></div>
+                  <div><label class="field-label" for="field-settings-source-switch-min-score">候选最低分</label><input type="number" min="0" max="100" x-model.number="settings.source_switch_min_score" class="app-input w-full"  id="field-settings-source-switch-min-score"/></div>
+                  <div><label class="field-label" for="field-settings-source-switch-min-score-delta">最低分差</label><input type="number" min="0" max="100" x-model.number="settings.source_switch_min_score_delta" class="app-input w-full"  id="field-settings-source-switch-min-score-delta"/></div>
+                  <div><label class="field-label" for="field-settings-source-switch-failure-threshold">连续失效次数</label><input type="number" min="1" max="20" x-model.number="settings.source_switch_failure_threshold" class="app-input w-full"  id="field-settings-source-switch-failure-threshold"/></div>
+                  <div><label class="field-label" for="field-settings-source-switch-cooldown-hours">冷却时间（小时）</label><input type="number" min="1" max="720" x-model.number="settings.source_switch_cooldown_hours" class="app-input w-full"  id="field-settings-source-switch-cooldown-hours"/></div>
                 </div>
                 <div class="rounded border border-warning/30 bg-warning/5 p-3 text-xs text-muted/80">即使选择“自动应用”，总开关关闭时仍只搜索；失败候选和历史失效链接不会在冷却期内重复应用。</div>
               </div>
@@ -1944,51 +1944,51 @@
                 <h3 class="section-title">规则配置</h3>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <label class="field-label">预设名称</label>
-                    <input type="text" x-model="ruleCenter.preset_name" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：番剧命名" />
+                    <label class="field-label" for="field-rulecenter-preset-name">预设名称</label>
+                    <input type="text" x-model="ruleCenter.preset_name" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：番剧命名"  id="field-rulecenter-preset-name"/>
                   </div>
                   <div class="md:col-span-2">
-                    <label class="field-label">预设说明</label>
-                    <input type="text" x-model="ruleCenter.preset_description" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="用于区分适用场景" />
+                    <label class="field-label" for="field-rulecenter-preset-description">预设说明</label>
+                    <input type="text" x-model="ruleCenter.preset_description" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="用于区分适用场景"  id="field-rulecenter-preset-description"/>
                   </div>
                   <div>
-                    <label class="field-label">媒体类型</label>
-                    <select x-model="ruleCenter.media_type" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
+                    <label class="field-label" for="field-rulecenter-media-type">媒体类型</label>
+                    <select x-model="ruleCenter.media_type" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" id="field-rulecenter-media-type">
                       <option value="movie">电影</option>
                       <option value="series">连续剧</option>
                       <option value="anime">动画</option>
                     </select>
                   </div>
                   <div>
-                    <label class="field-label">标题样例</label>
-                    <input type="text" x-model="ruleCenter.title" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" />
+                    <label class="field-label" for="field-rulecenter-title">标题样例</label>
+                    <input type="text" x-model="ruleCenter.title" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text"  id="field-rulecenter-title"/>
                   </div>
                   <div>
-                    <label class="field-label">季号</label>
-                    <input type="number" min="1" x-model="ruleCenter.season" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" />
+                    <label class="field-label" for="field-rulecenter-season">季号</label>
+                    <input type="number" min="1" x-model="ruleCenter.season" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text"  id="field-rulecenter-season"/>
                   </div>
                   <div class="md:col-span-3">
-                    <label class="field-label">重命名模板</label>
-                    <input type="text" x-model="ruleCenter.rename_template" placeholder="{title}.S{season}E{episode}.{ext}" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" />
+                    <label class="field-label" for="field-rulecenter-rename-template">重命名模板</label>
+                    <input type="text" x-model="ruleCenter.rename_template" placeholder="{title}.S{season}E{episode}.{ext}" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text"  id="field-rulecenter-rename-template"/>
                   </div>
-                  <div><label class="field-label">包含关键词</label><input type="text" x-model="ruleCenter.include_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="多个用逗号或换行分隔" /></div>
-                  <div><label class="field-label">排除关键词</label><input type="text" x-model="ruleCenter.exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="预告, 花絮, trailer" /></div>
-                  <div><label class="field-label">匹配正则</label><input type="text" x-model="ruleCenter.match_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：S01E\\d+|第\\d+集" /></div>
-                  <div><label class="field-label">集数识别覆盖正则</label><input type="text" x-model="ruleCenter.episode_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：\\[(?P&lt;episode&gt;\\d+)\\]" /><small class="field-help">必须包含命名捕获 episode，可选 season；留空使用内置规则。</small></div>
-                  <div><label class="field-label">换源搜索关键词</label><input type="text" x-model="ruleCenter.source_search_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="多个关键词用逗号分隔" /></div>
-                  <div><label class="field-label">候选排除词</label><input type="text" x-model="ruleCenter.source_exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="枪版, 预告, 无字幕" /></div>
-                  <div><label class="field-label">候选质量偏好</label><input type="text" x-model="ruleCenter.source_prefer_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="2160p, 简中, HEVC, 发布组" /></div>
-                  <div><label class="field-label">重命名正则</label><input type="text" x-model="ruleCenter.rename_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" /></div>
-                  <div><label class="field-label">替换文本</label><input type="text" x-model="ruleCenter.rename_replacement" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" /></div>
+                  <div><label class="field-label" for="field-rulecenter-include-keywords-text">包含关键词</label><input type="text" x-model="ruleCenter.include_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="多个用逗号或换行分隔"  id="field-rulecenter-include-keywords-text"/></div>
+                  <div><label class="field-label" for="field-rulecenter-exclude-keywords-text">排除关键词</label><input type="text" x-model="ruleCenter.exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="预告, 花絮, trailer"  id="field-rulecenter-exclude-keywords-text"/></div>
+                  <div><label class="field-label" for="field-rulecenter-match-regex">匹配正则</label><input type="text" x-model="ruleCenter.match_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：S01E\\d+|第\\d+集"  id="field-rulecenter-match-regex"/></div>
+                  <div><label class="field-label" for="field-rulecenter-episode-regex">集数识别覆盖正则</label><input type="text" x-model="ruleCenter.episode_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：\\[(?P&lt;episode&gt;\\d+)\\]"  id="field-rulecenter-episode-regex"/><small class="field-help">必须包含命名捕获 episode，可选 season；留空使用内置规则。</small></div>
+                  <div><label class="field-label" for="field-rulecenter-source-search-keywords-text">换源搜索关键词</label><input type="text" x-model="ruleCenter.source_search_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="多个关键词用逗号分隔"  id="field-rulecenter-source-search-keywords-text"/></div>
+                  <div><label class="field-label" for="field-rulecenter-source-exclude-keywords-text">候选排除词</label><input type="text" x-model="ruleCenter.source_exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="枪版, 预告, 无字幕"  id="field-rulecenter-source-exclude-keywords-text"/></div>
+                  <div><label class="field-label" for="field-rulecenter-source-prefer-keywords-text">候选质量偏好</label><input type="text" x-model="ruleCenter.source_prefer_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="2160p, 简中, HEVC, 发布组"  id="field-rulecenter-source-prefer-keywords-text"/></div>
+                  <div><label class="field-label" for="field-rulecenter-rename-regex">重命名正则</label><input type="text" x-model="ruleCenter.rename_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text"  id="field-rulecenter-rename-regex"/></div>
+                  <div><label class="field-label" for="field-rulecenter-rename-replacement">替换文本</label><input type="text" x-model="ruleCenter.rename_replacement" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text"  id="field-rulecenter-rename-replacement"/></div>
                   <div>
-                    <label class="field-label">同集保留策略</label>
-                    <select x-model="ruleCenter.duplicate_episode_strategy" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
+                    <label class="field-label" for="field-rulecenter-duplicate-episode-strategy">同集保留策略</label>
+                    <select x-model="ruleCenter.duplicate_episode_strategy" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" id="field-rulecenter-duplicate-episode-strategy">
                       <option value="highest_quality">清晰度最高</option>
                       <option value="latest_upload">上传时间最新</option>
                       <option value="largest_size">文件最大</option>
                       <option value="first">最先出现</option>
                     </select>
-                  <div><label class="field-label">目标同名冲突</label><select x-model="ruleCenter.conflict_strategy" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text"><option value="skip">跳过已有文件</option><option value="overwrite">覆盖已有文件</option><option value="keep_both">保留两份</option></select></div>
+                  <div><label class="field-label" for="field-rulecenter-conflict-strategy">目标同名冲突</label><select x-model="ruleCenter.conflict_strategy" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" id="field-rulecenter-conflict-strategy"><option value="skip">跳过已有文件</option><option value="overwrite">覆盖已有文件</option><option value="keep_both">保留两份</option></select></div>
                   </div>
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -2006,7 +2006,7 @@
                   </div>
                   <button @click="copyText(ruleCenter.rename_template)" class="btn-secondary px-3 py-2 rounded text-sm">复制模板</button>
                 </div>
-                <textarea x-model="ruleCenter.samples" rows="5" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text"></textarea>
+                <textarea x-model="ruleCenter.samples" aria-label="规则测试样本文件名" rows="5" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text"></textarea>
                 <div x-show="ruleCenterPreviewError" class="text-sm text-danger" x-text="ruleCenterPreviewError"></div>
                 <div x-show="ruleCenterPreview && ruleCenterPreview.items && ruleCenterPreview.items.length > 0" class="border border-border rounded-lg overflow-hidden">
                   <div class="hidden md:grid grid-cols-12 gap-2 px-3 py-2 bg-app text-xs text-muted/75">
@@ -2035,11 +2035,11 @@
               <div class="app-panel-soft p-4 space-y-4">
                 <h3 class="section-title">账号设置</h3>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label class="field-label">用户名</label><input type="text" x-model="settings.app_username" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" /></div>
+                  <div><label class="field-label" for="field-settings-app-username">用户名</label><input type="text" x-model="settings.app_username" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-app-username"/></div>
                   <div>
-                    <label class="field-label">密码</label>
+                    <label class="field-label" for="field-settings-app-password">密码</label>
                     <div class="setting-input-action">
-                      <input type="text" x-model="settings.app_password" @focus="prepareSecretInput('app_password')" placeholder="留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                      <input type="text" x-model="settings.app_password" @focus="prepareSecretInput('app_password')" placeholder="留空不修改" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-app-password"/>
                       <button type="button" @click="toggleSettingSecret('app_password')" :disabled="secretToggleDisabled('app_password')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('app_password')"></button>
                     </div>
                   </div>
@@ -2048,12 +2048,21 @@
               <div class="app-panel-soft p-4 space-y-4">
                 <h3 class="section-title">高级选项</h3>
                 <div>
+                  <div class="space-y-3 mb-4">
+                    <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.trust_proxy_headers" class="rounded" />信任反向代理转发头（X-Forwarded-For）——仅在反代之后且防火墙阻止直连时开启</label>
+                    <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.hsts_enabled" class="rounded" />发送 HSTS 头——HSTS 按主机名生效、不分端口，只在该主机名下所有端口都走 HTTPS 时开启</label>
+                    <div>
+                      <label class="field-label" for="field-settings-allowed-hosts">允许的 Host 白名单（可选，逗号分隔）</label>
+                      <input type="text" id="field-settings-allowed-hosts" x-model="settings.allowed_hosts" placeholder="留空不校验；如 media.example.com, 192.168.1.10:56001" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                      <p class="field-help">防御 DNS rebinding。列表必须包含你当前访问用的 Host，否则保存会被拒绝。</p>
+                    </div>
+                  </div>
                   <div class="flex items-center justify-between gap-3">
-                    <label class="field-label">PanSou API URL</label>
+                    <label class="field-label" for="field-settings-pansou-api-url">PanSou API URL</label>
                     <span class="text-xs text-muted/75" x-text="settings.pansou_api_url_configured ? '已配置' : '未配置'"></span>
                   </div>
                   <div class="setting-input-action">
-                    <input type="text" x-model="settings.pansou_api_url" @focus="prepareSecretInput('pansou_api_url')" :placeholder="settings.pansou_api_url_configured ? '已配置，留空不修改' : '留空使用内置服务，或粘贴自建 API URL'" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+                    <input type="text" x-model="settings.pansou_api_url" @focus="prepareSecretInput('pansou_api_url')" :placeholder="settings.pansou_api_url_configured ? '已配置，留空不修改' : '留空使用内置服务，或粘贴自建 API URL'" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-pansou-api-url"/>
                     <button type="button" @click="toggleSettingSecret('pansou_api_url')" :disabled="secretToggleDisabled('pansou_api_url')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('pansou_api_url')"></button>
                   </div>
                   <p class="text-xs text-muted/75 mt-2">保存后新的资源搜索会使用该地址；留空时使用内置默认服务。</p>
@@ -2116,8 +2125,8 @@
                   </div>
                   <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-3 lg:items-end">
                     <div>
-                      <label class="field-label">目标版本</label>
-                      <select x-model="selectedUpdateTag" :disabled="!onlineUpdateSupported() || updateApplying || updateRestartRequired()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text disabled:opacity-50">
+                      <label class="field-label" for="field-selectedupdatetag">目标版本</label>
+                      <select x-model="selectedUpdateTag" :disabled="!onlineUpdateSupported() || updateApplying || updateRestartRequired()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text disabled:opacity-50" id="field-selectedupdatetag">
                         <option value="">选择 Release</option>
                         <template x-for="item in updateReleases" :key="item.tag">
                           <option :value="item.tag" x-text="item.tag + (item.is_current ? '（当前）' : (item.is_newer ? '（新版）' : '（历史）'))"></option>
@@ -2192,7 +2201,7 @@
 
   <!-- 模态框：在线升级进度 -->
   <div x-show="showUpdateProgressDialog" @click.self="closeUpdateProgressDialog()" @keydown.escape.window="closeUpdateProgressDialog()" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel dialog-panel p-6 max-w-lg w-full" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="在线升级" tabindex="-1">
+    <div class="app-panel dialog-panel p-6 max-w-lg w-full" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="在线升级" tabindex="-1" x-effect="if (showUpdateProgressDialog) $nextTick(() => $el.focus())">
       <div class="flex items-start justify-between gap-4">
         <div>
           <h3 class="text-xl font-bold text-text" x-text="updateDialogTitle()"></h3>
@@ -2240,9 +2249,9 @@
 
   <!-- 模态框：新建文件夹 -->
   <div x-show="showNewFolderModal" @click.self="showNewFolderModal = false" @keydown.escape.window="showNewFolderModal = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel dialog-panel p-6 max-w-md w-full" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="新建文件夹" tabindex="-1">
+    <div class="app-panel dialog-panel p-6 max-w-md w-full" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="新建文件夹" tabindex="-1" x-effect="if (updateDialogCanClose()) $nextTick(() => $el.focus())">
       <h3 class="text-xl font-bold text-text mb-4">新建文件夹</h3>
-      <div><label class="field-label">文件夹名称</label><input type="text" x-model="newFolderName" placeholder="输入名称" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text placeholder:text-muted/70" /></div>
+      <div><label class="field-label" for="field-newfoldername">文件夹名称</label><input type="text" x-model="newFolderName" placeholder="输入名称" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text placeholder:text-muted/70"  id="field-newfoldername"/></div>
       <div class="flex gap-3 mt-6">
         <button @click="showNewFolderModal = false" class="btn-secondary flex-1 px-4 py-2 rounded-lg transition-colors">取消</button>
         <button @click="createFolder()" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors">创建</button>
@@ -2252,13 +2261,13 @@
 
   <!-- 模态框：选择转存目录 -->
   <div x-show="showTransferModal" @click.self="showTransferModal = false" @keydown.escape.window="showTransferModal = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel dialog-panel p-6 max-w-2xl w-full" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="选择转存目录" tabindex="-1">
+    <div class="app-panel dialog-panel p-6 max-w-2xl w-full" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="选择转存目录" tabindex="-1" x-effect="if (showTransferModal) $nextTick(() => $el.focus())">
       <h3 class="text-xl font-bold text-text mb-4">选择转存目录</h3>
 
       <!-- 快速选择 -->
       <div class="mb-4">
-        <label class="field-label">快速选择</label>
-        <div class="flex flex-wrap gap-2">
+        <div class="field-label" id="field-quick-dir">快速选择</div>
+        <div class="flex flex-wrap gap-2" role="group" aria-labelledby="field-quick-dir">
           <template x-for="item in configuredDirectoryItems(true)" :key="item.type">
             <button @click="selectQuickDir(item.type)" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-colors" x-text="item.name"></button>
           </template>
@@ -2300,7 +2309,7 @@
 
   <!-- 手动元数据刮削对话框 -->
   <div x-show="showManualMetadataDialog" @click.self="closeManualMetadataDialog()" @keydown.escape.window="closeManualMetadataDialog()" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel dialog-panel p-6 max-w-3xl w-full max-h-[88vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="手动刮削元数据" tabindex="-1">
+    <div class="app-panel dialog-panel p-6 max-w-3xl w-full max-h-[88vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="手动刮削元数据" tabindex="-1" x-effect="if (showManualMetadataDialog) $nextTick(() => $el.focus())">
           <div class="flex flex-col sm:flex-row gap-3 sm:items-start sm:justify-between mb-5">
             <div>
               <h3 class="text-xl font-bold text-text">手动刮削元数据</h3>
@@ -2311,12 +2320,12 @@
 
           <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-4">
             <div class="sm:col-span-2">
-              <label class="field-label">搜索关键词</label>
-              <input type="text" x-model="manualMetadataQuery" @keydown.enter.prevent="searchManualMetadata()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" />
+              <label class="field-label" for="field-manualmetadataquery">搜索关键词</label>
+              <input type="text" x-model="manualMetadataQuery" @keydown.enter.prevent="searchManualMetadata()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-manualmetadataquery"/>
             </div>
             <div>
-              <label class="field-label">媒体类型</label>
-              <select x-model="manualMetadataMediaType" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text">
+              <label class="field-label" for="field-manualmetadatamediatype">媒体类型</label>
+              <select x-model="manualMetadataMediaType" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" id="field-manualmetadatamediatype">
                 <option value="movie">电影</option>
                 <option value="series">连续剧</option>
                 <option value="anime">动画</option>
@@ -2351,7 +2360,7 @@
 
   <!-- Aria2 下载目录选择对话框 -->
   <div x-show="showAria2DirDialog" @click.self="showAria2DirDialog = false" @keydown.escape.window="showAria2DirDialog = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-[60]" style="display: none;">
-    <div class="app-panel dialog-panel p-6 max-w-2xl w-full max-h-[88vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="选择 Aria2 下载目录" tabindex="-1">
+    <div class="app-panel dialog-panel p-6 max-w-2xl w-full max-h-[88vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="选择 Aria2 下载目录" tabindex="-1" x-effect="if (showAria2DirDialog) $nextTick(() => $el.focus())">
       <div class="flex flex-col sm:flex-row gap-3 sm:items-start sm:justify-between mb-4">
         <div>
           <h3 class="text-xl font-bold text-text">选择 Aria2 下载目录</h3>
@@ -2389,7 +2398,7 @@
 
   <!-- 订阅配置对话框 -->
   <div x-show="showSubscriptionDialog" @click.self="showSubscriptionDialog = false" @keydown.escape.window="showSubscriptionDialog = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel dialog-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="订阅配置" tabindex="-1">
+    <div class="app-panel dialog-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="订阅配置" tabindex="-1" x-effect="if (showSubscriptionDialog) $nextTick(() => $el.focus())">
       <h3 class="text-xl font-bold text-text mb-6" x-text="subscriptionEditingId ? '编辑订阅' : '创建订阅'"></h3>
 
       <!-- 步骤导航（唯一入口，不再重复 Tab） -->
@@ -2404,8 +2413,8 @@
 
       <!-- 订阅模式选择 -->
       <div x-show="!subscriptionEditingId" class="mb-6">
-        <label class="block text-sm font-medium text-text/80 mb-3">订阅类型</label>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div class="block text-sm font-medium text-text/80 mb-3" id="field-subscription-mode">订阅类型</div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" role="group" aria-labelledby="field-subscription-mode">
           <button type="button" @click="setSubscriptionMode('once')" :class="subscriptionMode === 'once' ? 'bg-primary/20 border-primary' : 'bg-surface-2 border-border hover:border-border'" class="p-4 rounded-lg border transition-all text-left">
             <div class="text-text font-semibold mb-1">仅转存一次</div>
             <div class="text-sm text-muted">立即转存到网盘，不创建订阅记录</div>
@@ -2420,22 +2429,22 @@
       <div class="space-y-4 mb-6">
         <div x-show="subscriptionDialogTab === 'content'" class="space-y-4">
           <div>
-            <label class="flex items-center justify-between gap-2 text-sm font-medium text-text/80 mb-2">
+            <label for="field-newsubscription-title" class="flex items-center justify-between gap-2 text-sm font-medium text-text/80 mb-2">
               <span>订阅名称</span>
               <button type="button" @click="applyMagicTitleMatch()" class="text-xs text-primary hover:text-primary">智能识别剧名</button>
             </label>
-            <input type="text" x-model="newSubscription.title" @input="updateSubscriptionDefaults()" @blur="applyMagicTitleMatch({silent: true})" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="分享标题会自动清理为干净剧名，便于刮削" />
+            <input type="text" x-model="newSubscription.title" @input="updateSubscriptionDefaults()" @blur="applyMagicTitleMatch({silent: true})" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="分享标题会自动清理为干净剧名，便于刮削" / id="field-newsubscription-title">
             <p class="text-xs text-muted/75 mt-1">会自动去掉字幕组、画质、季标等噪声，并尝试匹配 TMDB 元数据。</p>
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-text/80 mb-2">分享链接</label>
-            <input type="text" x-model="newSubscription.url" @change="detectSubscriptionSeasons()" @blur="detectSubscriptionSeasons()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="粘贴夸克分享链接" />
+            <label class="block text-sm font-medium text-text/80 mb-2" for="field-newsubscription-url">分享链接</label>
+            <input type="text" x-model="newSubscription.url" @change="detectSubscriptionSeasons()" @blur="detectSubscriptionSeasons()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="粘贴夸克分享链接"  id="field-newsubscription-url"/>
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-text/80 mb-2">提取码</label>
-            <input type="text" x-model="newSubscription.password" @change="detectSubscriptionSeasons()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="没有可留空" />
+            <label class="block text-sm font-medium text-text/80 mb-2" for="field-newsubscription-password">提取码</label>
+            <input type="text" x-model="newSubscription.password" @change="detectSubscriptionSeasons()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="没有可留空"  id="field-newsubscription-password"/>
           </div>
 
           <div x-show="subscriptionEditingId && subscriptionSourceChanged()" class="app-panel-soft p-4 space-y-3">
@@ -2492,8 +2501,8 @@
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-text/80 mb-2">媒体类型</label>
-            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div class="block text-sm font-medium text-text/80 mb-2" id="field-media-type">媒体类型</div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2" role="group" aria-labelledby="field-media-type">
               <button @click="setSubscriptionMediaType('movie')" :class="newSubscription.media_type === 'movie' ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors">电影</button>
               <button @click="setSubscriptionMediaType('series')" :class="newSubscription.media_type === 'series' ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors">连续剧</button>
               <button @click="setSubscriptionMediaType('anime')" :class="newSubscription.media_type === 'anime' ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors">动画</button>
@@ -2505,7 +2514,7 @@
 
           <div x-show="newSubscription.media_type !== 'movie'">
             <div class="flex items-center justify-between gap-2 mb-2">
-              <label class="block text-sm font-medium text-text/80">季号</label>
+              <div class="block text-sm font-medium text-text/80" id="field-season">季号</div>
               <button type="button" @click="detectSubscriptionSeasons()" :disabled="subscriptionSeasonsDetecting" class="text-xs text-primary hover:text-primary disabled:opacity-50">
                 <span x-text="subscriptionSeasonsDetecting ? '探测中…' : (subscriptionSeasonsDetected ? '重新探测季度' : '探测该分享的季度')"></span>
               </button>
@@ -2526,14 +2535,14 @@
             <p x-show="subscriptionSeasonsDetected && subscriptionSeasons.length > 1" class="text-xs text-muted/75 mb-2" x-text="subscriptionSeasonsMessage + '，点击勾选要订阅的季度（可跳季，如只选 S1 和 S3）' + (subscriptionSeasonsUnspecified > 0 ? '；另有 ' + subscriptionSeasonsUnspecified + ' 个未带季度标记的文件' : '')"></p>
             <p x-show="subscriptionSeasonsDetected && !subscriptionSeasons.length" class="text-xs text-warning mb-2" x-text="subscriptionSeasonsMessage"></p>
             <p x-show="subscriptionSeasonsError" class="text-xs text-danger mb-2" x-text="subscriptionSeasonsError"></p>
-            <input type="text" x-model="newSubscription.season_input" @change="syncSeasonInputFromRemote()" @blur="syncSeasonInputFromRemote()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="1 或 1-4（检测不到季度时手动填写）" />
+            <input type="text" x-model="newSubscription.season_input" aria-label="季号，支持 1、1-4、1,3 等写法" @change="syncSeasonInputFromRemote()" @blur="syncSeasonInputFromRemote()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="1 或 1-4（检测不到季度时手动填写）" />
             <p class="text-xs text-muted/75 mt-1">勾选检测到的季度会自动覆盖手填值，支持跳季（只勾 S1、S3 时 S2 不会转存）；也可以手动填 <code class="text-text/80">1</code>、<code class="text-text/80">1-4</code> 或 <code class="text-text/80">1,3</code>。多季时目标目录只写剧名，转存按文件自动进入 Season N。</p>
           </div>
 
           <div x-show="subscriptionMode === 'continuous' || subscriptionEditingId" class="space-y-4">
             <div x-show="newSubscription.media_type !== 'movie'">
-              <label class="block text-sm font-medium text-text/80 mb-2">从第几集开始转存</label>
-              <input type="number" min="1" x-model="newSubscription.start_episode_number" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="留空不限制，例如：13" />
+              <label class="block text-sm font-medium text-text/80 mb-2" for="field-newsubscription-start-episode-number">从第几集开始转存</label>
+              <input type="number" min="1" x-model="newSubscription.start_episode_number" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="留空不限制，例如：13"  id="field-newsubscription-start-episode-number"/>
               <p class="text-xs text-muted/75 mt-1">低于该集数的新增文件会记为已知，但不会通知或自动转存。</p>
             </div>
 
@@ -2566,8 +2575,8 @@
             </div>
             <div class="flex flex-col sm:flex-row sm:items-end gap-3">
               <div class="flex-1 min-w-0">
-                <label class="field-label">规则预设</label>
-                <select x-model="newSubscription.rule_preset_id" @change="applyRulePresetToSubscription(newSubscription.rule_preset_id)" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
+                <label class="field-label" for="field-newsubscription-rule-preset-id">规则预设</label>
+                <select x-model="newSubscription.rule_preset_id" @change="applyRulePresetToSubscription(newSubscription.rule_preset_id)" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" id="field-newsubscription-rule-preset-id">
                   <option value="">不使用预设</option>
                   <template x-for="preset in rulePresets" :key="preset.id">
                     <option :value="preset.id" x-text="preset.name"></option>
@@ -2582,37 +2591,37 @@
             <summary class="cursor-pointer text-sm font-medium text-text/80 hover:text-text">本订阅覆盖设置（可选）</summary>
             <div class="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div>
-                <label class="flex items-center justify-between text-sm font-medium text-text/80 mb-2">
-                  <span>转存目录</span>
+                <div class="flex items-center justify-between text-sm font-medium text-text/80 mb-2">
+                  <span id="field-target-dir">转存目录</span>
                   <button type="button" @click="newSubscription.custom_dir = !newSubscription.custom_dir" class="text-xs text-primary hover:text-primary">
                     <span x-text="newSubscription.custom_dir ? '使用默认' : '自定义'"></span>
                   </button>
-                </label>
-                <div x-show="!newSubscription.custom_dir" class="p-3 bg-app rounded-lg border border-border text-sm">
+                </div>
+                <div x-show="!newSubscription.custom_dir" role="group" aria-labelledby="field-target-dir" class="p-3 bg-app rounded-lg border border-border text-sm">
                   <span class="text-muted">自动：</span>
                   <span class="text-success" x-text="getDefaultTargetDir()"></span>
                 </div>
                 <div x-show="newSubscription.custom_dir" class="space-y-2">
                   <div class="flex gap-2">
-                    <input type="text" x-model="newSubscription.target_dir_name" class="flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="目录名称或完整路径，例如：庆余年 (2024)" />
+                    <input type="text" x-model="newSubscription.target_dir_name" aria-label="自定义转存目录名" class="flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="目录名称或完整路径，例如：庆余年 (2024)" />
                     <button type="button" @click="browseTargetDir()" class="btn-secondary px-3 py-2 rounded-lg text-sm whitespace-nowrap">浏览网盘</button>
                   </div>
                   <p class="text-xs text-muted/75">单季落到 Season N；多季只写剧名，转存时自动创建 Season 文件夹。</p>
                 </div>
               </div>
               <div>
-                <label class="flex items-center justify-between text-sm font-medium text-text/80 mb-2">
-                  <span>重命名模板</span>
+                <div class="flex items-center justify-between text-sm font-medium text-text/80 mb-2">
+                  <span id="field-rename-template">重命名模板</span>
                   <button type="button" @click="newSubscription.custom_rename = !newSubscription.custom_rename" class="text-xs text-primary hover:text-primary">
                     <span x-text="newSubscription.custom_rename ? '使用默认' : '自定义'"></span>
                   </button>
-                </label>
-                <div x-show="!newSubscription.custom_rename" class="p-3 bg-app rounded-lg border border-border text-sm">
+                </div>
+                <div x-show="!newSubscription.custom_rename" role="group" aria-labelledby="field-rename-template" class="p-3 bg-app rounded-lg border border-border text-sm">
                   <span class="text-muted">自动：</span>
                   <span class="text-success" x-text="getDefaultRenameTemplate()"></span>
                 </div>
                 <div x-show="newSubscription.custom_rename" class="space-y-2">
-                  <input type="text" x-model="newSubscription.rename_template" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="例如：{title}.S{season}E{episode}.{ext}" />
+                  <input type="text" x-model="newSubscription.rename_template" aria-label="自定义重命名模板" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="例如：{title}.S{season}E{episode}.{ext}" />
                   <p class="text-xs text-muted/75">支持 <code class="text-text/80">{title}</code>、<code class="text-text/80">{season}</code>、<code class="text-text/80">{episode}</code>、<code class="text-text/80">{ext}</code>。</p>
                 </div>
               </div>
@@ -2621,12 +2630,12 @@
             <div class="mt-4 space-y-3">
               <div class="text-xs font-medium text-muted/80">过滤与识别</div>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div><label class="field-label">包含关键词</label><input type="text" x-model="newSubscription.include_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="多个用逗号或换行分隔" /></div>
-                <div><label class="field-label">排除关键词</label><input type="text" x-model="newSubscription.exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="预告, 花絮, trailer" /></div>
-                <div><label class="field-label">匹配正则</label><input type="text" x-model="newSubscription.match_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：S01E\\d+|第\\d+集" /></div>
+                <div><label class="field-label" for="field-newsubscription-include-keywords-text">包含关键词</label><input type="text" x-model="newSubscription.include_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="多个用逗号或换行分隔"  id="field-newsubscription-include-keywords-text"/></div>
+                <div><label class="field-label" for="field-newsubscription-exclude-keywords-text">排除关键词</label><input type="text" x-model="newSubscription.exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="预告, 花絮, trailer"  id="field-newsubscription-exclude-keywords-text"/></div>
+                <div><label class="field-label" for="field-newsubscription-match-regex">匹配正则</label><input type="text" x-model="newSubscription.match_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：S01E\\d+|第\\d+集"  id="field-newsubscription-match-regex"/></div>
                 <div>
-                  <label class="field-label">集数识别覆盖正则</label>
-                  <input type="text" x-model="newSubscription.episode_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：\\[(?P&lt;episode&gt;\\d+)\\]" />
+                  <label class="field-label" for="field-newsubscription-episode-regex">集数识别覆盖正则</label>
+                  <input type="text" x-model="newSubscription.episode_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：\\[(?P&lt;episode&gt;\\d+)\\]"  id="field-newsubscription-episode-regex"/>
                   <small class="field-help">须含命名捕获 episode，可选 season。</small>
                 </div>
               </div>
@@ -2635,18 +2644,18 @@
             <div class="mt-4 space-y-3">
               <div class="text-xs font-medium text-muted/80">换源与进度</div>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div><label class="field-label">换源搜索关键词</label><input type="text" x-model="newSubscription.source_search_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="多个关键词用逗号分隔" /></div>
-                <div><label class="field-label">候选排除词</label><input type="text" x-model="newSubscription.source_exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" /></div>
-                <div><label class="field-label">候选质量偏好</label><input type="text" x-model="newSubscription.source_prefer_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="2160p, 简中, HEVC" /></div>
-                <div><label class="field-label">完成集数</label><input type="number" min="1" x-model="newSubscription.finish_after_episode" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：12" /></div>
+                <div><label class="field-label" for="field-newsubscription-source-search-keywords-text">换源搜索关键词</label><input type="text" x-model="newSubscription.source_search_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="多个关键词用逗号分隔"  id="field-newsubscription-source-search-keywords-text"/></div>
+                <div><label class="field-label" for="field-newsubscription-source-exclude-keywords-text">候选排除词</label><input type="text" x-model="newSubscription.source_exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text"  id="field-newsubscription-source-exclude-keywords-text"/></div>
+                <div><label class="field-label" for="field-newsubscription-source-prefer-keywords-text">候选质量偏好</label><input type="text" x-model="newSubscription.source_prefer_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="2160p, 简中, HEVC"  id="field-newsubscription-source-prefer-keywords-text"/></div>
+                <div><label class="field-label" for="field-newsubscription-finish-after-episode">完成集数</label><input type="number" min="1" x-model="newSubscription.finish_after_episode" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：12"  id="field-newsubscription-finish-after-episode"/></div>
                 <div>
-                  <label class="field-label">检查间隔（分钟）</label>
-                  <input type="number" min="5" step="5" x-model.number="newSubscription.check_interval_minutes" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="默认跟随全局设置" />
+                  <label class="field-label" for="field-newsubscription-check-interval-minutes">检查间隔（分钟）</label>
+                  <input type="number" min="5" step="5" x-model.number="newSubscription.check_interval_minutes" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="默认跟随全局设置"  id="field-newsubscription-check-interval-minutes"/>
                   <small class="field-help">仅本订阅；手动检查不受此限制。</small>
                 </div>
                 <div>
-                  <label class="field-label">同集保留策略</label>
-                  <select x-model="newSubscription.duplicate_episode_strategy" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
+                  <label class="field-label" for="field-newsubscription-duplicate-episode-strategy">同集保留策略</label>
+                  <select x-model="newSubscription.duplicate_episode_strategy" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" id="field-newsubscription-duplicate-episode-strategy">
                     <option value="highest_quality">清晰度最高</option>
                     <option value="latest_upload">上传时间最新</option>
                     <option value="largest_size">文件最大</option>
@@ -2654,15 +2663,15 @@
                   </select>
                 </div>
                 <div>
-                  <label class="field-label">目标同名冲突</label>
-                  <select x-model="newSubscription.conflict_strategy" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text">
+                  <label class="field-label" for="field-newsubscription-conflict-strategy">目标同名冲突</label>
+                  <select x-model="newSubscription.conflict_strategy" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" id="field-newsubscription-conflict-strategy">
                     <option value="skip">跳过已有文件</option>
                     <option value="overwrite">覆盖已有文件</option>
                     <option value="keep_both">保留两份</option>
                   </select>
                 </div>
-                <div><label class="field-label">重命名正则</label><input type="text" x-model="newSubscription.rename_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：^\\d+\\." /></div>
-                <div><label class="field-label">替换文本</label><input type="text" x-model="newSubscription.rename_replacement" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：S01E$0" /></div>
+                <div><label class="field-label" for="field-newsubscription-rename-regex">重命名正则</label><input type="text" x-model="newSubscription.rename_regex" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：^\\d+\\."  id="field-newsubscription-rename-regex"/></div>
+                <div><label class="field-label" for="field-newsubscription-rename-replacement">替换文本</label><input type="text" x-model="newSubscription.rename_replacement" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="例如：S01E$0"  id="field-newsubscription-rename-replacement"/></div>
               </div>
             </div>
 
@@ -2711,7 +2720,7 @@
                     <span class="text-xs text-muted/70 shrink-0" x-text="isRenamePreviewSeasonCollapsed(group.key) ? '展开' : '收起'"></span>
                   </button>
                   <div x-show="!isRenamePreviewSeasonCollapsed(group.key)" class="border-t border-border">
-                    <div class="hidden md:grid grid-cols-12 gap-2 px-3 py-2 bg-panel text-xs text-muted/75">
+                    <div class="hidden md:grid grid-cols-12 gap-2 px-3 py-2 bg-surface-2 text-xs text-muted/75">
                       <div class="col-span-4">原文件名</div>
                       <div class="col-span-4">目标文件名</div>
                       <div class="col-span-2">集数</div>
@@ -2744,9 +2753,9 @@
             </label>
             <div x-show="newSubscription.sync_download_enabled" class="space-y-3">
               <div>
-                <label class="field-label">下载地址</label>
+                <label class="field-label" for="field-newsubscription-sync-download-dir">下载地址</label>
                 <div class="flex gap-2">
-                  <input type="text" x-model="newSubscription.sync_download_dir" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" :placeholder="aria2DirForMediaType() || '/downloads/剧集/Season 1'" />
+                  <input type="text" x-model="newSubscription.sync_download_dir" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" :placeholder="aria2DirForMediaType() || '/downloads/剧集/Season 1'"  id="field-newsubscription-sync-download-dir"/>
                   <button type="button" @click="openAria2DirBrowser()" class="btn-secondary px-4 py-2 rounded-lg text-sm whitespace-nowrap">浏览</button>
                 </div>
                 <p class="text-xs text-muted/75 mt-1">预期下载目录：<span class="text-success break-all" x-text="resolvedSubscriptionAria2Dir() || '未配置（使用 Aria2 默认目录）'"></span></p>
@@ -2772,16 +2781,16 @@
 
   <!-- 统一危险操作确认 -->
   <div x-show="showDangerConfirmDialog" @click.self="resolveDangerConfirmation(false)" class="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4" style="display:none">
-    <div class="app-panel dialog-panel w-full max-w-lg p-6" role="alertdialog" aria-modal="true" :aria-label="dangerConfirmTitle" tabindex="-1" @keydown.tab="trapDialogFocus($event)">
+    <div class="app-panel dialog-panel w-full max-w-lg p-6" role="alertdialog" aria-modal="true" :aria-label="dangerConfirmTitle" tabindex="-1" @keydown.tab="trapDialogFocus($event)" x-effect="if (!canGoNextSubscriptionStep()) $nextTick(() => $el.focus())">
       <h3 class="text-xl font-bold text-danger" x-text="dangerConfirmTitle"></h3><p class="mt-3 text-sm text-text/80" x-text="dangerConfirmMessage"></p>
-      <div x-show="dangerConfirmPhrase" class="mt-4"><label class="field-label" x-text="'输入 ' + dangerConfirmPhrase + ' 以确认'"></label><input x-ref="dangerConfirmInput" x-model="dangerConfirmInput" @keydown.enter.prevent="resolveDangerConfirmation(true)" class="app-input w-full" /></div>
+      <div x-show="dangerConfirmPhrase" class="mt-4"><label class="field-label" x-text="'输入 ' + dangerConfirmPhrase + ' 以确认'" for="field-dangerconfirminput"></label><input x-ref="dangerConfirmInput" x-model="dangerConfirmInput" @keydown.enter.prevent="resolveDangerConfirmation(true)" class="app-input w-full"  id="field-dangerconfirminput"/></div>
       <div class="mt-5 flex justify-end gap-2"><button @click="resolveDangerConfirmation(false)" class="btn-secondary px-4 py-2">取消</button><button @click="resolveDangerConfirmation(true)" :disabled="!dangerConfirmationReady()" class="btn-danger px-4 py-2 disabled:opacity-40">确认执行</button></div>
     </div>
   </div>
 
   <!-- 后台任务详情 -->
   <div x-show="showJobDetailDialog" @click.self="showJobDetailDialog = false" @keydown.escape.window="showJobDetailDialog = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel dialog-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="后台任务详情" tabindex="-1">
+    <div class="app-panel dialog-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="后台任务详情" tabindex="-1" x-effect="if (showJobDetailDialog) $nextTick(() => $el.focus())">
       <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
         <div class="min-w-0">
           <h3 class="text-xl font-bold text-text break-all" x-text="selectedJob ? selectedJob.title : '任务详情'"></h3>
@@ -2833,29 +2842,29 @@
     </div>
   </div>
   <!-- Alpine.js 应用逻辑 -->
-  <script src="js/core/api.js?v=2.7.1"></script>
-  <script src="js/core/formatters.js?v=2.7.1"></script>
-  <script src="js/core/ux.js?v=2.7.1"></script>
-  <script src="js/features/search-results.js?v=2.7.1"></script>
-  <script src="js/features/subscription-detail.js?v=2.7.1"></script>
-  <script src="js/features/calendar.js?v=2.7.1"></script>
-  <script src="js/features/source-switch.js?v=2.7.1"></script>
-  <script src="js/features/automation-events.js?v=2.7.1"></script>
-  <script src="js/core/polling.js?v=2.7.1"></script>
-  <script src="js/core/router.js?v=2.7.1"></script>
-  <script src="js/core/notifications.js?v=2.7.1"></script>
-  <script src="js/stores/downloads.js?v=2.7.1"></script>
-  <script src="js/stores/drive.js?v=2.7.1"></script>
-  <script src="js/stores/jobs.js?v=2.7.1"></script>
-  <script src="js/stores/subscriptions.js?v=2.7.1"></script>
-  <script src="js/features/updates.js?v=2.7.1"></script>
-  <script src="js/features/settings.js?v=2.7.1"></script>
-  <script src="js/features/diagnostics.js?v=2.7.1"></script>
-  <script src="js/features/pwa.js?v=2.7.1"></script>
-  <script src="js/features/dashboard.js?v=2.7.1"></script>
-  <script src="js/features/search-page.js?v=2.7.1"></script>
-  <script src="js/features/calendar-page.js?v=2.7.1"></script>
-  <script src="js/core/shell.js?v=2.7.1"></script>
-  <script src="app.js?v=2.7.1"></script>
+  <script src="js/core/api.js?v=2.7.2"></script>
+  <script src="js/core/formatters.js?v=2.7.2"></script>
+  <script src="js/core/ux.js?v=2.7.2"></script>
+  <script src="js/features/search-results.js?v=2.7.2"></script>
+  <script src="js/features/subscription-detail.js?v=2.7.2"></script>
+  <script src="js/features/calendar.js?v=2.7.2"></script>
+  <script src="js/features/source-switch.js?v=2.7.2"></script>
+  <script src="js/features/automation-events.js?v=2.7.2"></script>
+  <script src="js/core/polling.js?v=2.7.2"></script>
+  <script src="js/core/router.js?v=2.7.2"></script>
+  <script src="js/core/notifications.js?v=2.7.2"></script>
+  <script src="js/stores/downloads.js?v=2.7.2"></script>
+  <script src="js/stores/drive.js?v=2.7.2"></script>
+  <script src="js/stores/jobs.js?v=2.7.2"></script>
+  <script src="js/stores/subscriptions.js?v=2.7.2"></script>
+  <script src="js/features/updates.js?v=2.7.2"></script>
+  <script src="js/features/settings.js?v=2.7.2"></script>
+  <script src="js/features/diagnostics.js?v=2.7.2"></script>
+  <script src="js/features/pwa.js?v=2.7.2"></script>
+  <script src="js/features/dashboard.js?v=2.7.2"></script>
+  <script src="js/features/search-page.js?v=2.7.2"></script>
+  <script src="js/features/calendar-page.js?v=2.7.2"></script>
+  <script src="js/core/shell.js?v=2.7.2"></script>
+  <script src="app.js?v=2.7.2"></script>
 </body>
 </html>

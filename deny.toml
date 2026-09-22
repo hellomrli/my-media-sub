@@ -1,0 +1,70 @@
+# cargo-deny 配置：许可证合规、依赖来源、重复依赖与安全公告。
+#
+# 为什么需要它：CI 之前只跑 RustSec advisory 检查（rustsec/audit-check），
+# 370 个 crate 的**许可证**从未被审计过，依赖来源也没有白名单约束。
+# 见 docs/code-review-2026-09-21.md 的 P3-10。
+#
+# 本地运行：cargo deny check
+# CI 运行：见 .github/workflows/ci.yml 的 "Audit dependency licenses and sources"。
+
+[advisories]
+version = 2
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# 当前**没有任何例外**。
+#
+# 历史上唯一一条是 `RUSTSEC-2023-0071`（rsa 0.9 的 Marvin 计时侧信道，上游无修复
+# 版本），它完全由 `web-push` 依赖链引入：
+#   rsa <- superboring <- jwt-simple <- web-push
+# v2.7.2 把 Web Push 换成自实现（`src/services/web_push.rs`：`ece` 的分组框架
+# + `p256`/`ring` 的密码学后端），`web-push`/`isahc`/`curl-sys`/`libnghttp2-sys`/
+# `libz-sys`/`superboring`/`jwt-simple`/`rsa` 全部从依赖树消失，例外随之删除。
+# 详见 docs/security-audit.md。
+# ignore 保持为空：出现新公告时优先升级依赖，而不是加例外。
+ignore = []
+
+[licenses]
+version = 2
+# 允许的许可证。全部为宽松许可证或弱 copyleft；逐条说明少数非 MIT/Apache 的项。
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT-0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "0BSD",
+    "Zlib",
+    "BSL-1.0",
+    "CC0-1.0",
+    "Unlicense",
+    # ICU4X 系列（经 idna/url 引入）使用 Unicode 许可证，宽松。
+    "Unicode-3.0",
+    # Mozilla 根证书数据（webpki-roots），宽松的数据许可证。
+    "CDLA-Permissive-2.0",
+    # 仅 ece 一个 crate 使用 MPL-2.0：文件级弱 copyleft，只要不修改其源文件
+    # 就没有额外义务。本项目只以依赖形式使用它，未做任何修改。
+    "MPL-2.0",
+]
+# 有多个可选许可证时优先选宽松的那个（例如 "MIT OR Apache-2.0 OR LGPL-2.1-or-later"）。
+confidence-threshold = 0.9
+
+[bans]
+# 重复依赖先只告警：当前有多组重复（base64 0.13/0.22、getrandom 等），
+# 其中大部分由 web-push 依赖链引入。直接 deny 会立刻阻塞 CI，
+# 而移除 web-push（roadmap P23-12）后应显著减少，届时可改为 deny。
+multiple-versions = "warn"
+wildcards = "deny"
+# 关键基础设施不允许出现第二份实现（同一 crate 的多个大版本共存会放大
+# 安全公告的影响面，也说明依赖树里有未收敛的传递依赖）。
+deny = [
+    # 只允许一份 rustls / ring 实现，避免出现第二套 TLS 栈。
+    { name = "ring", deny-multiple-versions = true },
+]
+
+[sources]
+# 本项目不使用任何 git 依赖，也未配置私有 registry；出现即说明依赖树被改动。
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

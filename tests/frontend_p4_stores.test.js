@@ -1,6 +1,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+// drive.js / downloads.js 在**模块加载时**就从 global.MediaSubApi 解构 apiData，
+// 因此必须在 require 之前装好一个可替换的转发桩，测试内再改 apiDataStub。
+let apiDataStub = async () => ({});
+global.MediaSubApi = {
+  apiData: (...args) => apiDataStub(...args),
+  apiFetch: async () => new Response('{}', {status: 200})
+};
+
 require('../static/js/core/formatters.js');
 const downloads = require('../static/js/stores/downloads.js');
 const drive = require('../static/js/stores/drive.js');
@@ -215,3 +223,100 @@ test('activity merge sorts jobs and notifications and supports source filters', 
   store.activityFilter = 'unread';
   assert.deepEqual(store.filteredActivityItems.map(item => item.id), ['notification:notice-1']);
 });
+
+// ─── 网盘破坏性操作：确认短语与拒绝路径 ──────────────────────────────────────
+//
+// drive store 的删除是**不可恢复**操作（服务端要求 `DELETE <fid>` 确认短语），
+// 而它此前 36 个方法里只有 3 个被测试引用，删除/重命名/批量删除全部零覆盖。
+
+function driveHarness(apiDataImpl) {
+  const confirmations = [];
+  const notifications = [];
+  const refreshes = [];
+  const store = drive.createStore();
+  store.settings = {};
+  store.requestDangerConfirmation = async request => { confirmations.push(request); return true; };
+  store.showNotification = (type, message) => notifications.push({type, message});
+  store.apiErrorMessage = (error, fallback) => (error && error.message) || fallback;
+  store.loadDrive = async full => { refreshes.push(full); };
+  store.mediaFormatters = {formatBytes: value => String(value)};
+  apiDataStub = apiDataImpl;
+  return {store, confirmations, notifications, refreshes};
+}
+
+test('deleting a drive item requires a DELETE confirmation and sends the exact phrase', async () => {
+  const calls = [];
+  const {store, confirmations, notifications, refreshes} = driveHarness(async (url, options) => {
+    calls.push({url, body: JSON.parse(options.body)});
+    return {success: true, message: '已删除'};
+  });
+
+  await store.deleteDriveItem({fid: 'fid-1', file_name: '旧剧集.mkv'});
+
+  assert.deepEqual(confirmations, [{
+    title: '删除网盘项目',
+    message: '将永久删除 旧剧集.mkv。',
+    phrase: 'DELETE'
+  }]);
+  assert.deepEqual(calls, [{
+    url: '/api/drive/delete',
+    body: {fids: ['fid-1'], confirmation: 'DELETE fid-1'}
+  }]);
+  assert.deepEqual(notifications, [{type: 'success', message: '已删除'}]);
+  assert.deepEqual(refreshes, [true], '删除后必须刷新列表');
+});
+
+test('canceling the drive delete confirmation sends nothing', async () => {
+  let called = false;
+  const {store} = driveHarness(async () => { called = true; return {}; });
+  store.requestDangerConfirmation = async () => false;
+
+  await store.deleteDriveItem({fid: 'fid-1', file_name: 'x.mkv'});
+  assert.equal(called, false, '用户在确认框取消后不得发起删除请求');
+});
+
+test('batch delete uses the count phrase and clears the selection', async () => {
+  const calls = [];
+  const {store, confirmations} = driveHarness(async (url, options) => {
+    calls.push(JSON.parse(options.body));
+    return {success: true, message: '已删除 2 项'};
+  });
+  store.driveSelectedItems = ['a', 'b'];
+  store.driveSelectMode = true;
+
+  await store.batchDeleteDrive();
+
+  assert.equal(confirmations[0].phrase, 'DELETE');
+  assert.deepEqual(calls, [{fids: ['a', 'b'], confirmation: 'DELETE 2'}]);
+  assert.deepEqual(store.driveSelectedItems, [], '删除后应清空选择');
+  assert.equal(store.driveSelectMode, false);
+});
+
+test('renaming a drive item to the same name is a no-op', async () => {
+  let called = false;
+  const {store} = driveHarness(async () => { called = true; return {}; });
+  global.prompt = () => '同名.mkv';
+
+  await store.renameDriveItem({fid: 'fid-1', file_name: '同名.mkv'});
+  assert.equal(called, false, '名称未变化时不应发起请求');
+});
+
+test('renaming a drive item sends fid, name and parent fid', async () => {
+  const calls = [];
+  const {store} = harnessRename(calls);
+  global.prompt = () => '新名字.mkv';
+  store.driveCurrentFid = 'parent-9';
+
+  await store.renameDriveItem({fid: 'fid-2', file_name: '旧名字.mkv'});
+  assert.deepEqual(calls, [{
+    url: '/api/drive/rename',
+    body: {fid: 'fid-2', name: '新名字.mkv', parent_fid: 'parent-9'}
+  }]);
+});
+
+function harnessRename(calls) {
+  return driveHarness(async (url, options) => {
+    calls.push({url, body: JSON.parse(options.body)});
+    return {success: true, message: '已重命名'};
+  });
+}

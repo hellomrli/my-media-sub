@@ -71,16 +71,43 @@ async fn endpoint_is_private(endpoint: &str) -> bool {
 
 fn is_private_ip(ip: &std::net::IpAddr) -> bool {
     match ip {
-        std::net::IpAddr::V4(v4) => {
-            v4.is_private() || v4.is_loopback() || v4.is_link_local() || v4.is_unspecified()
-        }
+        std::net::IpAddr::V4(v4) => is_private_v4(v4),
         std::net::IpAddr::V6(v6) => {
+            // IPv4-mapped 地址（`::ffff:127.0.0.1`、`::ffff:a9fe:a9fe`）必须按
+            // 内层 v4 判定：`Ipv6Addr::is_loopback()` 对 `::ffff:127.0.0.1` 返回
+            // false，旧实现因此会放行一个实际指向回环的端点。
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_private_v4(&v4);
+            }
             v6.is_loopback()
                 || v6.is_unspecified()
                 || v6.is_unique_local()
                 || v6.is_unicast_link_local()
+                // 组播以及可解出内层 v4 的隧道地址同样按不安全处理
+                || v6.is_multicast()
+                || v6.to_ipv4().is_some_and(|v4| is_private_v4(&v4))
         }
     }
+}
+
+fn is_private_v4(v4: &std::net::Ipv4Addr) -> bool {
+    let octets = v4.octets();
+    v4.is_private()
+        || v4.is_loopback()
+        || v4.is_link_local()
+        || v4.is_unspecified()
+        || v4.is_broadcast()
+        || v4.is_documentation()
+        // 0.0.0.0/8 "this network"
+        || octets[0] == 0
+        // CGNAT 100.64.0.0/10（运营商级 NAT，常映射到内网服务）
+        || (octets[0] == 100 && (octets[1] & 0xc0) == 64)
+        // 192.0.0.0/24 IETF 协议分配
+        || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
+        // 198.18.0.0/15 基准测试网段
+        || (octets[0] == 198 && (octets[1] & 0xfe) == 18)
+        // 224.0.0.0/4 组播与 240.0.0.0/4 保留
+        || octets[0] >= 224
 }
 
 async fn subscribe_browser_push(
@@ -122,7 +149,7 @@ async fn subscribe_browser_push(
             if settings.browser_push_subscriptions.len() > 20 {
                 settings
                     .browser_push_subscriptions
-                    .drain(0..settings.browser_push_subscriptions.len() - 20);
+                    .drain(0..settings.browser_push_subscriptions.len().saturating_sub(20));
             }
         })
         .await?;
@@ -498,4 +525,77 @@ pub fn routes(
         )
         .route("/api/push/status", axum::routing::get(push_status))
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    fn v4(value: &str) -> IpAddr {
+        IpAddr::V4(value.parse::<Ipv4Addr>().unwrap())
+    }
+
+    /// 回归测试：IPv4-mapped IPv6 必须按内层 v4 判定。
+    /// 旧实现只调用 v6 的 is_loopback()/is_unicast_link_local()，对
+    /// `::ffff:127.0.0.1` 与 `::ffff:a9fe:a9fe`（169.254.169.254，云元数据）
+    /// 都返回 false，于是这些端点会被放行。
+    #[test]
+    fn ipv4_mapped_ipv6_is_classified_by_its_inner_address() {
+        for mapped in [
+            "::ffff:127.0.0.1",
+            "::ffff:169.254.169.254",
+            "::ffff:10.0.0.1",
+            "::ffff:192.168.1.1",
+            "::ffff:100.64.0.1",
+        ] {
+            let address: Ipv6Addr = mapped.parse().unwrap();
+            assert!(
+                is_private_ip(&IpAddr::V6(address)),
+                "{mapped} 必须判定为私网/内网"
+            );
+        }
+    }
+
+    /// CGNAT、保留段与组播此前都不在过滤范围内。
+    #[test]
+    fn extended_ipv4_ranges_are_private() {
+        for address in [
+            "100.64.0.1",
+            "100.127.255.254",
+            "0.0.0.0",
+            "0.1.2.3",
+            "192.0.0.1",
+            "198.18.0.1",
+            "198.19.255.255",
+            "224.0.0.1",
+            "239.255.255.250",
+            "240.0.0.1",
+            "255.255.255.255",
+            "127.0.0.1",
+            "10.1.2.3",
+            "172.16.0.1",
+            "192.168.0.1",
+            "169.254.169.254",
+        ] {
+            assert!(is_private_ip(&v4(address)), "{address} 必须判定为私网/内网");
+        }
+    }
+
+    /// 公网地址不能被误伤，否则 Browser Push 会整体失效。
+    #[test]
+    fn public_addresses_are_allowed() {
+        for address in [
+            "8.8.8.8",
+            "1.1.1.1",
+            "100.63.255.255", // CGNAT 下边界之外
+            "100.128.0.1",    // CGNAT 上边界之外
+            "198.20.0.1",     // 基准测试网段之外
+            "223.255.255.255",
+            "2606:4700:4700::1111",
+        ] {
+            let parsed: IpAddr = address.parse().unwrap();
+            assert!(!is_private_ip(&parsed), "{address} 不应判定为私网");
+        }
+    }
 }

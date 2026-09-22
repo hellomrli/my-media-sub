@@ -81,17 +81,51 @@ impl MetadataService {
         media_type: &str,
         candidates: &[MediaMetadata],
     ) -> Option<MediaMetadata> {
+        Self::choose_best_match_with_year(query, media_type, None, candidates)
+    }
+
+    /// 同 [`Self::choose_best_match`]，但可带上从分享标题里提取的发行年份提示。
+    pub fn choose_best_match_with_year(
+        query: &str,
+        media_type: &str,
+        year: Option<i32>,
+        candidates: &[MediaMetadata],
+    ) -> Option<MediaMetadata> {
         candidates
             .iter()
             .filter(|item| media_type_compatible(media_type, &item.media_type))
-            .max_by_key(|item| metadata_score(query, item))
+            .max_by_key(|item| metadata_score_with_year(query, year, item))
             .cloned()
             .or_else(|| {
                 candidates
                     .iter()
-                    .max_by_key(|item| metadata_score(query, item))
+                    .max_by_key(|item| metadata_score_with_year(query, year, item))
                     .cloned()
             })
+    }
+
+    /// 按匹配得分把候选排序（高分在前），供搜索接口返回给前端；前端默认取第一项。
+    ///
+    /// TMDB 自己的排序偏向热度：搜 `三体` 会把评分更高的美版排在国产剧前面，
+    /// 而标题里若带 `2023` 就能区分。同名重启/翻拍（`鹿鼎记`、`射雕英雄传`）
+    /// 全靠年份区分。
+    pub fn rank_candidates(
+        query: &str,
+        media_type: Option<&str>,
+        year: Option<i32>,
+        mut candidates: Vec<MediaMetadata>,
+    ) -> Vec<MediaMetadata> {
+        candidates.sort_by_key(|item| {
+            let compatible = media_type
+                .map(|expected| media_type_compatible(expected, &item.media_type))
+                .unwrap_or(true);
+            // 类型不兼容的排在后面；同类内按得分降序
+            (
+                !compatible,
+                std::cmp::Reverse(metadata_score_with_year(query, year, item)),
+            )
+        });
+        candidates
     }
 
     /// 测试 TMDB API Key 是否可用（请求配置接口，不依赖具体搜索词）。
@@ -519,7 +553,29 @@ fn media_type_compatible(expected: &str, actual: &str) -> bool {
     }
 }
 
-fn metadata_score(query: &str, item: &MediaMetadata) -> i32 {
+/// 年份提示：与 `release_date` 同年加分、相差一年（跨年播出/上映地区差异）
+/// 小幅加分、相差更多则减分。权重低于精确标题匹配（100），高于 `contains`（40）
+/// 以外的软信号，这样同名翻拍之间由年份决胜，而不会让年份压过标题本身。
+fn year_score(year: Option<i32>, item: &MediaMetadata) -> i32 {
+    let Some(year) = year else {
+        return 0;
+    };
+    let Some(release_year) = item
+        .release_date
+        .as_deref()
+        .and_then(|date| date.get(..4))
+        .and_then(|value| value.parse::<i32>().ok())
+    else {
+        return 0;
+    };
+    match (release_year - year).abs() {
+        0 => 35,
+        1 => 10,
+        _ => -15,
+    }
+}
+
+fn metadata_score_with_year(query: &str, year: Option<i32>, item: &MediaMetadata) -> i32 {
     let query = normalize_title(query);
     let title = normalize_title(&item.title);
     let original_title = normalize_title(&item.original_title);
@@ -544,7 +600,7 @@ fn metadata_score(query: &str, item: &MediaMetadata) -> i32 {
         score -= 5;
     }
     score += item.vote_average.unwrap_or_default().round() as i32;
-    score
+    score + year_score(year, item)
 }
 
 impl Default for MetadataService {
@@ -601,6 +657,90 @@ mod tests {
 
         assert!(!result.success);
         assert!(result.message.contains("未配置 TMDB API Key"));
+    }
+
+    fn candidate(
+        id: &str,
+        title: &str,
+        media_type: &str,
+        release_date: Option<&str>,
+        vote: f32,
+    ) -> MediaMetadata {
+        MediaMetadata {
+            provider: MetadataProvider::Tmdb,
+            provider_id: id.to_string(),
+            title: title.to_string(),
+            original_title: title.to_string(),
+            media_type: media_type.to_string(),
+            overview: "overview".to_string(),
+            poster_url: Some("poster".to_string()),
+            backdrop_url: None,
+            release_date: release_date.map(str::to_string),
+            vote_average: Some(vote),
+            number_of_episodes: None,
+            number_of_seasons: None,
+            seasons: vec![],
+            next_episode_to_air: None,
+            episodes: vec![],
+        }
+    }
+
+    /// 同名翻拍只能靠年份区分：`射雕英雄传 (2017)` 不应匹配到 2003 版，
+    /// 哪怕后者评分更高；没有年份提示时保持旧行为（评分高者胜）。
+    #[test]
+    fn year_hint_breaks_ties_between_same_titled_remakes() {
+        let candidates = vec![
+            candidate("2003", "射雕英雄传", "series", Some("2003-10-01"), 8.9),
+            candidate("2017", "射雕英雄传", "series", Some("2017-01-09"), 8.0),
+            candidate("1983", "射雕英雄传", "series", Some("1983-02-28"), 9.2),
+        ];
+        let picked = MetadataService::choose_best_match_with_year(
+            "射雕英雄传",
+            "series",
+            Some(2017),
+            &candidates,
+        )
+        .unwrap();
+        assert_eq!(picked.provider_id, "2017");
+        // 相差一年（跨年播出）仍应优先于相差十几年
+        let picked = MetadataService::choose_best_match_with_year(
+            "射雕英雄传",
+            "series",
+            Some(2018),
+            &candidates,
+        )
+        .unwrap();
+        assert_eq!(picked.provider_id, "2017");
+        let picked =
+            MetadataService::choose_best_match("射雕英雄传", "series", &candidates).unwrap();
+        assert_eq!(picked.provider_id, "1983", "无年份提示时维持按评分选择");
+
+        // 年份不能压过标题：精确匹配的另一部剧不会因为年份输给同年的无关剧
+        let candidates = vec![
+            candidate("a", "三体", "series", Some("2023-01-15"), 8.7),
+            candidate("b", "三体之黑暗森林", "series", Some("2024-01-01"), 7.0),
+        ];
+        let picked =
+            MetadataService::choose_best_match_with_year("三体", "series", Some(2024), &candidates)
+                .unwrap();
+        assert_eq!(picked.provider_id, "a");
+
+        // rank_candidates：类型兼容的在前，同类内按得分降序
+        let ranked = MetadataService::rank_candidates(
+            "射雕英雄传",
+            Some("series"),
+            Some(2017),
+            vec![
+                candidate("movie", "射雕英雄传", "movie", Some("2017-01-01"), 9.9),
+                candidate("2003", "射雕英雄传", "series", Some("2003-10-01"), 8.9),
+                candidate("2017", "射雕英雄传", "series", Some("2017-01-09"), 8.0),
+            ],
+        );
+        let ids: Vec<&str> = ranked
+            .iter()
+            .map(|item| item.provider_id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["2017", "2003", "movie"]);
     }
 
     #[test]

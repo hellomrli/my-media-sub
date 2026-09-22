@@ -9,6 +9,13 @@ use std::fs;
 mod models;
 
 #[allow(dead_code)]
+#[path = "../src/stable_id.rs"]
+pub mod stable_id;
+
+// 该文件以 #[path] 直接编译，测试 crate 只用到其中一部分类型；
+// 与上面两个 #[path] 声明保持一致地关掉 dead_code，
+// 否则 clippy -D warnings 会在测试目标上因「未使用的 pub(crate) 方法」失败。
+#[allow(dead_code)]
 #[path = "../src/jobs/model.rs"]
 mod job_model;
 

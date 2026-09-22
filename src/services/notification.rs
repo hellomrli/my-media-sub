@@ -345,23 +345,31 @@ pub fn recover_digest_pending_on_startup(
     notification_store: Arc<NotificationStore>,
     job_queue: Option<Arc<JobQueue>>,
 ) {
-    tokio::spawn(async move {
-        let settings = settings_store.get().await;
-        if !settings.push_digest_enabled {
-            return;
-        }
-        let has_pending = notification_store.list(true).await.iter().any(|item| {
-            item.meta
-                .get("digest_pending")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-        });
-        if !has_pending {
-            return;
-        }
-        let delay = settings.push_digest_window_minutes.clamp(1, 1_440) as u64;
-        if schedule_digest_flush(settings_store, notification_store, job_queue, delay) {
-            info!("已恢复重启前遗留的通知摘要冲刷定时器");
+    // spawn_supervised：这段恢复逻辑 panic 会让存储里已标记 digest_pending 的
+    // 通知**永远不会被推送**——正是这个函数本身要修的 bug 的复现。
+    // 一次性任务被重启等价于重试一次，语义安全。
+    crate::utils::spawn_supervised("摘要待发通知启动恢复", move || {
+        let settings_store = settings_store.clone();
+        let notification_store = notification_store.clone();
+        let job_queue = job_queue.clone();
+        async move {
+            let settings = settings_store.get().await;
+            if !settings.push_digest_enabled {
+                return;
+            }
+            let has_pending = notification_store.list(true).await.iter().any(|item| {
+                item.meta
+                    .get("digest_pending")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            });
+            if !has_pending {
+                return;
+            }
+            let delay = settings.push_digest_window_minutes.clamp(1, 1_440) as u64;
+            if schedule_digest_flush(settings_store, notification_store, job_queue, delay) {
+                info!("已恢复重启前遗留的通知摘要冲刷定时器");
+            }
         }
     });
 }

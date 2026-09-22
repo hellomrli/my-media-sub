@@ -85,8 +85,8 @@ pub(crate) fn is_retryable(class: JobErrorClass) -> bool {
 pub(crate) fn retry_delay_seconds(job_id: &str, attempt: u32) -> i64 {
     let exponent = attempt.saturating_sub(1).min(6);
     let base = RETRY_BASE_SECONDS.saturating_mul(1_i64 << exponent);
-    let digest = md5::compute(format!("{job_id}:{attempt}"));
-    let jitter_percent = i64::from(digest.0[0] % 41) - 20; // ±20%，测试可复现。
+    let digest = crate::utils::stable_id_bytes(format!("{job_id}:{attempt}"));
+    let jitter_percent = i64::from(digest[0] % 41) - 20; // ±20%，测试可复现。
     (base + base * jitter_percent / 100).clamp(1, RETRY_MAX_SECONDS)
 }
 

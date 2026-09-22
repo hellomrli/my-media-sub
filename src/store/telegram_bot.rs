@@ -101,7 +101,13 @@ impl TelegramBotStore {
             }
             Err(error) => {
                 tracing::error!("Telegram Bot 状态损坏，已隔离并使用空状态: {error}");
-                quarantine_corrupt_file(&self.path);
+                let quarantined = quarantine_corrupt_file(&self.path);
+                crate::utils::ensure_quarantine_startup_allowed(
+                    "Telegram Bot 存储",
+                    &self.path,
+                    quarantined.as_deref(),
+                    &error.to_string(),
+                )?;
                 let state = TelegramBotPersistentState::default();
                 self.save(&state).await?;
                 *self.state.write().await = state;
@@ -177,7 +183,7 @@ impl TelegramBotStore {
             });
             state.user_sessions.push(session);
             if state.user_sessions.len() > 200 {
-                let remove = state.user_sessions.len() - 200;
+                let remove = state.user_sessions.len().saturating_sub(200);
                 state.user_sessions.drain(0..remove);
             }
         })
@@ -212,8 +218,15 @@ impl TelegramBotStore {
         // Telegram 会高频重投已处理过的 update/callback；未发生任何变更时
         // 跳过全文件重写，避免每次轮询都触发一次 fsync + rename。
         if snapshot != before {
-            self.save(&snapshot).await?;
-            *self.state.write().await = snapshot;
+            // 先更新内存再落盘，理由同 `SubscriptionStore::commit`：落盘不可取消，
+            // 「先落盘」在被 abort 时会留下「磁盘新、内存旧」，下一次写盘会整份
+            // 覆盖已落盘的会话状态。失败时回滚内存。
+            let previous = self.state.read().await.clone();
+            *self.state.write().await = snapshot.clone();
+            if let Err(error) = self.save(&snapshot).await {
+                *self.state.write().await = previous;
+                return Err(error);
+            }
         }
         Ok(result)
     }
@@ -238,7 +251,8 @@ fn trim_state(state: &mut TelegramBotPersistentState) {
 
 fn trim_front<T>(items: &mut Vec<T>, limit: usize) {
     if items.len() > limit {
-        items.drain(..items.len() - limit);
+        let keep = items.len().saturating_sub(limit);
+        items.drain(..keep);
     }
 }
 
@@ -329,13 +343,18 @@ mod tests {
         ));
         std::fs::write(&path, "{not-json").unwrap();
         let store = TelegramBotStore::new(&path);
-        store.load().await.unwrap();
+        // 默认策略：损坏的业务 Store 中止启动，而不是静默重建为空状态。
+        let error = store
+            .load()
+            .await
+            .expect_err("损坏的 Telegram Bot 存储必须中止启动");
+        assert!(
+            error.to_string().contains("ALLOW_QUARANTINE_STARTUP"),
+            "错误信息必须给出恢复路径与逃生舱: {error}"
+        );
         assert_eq!(store.audit_count().await, 0);
-        assert!(path.is_file());
-        assert!(serde_json::from_str::<serde_json::Value>(
-            &std::fs::read_to_string(&path).unwrap()
-        )
-        .is_ok());
+        // 原文件已被移走隔离，不会留下一个"看似正常"的空文件
+        assert!(!path.is_file(), "原文件必须已被移走隔离");
         let parent = path.parent().unwrap();
         let prefix = format!("{}.", path.file_name().unwrap().to_string_lossy());
         let quarantined = std::fs::read_dir(parent)
@@ -347,6 +366,11 @@ mod tests {
                 name.starts_with(&prefix) && name.contains("corrupt")
             })
             .expect("corrupt state should be quarantined");
+        assert_eq!(
+            std::fs::read_to_string(&quarantined).unwrap(),
+            "{not-json",
+            "隔离文件必须保留原始字节，否则无法人工修复"
+        );
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_file(quarantined);
     }

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use chrono::{DateTime, FixedOffset, Timelike, Utc};
@@ -15,6 +16,7 @@ use crate::services::notification::{
     add_notification, dispatch_push_event_for_notification, PushDispatchRequest,
 };
 use crate::services::push::{PushEvent, PushLevel};
+use crate::services::subscription_scheduler::ensure_ticker_started;
 use crate::store::{NotificationStore, SettingsStore};
 use crate::utils::unix_now;
 
@@ -172,6 +174,10 @@ pub struct QuarkSigninScheduler {
     service: Arc<QuarkSigninService>,
     settings_store: Arc<SettingsStore>,
     job_id: Arc<RwLock<Option<uuid::Uuid>>>,
+    /// 见 `subscription_scheduler::ensure_ticker_started`：crate 的
+    /// `JobScheduler::start()` 不幂等，必须自己保证只调用一次，
+    /// 否则 `reload()` 在首次启动之后每次都返回错误。
+    ticker_started: AtomicBool,
 }
 
 impl QuarkSigninScheduler {
@@ -185,6 +191,7 @@ impl QuarkSigninScheduler {
             service,
             settings_store,
             job_id: Arc::new(RwLock::new(None)),
+            ticker_started: AtomicBool::new(false),
         })
     }
 
@@ -222,7 +229,7 @@ impl QuarkSigninScheduler {
 
         let job_uuid = self.scheduler.add(job).await?;
         *self.job_id.write().await = Some(job_uuid);
-        self.scheduler.start().await?;
+        ensure_ticker_started(&self.scheduler, &self.ticker_started).await?;
         info!("夸克自动签到已启动，每天北京时间 {}:00 执行", hour);
         self.spawn_startup_catchup_if_needed(hour).await;
         Ok(())

@@ -49,7 +49,7 @@
 
             <div class="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(260px,1fr)_auto_auto] xl:items-center">
               <div class="relative">
-                <input x-model.debounce.150ms="driveSearchQuery" class="w-full px-4 py-2 pl-10 bg-surface-2 border border-border rounded-lg text-text" placeholder="搜索当前目录" />
+                <input x-model.debounce.150ms="driveSearchQuery" aria-label="在网盘中搜索文件" class="w-full px-4 py-2 pl-10 bg-surface-2 border border-border rounded-lg text-text" placeholder="搜索当前目录" />
                 <svg class="w-4 h-4 absolute left-3 top-3 text-muted/75" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
               </div>
               <div class="segmented-control">
@@ -59,7 +59,7 @@
                 <button @click="driveFilterType = 'other'" :class="driveFilterType === 'other' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">其他</button>
               </div>
               <div class="control-row">
-                <select x-model="driveSortBy" class="px-3 py-2 bg-surface-2 border border-border rounded-lg text-sm text-text/80">
+                <select x-model="driveSortBy" aria-label="网盘排序方式" class="px-3 py-2 bg-surface-2 border border-border rounded-lg text-sm text-text/80">
                   <option value="name">名称</option>
                   <option value="size">大小</option>
                   <option value="time">时间</option>
@@ -106,7 +106,7 @@
                 </div>
                 <template x-for="(item, itemIndex) in visibleDriveItems" :key="'drive-item-' + (item.fid || 'missing') + '-' + itemIndex">
                   <div class="data-table-row grid grid-cols-[auto_minmax(0,1fr)] gap-3 px-4 py-3 hover:bg-surface-2 transition-colors lg:grid-cols-[44px_minmax(220px,1fr)_120px_120px_180px] lg:items-center">
-                    <input type="checkbox" :checked="isDriveItemSelected(item)" @change="toggleDriveItemSelection(item)" class="rounded mt-3 lg:mt-0" />
+                    <input type="checkbox" :checked="isDriveItemSelected(item)" @change="toggleDriveItemSelection(item)" :aria-label="'选择 ' + item.name" class="rounded mt-3 lg:mt-0" />
                     <button @click="driveItemClick(item)" class="min-w-0 flex items-center gap-3 text-left">
                       <span :class="driveItemIconClass(item)" class="w-10 h-10 rounded-lg border flex items-center justify-center shrink-0">
                         <svg x-show="!item.file" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
@@ -136,7 +136,7 @@
               <template x-for="(item, itemIndex) in visibleDriveItems" :key="'drive-item-' + (item.fid || 'missing') + '-' + itemIndex">
                 <div class="border border-border rounded-lg p-3 hover:bg-surface-2 transition-colors">
                   <div class="flex items-start gap-3">
-                    <input type="checkbox" :checked="isDriveItemSelected(item)" @change="toggleDriveItemSelection(item)" class="rounded mt-2" />
+                    <input type="checkbox" :checked="isDriveItemSelected(item)" @change="toggleDriveItemSelection(item)" :aria-label="'选择 ' + item.name" class="rounded mt-2" />
                     <button @click="driveItemClick(item)" class="min-w-0 flex-1 text-left">
                       <div :class="driveItemIconClass(item)" class="w-12 h-12 rounded-lg border flex items-center justify-center mb-3">
                         <svg x-show="!item.file" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>

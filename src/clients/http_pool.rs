@@ -42,6 +42,67 @@ pub fn streaming_client() -> Client {
     STREAMING_CLIENT.clone()
 }
 
+/// 自更新允许下载自/跳转到的主机白名单。
+///
+/// 为什么需要：更新器会**逐字采纳** GitHub API 返回的 `browser_download_url`，
+/// 而 reqwest 默认最多跟随 10 次重定向。旧实现既没有校验 URL 主机，也没有限制
+/// 重定向，因此只要 API 响应被篡改（或上游出现开放重定向），下载就会被引到任意的
+/// 第三方地址——而下载内容会被解包并覆盖运行中的二进制。
+///
+/// GitHub 的资产下载确实需要重定向：`github.com/.../releases/download/...` 会 302
+/// 到 `objects.githubusercontent.com` 或 `release-assets.githubusercontent.com`，
+/// 因此不能简单禁用重定向，必须**逐跳校验目标主机**。
+const UPDATE_ALLOWED_HOSTS: &[&str] = &[
+    "github.com",
+    "api.github.com",
+    "objects.githubusercontent.com",
+    "release-assets.githubusercontent.com",
+    "github-releases.githubusercontent.com",
+];
+
+/// 判断自更新下载目标主机是否在白名单内。
+///
+/// 只接受 https；比较是**精确匹配**而不是后缀匹配——后缀匹配会让
+/// `github.com.evil.example` 通过。
+pub fn is_allowed_update_host(url: &reqwest::Url) -> bool {
+    if url.scheme() != "https" {
+        return false;
+    }
+    // 每一跳都必须是 https：重定向到 http://github.com/... 会让后续下载
+    // 明文进行，中间人即可替换载荷。
+    url.scheme() == "https"
+        && url
+            .host_str()
+            .is_some_and(|host| UPDATE_ALLOWED_HOSTS.contains(&host))
+}
+
+static UPDATE_CLIENT: LazyLock<Client> = LazyLock::new(|| {
+    Client::builder()
+        .timeout(Duration::from_secs(300))
+        .pool_max_idle_per_host(4)
+        // 逐跳校验重定向目标：任何一跳落到白名单之外就中止下载。
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= 5 {
+                return attempt.error("更新下载重定向次数过多");
+            }
+            if is_allowed_update_host(attempt.url()) {
+                attempt.follow()
+            } else {
+                attempt.error("更新下载被重定向到非白名单主机")
+            }
+        }))
+        .build()
+        .unwrap_or_else(|error| {
+            tracing::warn!("创建自更新 HTTP 客户端失败，使用默认客户端: {}", error);
+            Client::new()
+        })
+});
+
+/// 自更新专用的 HTTP 客户端：限时 300 秒、限制重定向目标主机。
+pub fn update_client() -> Client {
+    UPDATE_CLIENT.clone()
+}
+
 /// 幂等请求的瞬时故障重试次数（含首次尝试）。
 const IDEMPOTENT_MAX_ATTEMPTS: u32 = 3;
 /// 首次重试前的等待时间，之后按指数递增。

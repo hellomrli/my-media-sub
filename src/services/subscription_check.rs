@@ -44,6 +44,10 @@ pub struct SubscriptionCheckService {
     batch_check_lock: Arc<tokio::sync::Mutex<()>>,
     batch_probe_cache: Option<Arc<tokio::sync::Mutex<HashMap<String, ProbeResult>>>>,
     provider_registry: Arc<CloudDriveProviderRegistry>,
+    /// 用于对账「已转存但未成功提交下载」的文件。
+    ///
+    /// 转存服务不依赖检查服务，因此这里注入不构成循环依赖。
+    transfer_service: Option<Arc<crate::services::SubscriptionTransferService>>,
 }
 
 impl SubscriptionCheckService {
@@ -63,6 +67,7 @@ impl SubscriptionCheckService {
             batch_check_lock: Arc::new(tokio::sync::Mutex::new(())),
             batch_probe_cache: None,
             provider_registry: Arc::new(CloudDriveProviderRegistry::new()),
+            transfer_service: None,
         }
     }
 
@@ -78,6 +83,7 @@ impl SubscriptionCheckService {
             batch_check_lock: self.batch_check_lock.clone(),
             batch_probe_cache: self.batch_probe_cache.clone(),
             provider_registry: self.provider_registry.clone(),
+            transfer_service: self.transfer_service.clone(),
         }
     }
 
@@ -94,6 +100,15 @@ impl SubscriptionCheckService {
     /// Override provider resolution (primarily for deterministic service tests).
     pub fn with_provider_registry(mut self, registry: Arc<CloudDriveProviderRegistry>) -> Self {
         self.provider_registry = registry;
+        self
+    }
+
+    /// 注入转存服务，用于对账「已转存但未成功提交下载」的文件。
+    pub fn with_transfer_service(
+        mut self,
+        transfer_service: Arc<crate::services::SubscriptionTransferService>,
+    ) -> Self {
+        self.transfer_service = Some(transfer_service);
         self
     }
 
@@ -117,6 +132,63 @@ impl SubscriptionCheckService {
         lock
     }
 
+    /// 周期性对账**所有**订阅的「已转存但未提交下载」记录。
+    ///
+    /// 检查入口里的对账只覆盖会被检查到的订阅：已完结的订阅不再进入批量检查，
+    /// 调度器关闭时更是谁都不检查——而「提交下载失败」恰恰容易遗留在完结之后。
+    /// 因此这里独立起一个受监督的循环，不依赖检查是否发生。
+    pub fn start_pending_download_reconciler(self: Arc<Self>) {
+        /// 对账间隔：远小于用户可感知的等待，又不会给网盘 API 造成压力
+        /// （无待对账项时循环只读一次内存快照）。
+        const INTERVAL: std::time::Duration = std::time::Duration::from_secs(120);
+
+        if self.transfer_service.is_none() {
+            return;
+        }
+        crate::utils::spawn_supervised("待下载对账", move || {
+            let service = self.clone();
+            async move {
+                let mut ticker = tokio::time::interval(INTERVAL);
+                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    ticker.tick().await;
+                    service.reconcile_all_pending_downloads().await;
+                }
+            }
+        });
+    }
+
+    /// 对有 `pending_downloads` 的每个订阅执行一次对账；每个订阅都在它自己的
+    /// 检查锁内进行，避免与正在跑的检查/转存互相踩。
+    pub async fn reconcile_all_pending_downloads(&self) -> usize {
+        let Some(transfer_service) = &self.transfer_service else {
+            return 0;
+        };
+        let ids: Vec<String> = self
+            .subscription_store
+            .list()
+            .await
+            .into_iter()
+            .filter(|sub| !sub.pending_downloads.is_empty())
+            .map(|sub| sub.id)
+            .collect();
+        let mut submitted = 0usize;
+        for id in ids {
+            let lock = Self::named_lock(&self.subscription_locks, &id).await;
+            let _guard = lock.lock().await;
+            match transfer_service.reconcile_pending_downloads(&id).await {
+                Ok(count) => {
+                    if count > 0 {
+                        tracing::info!("待下载对账: 订阅 {} 重新提交 {} 项", id, count);
+                    }
+                    submitted += count;
+                }
+                Err(error) => tracing::warn!("待下载对账失败: 订阅 {}: {}", id, error),
+            }
+        }
+        submitted
+    }
+
     /// 检查单个订阅
     pub async fn check_subscription(
         &self,
@@ -138,6 +210,27 @@ impl SubscriptionCheckService {
         let subscription_lock = Self::named_lock(&self.subscription_locks, subscription_id).await;
         let _subscription_guard = subscription_lock.lock().await;
         metrics.increment_subscription_checks();
+
+        // 顺带对账「已转存但未成功提交下载」的文件。
+        //
+        // 放在检查入口而不是转存流程里：订阅完结后不会再有新文件、也就不会再触发
+        // 转存，而"提交下载失败"恰恰可能在那种状态下遗留。对账失败绝不影响检查本身。
+        if let Some(transfer_service) = &self.transfer_service {
+            match transfer_service
+                .reconcile_pending_downloads(subscription_id)
+                .await
+            {
+                Ok(0) => {}
+                Ok(count) => {
+                    tracing::info!("待下载对账: 订阅 {} 重新提交 {} 项", subscription_id, count)
+                }
+                Err(error) => tracing::warn!(
+                    "待下载对账失败（不影响检查）: 订阅 {}: {}",
+                    subscription_id,
+                    error
+                ),
+            }
+        }
         let ambient = crate::observability::current_context();
         let correlation_id = ambient
             .correlation_id
@@ -167,6 +260,207 @@ impl SubscriptionCheckService {
         result
     }
 
+    /// 记录 `SourceCheck` 阶段的自动化事件。
+    ///
+    /// 原先这个调用在函数里重复了 6 次、每次 13 行，把 361 行的检查流程淹没了。
+    async fn record_source_check_stage(
+        &self,
+        correlation_id: &str,
+        subscription_id: &str,
+        status: crate::models::AutomationStatus,
+        message: impl Into<String>,
+        error: impl Into<String>,
+    ) {
+        crate::services::automation_events::record_stage_event(
+            self.automation_event_store.as_ref(),
+            correlation_id,
+            Some(subscription_id),
+            None,
+            None,
+            crate::models::AutomationStage::SourceCheck,
+            status,
+            message,
+            error,
+            std::collections::BTreeMap::new(),
+        )
+        .await;
+    }
+
+    /// 阶段一：探测分享链接，并把结果记进自动化事件。
+    async fn probe_share_stage(
+        &self,
+        sub: &Subscription,
+        cookie: &str,
+        correlation_id: &str,
+    ) -> Result<ProbeResult> {
+        info!("检查订阅: {} ({})", sub.title, sub.id);
+        match self.probe_share(sub, cookie).await {
+            Ok(result) => {
+                if result.ok {
+                    self.record_source_check_stage(
+                        correlation_id,
+                        &sub.id,
+                        crate::models::AutomationStatus::Succeeded,
+                        format!("来源探测成功，共 {} 个项目", result.files.len()),
+                        "",
+                    )
+                    .await;
+                } else {
+                    self.record_source_check_stage(
+                        correlation_id,
+                        &sub.id,
+                        crate::models::AutomationStatus::Failed,
+                        "订阅来源探测失败",
+                        &result.message,
+                    )
+                    .await;
+                }
+                Ok(result)
+            }
+            Err(error) => {
+                self.record_source_check_stage(
+                    correlation_id,
+                    &sub.id,
+                    crate::models::AutomationStatus::Failed,
+                    "订阅来源探测异常",
+                    error.to_string(),
+                )
+                .await;
+                Err(error)
+            }
+        }
+    }
+
+    /// 阶段二：处理「探测失败」的两种情形，必要时自动换源并立即重检。
+    ///
+    /// 从 `do_check_subscription_with_options` 提取（原本约 130 行内联）。
+    /// 返回的 `CheckResult` 一定是 `became_invalid: true`，除非中途成功换源——
+    /// 那种情况下会递归重检，返回的是新来源的检查结果。
+    async fn handle_probe_failure(
+        &self,
+        sub: &Subscription,
+        subscription_id: &str,
+        cookie: &str,
+        force_transfer: bool,
+        correlation_id: &str,
+        probe_result: &ProbeResult,
+    ) -> Result<CheckResult> {
+        // 网络抖动、上游 5xx 这类失败与分享本身无关：不能据此判失效，
+        // 否则会误报失效通知，甚至把可用的来源自动换掉。
+        if probe_failure_is_transient(probe_result) {
+            warn!(
+                "订阅 {} 来源探测遇到临时故障，保持原状态: {}",
+                sub.title, probe_result.message
+            );
+            let summary = format!("来源暂时不可用，将在下次检查重试: {}", probe_result.message);
+            self.record_transient_check_failure(sub, &summary).await?;
+            return Ok(CheckResult {
+                subscription_id: sub.id.clone(),
+                subscription_title: sub.title.clone(),
+                new_files: vec![],
+                new_episodes: vec![],
+                details: CheckDetails::default(),
+                became_invalid: false,
+                became_completed: false,
+                summary,
+            });
+        }
+
+        // 确认为失效。
+        self.mark_subscription_invalid(sub, &probe_result.message)
+            .await?;
+
+        // 自动搜索换源候选。
+        let candidates_count = if self.should_search_source_candidates(sub).await {
+            match self.search_and_save_candidates(sub, cookie).await {
+                Ok(candidates) if !candidates.is_empty() => {
+                    info!("为订阅 {} 找到 {} 个换源候选", sub.title, candidates.len());
+
+                    if let Err(e) = self.notify_source_candidates_found(sub, &candidates).await {
+                        warn!("发送换源通知失败: {}", e);
+                    }
+
+                    match self
+                        .try_auto_apply_source_candidate(&sub.id, &candidates, cookie)
+                        .await
+                    {
+                        Ok(Some(candidate_id)) => {
+                            info!(
+                                "订阅 {} 已自动应用候选 {}，立即重新检查",
+                                sub.title, candidate_id
+                            );
+                            return Box::pin(self.do_check_subscription_with_options(
+                                subscription_id,
+                                cookie,
+                                force_transfer,
+                                correlation_id,
+                            ))
+                            .await;
+                        }
+                        Ok(None) => {}
+                        Err(error) => warn!("自动换源失败: {}", error),
+                    }
+
+                    candidates.len()
+                }
+                Ok(_) => {
+                    info!("未找到换源候选");
+                    0
+                }
+                Err(e) => {
+                    warn!("搜索换源候选失败: {}", e);
+                    0
+                }
+            }
+        } else {
+            0
+        };
+
+        // 冷却期内的既有候选同样尝试一次。
+        if let Some(latest) = self.subscription_store.get(&sub.id).await {
+            if !latest.source_candidates.is_empty() {
+                match self
+                    .try_auto_apply_source_candidate(&sub.id, &latest.source_candidates, cookie)
+                    .await
+                {
+                    Ok(Some(candidate_id)) => {
+                        info!(
+                            "订阅 {} 已从冷却期候选中自动应用 {}，立即重新检查",
+                            sub.title, candidate_id
+                        );
+                        return Box::pin(self.do_check_subscription_with_options(
+                            subscription_id,
+                            cookie,
+                            force_transfer,
+                            correlation_id,
+                        ))
+                        .await;
+                    }
+                    Ok(None) => {}
+                    Err(error) => warn!("应用已有换源候选失败: {}", error),
+                }
+            }
+        }
+
+        Ok(CheckResult {
+            subscription_id: sub.id.clone(),
+            subscription_title: sub.title.clone(),
+            new_files: vec![],
+            new_episodes: vec![],
+            details: CheckDetails::default(),
+            became_invalid: true,
+            became_completed: false,
+            summary: if candidates_count > 0 {
+                format!(
+                    "链接失效: {}，已找到 {} 个替代源",
+                    probe_result.message, candidates_count
+                )
+            } else {
+                format!("链接失效: {}", probe_result.message)
+            },
+        })
+    }
+
     async fn do_check_subscription_with_options(
         &self,
         subscription_id: &str,
@@ -194,186 +488,29 @@ impl SubscriptionCheckService {
             return Err(AppError::Validation("订阅已完成".to_string()));
         }
 
-        crate::services::automation_events::record_stage_event(
-            self.automation_event_store.as_ref(),
+        self.record_source_check_stage(
             correlation_id,
-            Some(&sub.id),
-            None,
-            None,
-            crate::models::AutomationStage::SourceCheck,
+            &sub.id,
             crate::models::AutomationStatus::Running,
             "正在探测订阅来源",
             "",
-            std::collections::BTreeMap::new(),
         )
         .await;
 
-        // 1. 探测分享链接
-        info!("检查订阅: {} ({})", sub.title, sub.id);
-        let probe_result = match self.probe_share(&sub, cookie).await {
-            Ok(result) => result,
-            Err(error) => {
-                crate::services::automation_events::record_stage_event(
-                    self.automation_event_store.as_ref(),
+        // 1. 探测分享链接；失败（含临时故障与真失效）交给专门的处理函数。
+        let probe_result = self.probe_share_stage(&sub, cookie, correlation_id).await?;
+        if !probe_result.ok {
+            return self
+                .handle_probe_failure(
+                    &sub,
+                    subscription_id,
+                    cookie,
+                    force_transfer,
                     correlation_id,
-                    Some(&sub.id),
-                    None,
-                    None,
-                    crate::models::AutomationStage::SourceCheck,
-                    crate::models::AutomationStatus::Failed,
-                    "订阅来源探测异常",
-                    error.to_string(),
-                    std::collections::BTreeMap::new(),
+                    &probe_result,
                 )
                 .await;
-                return Err(error);
-            }
-        };
-
-        if !probe_result.ok {
-            crate::services::automation_events::record_stage_event(
-                self.automation_event_store.as_ref(),
-                correlation_id,
-                Some(&sub.id),
-                None,
-                None,
-                crate::models::AutomationStage::SourceCheck,
-                crate::models::AutomationStatus::Failed,
-                "订阅来源探测失败",
-                &probe_result.message,
-                std::collections::BTreeMap::new(),
-            )
-            .await;
-
-            // 网络抖动、上游 5xx 这类失败与分享本身无关：不能据此判失效，
-            // 否则会误报失效通知，甚至把可用的来源自动换掉。
-            if probe_failure_is_transient(&probe_result) {
-                warn!(
-                    "订阅 {} 来源探测遇到临时故障，保持原状态: {}",
-                    sub.title, probe_result.message
-                );
-                let summary = format!("来源暂时不可用，将在下次检查重试: {}", probe_result.message);
-                self.record_transient_check_failure(&sub, &summary).await?;
-                return Ok(CheckResult {
-                    subscription_id: sub.id.clone(),
-                    subscription_title: sub.title.clone(),
-                    new_files: vec![],
-                    new_episodes: vec![],
-                    details: CheckDetails::default(),
-                    became_invalid: false,
-                    became_completed: false,
-                    summary,
-                });
-            }
-
-            // 探测失败，标记为失效
-            self.mark_subscription_invalid(&sub, &probe_result.message)
-                .await?;
-
-            // 【新增】自动搜索换源候选
-            let candidates_count = if self.should_search_source_candidates(&sub).await {
-                match self.search_and_save_candidates(&sub, cookie).await {
-                    Ok(candidates) if !candidates.is_empty() => {
-                        info!("为订阅 {} 找到 {} 个换源候选", sub.title, candidates.len());
-
-                        if let Err(e) = self.notify_source_candidates_found(&sub, &candidates).await
-                        {
-                            warn!("发送换源通知失败: {}", e);
-                        }
-
-                        match self
-                            .try_auto_apply_source_candidate(&sub.id, &candidates, cookie)
-                            .await
-                        {
-                            Ok(Some(candidate_id)) => {
-                                info!(
-                                    "订阅 {} 已自动应用候选 {}，立即重新检查",
-                                    sub.title, candidate_id
-                                );
-                                return Box::pin(self.do_check_subscription_with_options(
-                                    subscription_id,
-                                    cookie,
-                                    force_transfer,
-                                    correlation_id,
-                                ))
-                                .await;
-                            }
-                            Ok(None) => {}
-                            Err(error) => warn!("自动换源失败: {}", error),
-                        }
-
-                        candidates.len()
-                    }
-                    Ok(_) => {
-                        info!("未找到换源候选");
-                        0
-                    }
-                    Err(e) => {
-                        warn!("搜索换源候选失败: {}", e);
-                        0
-                    }
-                }
-            } else {
-                0
-            };
-
-            if let Some(latest) = self.subscription_store.get(&sub.id).await {
-                if !latest.source_candidates.is_empty() {
-                    match self
-                        .try_auto_apply_source_candidate(&sub.id, &latest.source_candidates, cookie)
-                        .await
-                    {
-                        Ok(Some(candidate_id)) => {
-                            info!(
-                                "订阅 {} 已从冷却期候选中自动应用 {}，立即重新检查",
-                                sub.title, candidate_id
-                            );
-                            return Box::pin(self.do_check_subscription_with_options(
-                                subscription_id,
-                                cookie,
-                                force_transfer,
-                                correlation_id,
-                            ))
-                            .await;
-                        }
-                        Ok(None) => {}
-                        Err(error) => warn!("应用已有换源候选失败: {}", error),
-                    }
-                }
-            }
-
-            return Ok(CheckResult {
-                subscription_id: sub.id.clone(),
-                subscription_title: sub.title.clone(),
-                new_files: vec![],
-                new_episodes: vec![],
-                details: CheckDetails::default(),
-                became_invalid: true,
-                became_completed: false,
-                summary: if candidates_count > 0 {
-                    format!(
-                        "链接失效: {}，已找到 {} 个替代源",
-                        probe_result.message, candidates_count
-                    )
-                } else {
-                    format!("链接失效: {}", probe_result.message)
-                },
-            });
         }
-
-        crate::services::automation_events::record_stage_event(
-            self.automation_event_store.as_ref(),
-            correlation_id,
-            Some(&sub.id),
-            None,
-            None,
-            crate::models::AutomationStage::SourceCheck,
-            crate::models::AutomationStatus::Succeeded,
-            format!("来源探测成功，共 {} 个项目", probe_result.files.len()),
-            "",
-            std::collections::BTreeMap::new(),
-        )
-        .await;
 
         let auto_transfer_enabled = self
             .auto_transfer_disabled_reason(&sub, force_transfer)
@@ -538,6 +675,20 @@ impl SubscriptionCheckService {
         }
 
         let settings = self.settings_store.get().await;
+
+        // 维护模式必须**在这里**拦住自动转存，而不只是拦住 worker 执行。
+        //
+        // 旧实现只在 `jobs/worker.rs` 检查 `job_maintenance_mode`，而检查照常运行、
+        // 照常入队，`truncate_jobs` 又明确「绝不淘汰排队或运行中的任务」，
+        // 于是开启维护后 jobs.json 无界增长，且每次入队都要全量重写 + 2 次 fsync，
+        // 累计 I/O 呈 O(n²)。
+        //
+        // `force_transfer`（用户显式点击转存）不受限制：那是即时的人工意图，
+        // 与「让后台自动流水线停下来」不是一回事。
+        if settings.job_maintenance_mode && !force_transfer {
+            return Some("维护模式已开启，暂停自动转存");
+        }
+
         // 已开启全局自动转存时，定时/手动检查发现新文件应自动转存；
         // auto_download_new_subscription_items 仅作显式开关，force 时仍可覆盖。
         if !force_transfer
@@ -628,7 +779,18 @@ impl SubscriptionCheckService {
             let cookie = cookie.to_string();
             let semaphore = semaphore.clone();
             tasks.spawn(async move {
-                let _permit = semaphore.acquire_owned().await.expect("semaphore closed");
+                // 不要在这里 expect：panic 会被 join_next() 兜住并只记一行
+                // 「订阅检查任务异常结束」，该订阅会静默地从批量结果中丢失。
+                let Ok(_permit) = semaphore.acquire_owned().await else {
+                    warn!("订阅检查并发信号量已关闭，跳过 {}", subscription_id);
+                    return (
+                        index,
+                        subscription_id,
+                        Err(crate::error::AppError::Internal(
+                            "订阅检查并发信号量已关闭".to_string(),
+                        )),
+                    );
+                };
                 let result = service.check_subscription(&subscription_id, &cookie).await;
                 (index, subscription_id, result)
             });
@@ -1342,6 +1504,8 @@ mod due_check_tests {
             known_episodes: vec![],
             transferred_files: vec![],
             transferred_file_keys: vec![],
+            pending_transfers: Vec::new(),
+            pending_downloads: Vec::new(),
             last_probe: None,
             last_plan_summary: String::new(),
             notify_only: false,

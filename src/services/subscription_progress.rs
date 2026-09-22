@@ -217,6 +217,8 @@ mod tests {
             known_episodes: vec![1, 2, 11],
             transferred_files: vec![],
             transferred_file_keys: vec![],
+            pending_transfers: Vec::new(),
+            pending_downloads: Vec::new(),
             last_probe: None,
             last_plan_summary: String::new(),
             notify_only: false,

@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{Mutex, RwLock};
 use tokio_cron_scheduler::{Job, JobScheduler};
@@ -11,6 +12,35 @@ use crate::services::push::{PushEvent, PushLevel};
 use crate::services::{subscription_check::CheckResult, SubscriptionCheckService};
 use crate::store::{NotificationStore, SettingsStore};
 
+/// 只在 ticker 尚未启动时调用 `JobScheduler::start()`。
+///
+/// `tokio-cron-scheduler` 0.13 的 `JobScheduler::start()` **不是幂等的**：内层
+/// `Scheduler::ticking` 一旦置真就永不复位，第二次调用必然返回
+/// `JobSchedulerError::StartScheduler`（内层 `TickError` 被包装成该变体）。
+///
+/// 旧实现在每次 `reload()` 里无条件 `start()`，而 `stop()` 只摘除 job、不关闭
+/// ticker，因此**首次启动之后每次保存设置都会返回错误**，尽管配置已经写盘、
+/// 新任务也已挂上。这里用一次性标志把 ticker 启动与任务增删解耦：
+/// `reload()` 只需替换 job，ticker 保持运行。
+pub(crate) async fn ensure_ticker_started(
+    scheduler: &JobScheduler,
+    started: &AtomicBool,
+) -> Result<()> {
+    // compare_exchange 保证并发 reload 时只有一个调用真正 start；失败时复位，
+    // 让下一次 reload 还能重试。
+    if started
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Ok(());
+    }
+    if let Err(error) = scheduler.start().await {
+        started.store(false, Ordering::SeqCst);
+        return Err(error.into());
+    }
+    Ok(())
+}
+
 /// 订阅调度服务
 pub struct SubscriptionScheduler {
     scheduler: JobScheduler,
@@ -19,6 +49,7 @@ pub struct SubscriptionScheduler {
     notification_store: Arc<NotificationStore>,
     job_queue: Option<Arc<JobQueue>>,
     job_id: Arc<RwLock<Option<uuid::Uuid>>>,
+    ticker_started: AtomicBool,
 }
 
 impl SubscriptionScheduler {
@@ -38,6 +69,7 @@ impl SubscriptionScheduler {
             notification_store,
             job_queue,
             job_id: Arc::new(RwLock::new(None)),
+            ticker_started: AtomicBool::new(false),
         })
     }
 
@@ -125,7 +157,7 @@ impl SubscriptionScheduler {
         let job_uuid = self.scheduler.add(job).await?;
         *self.job_id.write().await = Some(job_uuid);
 
-        self.scheduler.start().await?;
+        ensure_ticker_started(&self.scheduler, &self.ticker_started).await?;
 
         info!("✅ 订阅调度器已启动 (每 {} 分钟检查一次)", interval_minutes);
 
@@ -318,6 +350,33 @@ mod tests {
         assert_eq!(normalize_interval_minutes(0), 5);
         assert_eq!(normalize_interval_minutes(60), 60);
         assert_eq!(normalize_interval_minutes(720), 720);
+    }
+
+    /// 记录本模块存在的根因：crate 的 `start()` 不幂等。
+    /// 这个断言一旦失败，说明上游修好了幂等性，`ensure_ticker_started` 可以简化。
+    #[tokio::test]
+    async fn crate_job_scheduler_start_is_not_idempotent() {
+        let scheduler = JobScheduler::new().await.expect("构造调度器");
+        assert!(scheduler.start().await.is_ok(), "首次 start 应当成功");
+        assert!(
+            scheduler.start().await.is_err(),
+            "第二次 start 必然失败（ticking 不复位）——这正是 reload 报错的根因"
+        );
+    }
+
+    /// 回归：`reload()` 反复调用必须一直成功。
+    /// 旧实现每次 reload 都无条件 `scheduler.start()`，于是首次启动之后
+    /// 每次保存设置都会返回错误，而设置其实已经生效。
+    #[tokio::test]
+    async fn ticker_is_started_only_once_across_repeated_reloads() {
+        let scheduler = JobScheduler::new().await.expect("构造调度器");
+        let started = AtomicBool::new(false);
+        for round in 0..4 {
+            ensure_ticker_started(&scheduler, &started)
+                .await
+                .unwrap_or_else(|error| panic!("第 {} 次启动不应失败: {}", round + 1, error));
+        }
+        assert!(started.load(Ordering::SeqCst));
     }
 
     #[test]

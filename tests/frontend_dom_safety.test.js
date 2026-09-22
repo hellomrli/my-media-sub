@@ -41,3 +41,93 @@ test('rapidly refreshed Alpine lists use collision-resistant render keys', () =>
   assert.match(html, /x-for="\(task, taskIndex\) in visibleDownloadCategoryTasks\(category\.id\)"/);
   assert.match(html, /x-for="\(item, itemIndex\) in day\.items"/);
 });
+
+// 该文件名承诺的是「DOM 安全」。此前它只断言了图片 error hack、资源版本号与
+// x-for key，**完全没有检查 HTML 注入面**，于是新增 innerHTML / x-html 不会
+// 触发任何门禁。下面补上真正的 sink 白名单断言。
+test('no HTML injection sinks are introduced in the frontend', () => {
+  const files = [];
+  const walk = directory => {
+    for (const entry of fs.readdirSync(directory, {withFileTypes: true})) {
+      const target = path.join(directory, entry.name);
+      if (entry.isDirectory()) walk(target);
+      else if (entry.name.endsWith('.js')) files.push(target);
+    }
+  };
+  walk(path.join(__dirname, '../static/js'));
+
+  const sinks = /\.(?:innerHTML|outerHTML)\s*=|insertAdjacentHTML\s*\(|document\.write\s*\(|\beval\s*\(|new\s+Function\s*\(/;
+  for (const file of files) {
+    const source = fs.readFileSync(file, 'utf8');
+    source.split('\n').forEach((line, index) => {
+      // 允许注释里提到这些 API（例如说明为何不使用它们）
+      const code = line.split('//')[0];
+      assert.equal(
+        sinks.test(code),
+        false,
+        `${path.relative(path.join(__dirname, '..'), file)}:${index + 1} 引入了 HTML 注入 sink：${line.trim()}`
+      );
+    });
+  }
+});
+
+// x-html 会把字符串当 HTML 解析；CSP 含 'unsafe-eval'，一旦注入即等价 RCE。
+// 因此把它限制为固定白名单（当前只用于内联 SVG 图标）。
+test('x-html usage stays on the approved allowlist', () => {
+  const sites = [...html.matchAll(/x-html="([^"]*)"/g)].map(match => match[1]);
+  // 这些表达式都从 router.js 的硬编码 tab 表里取内联 SVG，不接受服务端数据。
+  const allowed = new Set([
+    'tab.icon',
+    "tabs.find(tab => tab.id === 'settings')?.icon",
+  ]);
+  for (const expression of sites) {
+    assert.ok(
+      allowed.has(expression),
+      `x-html 出现未登记表达式 "${expression}"：请改用 x-text，或把该表达式加入白名单并说明理由`
+    );
+  }
+});
+
+// 表单控件的可访问名称：每个 <label> 要么通过 for= 关联控件，要么把控件包在内部。
+test('every label is associated with a form control', () => {
+  const labelPattern = /<label\b([^>]*)>([\s\S]*?)<\/label>/g;
+  let match;
+  let checked = 0;
+  while ((match = labelPattern.exec(html)) !== null) {
+    const [, attrs, inner] = match;
+    checked += 1;
+    const wrapsControl = /<(?:input|select|textarea)\b/.test(inner);
+    const hasFor = /\bfor="/.test(attrs);
+    assert.ok(
+      wrapsControl || hasFor,
+      `存在既没有 for= 也没有包裹控件的 <label>：${match[0].slice(0, 120)}`
+    );
+  }
+  assert.ok(checked >= 130, `只检查到 ${checked} 个 label，选择器可能失效`);
+});
+
+// 非隐藏控件必须有可访问名称：id 被某个 label 引用，或有 aria-label/aria-labelledby。
+test('every visible form control has an accessible name', () => {
+  const labelledIds = new Set(
+    [...html.matchAll(/<label\b[^>]*\bfor="([^"]+)"/g)].map(match => match[1])
+  );
+  const controlPattern = /<(input|select|textarea)\b([^>]*)>/g;
+  let match;
+  let checked = 0;
+  while ((match = controlPattern.exec(html)) !== null) {
+    const [, tag, attrs] = match;
+    if (/\btype="(?:hidden|submit|button|reset|image)"/.test(attrs)) continue;
+    const explicit = /\baria-label(?:ledby)?="/.test(attrs);
+    // 控件被 label 包裹时也具备可访问名称
+    const before = html.slice(Math.max(0, match.index - 200), match.index);
+    const wrapped = /<label\b[^>]*>[^<]*$/.test(before);
+    const idMatch = attrs.match(/\bid="([^"]+)"/);
+    const referenced = idMatch ? labelledIds.has(idMatch[1]) : false;
+    checked += 1;
+    assert.ok(
+      explicit || wrapped || referenced,
+      `<${tag}> 缺少可访问名称（无 aria-label、未被 label 包裹、id 也未被 for= 引用）：${match[0].slice(0, 120)}`
+    );
+  }
+  assert.ok(checked >= 100, `只检查到 ${checked} 个控件，选择器可能失效`);
+});

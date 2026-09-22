@@ -1,7 +1,14 @@
 [package]
 name = "my-media-sub"
-version = "2.7.1"
+version = "2.7.2"
 edition = "2021"
+# MSRV。取两个下限的较大者：
+#   - 依赖图：ICU 系列（经 idna → url → reqwest）声明 1.86；
+#   - 本仓库自身用到的 API：`is_multiple_of` 稳定于 1.87。
+# 声明之后 clippy 的 `incompatible_msrv` 会在 CI（-D warnings）里持续守住这条线：
+# 一旦有人用了更新的 API，构建会直接失败而不是悄悄抬高实际下限。
+# 与 rust-toolchain.toml 分工不同——那里固定的是开发/CI 实际使用的版本。
+rust-version = "1.87"
 authors = ["my-media-sub contributors"]
 description = "Media subscription and management system written in Rust"
 license = "MIT"
@@ -34,15 +41,18 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # Regex
 regex = "1.0"
-md5 = "0.8.0"
 base64 = "0.22"
 ring = "0.17.14"
 libc = "0.2"
 
 # Scheduler
 tokio-cron-scheduler = "0.13"
-web-push = "0.11"
-p256 = "0.13"
+# 自实现 Web Push（src/services/web_push.rs）：不依赖 web-push，避免它引入的
+# rsa（唯一 RustSec 例外）、isahc/libcurl（第二套 C TLS 栈）与 superboring（BoringSSL）。
+# ece 只用来做 RFC 8188/8291 的分组框架，密码学后端换成 p256 + ring，
+# 因此必须 default-features = false（默认后端是 OpenSSL）。
+ece = { version = "2.4", default-features = false }
+p256 = { version = "0.13", features = ["ecdh"] }
 
 [dev-dependencies]
 # 仅 tests/api_integration.rs 的 ServiceExt::oneshot 使用。
@@ -52,4 +62,10 @@ tower = "0.5"
 opt-level = 3
 lto = true
 codegen-units = 1
-strip = true
+# 保留行号表：strip = true 会让生产 panic backtrace 只剩地址，
+# 与自带的诊断导出/在线更新冲突，出问题几乎无法定位。line-tables-only
+# 的体积代价很小。
+debug = "line-tables-only"
+strip = "debuginfo"
+# 溢出检查：本服务不 CPU 密集，开启后把静默回绕变成响亮的 panic。
+overflow-checks = true

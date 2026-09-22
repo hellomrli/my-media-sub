@@ -2310,3 +2310,96 @@ button.download-task-origin.is-subscription:hover { border-color: rgb(var(--c-pr
 @media (min-width: 1024px) and (min-height: 1250px) {
   .calendar-item.is-row .calendar-thumbnail.is-week { width: 64px; height: 96px; }
 }
+
+/* ─── 补齐历史上「被引用但从未定义」的类 ─────────────────────────────────
+   这些问题在一次全量审计中发现：partials 里用到这些类名，但
+   tailwind/input.css 与编译产物里都没有对应规则，于是它们静默失效：
+   最严重的是 .loading-spinner —— 它是空 span，没有任何尺寸/动画，
+   日历加载指示器完全不可见。顺带修正两个非法 token 的引用：
+   bg-panel（panel 不在 tailwind.config.js 的 colors 中）与
+   text-text-muted（正确写法是 text-muted）。 */
+.field-help {
+  display: block;
+  margin-top: 6px;
+  color: rgb(var(--c-muted) / .78);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.page-header h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.page-header p:not(.section-kicker) {
+  margin: 0;
+  color: rgb(var(--c-muted) / .8);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.section-kicker {
+  margin: 0 0 4px;
+  color: rgb(var(--c-primary));
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+/* app-header 里的标题块：标题与副标题纵向排列，并允许在窄屏收缩 */
+.page-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.loading-spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgb(var(--c-muted) / .3);
+  border-top-color: rgb(var(--c-primary));
+  border-radius: 50%;
+  animation: app-spinner-rotate .8s linear infinite;
+}
+@keyframes app-spinner-rotate {
+  to { transform: rotate(360deg); }
+}
+/* 尊重系统的「减少动态效果」偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .loading-spinner { animation-duration: 2.4s; }
+}
+
+/* 工作台紧凑区：在 .dashboard-zone 的基础上再收紧间距 */
+.dashboard-zone-compact { gap: 8px; }
+
+/* 自动化事件时间线：内容会持续增长，限制高度并允许内部滚动，
+   避免把订阅详情页其它卡片挤出首屏 */
+.automation-event-panel {
+  max-height: 520px;
+  overflow-y: auto;
+}
+
+/* 日历卡片的状态文字：周/月视图此前只用颜色区分 primary_status，
+   色盲用户无法分辨「已就绪 / 已播出未发现 / 完结但缺失」（WCAG 1.4.1）。
+   这里给出可见文字，颜色仍沿用 --calendar-tone 作为辅助。 */
+.calendar-item-status {
+  display: block;
+  overflow: hidden;
+  color: rgb(var(--c-muted) / .85);
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

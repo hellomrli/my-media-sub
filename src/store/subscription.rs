@@ -73,11 +73,15 @@ impl SubscriptionStore {
                 )));
             }
             Err(error) => {
-                tracing::error!(
-                    "解析订阅 JSON 失败，已隔离损坏文件并使用空订阅继续运行（启动通知与诊断接口会提示隔离文件）: {}",
-                    error
-                );
-                quarantine_corrupt_file(path);
+                tracing::error!("解析订阅 JSON 失败: {}", error);
+                let quarantined = quarantine_corrupt_file(path);
+                // 默认中止启动：把订阅替换成空集合会让服务"看起来正常"却丢光数据。
+                crate::utils::ensure_quarantine_startup_allowed(
+                    "订阅存储",
+                    path,
+                    quarantined.as_deref(),
+                    &error.to_string(),
+                )?;
                 self.replace_memory(Vec::new()).await;
             }
         }
@@ -94,6 +98,32 @@ impl SubscriptionStore {
         Ok(())
     }
 
+    /// 提交一份新快照：**先更新内存，再落盘**，失败时回滚内存。
+    ///
+    /// 顺序很关键。写入是「整份快照 + spawn_blocking 落盘 + 替换内存」两步，而
+    /// `write_json_atomic_async` 内部的 `spawn_blocking` **不可取消**：外层 future
+    /// 被 abort（例如取消一个正在写元数据的 MetadataScrape）时，磁盘可能已经写完，
+    /// 但后续的 `replace_memory` 永远不会执行。
+    ///
+    /// - 旧顺序（先落盘再改内存）：取消后**磁盘新、内存旧**；下一次基于旧内存的
+    ///   写入会把刚落盘的新数据整份覆盖掉——静默丢失一次抓取结果。
+    /// - 新顺序（先改内存再落盘）：取消后只是**内存比磁盘新**，下一次写盘会用
+    ///   新内存覆盖磁盘，自然收敛；而落盘失败时这里会回滚内存，保持两者一致。
+    ///
+    /// 代价是每次提交多一次内存快照 clone（用于失败回滚），并且这条路径本来就在
+    /// clone 修改用的快照；失败回滚属于罕见路径，正确性优先。
+    async fn commit(&self, snapshot: Vec<Subscription>) -> Result<()> {
+        let previous = self.items.read().await.clone();
+        self.replace_memory(snapshot.clone()).await;
+        match self.save(&snapshot).await {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.replace_memory(previous).await;
+                Err(error)
+            }
+        }
+    }
+
     /// 已成功执行的持久化次数。
     pub fn save_count(&self) -> u64 {
         self.save_count.load(Ordering::Relaxed)
@@ -107,8 +137,7 @@ impl SubscriptionStore {
         let _save_guard = self.save_lock.lock().await;
         let mut snapshot = self.items.read().await.clone();
         let result = mutate(&mut snapshot)?;
-        self.save(&snapshot).await?;
-        self.replace_memory(snapshot).await;
+        self.commit(snapshot).await?;
         Ok(result)
     }
 
@@ -200,7 +229,15 @@ impl SubscriptionStore {
         let _save_guard = self.save_lock.lock().await;
         let snapshot = {
             let items = self.items.read().await;
-            if items.iter().any(|s| s.id == sub.id) {
+            // 同时按 ID 与 (url, title) 查重：ID 由 (url, title) 派生，但派生算法在
+            // v2.7.2 从 MD5 换成了截断 SHA-256——升级前创建的订阅保留旧 ID，用同一
+            // 链接和标题再添加会得到不同 ID，只按 ID 查重就会放进一条重复订阅。
+            let duplicate = items.iter().any(|existing| {
+                existing.id == sub.id
+                    || (existing.url.trim() == sub.url.trim()
+                        && existing.title.trim() == sub.title.trim())
+            });
+            if duplicate {
                 return Err(AppError::Validation(format!(
                     "订阅已存在（相同链接和标题）: {}",
                     sub.title
@@ -210,8 +247,7 @@ impl SubscriptionStore {
             snapshot.push(sub.clone());
             snapshot
         };
-        self.save(&snapshot).await?;
-        self.replace_memory(snapshot).await;
+        self.commit(snapshot).await?;
         Ok(sub)
     }
 
@@ -234,8 +270,7 @@ impl SubscriptionStore {
         };
 
         if let Some((updated, snapshot)) = updated {
-            self.save(&snapshot).await?;
-            self.replace_memory(snapshot).await;
+            self.commit(snapshot).await?;
             Ok(Some(updated))
         } else {
             Ok(None)
@@ -258,8 +293,7 @@ impl SubscriptionStore {
         };
 
         if let Some(snapshot) = snapshot {
-            self.save(&snapshot).await?;
-            self.replace_memory(snapshot).await;
+            self.commit(snapshot).await?;
             Ok(true)
         } else {
             Ok(false)
@@ -295,8 +329,7 @@ impl SubscriptionStore {
                     + item.previous_share_links.len()
             })
             .sum();
-        self.save(&snapshot).await?;
-        self.replace_memory(snapshot).await;
+        self.commit(snapshot).await?;
         Ok(before.saturating_sub(after))
     }
 
@@ -342,8 +375,7 @@ impl SubscriptionStore {
             (check_history, source_switch_history, previous_share_links),
         );
         let after = history_total(&snapshot);
-        self.save(&snapshot).await?;
-        self.replace_memory(snapshot).await;
+        self.commit(snapshot).await?;
         Ok(before.saturating_sub(after))
     }
 
@@ -425,7 +457,10 @@ fn compact_subscription_histories(
             changed = true;
         }
         if item.previous_share_links.len() > previous_links_retention {
-            let remove = item.previous_share_links.len() - previous_links_retention;
+            let remove = item
+                .previous_share_links
+                .len()
+                .saturating_sub(previous_links_retention);
             item.previous_share_links.drain(0..remove);
             changed = true;
         }
@@ -486,13 +521,16 @@ mod tests {
             tags: vec![],
             metadata: None,
             cloud_type: "quark".to_string(),
-            url: "https://pan.quark.cn/s/test".to_string(),
+            // 每个夹具用不同链接：`create` 会按 (url, title) 去重
+            url: format!("https://pan.quark.cn/s/test-{id}"),
             password: String::new(),
             known_files: vec![],
             known_file_keys: vec![],
             known_episodes: vec![],
             transferred_files: vec![],
             transferred_file_keys: vec![],
+            pending_transfers: Vec::new(),
+            pending_downloads: Vec::new(),
             last_probe: None,
             last_plan_summary: String::new(),
             notify_only: false,
@@ -549,6 +587,33 @@ mod tests {
             vec!["c"]
         );
         let _ = std::fs::remove_file(tmp);
+    }
+
+    /// ID 派生算法在 v2.7.2 从 MD5 换成 SHA-256：旧订阅保留旧 ID，同一链接与标题
+    /// 再添加会得到不同 ID，查重必须同时看 (url, title)。
+    #[tokio::test]
+    async fn create_rejects_same_url_and_title_with_different_id() {
+        let store = SubscriptionStore::new(temp_path("dedupe"));
+        let mut legacy = make_sub("legacy-md5-id");
+        legacy.url = "https://pan.quark.cn/s/abc".to_string();
+        legacy.title = "庆余年".to_string();
+        store.create(legacy).await.unwrap();
+
+        let mut fresh = make_sub("fresh-sha256-id");
+        fresh.url = "https://pan.quark.cn/s/abc ".to_string();
+        fresh.title = " 庆余年".to_string();
+        let error = store
+            .create(fresh)
+            .await
+            .expect_err("相同链接与标题必须被拒绝");
+        assert!(error.to_string().contains("已存在"));
+
+        // 标题不同则是另一条合法订阅
+        let mut other = make_sub("other");
+        other.url = "https://pan.quark.cn/s/abc".to_string();
+        other.title = "庆余年 第二季".to_string();
+        store.create(other).await.unwrap();
+        assert_eq!(store.count().await, 2);
     }
 
     #[tokio::test]
@@ -644,7 +709,10 @@ mod tests {
 
         let persisted: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&tmp).unwrap()).unwrap();
-        assert_eq!(persisted["schema_version"], 1);
+        assert_eq!(
+            persisted["schema_version"],
+            crate::store::schema::CURRENT_SCHEMA_VERSION
+        );
         assert_eq!(persisted["data"].as_array().unwrap().len(), 1);
         assert_private_file_mode(&tmp);
 
@@ -682,9 +750,16 @@ mod tests {
         std::fs::write(&tmp, b"{not-valid-json").unwrap();
 
         let store = SubscriptionStore::new(&tmp);
-        store.load().await.unwrap();
+        // 默认策略：损坏的业务 Store 会**中止启动**，而不是静默换成空集合。
+        // 把订阅替换成空数据会让服务"看起来正常"却丢光数据，而且首次写入会生成
+        // 全新文件（原文件只剩 .corrupt-* 副本），用户很难察觉。
+        let error = store.load().await.expect_err("损坏的订阅存储必须中止启动");
+        let message = error.to_string();
+        assert!(
+            message.contains("ALLOW_QUARANTINE_STARTUP") && message.contains("订阅存储"),
+            "错误信息必须给出恢复路径与逃生舱: {message}"
+        );
 
-        assert_eq!(store.count().await, 0);
         assert!(!tmp.exists());
 
         let parent = tmp.parent().unwrap();
@@ -819,5 +894,82 @@ mod tests {
             serde_json::from_slice(&std::fs::read(&tmp).unwrap()).unwrap();
         assert_eq!(persisted["data"].as_array().unwrap().len(), 2);
         let _ = std::fs::remove_file(tmp);
+    }
+
+    /// 回归测试：落盘失败时必须回滚内存，不能让内存停留在"看起来写成功了"的状态。
+    ///
+    /// 这是 `commit` 顺序修复的一半语义：先更新内存再落盘可以避免"磁盘比内存新"
+    /// （那种情况下一次写盘会整份覆盖掉已落盘的新数据，静默丢失），但代价是
+    /// 落盘失败时内存已经变了，因此必须显式回滚。
+    #[tokio::test]
+    async fn commit_rolls_back_memory_when_persist_fails() {
+        let dir = std::env::temp_dir().join(format!(
+            "my-media-sub-commit-rollback-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = SubscriptionStore::new(dir.join("subscriptions.json"));
+
+        let mut sub: Subscription = serde_json::from_value(serde_json::json!({
+            "id": "sub-1",
+            "title": "原始标题",
+            "url": "https://pan.quark.cn/s/test",
+            "created_at": 1,
+            "updated_at": 1,
+            "last_checked_at": 1
+        }))
+        .unwrap();
+        store.create(sub.clone()).await.unwrap();
+        assert_eq!(store.get("sub-1").await.unwrap().title, "原始标题");
+
+        // 让落盘必然失败：把目标路径变成一个目录
+        let target = dir.join("subscriptions.json");
+        std::fs::remove_file(&target).unwrap();
+        std::fs::create_dir(&target).unwrap();
+
+        sub.title = "新标题".to_string();
+        let error = store
+            .update("sub-1", |item| item.title = "新标题".to_string())
+            .await
+            .expect_err("落盘必然失败");
+        assert!(
+            error.to_string().contains("subscriptions.json") || !error.to_string().is_empty(),
+            "应当返回磁盘错误"
+        );
+
+        // 内存必须回滚到落盘前的值，而不是停留在未持久化的新值
+        assert_eq!(
+            store.get("sub-1").await.unwrap().title,
+            "原始标题",
+            "落盘失败后内存必须回滚，否则读接口会返回从未持久化的数据"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// 逃生舱：显式设置 `ALLOW_QUARANTINE_STARTUP=true` 时允许以空数据启动，
+    /// 便于"先把服务起来再手工修复"。
+    #[tokio::test]
+    async fn quarantine_startup_can_be_allowed_explicitly() {
+        let tmp = temp_path("subs-corrupt-allowed");
+        std::fs::write(&tmp, b"{not-valid-json").unwrap();
+
+        // 环境变量是进程级全局状态，必须与其他读写它的测试串行化。
+        let _guard = crate::utils::env_lock().lock().await;
+        let previous = std::env::var("ALLOW_QUARANTINE_STARTUP").ok();
+        std::env::set_var("ALLOW_QUARANTINE_STARTUP", "true");
+
+        let store = SubscriptionStore::new(&tmp);
+        let loaded = store.load().await;
+        assert!(
+            loaded.is_ok(),
+            "设置逃生舱后应当允许以空数据启动: {:?}",
+            loaded.err()
+        );
+        assert_eq!(store.count().await, 0);
+
+        match previous {
+            Some(value) => std::env::set_var("ALLOW_QUARANTINE_STARTUP", value),
+            None => std::env::remove_var("ALLOW_QUARANTINE_STARTUP"),
+        }
     }
 }

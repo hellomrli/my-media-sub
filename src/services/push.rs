@@ -1,3 +1,6 @@
+use super::web_push::{
+    encrypt_payload, vapid_authorization, MAX_ENCRYPTED_BYTES, PUSH_TTL_SECONDS,
+};
 use crate::clients::http_pool;
 use crate::clients::http_pool::ObservedRequestBuilder;
 use crate::error::{AppError, Result};
@@ -13,10 +16,6 @@ use std::pin::Pin;
 use std::sync::{Arc, LazyLock, OnceLock};
 use std::time::Duration;
 use tokio::time::sleep;
-use web_push::{
-    ContentEncoding, IsahcWebPushClient, SubscriptionInfo, VapidSignatureBuilder, WebPushClient,
-    WebPushError, WebPushMessageBuilder,
-};
 
 fn hardcoded_regex(pattern: &str) -> Regex {
     Regex::new(pattern)
@@ -41,13 +40,16 @@ pub fn register_settings_store_for_pruning(store: &Arc<SettingsStore>) {
     let _ = PRUNE_SETTINGS_STORE.set(store.clone());
 }
 
-/// 订阅端点已失效（404 EndpointNotFound / 410 EndpointNotValid），应从存储中删除。
-fn is_endpoint_gone(error: &WebPushError) -> bool {
-    is_endpoint_gone_description(error.short_description())
-}
-
-fn is_endpoint_gone_description(description: &str) -> bool {
-    matches!(description, "endpoint_not_valid" | "endpoint_not_found")
+/// 订阅端点已失效（RFC 8030 规定 404 / 410），应从存储中删除。
+///
+/// 旧实现依赖 `web-push` 把状态码映射成的 `short_description`
+/// （`endpoint_not_found` / `endpoint_not_valid`）；自实现后直接看 HTTP 状态码，
+/// 语义更直白也更少一层间接。
+fn is_endpoint_gone_status(status: reqwest::StatusCode) -> bool {
+    matches!(
+        status,
+        reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::GONE
+    )
 }
 
 /// 推送级别
@@ -743,60 +745,91 @@ impl PushService {
         message: &str,
         level: PushLevel,
     ) -> Result<bool> {
-        let client =
-            IsahcWebPushClient::new().map_err(|error| AppError::Http(error.to_string()))?;
         let payload = serde_json::to_vec(
             &json!({"title": title, "body": message, "level": level.as_str(), "url": "/?tab=notifications"}),
         )?;
+
         let mut succeeded = 0usize;
         let mut gone_endpoints: Vec<String> = Vec::new();
         for subscription in &self.settings.browser_push_subscriptions {
             // 单个订阅出错只记录并跳过，不能中断其余订阅者的推送。
-            let info = SubscriptionInfo::new(
-                &subscription.endpoint,
-                &subscription.p256dh,
-                &subscription.auth,
-            );
-            let mut signature = match VapidSignatureBuilder::from_base64(
+            let encrypted =
+                match encrypt_payload(&subscription.p256dh, &subscription.auth, &payload) {
+                    Ok(encrypted) => encrypted,
+                    Err(error) => {
+                        tracing::warn!(
+                            "Browser Push 载荷加密失败，跳过订阅 {}: {error}",
+                            sanitize_push_error(&subscription.endpoint)
+                        );
+                        continue;
+                    }
+                };
+            if encrypted.len() > MAX_ENCRYPTED_BYTES {
+                tracing::warn!(
+                    "Browser Push 载荷过大（{} 字节 > {} 字节上限），跳过订阅 {}",
+                    encrypted.len(),
+                    MAX_ENCRYPTED_BYTES,
+                    sanitize_push_error(&subscription.endpoint)
+                );
+                continue;
+            }
+            let authorization = match vapid_authorization(
                 &self.settings.browser_push_vapid_private_key,
-                &info,
+                &self.settings.browser_push_vapid_public_key,
+                &subscription.endpoint,
+                &self.settings.browser_push_subject,
             ) {
-                Ok(builder) => builder,
+                Ok(value) => value,
                 Err(error) => {
-                    tracing::warn!("Browser Push VAPID 签名构建失败，跳过该订阅: {error}");
+                    tracing::warn!(
+                        "Browser Push VAPID 签名失败，跳过订阅 {}: {error}",
+                        sanitize_push_error(&subscription.endpoint)
+                    );
                     continue;
                 }
             };
-            signature.add_claim("sub", self.settings.browser_push_subject.clone());
-            let signature = match signature.build() {
-                Ok(signature) => signature,
-                Err(error) => {
-                    tracing::warn!("Browser Push VAPID 签名失败，跳过该订阅: {error}");
-                    continue;
-                }
-            };
-            let mut builder = WebPushMessageBuilder::new(&info);
-            builder.set_payload(ContentEncoding::Aes128Gcm, &payload);
-            builder.set_ttl(3600);
-            builder.set_vapid_signature(signature);
-            let push = match builder.build() {
-                Ok(push) => push,
-                Err(error) => {
-                    tracing::warn!("Browser Push 消息构建失败，跳过该订阅: {error}");
-                    continue;
-                }
-            };
-            match client.send(push).await {
-                Ok(()) => succeeded += 1,
-                Err(error) if is_endpoint_gone(&error) => {
-                    tracing::info!("Browser Push 订阅已失效（404/410），将从设置中移除: {error}");
+
+            let response = http_pool::medium_client()
+                .post(&subscription.endpoint)
+                .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+                .header(reqwest::header::CONTENT_ENCODING, "aes128gcm")
+                .header(reqwest::header::AUTHORIZATION, authorization)
+                .header("ttl", PUSH_TTL_SECONDS.to_string())
+                .body(encrypted)
+                .send_observed("browser_push")
+                .await;
+
+            match response {
+                Ok(response) if response.status().is_success() => succeeded += 1,
+                Ok(response) if is_endpoint_gone_status(response.status()) => {
+                    tracing::info!(
+                        "Browser Push 订阅已失效（{}），将从设置中移除: {}",
+                        response.status(),
+                        sanitize_push_error(&subscription.endpoint)
+                    );
                     gone_endpoints.push(subscription.endpoint.clone());
                 }
+                Ok(response) => {
+                    // 读一次 body 便于排查（上限 512 字节，避免上游返回大页面）。
+                    let status = response.status();
+                    let body = response.text().await.unwrap_or_default();
+                    let body: String = body.chars().take(512).collect();
+                    tracing::warn!(
+                        "Browser Push 发送失败（{}）: {}",
+                        status,
+                        sanitize_push_error(&body)
+                    );
+                }
                 Err(error) => {
-                    tracing::warn!("Browser Push 发送失败: {error}");
+                    tracing::warn!(
+                        "Browser Push 发送失败: {}",
+                        sanitize_push_error(&error.to_string())
+                    );
                 }
             }
         }
+
+        // 404/410 说明订阅已被推送服务回收，从设置里剪掉，避免后续每轮都白跑。
         if !gone_endpoints.is_empty() {
             if let Some(store) = PRUNE_SETTINGS_STORE.get() {
                 if let Err(error) = store
@@ -811,6 +844,7 @@ impl PushService {
                 }
             }
         }
+
         Ok(succeeded > 0)
     }
 

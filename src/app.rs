@@ -39,10 +39,18 @@ pub struct AppContext {
     pub backup_service: Arc<BackupService>,
     pub telegram_bot: Arc<TelegramBotService>,
     pub telegram_bot_store: Arc<TelegramBotStore>,
+    /// 单实例互斥锁。持有期间阻止第二个进程共用同一个 `DATA_DIR`；
+    /// 字段本身不参与业务，存在的意义是让锁的生命周期与 AppContext 一致。
+    pub instance_lock: crate::instance_lock::InstanceLock,
 }
 
 impl AppContext {
     pub async fn new(config: &Config) -> Result<Arc<Self>> {
+        // 必须最先获取：业务状态是整份 JSON 覆盖写，两个实例共用 DATA_DIR 会
+        // 互相覆盖并可能重复执行同一作业。在构造任何 Store 之前就拒绝启动，
+        // 避免"启动到一半才发现"留下半初始化状态。
+        let instance_lock = crate::instance_lock::InstanceLock::acquire(&config.data_dir)?;
+
         let metrics = global_metrics();
         let backup_service = Arc::new(BackupService::new(&config.data_dir, metrics.clone()));
         backup_service.apply_pending_restore().await?;
@@ -128,7 +136,8 @@ impl AppContext {
             )
             .with_provider_registry(provider_registry)
             .with_event_store(automation_event_store.clone())
-            .with_job_queue(job_queue.clone()),
+            .with_job_queue(job_queue.clone())
+            .with_transfer_service(transfer_service.clone()),
         );
 
         let scheduler = Arc::new(
@@ -184,6 +193,7 @@ impl AppContext {
             backup_service,
             telegram_bot,
             telegram_bot_store,
+            instance_lock,
         }))
     }
 
@@ -195,6 +205,9 @@ impl AppContext {
             tracing::error!("启动夸克签到调度器失败: {}", err);
         }
         self.download_monitor.clone().start();
+        self.check_service
+            .clone()
+            .start_pending_download_reconciler();
         self.backup_service.clone().start();
         self.telegram_bot.clone().start();
         tracing::info!("✅ Services initialized");
@@ -457,16 +470,10 @@ fn parse_bool_env(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::OnceLock;
-
-    use tokio::sync::Mutex;
-
     use super::*;
 
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
+    // 复用 utils 的进程级锁，避免两把独立的锁各自"互斥"却彼此不互斥。
+    use crate::utils::env_lock;
 
     fn preserve_env() -> Vec<(&'static str, Option<String>)> {
         SETTINGS_ENV_KEYS

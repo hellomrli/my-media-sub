@@ -31,4 +31,6 @@ server {
 - `/api/backups/restore` 需要精确确认文本 `RESTORE DATA`；备份经校验后暂存，安全重启时在加载数据前完成恢复。重启前的后续修改会被备份覆盖。
 - 网盘删除需要与文件 ID/批量数量匹配的确认文本，订阅删除需要确认参数与订阅 ID 一致。
 - CSP、`nosniff`、拒绝 iframe、Referrer Policy 和 Permissions Policy 由应用统一返回。
+- HSTS 需要在设置页「高级选项」显式开启：它按主机名生效、不分端口，若 `media.example.com` 上还有其它走纯 HTTP 的端口，开启后浏览器会把它们一并升级到 https。也可以改由反向代理统一下发 `Strict-Transport-Security`。
+- 若担心 DNS rebinding，可在同一处配置 Host 白名单（`allowed_hosts`），列表必须包含你当前访问用的域名。
 - CI 使用 RustSec 审计依赖；发现高危公告后应先升级依赖再发布。

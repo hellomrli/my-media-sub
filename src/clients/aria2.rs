@@ -402,7 +402,15 @@ fn build_add_uri_payload(
         options.insert("dir".to_string(), json!(dir));
     }
     if let Some(name) = output_name.map(str::trim).filter(|name| !name.is_empty()) {
-        options.insert("out".to_string(), json!(name));
+        // 文件名可能来自云端分享（`info.file_name` 直接来自夸克 API），
+        // 含 `/`、`..`、控制字符时会让 aria2 写到配置目录之外。这里的清洗是
+        // 最后一道防线：不再依赖 aria2 自身的 out 处理。
+        let safe = crate::filename::portable_filename(name);
+        // 清洗后仍不是有效文件名（空、`.`、`..`）时宁可不传 out，
+        // 让 aria2 用 URL 推导默认名，也不要提交一个目录占位符。
+        if crate::filename::is_safe_filename(&safe) {
+            options.insert("out".to_string(), json!(safe));
+        }
     }
     if !headers.is_empty() {
         options.insert("header".to_string(), json!(headers));

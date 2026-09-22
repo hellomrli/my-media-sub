@@ -67,7 +67,13 @@ async fn main() -> Result<()> {
             tracing::info!("升级完成，正在启动新版本服务");
             // exec 成功时不会返回；失败必须退出进程，让 systemd / 容器重启策略
             // 拉起新版本，绝不能留下一个不再监听端口的存活进程。
-            let error = my_media_sub::restart::execute(plan).unwrap_err();
+            // 注意不能用 unwrap_err()：Unix 实现恒返回 Err，但
+            // `#[cfg(not(unix))]` 实现在 spawn 成功时返回 Ok，那时 unwrap_err 会
+            // panic 并以 101 退出，而不是这里期望的 exit(1)。
+            let error = match my_media_sub::restart::execute(plan) {
+                Ok(()) => "重启进程返回成功但没有替换进程".to_string(),
+                Err(error) => error.to_string(),
+            };
             tracing::error!("启动新版本失败，进程退出交由外部拉起: {}", error);
             std::process::exit(1);
         }

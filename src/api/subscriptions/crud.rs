@@ -42,7 +42,7 @@ pub(super) async fn create_subscription(
     let rules = create_rules(&req, &settings);
     let rule_preset_id = req.rule_preset_id.trim().to_string();
     let rule_summary = summarize_rules(Some(&rules));
-    let id = format!("{:x}", md5::compute(format!("{}:{}", req.url, req.title)));
+    let id = crate::utils::stable_id(format!("{}:{}", req.url, req.title));
     let id = &id[..12];
 
     let now = unix_now();
@@ -110,6 +110,8 @@ pub(super) async fn create_subscription(
         known_episodes: vec![],
         transferred_files: vec![],
         transferred_file_keys: vec![],
+        pending_transfers: Vec::new(),
+        pending_downloads: Vec::new(),
         last_probe: None,
         last_plan_summary: String::new(),
         notify_only: req.notify_only,

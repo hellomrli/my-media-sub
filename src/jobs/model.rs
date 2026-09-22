@@ -172,7 +172,7 @@ pub struct PushDispatchPayload {
 
 pub(crate) fn job_idempotency_key(kind: &JobKind, payload: &serde_json::Value) -> String {
     let material = format!("{:?}:{}", kind, payload);
-    format!("{:x}", md5::compute(material))
+    crate::stable_id::stable_id(&material)
 }
 
 pub(crate) fn now() -> i64 {

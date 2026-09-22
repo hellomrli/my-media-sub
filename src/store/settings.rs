@@ -181,8 +181,16 @@ impl SettingsStore {
             }
             settings
         };
-        self.write_to_disk(&updated).await?;
+        // 先更新内存再落盘：落盘走 spawn_blocking 不可取消，future 被 abort 时
+        // 「先落盘」会留下「磁盘新、内存旧」，下一次写盘整份覆盖已落盘的数据。
+        // 反过来只会留下「内存比磁盘新」，下次写盘自然收敛；失败时回滚内存。
+        // 见 `SubscriptionStore::commit` 的完整说明。
+        let previous = self.settings.read().await.clone();
         *self.settings.write().await = updated.clone();
+        if let Err(error) = self.write_to_disk(&updated).await {
+            *self.settings.write().await = previous;
+            return Err(error);
+        }
         Ok(updated)
     }
 }
@@ -268,7 +276,10 @@ mod tests {
         // 持久化验证
         let persisted: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&tmp).unwrap()).unwrap();
-        assert_eq!(persisted["schema_version"], 1);
+        assert_eq!(
+            persisted["schema_version"],
+            crate::store::schema::CURRENT_SCHEMA_VERSION
+        );
         assert_eq!(persisted["data"]["app_username"], "lain");
         let store2 = SettingsStore::new(&tmp);
         store2.load().await.unwrap();
@@ -299,7 +310,10 @@ mod tests {
         assert_eq!(store.get().await.app_username, "legacy-user");
         let persisted: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&tmp).unwrap()).unwrap();
-        assert_eq!(persisted["schema_version"], 1);
+        assert_eq!(
+            persisted["schema_version"],
+            crate::store::schema::CURRENT_SCHEMA_VERSION
+        );
         assert_eq!(persisted["data"]["app_username"], "legacy-user");
         assert_private_file_mode(&tmp);
 
@@ -386,19 +400,41 @@ mod tests {
 
         panic!("corrupt settings file was not quarantined");
     }
+    /// 生成的 VAPID 密钥必须能被我们自己的签名实现接受，且公钥与私钥匹配。
+    ///
+    /// 这条测试替代了原先「交给 web-push 校验」的版本：自实现之后，
+    /// 真正需要保证的是「生成的密钥能被签名路径消费」以及「公钥确实是私钥对应的
+    /// 那个点」——后者尤其重要，两者不匹配会让所有推送被推送服务以 403 拒绝。
     #[tokio::test]
-    async fn generated_vapid_key_is_accepted_by_web_push() {
+    async fn generated_vapid_key_pairs_with_its_public_key() {
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use base64::Engine;
+        use p256::elliptic_curve::sec1::ToEncodedPoint;
+
         let path = temp_path("vapid-key");
         let store = SettingsStore::new(&path);
         store.load().await.unwrap();
         let settings = store.get().await;
+
         let private = settings.browser_push_vapid_private_key.clone();
-        let info = web_push::SubscriptionInfo::new(
-            "https://updates.push.services.mozilla.com/wpush/v1/test",
-            "BH1HTeKM7-NwaLGHEqxeu2IamQaVVLkcsFHPIHmsCnqxcBHPQBprF41bEMOr3O1hUQ2jU1opNEm1F_lZV_sxMP8",
-            "sBXU5_tIYz-5w7G2B25BEw",
+        let public = settings.browser_push_vapid_public_key.clone();
+        assert!(!private.is_empty() && !public.is_empty());
+
+        // 私钥可解析成合法标量，且其公钥与存储的公钥逐字节一致。
+        let private_bytes = URL_SAFE_NO_PAD.decode(&private).unwrap();
+        let secret = p256::SecretKey::from_slice(&private_bytes).unwrap();
+        let derived = secret.public_key().to_encoded_point(false);
+        assert_eq!(
+            URL_SAFE_NO_PAD.encode(derived.as_bytes()),
+            public,
+            "存储的 VAPID 公钥必须与私钥推导出的公钥一致，否则所有推送都会被 403 拒绝"
         );
-        assert!(web_push::VapidSignatureBuilder::from_base64(&private, &info).is_ok());
+
+        // 公钥是 65 字节未压缩点（VAPID 要求的形式）。
+        let public_bytes = URL_SAFE_NO_PAD.decode(&public).unwrap();
+        assert_eq!(public_bytes.len(), 65);
+        assert_eq!(public_bytes[0], 0x04);
+
         let _ = std::fs::remove_file(path);
     }
 }

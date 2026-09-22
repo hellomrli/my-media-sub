@@ -17,6 +17,12 @@ pub struct NormalizeTitleResponse {
     pub original: String,
     pub normalized: String,
     pub changed: bool,
+    /// 标题里提取到的发行年份（`(2024)`），供元数据搜索缩小范围。
+    pub year: Option<i32>,
+    /// 标题里提取到的季号（`第二季`、`S02`）；区间时为起始季。
+    pub season: Option<i32>,
+    /// 季区间的结束季（`S01-S04`）。
+    pub season_end: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -53,6 +59,9 @@ async fn normalize_title(
         changed: detailed.normalized != detailed.original,
         original: detailed.original,
         normalized: detailed.normalized,
+        year: detailed.year,
+        season: detailed.season,
+        season_end: detailed.season_end,
     })))
 }
 

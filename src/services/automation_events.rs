@@ -11,19 +11,28 @@ pub fn start_job_event_projection(
     job_store: Arc<JobStore>,
     event_store: Arc<AutomationEventStore>,
 ) {
-    let mut receiver = job_store.subscribe();
-    tokio::spawn(async move {
-        loop {
-            match receiver.recv().await {
-                Ok(job) => {
-                    if let Err(error) = project_job(&event_store, &job).await {
-                        tracing::warn!("记录 Job 自动化事件失败: {}", error);
+    // spawn_supervised：这个投影循环 panic 后会让 automation_events 停止记录，
+    // 自动化时间线与日历随之变陈旧，而此前没有任何东西会发现它已经死了。
+    // `make` 每轮重新订阅（上一轮的 receiver 随 panic 的 future 一起丢弃）。
+    crate::utils::spawn_supervised("Job 自动化事件投影", move || {
+        let job_store = job_store.clone();
+        let event_store = event_store.clone();
+        async move {
+            let mut receiver = job_store.subscribe();
+            loop {
+                match receiver.recv().await {
+                    Ok(job) => {
+                        if let Err(error) = project_job(&event_store, &job).await {
+                            tracing::warn!("记录 Job 自动化事件失败: {}", error);
+                        }
                     }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        tracing::warn!("Job 自动化事件投影滞后，跳过 {} 条中间状态", skipped);
+                    }
+                    // 通道关闭说明 JobStore 已被释放，属于正常退出：直接返回，
+                    // 监督器不会重启。
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                    tracing::warn!("Job 自动化事件投影滞后，跳过 {} 条中间状态", skipped);
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }
     });

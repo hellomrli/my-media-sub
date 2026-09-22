@@ -20,6 +20,7 @@ pub mod subscription_status;
 pub mod subscription_transfer;
 pub mod title_normalize;
 pub mod transfer_rule;
+pub mod web_push;
 
 pub use download_monitor::DownloadMonitorService;
 pub use episode::{detect_episode, is_video_name};

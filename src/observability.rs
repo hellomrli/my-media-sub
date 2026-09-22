@@ -38,6 +38,10 @@ pub fn init_tracing() {
             .init();
     }
     let _ = FILTER_HANDLE.set(handle);
+    // tracing 就绪之后立刻接管 panic：默认 hook 只往 stderr 打印，容器里既没有
+    // 级别也会和普通输出混在一起，导致"某个后台循环 panic 后永久停止工作"几乎
+    // 无法从日志发现。见 `utils::install_panic_hook`。
+    crate::utils::install_panic_hook();
 }
 
 pub fn runtime_reload_available() -> bool {

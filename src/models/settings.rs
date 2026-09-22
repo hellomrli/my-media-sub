@@ -21,6 +21,23 @@ pub struct Settings {
     #[serde(default)]
     pub trust_proxy_headers: bool,
 
+    /// 允许的 Host 头白名单（不含端口，如 `media.example.com`）。
+    ///
+    /// 为空表示不校验，保持与旧版本一致。配置后，Host 不在列表内的请求会被拒绝。
+    ///
+    /// 为什么需要：CSRF 中间件通过比较 `Origin` 与 `Host` 判断同源，而两者都由
+    /// 客户端提供。DNS rebinding 攻击下，攻击者让浏览器把 `evil.example` 解析到
+    /// 内网 IP，此时 Origin 与 Host **都是** `evil.example`，比较会通过——CSRF 防线
+    /// 被绕过。固定 Host 白名单能让这类请求在更早的一层被拒。
+    #[serde(default)]
+    pub allowed_hosts: Vec<String>,
+
+    /// 是否发送 `Strict-Transport-Security`。默认关闭：HSTS 按主机名生效、不分端口，
+    /// 同一主机上其它走纯 HTTP 的端口会被浏览器一并强制升级成 https 而打不开。
+    /// 只在整个主机名都通过 TLS 提供服务时开启。
+    #[serde(default)]
+    pub hsts_enabled: bool,
+
     // ===== 搜索配置 =====
     /// 支持的云盘类型
     #[serde(default = "default_cloud_types")]
@@ -613,6 +630,8 @@ impl Default for Settings {
             app_username: default_username(),
             app_password: default_password(),
             trust_proxy_headers: false,
+            allowed_hosts: Vec::new(),
+            hsts_enabled: false,
             cloud_types: default_cloud_types(),
             pansou_api_url: String::new(),
             metadata_provider: default_metadata_provider(),

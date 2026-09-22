@@ -401,6 +401,13 @@ fn preview_subscription(req: &RenamePreviewRequest, base: Option<&Subscription>)
         transferred_file_keys: base
             .map(|sub| sub.transferred_file_keys.clone())
             .unwrap_or_default(),
+        // 预览对象不会持久化，但保留 base 的意图记录能让预览与真实状态一致。
+        pending_transfers: base
+            .map(|sub| sub.pending_transfers.clone())
+            .unwrap_or_default(),
+        pending_downloads: base
+            .map(|sub| sub.pending_downloads.clone())
+            .unwrap_or_default(),
         last_probe: base.and_then(|sub| sub.last_probe.clone()),
         last_plan_summary: String::new(),
         notify_only: base.map(|sub| sub.notify_only).unwrap_or(false),

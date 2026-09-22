@@ -79,9 +79,10 @@ impl TelegramBotService {
             confirmations.remove(nonce);
             return Err("确认已过期，请重新发起命令".to_string());
         }
-        let item = confirmations
-            .remove(nonce)
-            .expect("confirmation was checked while lock is held");
+        // 一次 remove 拿到所有权，不再依赖「同锁内刚刚 get 过」的推理。
+        let Some(item) = confirmations.remove(nonce) else {
+            return Err("确认已使用、已失效或服务已重启".to_string());
+        };
         Ok(execute.then_some(item))
     }
 

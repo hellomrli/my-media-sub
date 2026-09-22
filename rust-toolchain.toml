@@ -1,0 +1,10 @@
+# 固定工具链：CI（dtolnay/rust-toolchain@stable）与 Dockerfile（rust:1-bookworm）
+# 之前都跟随上游浮动，Rust 发新版可能在无人改代码时引入新 lint 或行为变化，
+# 让 CI 突然变红且无法归因。这里把开发/CI 使用的版本钉死。
+#
+# 升级步骤：改 channel → 本地跑 `cargo fmt --all` + `cargo clippy --all-targets`
+# + `cargo test --all`，确认无新增告警后同步更新本文件与 CI。
+[toolchain]
+channel = "1.97.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

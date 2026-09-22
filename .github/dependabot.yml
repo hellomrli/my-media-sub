@@ -1,0 +1,39 @@
+# 依赖自动更新。之前 Cargo.lock 一次落后 132 个 crate（见
+# docs/code-review-2026-09-21.md P1-3），人工巡检不可靠，改为每周小 PR。
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # 补丁与次版本合并成一个 PR，减少噪音；大版本单独提，便于逐个评估。
+      cargo-minor-patch:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(ci)"
+
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(docker)"

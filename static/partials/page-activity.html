@@ -75,7 +75,7 @@
               </div>
             </div>
             <div class="p-4 border-b border-border grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto_auto] gap-3">
-              <input type="search" x-model="activityQuery" placeholder="搜索任务、通知、错误或事件" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" />
+              <input type="search" x-model="activityQuery" aria-label="搜索任务、通知、错误或事件" placeholder="搜索任务、通知、错误或事件" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" />
               <div class="filter-chip-row flex gap-2 overflow-x-auto">
                 <template x-for="filter in activityFilters" :key="filter.id">
                   <button @click="activityFilter = filter.id" :class="activityFilter === filter.id ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm transition-colors whitespace-nowrap">

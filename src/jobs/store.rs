@@ -71,7 +71,13 @@ impl JobStore {
             }
             Err(error) => {
                 tracing::error!("解析任务 JSON 失败，已隔离损坏文件并使用空任务: {}", error);
-                quarantine_corrupt_file(&self.path);
+                let quarantined = quarantine_corrupt_file(&self.path);
+                crate::utils::ensure_quarantine_startup_allowed(
+                    "任务存储",
+                    &self.path,
+                    quarantined.as_deref(),
+                    &error.to_string(),
+                )?;
                 self.replace_memory(Vec::new()).await;
             }
         }
@@ -87,8 +93,7 @@ impl JobStore {
             truncate_jobs(&mut snapshot);
             snapshot
         };
-        self.save_snapshot(&snapshot).await?;
-        self.replace_memory(snapshot).await;
+        self.commit(snapshot).await?;
         self.emit(job.clone());
         Ok(job)
     }
@@ -114,8 +119,7 @@ impl JobStore {
             truncate_jobs(&mut snapshot);
             snapshot
         };
-        self.save_snapshot(&snapshot).await?;
-        self.replace_memory(snapshot).await;
+        self.commit(snapshot).await?;
         self.emit(job.clone());
         Ok((job, true))
     }
@@ -171,8 +175,7 @@ impl JobStore {
         };
 
         if let Some((_, snapshot)) = &updated {
-            self.save_snapshot(snapshot).await?;
-            self.replace_memory(snapshot.clone()).await;
+            self.commit(snapshot.clone()).await?;
         }
 
         if let Some((job, _)) = &updated {
@@ -215,9 +218,8 @@ impl JobStore {
         let mut snapshot = self.jobs.read().await.clone();
         let before = snapshot.len();
         truncate_jobs(&mut snapshot);
-        self.save_snapshot(&snapshot).await?;
         let removed = before.saturating_sub(snapshot.len());
-        self.replace_memory(snapshot).await;
+        self.commit(snapshot).await?;
         Ok(removed)
     }
 
@@ -242,11 +244,11 @@ impl JobStore {
         archive.append(&mut archived_now);
         let archive_retention = configured_archive_retention();
         if archive.len() > archive_retention {
-            archive.drain(0..archive.len() - archive_retention);
+            let keep = archive.len().saturating_sub(archive_retention);
+            archive.drain(0..keep);
         }
         write_versioned_json_atomic_async(&self.archive_path, &archive, 0o600).await?;
-        self.save_snapshot(&active).await?;
-        self.replace_memory(active).await;
+        self.commit(active).await?;
         Ok(move_count)
     }
 
@@ -275,8 +277,7 @@ impl JobStore {
             .filter(|job| !is_terminal(job))
             .collect::<Vec<_>>();
         let removed_active = before.saturating_sub(active.len());
-        self.save_snapshot(&active).await?;
-        self.replace_memory(active).await;
+        self.commit(active).await?;
 
         let archived = self.read_archive().await?.len();
         if archived > 0 {
@@ -291,7 +292,8 @@ impl JobStore {
         let mut archive = self.read_archive().await?;
         let before = archive.len();
         if archive.len() > retain {
-            archive.drain(0..archive.len() - retain);
+            let keep = archive.len().saturating_sub(retain);
+            archive.drain(0..keep);
             write_versioned_json_atomic_async(&self.archive_path, &archive, 0o600).await?;
         }
         Ok(before.saturating_sub(archive.len()))
@@ -325,6 +327,24 @@ impl JobStore {
         let mut current_index = self.id_index.write().await;
         *current_jobs = jobs;
         *current_index = index;
+    }
+
+    /// 提交一份新快照：**先更新内存，再落盘**，失败时回滚内存。
+    ///
+    /// 理由同 `SubscriptionStore::commit`：落盘走 `spawn_blocking`，不可取消。
+    /// 「先落盘再改内存」在 future 被 abort（例如取消一个正在写元数据的
+    /// MetadataScrape）时会留下「磁盘新、内存旧」，下一次写盘整份覆盖已落盘的数据
+    /// 造成静默丢失；反过来只会留下「内存比磁盘新」，下次写盘自然收敛。
+    async fn commit(&self, snapshot: Vec<Job>) -> Result<()> {
+        let previous = self.jobs.read().await.clone();
+        self.replace_memory(snapshot.clone()).await;
+        match self.save_snapshot(&snapshot).await {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.replace_memory(previous).await;
+                Err(error)
+            }
+        }
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Job> {
@@ -463,7 +483,10 @@ mod tests {
         assert_eq!(store.list().await[0].id, "legacy");
         let persisted: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&tmp).unwrap()).unwrap();
-        assert_eq!(persisted["schema_version"], 1);
+        assert_eq!(
+            persisted["schema_version"],
+            crate::store::schema::CURRENT_SCHEMA_VERSION
+        );
         assert_eq!(persisted["data"][0]["id"], "legacy");
         assert_private_file_mode(&tmp);
 
@@ -498,9 +521,13 @@ mod tests {
         std::fs::write(&tmp, b"{not-valid-json").unwrap();
 
         let store = JobStore::new(&tmp);
-        store.load().await.unwrap();
+        // 默认策略：损坏的业务 Store 中止启动，而不是静默换成空集合。
+        let error = store.load().await.expect_err("损坏的任务存储必须中止启动");
+        assert!(
+            error.to_string().contains("ALLOW_QUARANTINE_STARTUP"),
+            "错误信息必须给出恢复路径与逃生舱: {error}"
+        );
 
-        assert!(store.list().await.is_empty());
         assert!(!tmp.exists());
         let quarantined = quarantine_path(&tmp).expect("corrupt job file was not quarantined");
         let _ = std::fs::remove_file(quarantined);

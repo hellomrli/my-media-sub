@@ -345,29 +345,40 @@ pub(super) async fn browse_aria2_dir(
         ));
     }
 
-    let mut items = Vec::new();
-    for entry in std::fs::read_dir(&requested)
-        .map_err(|e| AppError::Internal(format!("读取目录失败: {}", e)))?
-    {
-        let entry = entry.map_err(|e| AppError::Internal(format!("读取目录项失败: {}", e)))?;
-        let file_type = entry
-            .file_type()
-            .map_err(|e| AppError::Internal(format!("读取目录项类型失败: {}", e)))?;
-        if !file_type.is_dir() {
-            continue;
-        }
+    // 目录枚举是阻塞 IO，且 Aria2 下载目录常挂在 NFS/SMB/mergerfs 上：
+    // read_dir + 逐条 file_type()/canonicalize() 在慢挂载上可达数百毫秒到数秒，
+    // 而且条目多时是 O(n) 次 syscall。跑在 tokio worker 上会连带拖住任务队列、
+    // SSE 与下载监控，因此整段移入阻塞线程池。
+    let scan_root = root.clone();
+    let scan_target = requested.clone();
+    let items = tokio::task::spawn_blocking(move || -> Result<Vec<Aria2DirectoryItem>> {
+        let mut items = Vec::new();
+        for entry in std::fs::read_dir(&scan_target)
+            .map_err(|e| AppError::Internal(format!("读取目录失败: {}", e)))?
+        {
+            let entry = entry.map_err(|e| AppError::Internal(format!("读取目录项失败: {}", e)))?;
+            let file_type = entry
+                .file_type()
+                .map_err(|e| AppError::Internal(format!("读取目录项类型失败: {}", e)))?;
+            if !file_type.is_dir() {
+                continue;
+            }
 
-        let path = entry.path();
-        let canonical = match path.canonicalize() {
-            Ok(path) if path.starts_with(&root) => path,
-            _ => continue,
-        };
-        items.push(Aria2DirectoryItem {
-            name: entry.file_name().to_string_lossy().into_owned(),
-            path: canonical.display().to_string(),
-        });
-    }
-    items.sort_by(|left, right| left.name.cmp(&right.name));
+            let path = entry.path();
+            let canonical = match path.canonicalize() {
+                Ok(path) if path.starts_with(&scan_root) => path,
+                _ => continue,
+            };
+            items.push(Aria2DirectoryItem {
+                name: entry.file_name().to_string_lossy().into_owned(),
+                path: canonical.display().to_string(),
+            });
+        }
+        items.sort_by(|left, right| left.name.cmp(&right.name));
+        Ok(items)
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("目录浏览任务失败: {}", e)))??;
 
     let parent = requested
         .parent()

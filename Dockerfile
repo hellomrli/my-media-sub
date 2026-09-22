@@ -5,11 +5,12 @@ FROM rust:1-bookworm AS builder
 
 WORKDIR /app
 
-# 安装构建依赖
-RUN apt-get update && apt-get install -y \
-    pkg-config \
-    libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
+# 构建依赖：**不再需要 pkg-config / libssl-dev**。
+#
+# v2.7.2 把 Web Push 换成自实现（src/services/web_push.rs），移除了 web-push 及
+# 其 isahc → curl-sys → libnghttp2-sys / libz-sys 链与 superboring（BoringSSL）。
+# 全项目现在只依赖 rustls 纯 Rust 实现，`cargo tree | grep -i openssl` 为空，
+# 因此构建阶段无需系统 OpenSSL 头文件与 pkg-config。
 
 # 复制 Cargo 文件
 COPY Cargo.toml Cargo.lock ./
@@ -31,10 +32,10 @@ LABEL org.opencontainers.image.title="My Media Sub" \
 
 WORKDIR /app
 
-# 安装运行时依赖
+# 运行依赖：libssl3 已不需要（无 openssl 链接）；ca-certificates 供 rustls 校验
+# 上游证书，curl 供 HEALTHCHECK，gosu 供入口脚本降权。
 RUN apt-get update && apt-get install -y \
     ca-certificates \
-    libssl3 \
     curl \
     gosu \
     && rm -rf /var/lib/apt/lists/*

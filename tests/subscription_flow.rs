@@ -10,6 +10,9 @@ mod services {
     pub use crate::episode;
 }
 
+#[path = "../src/filename.rs"]
+pub mod filename;
+
 #[path = "../src/services/transfer_rule.rs"]
 mod transfer_rule;
 

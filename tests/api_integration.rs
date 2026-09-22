@@ -41,6 +41,45 @@ async fn test_context() -> (Arc<AppContext>, PathBuf) {
     (context, dir)
 }
 
+/// 回归测试：同一个 DATA_DIR 上不允许起第二个实例。
+///
+/// 业务状态是「整份 JSON 读进内存 → 改 → 整份写回」，没有跨进程协调；两个进程
+/// 各持一份内存快照会互相整份覆盖，同一个 Queued 作业还可能被双方同时领取执行。
+/// 旧实现没有任何锁，`docker-compose.yml` 的 container_name 也挡不住
+/// `docker run`、宿主机另跑二进制或误加 `--scale`。
+#[tokio::test]
+async fn second_instance_on_same_data_dir_is_refused() {
+    let dir = std::env::temp_dir().join(format!("my-media-sub-lock-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let config = Config {
+        server: my_media_sub::config::ServerConfig {
+            host: "127.0.0.1".to_string(),
+            port: 0,
+        },
+        data_dir: dir.clone(),
+    };
+
+    let first = AppContext::new(&config)
+        .await
+        .expect("第一个实例应当启动成功");
+    // AppContext 没有实现 Debug，因此用 match 而不是 expect_err
+    let message = match AppContext::new(&config).await {
+        Ok(_) => panic!("同一 DATA_DIR 上的第二个实例必须被拒绝"),
+        Err(error) => error.to_string(),
+    };
+    assert!(
+        message.contains("已被另一个"),
+        "错误信息需要说明冲突原因，实际为: {message}"
+    );
+
+    // 释放后（模拟第一个实例退出）应当可以重启
+    drop(first);
+    let _second = AppContext::new(&config)
+        .await
+        .expect("释放后应当可以重新启动");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// 生成 Basic Auth 头的值（base64("user:pass")）
 fn basic_auth_header(user: &str, pass: &str) -> String {
     let encoded = general_purpose::STANDARD.encode(format!("{user}:{pass}"));
@@ -1467,6 +1506,138 @@ async fn repeated_auth_failures_are_rate_limited() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// Host 白名单不含当前 Host 时必须拒绝保存，否则用户会把自己锁在外面。
+#[tokio::test]
+async fn allowed_hosts_cannot_exclude_the_current_host() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx.clone());
+
+    let mut request = auth_post(
+        "/api/settings",
+        serde_json::json!({"allowed_hosts": ["media.example.com"]}),
+    );
+    request
+        .headers_mut()
+        .insert(header::HOST, "localhost:56001".parse().unwrap());
+    let (rejected, _, body) = json_response(&app, request).await;
+    assert_eq!(rejected, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body["message"]
+        .as_str()
+        .unwrap_or("")
+        .contains("localhost:56001"));
+    assert!(
+        ctx.settings_store.get().await.allowed_hosts.is_empty(),
+        "被拒绝的白名单不得写盘"
+    );
+
+    // 包含当前 Host 即可保存；随后来自其它 Host 的请求被 403
+    let mut request = auth_post(
+        "/api/settings",
+        serde_json::json!({"allowed_hosts": ["media.example.com", "localhost"]}),
+    );
+    request
+        .headers_mut()
+        .insert(header::HOST, "localhost:56001".parse().unwrap());
+    assert_eq!(status(&app, request).await, StatusCode::OK);
+
+    let mut request = auth_get("/api/subscriptions");
+    request
+        .headers_mut()
+        .insert(header::HOST, "evil.example".parse().unwrap());
+    assert_eq!(status(&app, request).await, StatusCode::FORBIDDEN);
+    let mut request = auth_get("/api/subscriptions");
+    request
+        .headers_mut()
+        .insert(header::HOST, "localhost:56001".parse().unwrap());
+    assert_eq!(status(&app, request).await, StatusCode::OK);
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// HSTS 是显式开关：默认不发（同主机其它端口的纯 HTTP 服务会被误伤），开启后才发。
+#[tokio::test]
+async fn hsts_header_is_opt_in() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx.clone());
+
+    let response = app.clone().oneshot(auth_get("/health")).await.unwrap();
+    assert!(
+        response
+            .headers()
+            .get("strict-transport-security")
+            .is_none(),
+        "默认不得发送 HSTS"
+    );
+
+    ctx.settings_store
+        .update(|settings| settings.hsts_enabled = true)
+        .await
+        .unwrap();
+    let response = app.clone().oneshot(auth_get("/health")).await.unwrap();
+    assert_eq!(
+        response
+            .headers()
+            .get("strict-transport-security")
+            .and_then(|value| value.to_str().ok()),
+        Some("max-age=31536000")
+    );
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// 回归测试：限流只能惩罚**凭据错误**的请求。
+///
+/// 旧实现把 `is_blocked` 判定放在凭据校验之前，而清除计数只在校验成功后发生，
+/// 因此失败计数一旦饱和，携带正确密码的请求同样被 429 —— 攻击者只要维持约
+/// 5 次/分钟的错误请求就能锁死整个实例（仅 `/health` 幸存）。
+#[tokio::test]
+async fn valid_credentials_bypass_auth_rate_limit() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+    let attacker = "192.0.2.77";
+
+    // 用错误密码把该来源打进限流状态
+    for _ in 0..7 {
+        let request = Request::builder()
+            .uri("/api/subscriptions")
+            .header(header::AUTHORIZATION, basic_auth_header("admin", "wrong"))
+            .header("x-forwarded-for", attacker)
+            .body(Body::empty())
+            .unwrap();
+        status(&app, request).await;
+    }
+
+    let blocked = Request::builder()
+        .uri("/api/subscriptions")
+        .header(header::AUTHORIZATION, basic_auth_header("admin", "wrong"))
+        .header("x-forwarded-for", attacker)
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(
+        status(&app, blocked).await,
+        StatusCode::TOO_MANY_REQUESTS,
+        "错误凭据在超过阈值后必须被限流"
+    );
+
+    // 正确凭据必须仍然可用——这正是修复点
+    let legitimate = Request::builder()
+        .uri("/api/subscriptions")
+        .header(
+            header::AUTHORIZATION,
+            basic_auth_header("admin", "test-secret-pw"),
+        )
+        .header("x-forwarded-for", attacker)
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(
+        status(&app, legitimate).await,
+        StatusCode::OK,
+        "限流不得拦住携带正确凭据的请求"
+    );
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 #[tokio::test]
 async fn backup_export_preview_and_diagnostics_are_available() {
     let (ctx, dir) = test_context().await;
@@ -1509,7 +1680,11 @@ async fn backup_export_preview_and_diagnostics_are_available() {
 
     let diagnostics = json_body(&app, auth_get("/api/diagnostics")).await;
     assert_eq!(diagnostics["ok"], true);
-    assert_eq!(diagnostics["data"]["schema_version"], 1);
+    // 引用常量而不是字面量：schema 版本 bump 时不必再改测试。
+    assert_eq!(
+        diagnostics["data"]["schema_version"],
+        my_media_sub::store::schema::CURRENT_SCHEMA_VERSION
+    );
     assert_eq!(
         diagnostics["data"]["storage_decision"]["recommendation"],
         "keep_json"

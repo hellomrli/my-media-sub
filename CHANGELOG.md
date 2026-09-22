@@ -4,6 +4,76 @@ My Media Sub 的版本变更记录。新版本写在上方。
 
 升级步骤见对应的 [`docs/upgrade-v*.md`](docs/)；当前版本发布说明摘要也写在 [`README.md`](README.md) 的「版本说明」中。
 
+## 2.7.2
+
+### 修复
+
+- **设置保存不再必然报错**。`SubscriptionScheduler::reload()` 与 `QuarkSigninScheduler::reload()` 在首次成功启动之后总是返回错误：`tokio-cron-scheduler` 0.13 的 `JobScheduler::start()` 不是幂等的（内层 `ticking` 一旦置真永不复位，第二次调用必然失败），而 `stop()` 只摘除 job、不关闭 ticker。由于 `src/api/settings.rs` 先持久化设置再 reload 并把错误冒泡出去，用户修改检查间隔 / 夸克 Cookie / 签到设置时界面每次都报错，**而配置其实已经写盘并生效**。现在用一次性的 `ensure_ticker_started` 把 ticker 启动与任务增删解耦，并新增两条回归测试（其中一条直接断言上游 `start()` 不幂等，作为根因记录）。
+- **认证限流不再拦下正确的凭据**。原实现在凭据校验之前判定封锁，而清除计数只发生校验成功之后，因此失败计数一旦饱和，携带**正确密码**的请求同样被 429。攻击者无需任何凭据、维持约 5 次/分钟的错误请求即可让整个 UI/API 不可用（仅 `/health` 幸存）；在 `trust_proxy_headers=false`（默认）的反向代理部署下所有请求共用同一限流键，一人打满即等于全员被锁。现在只在凭据校验失败后判定限流，阈值语义（窗口内 5 次失败后开始限流）保持不变。
+- **Token scope 不再隐式放大**。`scope_allows` 写成 `scope == "read" && required.ends_with(":read") || scope == required`，按优先级等价于「`read` 满足任意 `:read` 后缀」，于是只授 `read` 的自动化 Token 可以读取 `/api/telegram/audits`，而审计的 `target` 字段保存的是 Telegram 命令原始参数——`/subscribe <分享链接> <提取码>` 会把两者都记进去。scope 现在要求精确匹配。**破坏性变更**：既有只授 `read` 的 Token 将失去 `jobs:read` / `notifications:read` / `subscriptions:read` / `diagnostics:read` 的访问权，需要按需重新轮换 Token 并补齐 scope。
+- **样式产物与源码重新对齐**。`static/styles.css` 最后一次编译停留在 v2.6.0，v2.7.0 新增的 `py-1.5`（跳季订阅季度按钮内边距）与 `opacity-75`（季度文件数徽标）从未进入产物。同时补齐了 9 个「被引用但任何样式表都没有定义」的类：`loading-spinner`（空 span，日历加载指示器完全不可见）、`section-kicker`、`field-help`、`page-header`、`page-heading`、`dashboard-zone-compact`、`automation-event-panel`、`calendar-item-status`，并把两个非法 token 的引用改成有效写法（`bg-panel` → `bg-surface-2`，`text-text-muted` → `text-muted`）。
+- **维护模式现在会拦住自动转存入队**。`job_maintenance_mode` 原先只在 `jobs/worker.rs` 作为执行门禁使用，检查照常入队，而 `truncate_jobs` 明确不淘汰排队任务，于是开启维护后 `jobs.json` 无界增长，每次入队还要全量重写并做两次 fsync（累计 O(n²)）。用户显式 force 转存不受限制。
+- **备份与目录浏览不再阻塞运行时**。`create_stored_backup` 此前只把 `export_archive` 放进 `spawn_blocking`，写盘（含 fsync 与父目录 fsync）、存储预算统计、隔离恢复校验（读回整份归档、逐文件写回并重算 SHA-256）、外拷与清理都留在 tokio worker 上，而定时备份与定时校验循环每轮都会走到这里。`verify_latest_stored_backup` 与 `GET /api/drive/aria2/browse` 的目录枚举（`read_dir` + 逐条 `file_type`/`canonicalize`）同样如此。现在这些阻塞工作统一在阻塞线程池执行。
+- **对账重试写出的 `sync_downloads` 记录 `target_dir` 为空**：`reconcile_pending_downloads` 先从 `pending_downloads` 删掉条目再回头查它的目标目录，必然查空，导致下载监控无法把重试成功的下载识别为完成。现在先取值再删除。另外「已转存但未提交下载」的对账此前只在订阅检查入口触发，已完结的订阅不再被检查、调度器关闭时谁都不检查，而提交失败恰恰容易遗留在完结之后；现在由独立的受监督循环每 2 分钟对所有带待下载记录的订阅执行对账。
+- **转存意图对账时列目录失败不再照常转存**：这正是「上次其实已成功」的可能场景，盲转会制造无法自动撤销的重复副本。现在保留意图、跳过本季，下轮再对账。
+- **订阅去重同时按 (url, title)**：ID 派生从 MD5 换成 SHA-256 后，升级前创建的订阅保留旧 ID，用同一链接与标题再添加会得到新 ID 并绕过只按 ID 的查重。
+- **转存重复（幂等重试）**。转存不可撤销也不幂等：云端成功与本地落盘之间一旦中断（HTTP 响应丢失、进程被杀、取消打断），`transferred_file_keys` 就不会写入，下一次检查会重新选出同一批文件再次转存，在用户网盘里留下重复副本。订阅现在新增 `pending_transfers` 意图记录，在调用云端**之前**落盘；重试时以「有意图记录」+「目标目录出现同名文件」两个条件共同判定上次其实成功，补记本地状态并跳过重复转存。**刻意不用**「目标目录已有同名文件」单条件判断：用户网盘里本来就可能存在同名文件（手动转存过、或不同来源的同名剧集），那样会静默跳过合法转存——比重复文件更糟；项目自带的 `same_named_directory_episodes_...` 回归测试锁住了这个边界。
+- **已转存但未下载（缺对账）**。转存成功会把文件写进 `transferred_file_keys`，之后的检查不会再选中它；如果紧接着的 Aria2 提交失败又不留记录，这一集就永远不会下载到本地，而界面仍显示已转存。订阅新增 `pending_downloads`（只存网盘 fid，不存会过期的直链），转存后按实际提交结果登记差集，由订阅检查入口周期性调用 `reconcile_pending_downloads` 重新换取直链并重试提交，成功后清除并补写 `sync_downloads` 记录供下载监控追踪；`attempts` 上限 10，避免永久静默重试。
+- **缺少单实例保护**。业务状态是「整份 JSON 读进内存 → 改 → 整份写回」，没有跨进程协调；两个进程共用同一个 `DATA_DIR` 时各持一份内存快照，后写的会整份覆盖前者，同一个 Queued 作业还可能被双方同时领取执行（重复转存、重复推送）。`docker-compose.yml` 的 `container_name` 挡不住 `docker run`、宿主机另跑二进制或误加 `--scale`。现在启动时对 `DATA_DIR/.lock` 取排他 `flock`（advisory、进程退出自动释放、0600、写入持有者 pid），第二个实例会带着可操作的提示拒绝启动。
+- **后台循环静默死亡**。多处 `tokio::spawn(async move { loop { .. } })` 丢弃了 `JoinHandle`，tokio 虽然捕获 panic 但**没有人观察它**，于是循环永久消失直到进程重启：下载监控（连带 `.nfo`/海报副作用）、Telegram 长轮询、自动化事件投影、定时备份与备份校验都属于这一类。新增 `utils::spawn_supervised`（panic 后 ERROR 记录并重启，正常返回不重启）并覆盖上述 6 个长驻循环，同时安装全局 panic hook，把 panic 连同文件:行号提升为 ERROR 日志。
+- **唤醒信号丢失会让作业无限期排队**。推送派发作业在信号通道满时曾被直接标记为 Failed（作业其实已持久化为 Queued，一个合法作业被永久判死）；worker 的空闲分支又没有超时，一旦阻塞在 `recv()` 就再也不会执行循环顶部的补扫。现在通道满只记警告并交由补扫接管，空闲分支每 30 秒周期性补扫一次持久化队列。
+- **`automation-token.json` 缺少 schema 信封**。它是唯一没有 `schema_version` 信封与版本门禁的 Store，README 的「每个 Store 都有信封」实为 7 之 6。现已纳入 `StoreKind::AutomationToken`，并保留对旧的无信封格式的兼容读取与自动回写。
+- **取消写入可能静默丢失数据**。所有 Store 的提交都是「整份快照 + 落盘 + 更新内存」两步，而落盘走的 `spawn_blocking` **不可取消**：外层 future 被 abort（例如取消一个正在写元数据的 MetadataScrape）时磁盘可能已经写完，但内存更新永远不会执行。旧顺序（先落盘再改内存）会留下「磁盘新、内存旧」，下一次基于旧内存的写入把刚落盘的新数据整份覆盖。现改为**先更新内存、再落盘**，失败时回滚内存：被取消只会留下「内存比磁盘新」，下次写盘自然收敛。覆盖 subscription / notification / automation_event / jobs / settings / telegram_bot / automation_token 七个 Store。其中 token 的撤销尤其关键——旧顺序下撤销可能只落盘未更新内存，而下一次鉴权写回会把撤销状态覆盖掉，导致**撤销静默失效**。
+- **损坏 Store 不再静默换成空数据**。此前除设置外的 Store 在解析失败时会隔离文件并**以空集合继续运行**：服务看起来正常，但订阅、任务、通知全部消失，而且首次写入会生成一个全新文件（原文件只剩 `.corrupt-*` 副本），用户很难察觉。现在默认**中止启动**，错误信息给出隔离文件路径、恢复步骤与逃生舱（`ALLOW_QUARANTINE_STARTUP=true` 时降级运行并打警告）。同时修掉隔离文件名只用 1 秒分辨率时间戳的问题——同一秒内对同一文件二次隔离会静默覆盖第一份副本，而它往往是唯一的数据副本；现在带随机后缀并对父目录做一次 fsync。
+- **前端状态失同步**。`pagehide` 原先无条件 `destroy()`，而 `pageshow` 没有任何恢复逻辑，从 bfcache 返回后轮询、SSE、快捷键、popstate 路由与错误边界全部消失且无提示；自动转存完成后订阅列表不刷新（只有元数据抓取会刷新）；下载轮询在无可轮询任务时彻底停止，导致订阅自动转存或其它设备新建的下载永远不会出现在页面上。
+- **日历状态不再只用颜色表达**（WCAG 1.4.1）：周视图与月视图补上可见的 `primary_status` 文字。
+- **可访问名称**：95 个 `<label>` 补上 `for=` 关联；7 处标注按钮组的 `<label>`（本身不合法的用法）改为 `role="group"` + `aria-labelledby`；13 个仅有 placeholder 的表单控件补上 `aria-label`；10 个对话框在打开时把焦点移入面板，使 `aria-modal="true"` 名副其实、背景 Tab 键不再逃逸。
+- **剧名清洗（魔法匹配）大幅增强**。①中文逗号 / 顿号之后是演员或描述，整段丢弃（`交锋 4K HDR SDR DV杜比视界 高码率 DDP2 0+HiFi 中字全40集 完结，王凯` → `交锋`）；英文标题里的 ASCII 逗号（`Love, Death & Robots`）保留。②`DDP5.1`、`AAC2.0`、`H.264`、`DDP2 0` 这类被点号或空格拆开的音视频标记先粘合再剥离，否则尾部残留的 `1`/`0` 会阻断整段清洗；剥掉噪声尾缀后只剩数字的残片（`0+HiFi`）视为噪声。③书名号 `《》「」『』` 内的是标题本身，只去符号；普通括号剥空后回退保留括号内容（`【庆余年】1080p` → `庆余年`）。④全角字母数字转半角。⑤中日 / 中英并列时优先中文、其次日文，绝不取罗马音（`葬送のフリーレン / Sousou no Frieren` → `葬送のフリーレン`）；没有东亚文字时取第一段而不是整串。⑥噪声词表补齐平台名（Netflix/NF/HBO/爱奇艺…）、发布形容词（PROPER/REPACK/COMPLETE…）、集数区间（`01-30`、`EP01-30`、`S01E05`）、豆瓣评分、上下部 / 前后篇等；连字符组合任一半是噪声即整体丢弃（`x265-FLUX`、`HEVC-10bit`）；头部只剥分类词与平台名，`Complete Unknown` 这类真实片名不被切头。⑦清洗结果附带**年份与季号提示**：`/api/utils/normalize-title` 返回 `year` / `season` / `season_end`，新建订阅时季号自动回填（用户已手填的不覆盖）；`/api/metadata/search` 新增可选 `year` 参数并按「类型兼容 → 标题得分 + 年份得分」重排结果，元数据刮削作业也从原始分享标题取年份——同名翻拍（`射雕英雄传` 1983/2003/2017）终于能区分。新增 30 余条回归样本。
+- 修掉若干「靠局部推理才安全」的守卫点：`subscription_status` 的 `expect` 改为显式退化分支、`subscription_source_switch` 的 `is_some`+`unwrap` 改为 `filter`、`telegram_bot` 的 `[0]` 索引改为 `first()`、确认流程改为一次 `remove`、批量检查的信号量 `expect` 改为返回错误（原先 panic 会被 `join_next()` 吞掉并静默丢弃该订阅）、`main.rs` 非 Unix 分支的 `unwrap_err()` 改为匹配、401 响应的 `HeaderValue` 改用 `from_static`。
+- 溢出防护：11 处 `len - keep` 改用 `saturating_sub`（`drain(0..n)` 的语义是丢弃最旧项，不能换成 `truncate`）。
+
+### 安全
+
+- **移除 `web-push`，依赖树精简 143 个 crate（370 → 227），并消除唯一的 RustSec 例外**。原先的 `web-push` 同时带来三样本项目并不想要的东西：`rsa` 0.9 的 Marvin 计时侧信道（`RUSTSEC-2023-0071`，上游无修复版本——这是 CI 中长期保留的唯一例外）、**第二套 C 实现的 TLS/HTTP 栈**（`isahc` → `curl-sys` → `libnghttp2-sys`/`libz-sys`）、以及 **BoringSSL**（`superboring`，C++）。现在 Web Push 改为自实现（`src/services/web_push.rs`）：复用 `ece` 做 RFC 8188/8291 的分组框架（关掉它默认的 OpenSSL 后端），密码学后端换成 **`p256` + `ring`**——两者本来就是直接依赖，因此**零新增 crate**；VAPID（RFC 8292）用 `p256` 签 ES256。`web-push`/`isahc`/`curl-sys`/`libnghttp2-sys`/`libz-sys`/`superboring`/`jwt-simple`/`rsa`/`openssl` 全部从依赖树消失，`cargo deny check` 与 `rustsec/audit-check` 现在都在**零例外**下通过。Dockerfile 也不再需要 `libssl-dev`/`pkg-config` 与运行时的 `libssl3`。
+- **正确性验证**：`src/services/web_push.rs` 有 11 项测试，其中 6 项直接比对 **RFC 8291 附录 A 的官方中间值**（ECDH 共享密钥、两次 HKDF 得到的 IKM/CEK/NONCE、AES-128-GCM 密文、86 字节头布局与完整请求体），另有端到端 round-trip（自加密后用自己私钥解密）、VAPID 签名自验证（用对应公钥验证，与推送服务的校验动作一致）、以及非法输入/恶意密钥的拒绝路径。**残留风险**：真实推送链路无法在 CI 端到端验证（需要真实浏览器订阅），升级 `ece` 后建议手工对至少一个真实订阅确认能收到。
+
+- 浏览器推送的 SSRF 过滤补上 **IPv4-mapped IPv6**（`::ffff:127.0.0.1`、`::ffff:a9fe:a9fe` 原先会被放行）、CGNAT `100.64/10`、`0.0.0.0/8`、`192.0.0.0/24`、`198.18/15`、组播与保留段，并补了正反两个方向的单元测试。
+- `/api/*` 响应统一补上 `Cache-Control: no-store`（`/api/images/` 除外，它有自己的长缓存且不含凭据）。此前 `GET /api/settings/secret/{key}` 会返回 `app_password` / `quark_cookie` / `telegram_bot_token` / VAPID 私钥原文却没有缓存头，Token 轮换响应同样。
+- aria2 提交边界强制清洗 `out` 文件名：`info.file_name` 直接来自夸克 API，含 `/`、`..` 或控制字符时会让 aria2 写到配置目录之外，此前完全依赖 aria2 自身的处理。`portable_filename` 下移到无依赖的 `src/filename.rs`，使 `clients` 层可以复用而不产生反向依赖。
+- Telegram webhook 加 64 KiB 体积上限：该前缀在认证中间件里被放行（它用随机路径 + Header secret 双重认证），因此这是唯一能在验密前限制「未认证请求解析 JSON 体」成本的地方；axum 默认的 2 MiB 上限可被扫描器用来放大 CPU 与带宽。
+- 新增可选的 `Strict-Transport-Security: max-age=31536000`（不含 `includeSubDomains`），由设置项 `hsts_enabled` 控制，**默认关闭**：HSTS 按主机名生效、不分端口，自托管里同一主机名下常有其它走纯 HTTP 的端口，无条件发送会让它们被浏览器强制升级而打不开。
+- `docker-compose.yml` 加固：`cap_drop: ALL` + 仅保留入口脚本必需的 `CHOWN`/`DAC_OVERRIDE`/`SETUID`/`SETGID`、`no-new-privileges`、根文件系统只读 + `/tmp` tmpfs，发布端口默认只绑 `127.0.0.1`（新增 `BIND_ADDRESS` 覆盖）。
+
+- **新增可选的 Host 白名单**（`allowed_hosts`，默认关闭）。CSRF 中间件通过比较 `Origin` 与 `Host` 判断同源，而两者**都由客户端提供**：DNS rebinding 攻击下，攻击者让浏览器把 `evil.example` 解析到内网 IP，此时 Origin 与 Host 都是 `evil.example`，比较会通过，CSRF 防线被绕过。配置白名单后，Host 不在列表内的请求会在凭据校验之前被拒（不计入登录失败限流，避免攻击者用伪造 Host 把正常用户打进限流）。列表项支持 `host`、`host:port` 与完整 URL 三种写法（IPv6 字面量按方括号切端口），并挡住 userinfo 混淆（`host@evil`）与 Host 缺失。保存时要求列表必须包含当前请求的 Host，否则拒绝，避免用户把自己锁在外面。设置页「高级选项」提供了对应的输入框。
+- **minisign 算法标记曾写反**（本版本内修正，未发布过）：`ED` 才是 minisign 默认的 BLAKE2b 预哈希模式，`Ed` 是旧式直接签名；写反会让所有官方 `minisign -S` 生成的签名验证失败。现在用 minisign 官方固件（预哈希与 legacy 各一条）锁住语义，并校验签名 key id 与公钥一致。`release.yml` 的签名步骤改为直接以 `secrets` 上下文做条件（step 自身 env 在 `if` 求值时尚不可用，原写法会让签名永远被跳过）。更新下载的每一跳重定向都要求 `https`。
+- **自更新的真实性校验**。此前更新器只校验 SHA-256，而校验和与压缩包来自**同一个 Release**——能改 Release 的攻击者可以同时替换两者，SHA-256 在此不提供任何真实性保证，载荷却会被解包并覆盖运行中的二进制。现在分两层加固：①**无需外部密钥即生效**——下载地址只接受 GitHub 资产主机（精确匹配，挡住 `github.com.evil.example` 这类后缀混淆），并且**逐跳校验重定向目标**（`browser_download_url` 是外部输入，旧实现逐字采纳且不限制重定向）；②**分离签名校验**——实现 minisign 兼容的 Ed25519 校验，配置 `SELF_UPDATE_PUBLIC_KEY` 后强制要求 Release 附带 `.minisig`，缺签名/格式错/验签失败一律中止。为支持 minisign 的预哈希模式自实现了 BLAKE2b-512（`ring` 不提供），用 RFC 7693 官方测试向量锁定。发布端签名步骤已加入 `release.yml`。**注意**：签名需要维护者先生成密钥对并配置 `MINISIGN_SECRET_KEY` Secret；在此之前机制处于「已实现未启用」，更新过程会打 WARN 说明当前只有完整性校验。
+
+### 工程化
+
+- 新增 `scripts/check-css-classes.py` 并接入 CI：校验 `static/styles.css` 覆盖所有被引用的类名，无需 Tailwind CLI 即可同时抓住「产物过期」与「类名拼错」。已用修复前的产物验证它会失败、修复后通过。
+- `scripts/build-css.sh` 增加 Tailwind 版本门禁：必须是 v3.x（本项目用 v3 风格配置，v4 会产出不兼容的 preflight 与工具类）。用 v3.4.17 可以逐字节复现既有产物。
+- 新增无障碍与 DOM 安全回归测试：`<label>` 关联、控件可访问名称、`x-html` 白名单、以及「前端不得引入 `innerHTML`/`insertAdjacentHTML`/`eval`/`new Function`」。此前 `tests/frontend_dom_safety.test.js` 名不副实，只断言了图片 error hack 与资源版本号。
+- 固定 Rust 工具链（`rust-toolchain.toml` → 1.97.0），并在 `Cargo.toml` 声明 `rust-version = "1.87"`（依赖图 ICU 系列要求 1.86，本仓库用到的 `is_multiple_of` 要求 1.87，取较大者）。此前 CI 与 Dockerfile 都跟随上游浮动。
+- 接入 Dependabot：cargo / github-actions / docker 三个生态，每周分组提 PR。
+- `cargo update` 收敛 **132** 个 crate（tokio 1.53.1、hyper 1.11.1、rustls-pki-types 1.15.1、webpki-roots 1.0.9、uuid 1.26.1、regex 1.13.1 等），`cargo update --dry-run` 现为 0。
+- release 档开启 `overflow-checks = true`，并把 `strip = true` 改为 `strip = "debuginfo"` + `debug = "line-tables-only"`，使生产 panic backtrace 能给出文件与行号。
+- 新增 `src/filename.rs`（无依赖叶子模块）承载文件名可移植化逻辑。
+- 新增 `deny.toml` 并接入 CI（cargo-deny）：许可证合规（逐条说明 MPL-2.0/CDLA/Unicode-3.0 等非 MIT/Apache 项的理由）、依赖来源白名单（禁止 git 依赖与未知 registry）、重复依赖告警、`ring` 单版本约束。此前 CI 只跑安全公告检查，370 个 crate 的**许可证**从未被审计过。
+- 新增覆盖率基线：CI 跑 `cargo llvm-cov --lib --summary-only`（只报告、不设硬阈值）。首次基线为 **lib 行覆盖 62.62%**，缺口集中在 Telegram Bot（20.9%–36.4%）、`subscription_scheduler.rs`（55.6%）与 `subscription_transfer.rs`（65.2%）。
+- 前端高风险测试补齐（128 → 144 项）：SSE 快照与 job 事件的并发交错（此前零测试）、网盘删除/批量删除的确认短语与取消路径、同名重命名短路、诊断页的备份/恢复/清理确认与失败提示。
+- 内联测试全部外移，母文件只保留生产代码：`download_monitor.rs` 2284 → 1080 行、`episode.rs` 1321 → 935 行、`api/update.rs` 1644 → 1330 行（共外移 1923 行测试，零行为变更）。
+- Rust 测试规模：718 项通过（2 项联网测试按设计忽略）。
+- 生产代码拆分（不含内联测试外移）：`telegram_bot.rs` 1914 → **1061** 行（回调签名/HMAC → `callback_sign.rs`、白名单鉴权 → `auth.rs`、纯格式化 → `format.rs`、消息与回调分发 → `dispatch.rs`）；`api/update.rs` 1387 → **794** 行（进度状态机 → `progress.rs`、下载与包校验 → `package.rs`、Release 客户端 → `github.rs`、运行时探测 → `runtime.rs`、签名校验 → `signature.rs`）；`subscription_check.rs` 的 361 行 `do_check_subscription_with_options` 拆为 203 行主流程 + `probe_share_stage` + `handle_probe_failure`，并消掉 6 处重复的 13 行 stage 事件调用。
+- `cargo deny check` 与 CI 的 RustSec 检查均在**零例外**下通过（`deny.toml` 的 `ignore` 为空）。
+- **移除 `md5` 依赖**：订阅 ID、Job 幂等键、Telegram 回调 ID、导入指纹与搜索命中 ID 全部改用截断 SHA-256（新增无依赖叶子模块 `src/stable_id.rs`）。长度仍是 32 位十六进制，`&id[..12]` 这类既有格式假设与旧数据都继续成立；只有升级瞬间未完成的幂等去重可能失效一次。
+
+### 升级与验证
+
+- **JSON Store schema 版本升到 `2`**（`CURRENT_SCHEMA_VERSION`）。这**不改变数据结构**，只是标记"数据含有 v1 无法正确理解的语义字段"：v2.7.0 引入的跳季订阅 `season_list` 在 v1 程序里会被当作未知字段，在下次写入时抹掉，把订阅永久降级成连续区间。现在旧版本读到 v2 信封会**拒绝启动**而不是静默改写。v1 数据自动迁移并回写为 v2（迁移前写逐字节原始备份），正常升级无需操作；**回滚到 v2.2–v2.7.1 前需要先恢复备份，或确认未使用跳季语义后手工把 `schema_version` 改回 1**。
+- **注意 Token scope 收紧**：若此前创建过只含 `read` 的自动化 Token 并依赖它访问 jobs / notifications / subscriptions / diagnostics，需要在设置页重新轮换并勾选对应 scope。
+- 前端资源 URL 已带 `?v=2.7.2`，service-worker 的 `ASSET_VERSION` / `CACHE_VERSION` 同步更新。
+- Rust 测试 718 项、前端 Node 测试 144 项通过；`cargo fmt`、`cargo clippy --all-targets`（`-D warnings`）、CSS 类名覆盖、OpenAPI 94 路径/106 操作契约均通过。
+
 ## 2.7.1
 
 ### 修复

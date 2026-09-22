@@ -20,6 +20,15 @@
     };
   }
 
+  /// 有进行中任务时的轮询间隔：进度条要跟手。
+  const DOWNLOADS_POLL_ACTIVE_MS = 2000;
+  /// 空闲时的慢速轮询间隔：只为发现「别处新建的下载」。
+  ///
+  /// 旧实现在没有可轮询任务时直接停止轮询，而唯一的重启入口是
+  /// `loadDownloads()`，于是页面开着且当前无任务时，由订阅自动转存或
+  /// 另一台设备新建的下载**永远不会出现**，页面静默退化成快照。
+  const DOWNLOADS_POLL_IDLE_MS = 15000;
+
   function hasPollableDownloadTasks(value) {
     const groups = normalizeDownloadGroups(value);
     return [...groups.active, ...groups.waiting].some(task => {
@@ -117,6 +126,8 @@
     downloadsHistoryLoadedAt: 0,
     downloadsAutoRefresh: true,
     downloadsPoller: null,
+    /// 当前轮询使用的间隔，用于在「活动 / 空闲」之间切换时重启轮询。
+    downloadsPollIntervalMs: 0,
     downloadsFullRefreshPending: false,
     downloadsBulkAction: '',
     downloadTaskActions: {},
@@ -397,8 +408,15 @@
         this.stopDownloadsPolling();
         return;
       }
-      if (hasPollableDownloadTasks(this.downloads)) this.startDownloadsPolling();
-      else this.stopDownloadsPolling();
+      // 空闲时保持慢速轮询而不是彻底停止，否则新建的下载不会出现。
+      const intervalMs = hasPollableDownloadTasks(this.downloads)
+        ? DOWNLOADS_POLL_ACTIVE_MS
+        : DOWNLOADS_POLL_IDLE_MS;
+      if (this.downloadsPoller) {
+        if (this.downloadsPollIntervalMs === intervalMs) return;
+        this.stopDownloadsPolling();
+      }
+      this.startDownloadsPolling(intervalMs);
     },
 
     downloadTaskActionLoading(task) {
@@ -421,18 +439,23 @@
       return downloadTaskCapabilities(task).retry;
     },
 
-    startDownloadsPolling() {
+    startDownloadsPolling(intervalMs = DOWNLOADS_POLL_ACTIVE_MS) {
       if (this.downloadsPoller) return;
       if (!this.aria2Configured()
         || !this.downloadsAutoRefresh
-        || (this.currentTab !== 'downloads' && this.currentTab !== 'dashboard')
-        || !hasPollableDownloadTasks(this.downloads)) return;
-      this.downloadsPoller = this.startPolling('downloads', () => this.loadDownloads(true), 2000);
+        || (this.currentTab !== 'downloads' && this.currentTab !== 'dashboard')) return;
+      this.downloadsPollIntervalMs = intervalMs;
+      this.downloadsPoller = this.startPolling(
+        'downloads',
+        () => this.loadDownloads(true),
+        intervalMs
+      );
     },
 
     stopDownloadsPolling() {
       this.stopPolling('downloads');
       this.downloadsPoller = null;
+      this.downloadsPollIntervalMs = 0;
     },
 
     downloadStatusLabel(status) {

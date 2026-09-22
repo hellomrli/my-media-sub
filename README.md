@@ -31,7 +31,7 @@ my-media-sub 把这段流程交给一个常驻服务：你给一个分享链接�
 | 九种通知渠道 | 企业微信、WxPusher、Telegram、Bark、Gotify、PushPlus、Server 酱、Browser Push 与签名 Webhook，支持安静时段和摘要聚合 |
 | 手机遥控 | Telegram Bot 提供白名单、写操作二次确认、限流与脱敏审计；粘贴豆瓣链接即可搜索、订阅或转存 |
 | 不引入数据库也能安全落盘 | `schema_version` JSON 信封、临时文件加 `fsync` 再原子 rename、`0600` 权限、损坏文件自动隔离并在诊断页持续告警 |
-| 在线更新 | 校验 SHA256 后把二进制与整个 WebUI 作为同一事务切换，保留多份回滚副本，等后台任务优雅停机后才重启进程 |
+| 在线更新 | 校验 SHA256 后把二进制与整个 WebUI 分别以同目录 rename 原子切换（任一失败回滚静态资源），保留多份回滚副本，等后台任务优雅停机后才重启进程 |
 
 ## 架构
 
@@ -162,7 +162,9 @@ curl http://127.0.0.1:56001/health
 | 变量 | 作用 |
 |---|---|
 | `SERVER_HOST` / `SERVER_PORT` | 监听地址与端口，默认 `0.0.0.0:56001` |
-| `SERVER_USERNAME` / `SERVER_PASSWORD` | 管理凭据；密码为空的部署会拒绝所有请求 |
+| `SERVER_USERNAME` / `SERVER_PASSWORD` | 管理凭据；密码为空的部署会拒绝所有请求。旧别名 `APP_USERNAME` / `APP_PASSWORD` 仍被接受，但优先级低于 `SERVER_*` |
+| `STATIC_DIR` | WebUI 静态资源目录，默认 `./static`；容器内指向运行时目录（`/app/runtime/static`）。**它与 `APP_RUNTIME_DIR` 共同决定在线更新是否可用** |
+| `APP_RUNTIME_DIR` | 在线更新写入的持久化运行时目录（容器内为 `/app/runtime`），需可写。改动前请先读 [Docker 在线更新](docs/docker-online-update.md) |
 | `DATA_DIR` | 业务数据目录，默认 `./data` |
 | `TZ` | 进程时区，影响推送免打扰时段等基于本地时间的功能 |
 | `QUARK_COOKIE` / `QUARK_SIGNIN_COOKIE` | 夸克凭据与签到专用 Cookie |
@@ -172,6 +174,10 @@ curl http://127.0.0.1:56001/health
 | `TELEGRAM_BOT_*` | 推送与 Bot 接入；`TELEGRAM_BOT_MODE` 取 `disabled`、`long_polling` 或 `webhook` |
 | `BACKUP_INTERVAL_HOURS` / `BACKUP_RETENTION` | 自动备份间隔与保留份数，间隔设为 0 可关闭定时备份 |
 | `SELF_UPDATE_ENABLED` / `SELF_UPDATE_BACKUP_RETENTION` | 在线更新开关与回滚副本数量 |
+| `SELF_UPDATE_PUBLIC_KEY` | minisign 公钥。设置后**强制**校验 Release 的 `.minisig` 分离签名（推荐在编译期固化，见 [Docker 在线更新](docs/docker-online-update.md)） |
+| `allowed_hosts`（设置页） | 可选的 Host 白名单。配置后拒绝 Host 不在列表内的请求，用于防御 DNS rebinding 绕过 CSRF 的 Origin/Host 比较；保存时必须包含当前访问的 Host |
+| `hsts_enabled`（设置页） | 是否发送 HSTS 头，默认关闭。HSTS 按主机名生效、不分端口，只在该主机名所有端口都走 HTTPS 时开启 |
+| `ALLOW_QUARANTINE_STARTUP` | 设为 `true` 时允许在 Store 文件损坏被隔离后以空数据启动；默认为 false（中止启动，避免静默丢数据） |
 | `RUST_LOG` / `LOG_FORMAT` | 日志级别与输出格式，`LOG_FORMAT=json` 输出结构化日志 |
 
 ## 数据、备份与升级
@@ -189,7 +195,9 @@ DATA_DIR/
 
 备份恢复需要精确确认文本 `RESTORE DATA`。归档先校验并暂存，在**下一次重启**时、加载任何 Store 与后台任务之前应用；应用失败会回滚并停止启动，保留暂存文件供排查后重试。提交恢复后请尽快重启，重启前的后续修改会被备份覆盖。
 
-Docker 部署可以在系统设置的维护页直接切换 Release。更新器会校验 SHA256、把二进制与完整 WebUI 作为同一事务切换，并等待优雅停机后重启；细节与回滚方式见 [Docker 在线更新](docs/docker-online-update.md)。
+Docker 部署可以在系统设置的维护页直接切换 Release。更新器会校验 SHA256，把二进制与完整 WebUI **分别**以同目录 rename 原子切换（静态资源先切、二进制后切，二进制失败时回滚静态资源），并等待优雅停机后重启。
+
+> 注意：两次 rename 之间存在一个短暂窗口，此时**旧二进制会配着新 WebUI 运行**，直到进程重启。因此新前端必须保持与上一个版本的 API 兼容；细节与回滚方式见 [Docker 在线更新](docs/docker-online-update.md)。
 
 ## 安全与部署
 
@@ -229,14 +237,14 @@ cargo run --release
 ```bash
 node scripts/build-frontend.mjs --check          # 前端产物是否过期
 find static -type f -name '*.js' -print0 | sort -z | xargs -0 -n1 node --check
-node --test tests/frontend_*.test.js             # 120 项前端测试
+node --test tests/frontend_*.test.js             # 144 项前端测试
 npx --yes eslint@10.8.0 'static/**/*.js'         # no-undef 是原生 JS 的静态安全网
 
 python3 scripts/check-openapi.py                 # 路由与规范双向契约
 
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features --locked -- -D warnings
-cargo test --all --locked                        # 641 项 Rust 测试
+cargo test --all --locked                        # 718 项 Rust 测试
 cargo build --release --locked
 ```
 
@@ -258,8 +266,29 @@ cargo build --release --locked
 | 容量规划 | JSON 性能基线与 SQLite 决策门槛 | [存储扩展](docs/storage-scaling.md) |
 | 移动端 | PWA 壳层、缓存策略与安装 | [PWA](docs/pwa.md) |
 | 发布流程 | 版本面门禁与发布检查清单 | [发布流程](docs/release-workflow.md) |
+| 依赖安全 | RustSec 例外、已修 CVE 与锁文件策略 | [依赖审计](docs/security-audit.md) |
+| 后续计划 | 唯一持久化计划入口与历史交接台账 | [路线图](docs/roadmap.md) |
+| 代码评审 | 最近一次全量评审的结论与修复状态 | [评审 2026-09-21](docs/code-review-2026-09-21.md) |
+| 历史评审 | 2026-07-26 的前端与代码评审（部分结论已修复，留档） | [评审 2026-07-26](docs/code-review-2026-07-26.md) · [前端评审 2026-07-26](docs/frontend-design-review-2026-07-26.md) |
 
 ## 版本说明
+
+### 2.7.2
+
+- **修复设置保存必然报错**：调度器 `reload()` 在首次启动后总是返回错误，导致修改检查间隔、夸克 Cookie 或签到设置时界面报错（配置其实已生效）。根因是 `tokio-cron-scheduler` 的 `JobScheduler::start()` 不幂等，而 `reload()` 每次无条件调用它；现在用一次性标志把 ticker 启动与任务增删解耦，并补了回归测试。
+- **修复一处未认证即可触发的拒绝服务**：认证限流原先在凭据校验之前判定，失败计数饱和后连**正确密码**也会被 429。攻击者维持约 5 次/分钟的错误请求即可锁死整个界面（仅 `/health` 幸存）；反向代理后默认配置下所有请求共用同一限流键，一人打满即全员受影响。现在限流只惩罚凭据错误的请求。
+- **修复 Token 越权**：scope `read` 此前被当作通配符，可满足任意以 `:read` 结尾的 scope，于是只授 `read` 的 Token 能读取 `/api/telegram/audits`——其中的 `target` 字段记录着用户粘贴的分享链接与提取码。scope 现在要求精确匹配。
+- **修复已发布的样式缺陷**：编译产物 `static/styles.css` 停留在 v2.6.0，v2.7.0 新增的 `py-1.5` / `opacity-75` 从未生效；另有 9 个被引用但从未定义的类（含完全不可见的加载动画 `loading-spinner`、无效 token `bg-panel` 与 `text-text-muted`）。已补齐定义并重新编译，同时新增 CI 门禁防止再次漂移。
+- **修复维护模式下队列无界增长**：`job_maintenance_mode` 原先只拦 worker 执行、不拦入队，而 `truncate_jobs` 又不淘汰排队任务，开启维护后 `jobs.json` 会无限增长且每次入队全量重写。
+- **修复运行时阻塞**：备份创建/校验（整份归档读写 + 隔离恢复 + 全量 SHA-256）与 `GET /api/drive/aria2/browse` 的目录枚举原先都跑在 tokio worker 上，现在移入阻塞线程池。
+- **新增单实例保护**：启动时对 `DATA_DIR` 取排他文件锁，避免两个进程共用同一数据目录时整份 JSON 互相覆盖、同一作业被重复执行。
+- **转存与下载补齐幂等与对账**：转存前落盘「意图」并在重试时对账，避免云端已成功却重复转存；新增「已转存但未提交下载」记录与周期重试，避免该集永久不下载。
+- **长驻后台任务不再静默死亡**：6 个关键循环（下载监控、Telegram 长轮询、自动化事件投影、定时备份与校验等）改用受监督的 spawn，panic 后记录并重启；同时安装全局 panic hook，把 panic 位置提升为 ERROR 日志。
+- **修复前端状态失同步**：从 bfcache 返回后轮询、SSE、快捷键与路由全部失效；自动转存完成后订阅列表不刷新；下载轮询一旦空闲就彻底停止，导致别处新建的下载不再出现。
+- **剧名匹配大幅增强**：日文标题内部的假名不再被误当作分隔符（`鬼滅の刃` 曾被截断成 `鬼滅`）；中文逗号之后的演员/描述整段丢弃（`交锋 4K … 完结，王凯` → `交锋`）；`DDP2 0`、`H.264`、`AAC2.0` 这类被拆开的音视频标记先粘合再剥离；书名号内视为标题本身；噪声词表补齐平台名、发布形容词、集数区间等；清洗结果附带年份与季号提示——新建订阅自动回填季号，元数据搜索按年份区分同名翻拍。
+- **安全加固**：浏览器推送的 SSRF 过滤补上 IPv4-mapped IPv6、CGNAT 与保留段；`/api/*` 响应统一 `Cache-Control: no-store`；aria2 的 `out` 文件名强制清洗；Telegram webhook 加 64 KiB 体积上限；新增可选的 HSTS 开关与 Host 白名单（均默认关闭，白名单保存时防自锁）；compose 去掉多余 capability、禁止提权、根文件系统只读。
+- **移除 `web-push`**：Web Push 改为自实现（`ece` 分组框架 + `p256`/`ring` 密码学后端），依赖树从 370 个 crate 精简到 **227** 个，并消除 CI 中长期保留的唯一 RustSec 例外（`RUSTSEC-2023-0071`，来自它引入的 `rsa`）；同时去掉第二套 C 实现的 TLS/HTTP 栈与 BoringSSL，全项目回到单一 rustls。
+- **工程化**：固定 Rust 工具链并声明 `rust-version = "1.87"`；`Cargo.lock` 收敛 132 个 crate；接入 Dependabot；release 档开启 `overflow-checks` 并保留行号表；新增 CSS 类名覆盖、文档漂移与无障碍回归门禁；标识符派生从 MD5 换成截断 SHA-256，不再依赖 `md5`。
 
 ### 2.7.1
 
@@ -268,7 +297,7 @@ cargo build --release --locked
 - 切换季度后按新季重算进度，不再沿用旧季完结记录；详情与日历按选中季度分别展示。
 - 季度探测按链接与密码标识在途请求，快速切换时旧结果不会覆盖当前编辑器。
 
-- 当前版本：[v2.7.1 升级指南](docs/upgrade-v2.7.1.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
+- 当前版本：[v2.7.2 升级指南](docs/upgrade-v2.7.2.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
 
 各版本升级步骤在 `docs/upgrade-v*.md`。
 

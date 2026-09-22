@@ -160,16 +160,29 @@ mod tests {
     }
 
     #[test]
-    fn endpoint_gone_detects_only_404_and_410_variants() {
-        // web-push 不导出 ErrorInfo，无法直接构造 404/410 变体；
-        // 通过 short_description 映射覆盖判定逻辑。
-        assert!(is_endpoint_gone_description("endpoint_not_valid"));
-        assert!(is_endpoint_gone_description("endpoint_not_found"));
-        assert!(!is_endpoint_gone_description("unauthorized"));
-        assert!(!is_endpoint_gone_description("server_error"));
-        assert!(!is_endpoint_gone_description("unspecified"));
-        assert!(!is_endpoint_gone(&WebPushError::Unspecified));
-        assert!(!is_endpoint_gone(&WebPushError::PayloadTooLarge));
+    fn endpoint_gone_detects_only_404_and_410() {
+        use reqwest::StatusCode;
+        // RFC 8030：推送服务用 404（订阅不存在）与 410（订阅已撤销）表示端点失效。
+        assert!(is_endpoint_gone_status(StatusCode::NOT_FOUND));
+        assert!(is_endpoint_gone_status(StatusCode::GONE));
+        // 其余状态都不能据此删除订阅：401 是 VAPID 配置问题、429/5xx 是暂时故障，
+        // 删掉订阅会让用户莫名收不到通知。
+        for status in [
+            StatusCode::UNAUTHORIZED,
+            StatusCode::FORBIDDEN,
+            StatusCode::TOO_MANY_REQUESTS,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::BAD_GATEWAY,
+            StatusCode::SERVICE_UNAVAILABLE,
+            StatusCode::PAYLOAD_TOO_LARGE,
+            StatusCode::OK,
+            StatusCode::CREATED,
+        ] {
+            assert!(
+                !is_endpoint_gone_status(status),
+                "{status} 不应被当作端点失效"
+            );
+        }
     }
 
     #[test]

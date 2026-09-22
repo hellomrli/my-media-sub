@@ -272,6 +272,29 @@ pub struct Subscription {
     #[serde(default)]
     pub transferred_file_keys: Vec<String>,
 
+    /// 已转存但尚未成功提交到下载器的文件。
+    ///
+    /// 转存成功会把文件写进 `transferred_file_keys`，之后的检查不会再选中它；
+    /// 如果紧接着的 Aria2 提交失败又不留任何记录，这一集就**永远不会下载到本地**，
+    /// 而界面仍显示"已转存"。这里记录待提交项（含网盘 fid），由检查流程周期性
+    /// 对账重试——下载直链是会过期的，所以只存 fid，重试时再换新直链。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_downloads: Vec<PendingDownload>,
+
+    /// 进行中的转存意图（调用云端**之前**落盘）。
+    ///
+    /// 存在的意义是让"云端已成功但本地没记住"的重试变成幂等操作：转存既不可撤销
+    /// 也不幂等，如果响应丢失或进程在写回本地记录前被杀，`transferred_file_keys`
+    /// 就不会被写入，下一次检查会重新选出同一批文件并再次转存，在用户网盘里留下
+    /// 重复副本。
+    ///
+    /// 注意**不能**简单地把"目标目录已存在同名文件"当作已转存的判据：用户网盘里
+    /// 本来就可能存在同名文件（手动转存过、或不同来源的同名剧集），那样会静默
+    /// 跳过合法转存。只有「有意图记录」+「目标目录出现同名文件」同时成立，
+    /// 才能判定上次转存其实成功了。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_transfers: Vec<PendingTransfer>,
+
     /// 最近一次探测结果
     #[serde(default)]
     pub last_probe: Option<ProbeResult>,
@@ -376,6 +399,49 @@ pub struct Subscription {
     /// 换源与候选失败审计历史。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub source_switch_history: Vec<SourceSwitchHistoryItem>,
+}
+
+/// 一次尚未确认结果的转存尝试。
+///
+/// 落盘时机是**调用云端之前**；确认成功后立即删除。进程在两者之间崩溃、或云端
+/// 已成功但 HTTP 响应丢失时，下次检查会看到这条记录，并用「目标目录是否已出现
+/// 同名文件」判断云端其实已经成功——从而避免重复转存。
+///
+/// 反过来也重要：**没有**意图记录时，目标目录里的同名文件一律不构成"已转存"
+/// 的证据（用户可能手动转存过，或存在不同来源的同名剧集），必须照常转存。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PendingTransfer {
+    /// 目标季号（多季/跳季订阅按季分别记录）。
+    pub season: i32,
+    /// 目标目录，仅用于日志与排查；判据是同名文件而非路径。
+    pub target_dir: String,
+    /// 本次尝试提交的文件名。
+    pub file_names: Vec<String>,
+    /// 意图落盘时间，用于诊断与过期清理。
+    pub created_at: i64,
+}
+
+/// 已转存但尚未成功提交下载的文件。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PendingDownload {
+    /// 网盘文件 ID。刻意不存下载直链——直链会过期，重试时需重新换取。
+    pub fid: String,
+    /// 文件名，用于与 Aria2 任务去重。
+    pub file_name: String,
+    /// 网盘侧目标目录，仅用于展示与排查。
+    #[serde(default)]
+    pub target_dir: String,
+    /// 所属季号。
+    #[serde(default)]
+    pub season: i32,
+    /// Aria2 侧下载目录。
+    #[serde(default)]
+    pub download_dir: String,
+    /// 已尝试提交次数，用于限制重试并暴露长期失败的项。
+    #[serde(default)]
+    pub attempts: u32,
+    #[serde(default)]
+    pub created_at: i64,
 }
 
 impl Subscription {
@@ -642,6 +708,8 @@ mod season_list_tests {
             known_episodes: vec![],
             transferred_files: vec![],
             transferred_file_keys: vec![],
+            pending_transfers: Vec::new(),
+            pending_downloads: Vec::new(),
             last_probe: None,
             last_plan_summary: String::new(),
             notify_only: false,
@@ -751,6 +819,8 @@ mod tests {
             known_episodes: vec![1, 2, 3],
             transferred_files: vec![],
             transferred_file_keys: vec![],
+            pending_transfers: Vec::new(),
+            pending_downloads: Vec::new(),
             last_probe: None,
             last_plan_summary: "".to_string(),
             notify_only: false,

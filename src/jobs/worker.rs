@@ -38,6 +38,14 @@ mod push_dispatch;
 mod subscription_transfer;
 
 const MAX_SIGNAL_DRAIN_PER_TICK: usize = 512;
+
+/// 空闲时周期性补扫持久化队列的间隔。
+///
+/// 为什么需要：worker 在无事可做时会阻塞 `recv()`，如果没有任何信号到达，
+/// 循环顶部的 `reconcile_queued_jobs` 就永远不会再执行。任何一次丢失的唤醒信号
+/// 都会让对应作业无限期停在 Queued。30 秒远小于任何用户可感知的延迟，
+/// 又不会造成可观测的空转开销。
+const IDLE_RECONCILE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 /// 关闭时给运行中任务的宽限时间（秒）。
 pub(crate) const SHUTDOWN_GRACE_SECONDS: u64 = 30;
 /// 卡死看门狗的心跳轮询间隔（秒）。
@@ -284,6 +292,13 @@ impl JobWorker {
                     break;
                 }
                 if scheduler.is_empty() {
+                    // 空闲分支此前**没有**超时：一旦这里阻塞在 recv()，就再也不会执行
+                    // 循环顶部的 `reconcile_queued_jobs`。于是任何一次丢失的唤醒信号
+                    // （通道满、启动恢复溢出等）都会让那个作业一直停在 Queued，直到
+                    // 碰巧有别的信号到达才被补扫到。
+                    //
+                    // push_dispatch 现在不再因为通道满而把作业判死（见 worker/push_dispatch.rs），
+                    // 因此这里必须提供周期性的补扫兜底，两者是一套的。
                     tokio::select! {
                         maybe_job_id = self.receiver.recv() => match maybe_job_id {
                             Some(job_id) => self.queue_pending_job(&mut scheduler, &job_id).await,
@@ -295,6 +310,7 @@ impl JobWorker {
                                 break;
                             }
                         }
+                        _ = tokio::time::sleep(IDLE_RECONCILE_INTERVAL) => {}
                     }
                 } else {
                     tokio::select! {
@@ -883,6 +899,8 @@ mod tests {
             known_episodes: vec![177, 178],
             transferred_files: vec![],
             transferred_file_keys: vec![],
+            pending_transfers: Vec::new(),
+            pending_downloads: Vec::new(),
             last_probe: None,
             last_plan_summary: String::new(),
             notify_only: false,

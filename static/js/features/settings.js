@@ -177,6 +177,7 @@
         } else {
           this.settings = {...this.settings, ...data};
         }
+        this.normalizeAllowedHostsInput();
         this.normalizeCustomCategories();
         this.settingsLoaded = true;
         this.settings.rule_presets = this.rulePresets;
@@ -184,6 +185,18 @@
         this.autoRefreshQuarkHealth();
       } catch (error) {
         console.error('加载设置失败:', error);
+      }
+    },
+
+    /// `allowed_hosts` 在 API 里是数组，设置页用一个逗号分隔的文本框编辑；
+    /// 后端接受两种形式，这里只负责把数组转成文本供输入框显示。
+    normalizeAllowedHostsInput() {
+      if (!this.settings) return;
+      const value = this.settings.allowed_hosts;
+      if (Array.isArray(value)) {
+        this.settings.allowed_hosts = value.join(', ');
+      } else if (value == null) {
+        this.settings.allowed_hosts = '';
       }
     },
 
@@ -212,6 +225,7 @@
           const data = await response.json();
           if (data.data) {
             this.settings = {...this.settings, ...data.data};
+            this.normalizeAllowedHostsInput();
             this.normalizeCustomCategories();
           }
           this.resetSecretVisibility();

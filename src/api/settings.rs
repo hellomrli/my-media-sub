@@ -1,3 +1,4 @@
+use axum::http::HeaderMap;
 use axum::{
     extract::{Path, State},
     response::IntoResponse,
@@ -92,6 +93,20 @@ fn settings_schema() -> SettingsSchemaResponse {
         setting_field!(
             "trust_proxy_headers",
             "信任反向代理转发头",
+            "boolean",
+            "advanced",
+            false
+        ),
+        setting_field!(
+            "allowed_hosts",
+            "允许的 Host 白名单",
+            "string_list",
+            "advanced",
+            serde_json::json!([])
+        ),
+        setting_field!(
+            "hsts_enabled",
+            "发送 HSTS 头（整个主机名都走 HTTPS 时才开启）",
             "boolean",
             "advanced",
             false
@@ -713,14 +728,49 @@ fn integer_ids(value: &serde_json::Value) -> Option<Vec<i64>> {
 }
 
 /// 更新设置
+/// 解析 Host 白名单输入：接受字符串数组或逗号/换行分隔的字符串；逐项去空白并
+/// 丢弃空项，避免把空串写进白名单（空串会被 normalize 丢掉，但存着容易误解）。
+fn parse_allowed_hosts(value: &serde_json::Value) -> Vec<String> {
+    match value {
+        serde_json::Value::Array(items) => items
+            .iter()
+            .filter_map(|item| item.as_str())
+            .map(|item| item.trim().to_string())
+            .filter(|item| !item.is_empty())
+            .collect(),
+        serde_json::Value::String(text) => text
+            .split([',', '\n'])
+            .map(|item| item.trim().to_string())
+            .filter(|item| !item.is_empty())
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 async fn update_settings(
     State(state): State<Arc<SettingsState>>,
+    headers: HeaderMap,
     Json(req): Json<serde_json::Map<String, serde_json::Value>>,
 ) -> Result<impl IntoResponse> {
     let previous = state.store.get().await;
 
     for (key, value) in &req {
         match key.as_str() {
+            "allowed_hosts" => {
+                // 自锁保护：白名单一旦不含当前请求的 Host，保存成功的下一秒起
+                // UI 与 API 就全部 403，而白名单没有环境变量逃生舱，只能停服手改
+                // settings.json。因此要求新列表必须覆盖发起本次修改的 Host。
+                let entries = parse_allowed_hosts(value);
+                if !entries.is_empty() && !super::host_is_allowed(&entries, &headers) {
+                    let current = headers
+                        .get(axum::http::header::HOST)
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or("<缺失>");
+                    return Err(AppError::Validation(format!(
+                        "Host 白名单不包含当前访问使用的 Host（{current}），保存后你将无法再访问本服务；请把它加入列表后再保存"
+                    )));
+                }
+            }
             "app_username" => {
                 if let Some(username) = value.as_str() {
                     validate_app_username(username)?;
@@ -754,6 +804,14 @@ async fn update_settings(
                     "trust_proxy_headers" => {
                         if let Some(b) = value.as_bool() {
                             settings.trust_proxy_headers = b;
+                        }
+                    }
+                    "allowed_hosts" => {
+                        settings.allowed_hosts = parse_allowed_hosts(&value);
+                    }
+                    "hsts_enabled" => {
+                        if let Some(b) = value.as_bool() {
+                            settings.hsts_enabled = b;
                         }
                     }
                     "pansou_api_url" => {

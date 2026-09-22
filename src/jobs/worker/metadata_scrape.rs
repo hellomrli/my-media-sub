@@ -124,9 +124,17 @@ impl JobWorker {
                 Some(sub.media_type.as_str()),
             )
             .await?;
-        Ok(MetadataService::choose_best_match(
+        // 原始分享标题里常带发行年份（`射雕英雄传 (2017)`），是区分同名翻拍的
+        // 唯一线索；订阅的 title 已经清洗过，只能从 source_title 取。
+        let year = if sub.source_title.trim().is_empty() {
+            None
+        } else {
+            crate::services::title_normalize::normalize_title_detailed(&sub.source_title).year
+        };
+        Ok(MetadataService::choose_best_match_with_year(
             &sub.title,
             &sub.media_type,
+            year,
             &candidates,
         ))
     }

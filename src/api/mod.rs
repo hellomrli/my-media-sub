@@ -176,16 +176,35 @@ async fn basic_auth(State(state): State<AuthState>, req: Request<Body>, next: Ne
     }
 
     let settings = state.settings_store.get().await;
+
+    // Host 白名单：配置后拒绝不在列表内的 Host。
+    //
+    // 放在凭据校验之前：这类请求不该消耗一次凭据比较，也不该被计入登录失败限流
+    // （那会让攻击者用伪造 Host 把正常用户打进限流）。
+    if !host_is_allowed(&settings.allowed_hosts, req.headers()) {
+        tracing::warn!(
+            "拒绝 Host 不在白名单内的请求: {} {}",
+            req.headers()
+                .get(header::HOST)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or("<缺失>"),
+            crate::utils::redact_log_path(&req.uri().to_string())
+        );
+        return forbidden_response();
+    }
     let peer = req
         .extensions()
         .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
         .map(|info| info.0);
     let rate_key = auth_rate_key(req.headers(), peer, settings.trust_proxy_headers);
     let now = Instant::now();
-    if state.is_blocked(&rate_key, now) {
-        return auth_rate_limited_response();
-    }
 
+    // 限流**只惩罚凭据错误的请求**，绝不能拦下凭据正确的请求。
+    //
+    // 旧实现在这里先判 `is_blocked` 再校验凭据，于是失败计数一旦饱和，
+    // 携带正确密码/Token 的请求也会被 429 拦下，而清除计数只发生在校验成功之后
+    // （永远到不了），攻击者只要维持约 5 次/分钟的错误请求就能让整个实例不可用。
+    // 反代后 trust_proxy_headers=false 时所有请求共用同一限流键，一人打满即全员锁死。
     if let Some(token) = req
         .headers()
         .get(header::AUTHORIZATION)
@@ -193,14 +212,13 @@ async fn basic_auth(State(state): State<AuthState>, req: Request<Body>, next: Ne
         .and_then(|v| v.strip_prefix("Bearer "))
     {
         let Some(scope) = required_token_scope(req.method(), req.uri().path()) else {
-            state.record_failure(rate_key, now);
-            return unauthorized_response();
+            return record_auth_failure(&state, &rate_key, now);
         };
         return if state.token_store.authenticate(token, scope).await {
+            state.clear(&rate_key);
             next.run(req).await
         } else {
-            state.record_failure(rate_key, now);
-            unauthorized_response()
+            record_auth_failure(&state, &rate_key, now)
         };
     }
 
@@ -235,9 +253,22 @@ async fn basic_auth(State(state): State<AuthState>, req: Request<Body>, next: Ne
         state.clear(&rate_key);
         next.run(req).await
     } else {
-        state.record_failure(rate_key, now);
-        unauthorized_response()
+        record_auth_failure(&state, &rate_key, now)
     }
+}
+
+/// 记录一次凭据失败；已经超限则回 429，否则回 401。
+///
+/// 注意顺序：**先判是否已超限，再记录本次失败**，以保持「窗口内连续 5 次失败
+/// 后开始限流」的既有语义（前 5 次返回 401，第 6 次起返回 429）。
+/// 这个函数只在凭据校验**失败之后**被调用，因此携带正确凭据的请求永远不会
+/// 被限流拦住——这正是修复未认证 DoS 的关键。
+fn record_auth_failure(state: &AuthState, rate_key: &str, now: Instant) -> Response {
+    if state.is_blocked(rate_key, now) {
+        return auth_rate_limited_response();
+    }
+    state.record_failure(rate_key.to_string(), now);
+    unauthorized_response()
 }
 
 pub(crate) fn is_default_app_password(password: &str) -> bool {
@@ -321,7 +352,8 @@ fn unauthorized_response() -> Response {
     );
     response.headers_mut().insert(
         header::WWW_AUTHENTICATE,
-        r#"Basic realm="my-media-sub""#.parse().unwrap(),
+        // from_static 不再每个 401 都解析并分配一次 HeaderValue。
+        header::HeaderValue::from_static(r#"Basic realm="my-media-sub""#),
     );
     response
 }
@@ -359,6 +391,17 @@ fn is_cross_site_state_change(req: &Request<Body>) -> bool {
         .map(str::trim)
         .filter(|value| !value.is_empty())
     else {
+        // 没有 Origin 也没有 Sec-Fetch-Site：判定为**非浏览器客户端**并放行。
+        //
+        // 这里是刻意不 fail-closed 的。本服务用 Header 凭据（Basic / Bearer），
+        // 不用 Cookie，浏览器不会自动附带凭据，因此不存在「跨站请求自动带上
+        // 身份」的 CSRF 前提；而 README 与 docs/automation-api.md 里所有示例都是
+        // `curl -u ... -X POST`，curl 从不发送 Origin，改成 fail-closed 会让
+        // 全部文档化的用法失效。
+        //
+        // 残余风险也已封堵：所有状态变更 handler 都消费 `Json<T>`，仓库内不存在
+        // form/raw-body 提取器，因此 HTML 表单跨站提交会被 415 拒绝。
+        // 若将来引入 Cookie 会话或表单端点，必须把这里改成 fail-closed。
         return false;
     };
 
@@ -436,6 +479,60 @@ fn request_host(headers: &HeaderMap) -> Option<String> {
         .and_then(normalize_host)
 }
 
+/// 校验请求的 Host 是否在允许列表内。
+///
+/// - 白名单为空 → 不校验（返回 true），保持与未配置的旧版本一致；
+/// - 列表项允许写成 `example.com`、`example.com:56001` 或带 scheme 的完整 URL，
+///   统一归一化到主机名后比较（忽略大小写与结尾的点）；
+/// - `Host` 缺失或含 `@`（userinfo 混淆）一律拒绝。
+///
+/// 同时拒绝 **absolute-form** 请求行里与 Host 不一致的 authority：
+/// `GET http://evil.example/api/... HTTP/1.1` 这种形式在代理场景合法，
+/// 但它的 authority 才是路由依据，若与 Host 不一致就说明有人在混淆目标。
+pub(crate) fn host_is_allowed(allowed: &[String], headers: &HeaderMap) -> bool {
+    if allowed.is_empty() {
+        return true;
+    }
+    let Some(host) = request_host(headers) else {
+        return false;
+    };
+    let host_without_port = strip_port(&host).to_string();
+    allowed.iter().any(|entry| {
+        normalize_host_entry(entry)
+            .is_some_and(|candidate| candidate == host || candidate == host_without_port)
+    })
+}
+
+/// 去掉 authority 里的端口。IPv6 字面量带方括号（`[::1]:56001`），不能简单按
+/// 第一个冒号切——那会切出 `[`。
+fn strip_port(authority: &str) -> &str {
+    if authority.starts_with('[') {
+        return authority
+            .find(']')
+            .map(|end| &authority[..=end])
+            .unwrap_or(authority);
+    }
+    authority.split(':').next().unwrap_or(authority)
+}
+
+/// 把白名单项归一化成主机名：容忍 `https://host:port/path`、`host:port`、`host` 三种写法。
+fn normalize_host_entry(entry: &str) -> Option<String> {
+    let entry = entry.trim();
+    if entry.is_empty() {
+        return None;
+    }
+    // 去掉 scheme 与路径
+    let without_scheme = entry
+        .strip_prefix("https://")
+        .or_else(|| entry.strip_prefix("http://"))
+        .unwrap_or(entry);
+    let authority = without_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or(without_scheme);
+    normalize_host(strip_port(authority))
+}
+
 fn normalize_host(host: &str) -> Option<String> {
     let host = host.trim().trim_end_matches('.');
     if host.is_empty() || host.contains('@') {
@@ -493,7 +590,12 @@ fn request_header_id(headers: &HeaderMap, name: &str) -> Option<String> {
         .map(ToString::to_string)
 }
 
-async fn security_headers(req: Request<Body>, next: Next) -> Response {
+async fn security_headers(
+    State(settings_store): State<Arc<SettingsStore>>,
+    req: Request<Body>,
+    next: Next,
+) -> Response {
+    let hsts_enabled = settings_store.get().await.hsts_enabled;
     let path = req.uri().path().to_string();
     let mut response = next.run(req).await;
     let headers = response.headers_mut();
@@ -507,6 +609,16 @@ async fn security_headers(req: Request<Body>, next: Next) -> Response {
         "referrer-policy",
         header::HeaderValue::from_static("no-referrer"),
     );
+    // HSTS 必须是显式开关（默认关闭）：它按**主机名**生效、不区分端口。自托管里
+    // 常见「一个域名多个端口、只有本服务走 TLS」——无条件发送会让浏览器把同主机
+    // 其它端口的纯 HTTP 服务也强制升级成 https，直接打不开。开启后不加
+    // includeSubDomains，那会影响同域下的其它子域，超出本服务的权限范围。
+    if hsts_enabled {
+        headers.insert(
+            "strict-transport-security",
+            header::HeaderValue::from_static("max-age=31536000"),
+        );
+    }
     if path == "/service-worker.js" {
         headers.insert(
             header::CACHE_CONTROL,
@@ -530,6 +642,16 @@ async fn security_headers(req: Request<Body>, next: Next) -> Response {
         headers.insert(
             header::CACHE_CONTROL,
             header::HeaderValue::from_static("no-cache"),
+        );
+    } else if path.starts_with("/api/") && !path.starts_with("/api/images/") {
+        // 认证后的 API 响应一律不得进入任何缓存。`GET /api/settings/secret/{key}`
+        // 会返回 app_password / quark_cookie / telegram_bot_token / VAPID 私钥原文，
+        // Token 轮换响应会返回新 Token —— 旧实现对这些响应不设缓存头，
+        // 中间代理或浏览器启发式缓存可能把凭据留在鉴权边界之外。
+        // `/api/images/` 例外：图片代理自己设置长缓存，且内容不含凭据。
+        headers.insert(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("no-store"),
         );
     }
     headers.insert(
@@ -616,7 +738,10 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
         .merge(utils::routes())
         .route("/api/{*path}", any(api_not_found))
         .fallback_service(serve_static)
-        .layer(middleware::from_fn(security_headers))
+        .layer(middleware::from_fn_with_state(
+            context.settings_store.clone(),
+            security_headers,
+        ))
         .layer(middleware::from_fn(normalize_api_error_response))
         .layer(middleware::from_fn_with_state(auth_state, basic_auth))
         .layer(middleware::from_fn(request_context))
@@ -626,6 +751,7 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::HeaderValue;
     use axum::http::Request;
 
     fn request(method: Method, origin: Option<&str>, fetch_site: Option<&str>) -> Request<Body> {
@@ -786,5 +912,109 @@ mod tests {
         );
         // 写操作不落入 read 允许清单
         assert_eq!(required_token_scope(&Method::POST, "/api/calendar"), None);
+    }
+
+    // ── Host 白名单（DNS rebinding 防线）────────────────────────────────────
+
+    fn host_headers(host: Option<&str>) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        if let Some(value) = host {
+            headers.insert(header::HOST, HeaderValue::from_str(value).unwrap());
+        }
+        headers
+    }
+
+    /// 未配置白名单时不校验，保持与旧版本一致。
+    #[test]
+    fn empty_host_allowlist_accepts_any_host() {
+        assert!(host_is_allowed(
+            &[],
+            &host_headers(Some("anything.example"))
+        ));
+        // 即使 Host 缺失也放行——此时不应因为一个未启用的功能而拒绝请求
+        assert!(host_is_allowed(&[], &host_headers(None)));
+    }
+
+    /// 配置后只接受列表内的主机。
+    #[test]
+    fn configured_host_allowlist_filters_hosts() {
+        let allowed = vec!["media.example.com".to_string()];
+        assert!(host_is_allowed(
+            &allowed,
+            &host_headers(Some("media.example.com"))
+        ));
+        // 大小写与结尾的点都应归一化
+        assert!(host_is_allowed(
+            &allowed,
+            &host_headers(Some("Media.Example.com."))
+        ));
+        // 带端口也接受（Host 头默认含端口）
+        assert!(host_is_allowed(
+            &allowed,
+            &host_headers(Some("media.example.com:56001"))
+        ));
+        // DNS rebinding 的目标主机必须被拒
+        assert!(!host_is_allowed(
+            &allowed,
+            &host_headers(Some("evil.example"))
+        ));
+        // Host 缺失必须被拒（无法证明它就是白名单主机）
+        assert!(!host_is_allowed(&allowed, &host_headers(None)));
+        // userinfo 混淆
+        assert!(!host_is_allowed(
+            &allowed,
+            &host_headers(Some("media.example.com@evil.example"))
+        ));
+    }
+
+    /// 白名单项支持 `host`、`host:port` 与完整 URL 三种写法。
+    #[test]
+    fn host_allowlist_entries_accept_several_notations() {
+        for entry in [
+            "media.example.com",
+            "media.example.com:56001",
+            "https://media.example.com",
+            "https://media.example.com:56001/",
+            "http://media.example.com/path?x=1",
+        ] {
+            let allowed = vec![entry.to_string()];
+            assert!(
+                host_is_allowed(&allowed, &host_headers(Some("media.example.com"))),
+                "白名单项 {entry} 应匹配 media.example.com"
+            );
+            assert!(
+                !host_is_allowed(&allowed, &host_headers(Some("other.example"))),
+                "白名单项 {entry} 不应匹配 other.example"
+            );
+        }
+        // 空字符串项被忽略，不会意外放行一切
+        let allowed = vec!["".to_string(), "   ".to_string()];
+        assert!(!host_is_allowed(
+            &allowed,
+            &host_headers(Some("media.example.com"))
+        ));
+    }
+
+    /// IPv6 字面量带方括号，端口剥离不能按第一个冒号切。
+    #[test]
+    fn host_allowlist_handles_ipv6_literals() {
+        let allowed = vec!["[::1]".to_string()];
+        assert!(host_is_allowed(
+            &allowed,
+            &host_headers(Some("[::1]:56001"))
+        ));
+        assert!(host_is_allowed(&allowed, &host_headers(Some("[::1]"))));
+        assert!(!host_is_allowed(
+            &allowed,
+            &host_headers(Some("[fe80::1]:56001"))
+        ));
+        let allowed = vec!["http://[::1]:56001/".to_string()];
+        assert!(host_is_allowed(
+            &allowed,
+            &host_headers(Some("[::1]:56001"))
+        ));
+        assert_eq!(strip_port("[::1]:56001"), "[::1]");
+        assert_eq!(strip_port("example.com:443"), "example.com");
+        assert_eq!(strip_port("example.com"), "example.com");
     }
 }

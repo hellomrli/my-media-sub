@@ -207,28 +207,9 @@ fn format_season(season: i32) -> String {
     }
 }
 
-/// Produce a portable filename for Linux, Windows and common NAS filesystems.
-pub fn portable_filename(name: &str) -> String {
-    let mut output = name
-        .chars()
-        .map(|ch| {
-            if ch.is_control() || matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
-            {
-                '_'
-            } else {
-                ch
-            }
-        })
-        .collect::<String>();
-    output = output.trim().trim_end_matches(['.', ' ']).to_string();
-    if output.is_empty() {
-        output = "unnamed".to_string();
-    }
-    if output.chars().count() > 240 {
-        output = output.chars().take(240).collect();
-    }
-    output
-}
+// `portable_filename` 已下移到 `crate::utils`，便于 `clients` 层复用；
+// 这里重新导出以保持既有调用点不变。
+pub use crate::filename::portable_filename;
 
 fn keep_both_name(name: &str) -> String {
     let path = Path::new(name);
@@ -731,6 +712,8 @@ mod tests {
             known_episodes: vec![],
             transferred_files: vec![],
             transferred_file_keys: vec![],
+            pending_transfers: Vec::new(),
+            pending_downloads: Vec::new(),
             last_probe: None,
             last_plan_summary: String::new(),
             notify_only: false,

@@ -65,7 +65,13 @@ impl AutomationEventStore {
             }
             Err(error) => {
                 tracing::error!("自动化事件 JSON 损坏，已隔离并使用空事件: {}", error);
-                quarantine_corrupt_file(&self.path);
+                let quarantined = quarantine_corrupt_file(&self.path);
+                crate::utils::ensure_quarantine_startup_allowed(
+                    "自动化事件存储",
+                    &self.path,
+                    quarantined.as_deref(),
+                    &error.to_string(),
+                )?;
                 self.replace_memory(Vec::new()).await;
                 Ok(())
             }
@@ -84,8 +90,7 @@ impl AutomationEventStore {
             prune_events(&mut snapshot, unix_now());
             snapshot
         };
-        self.save(&snapshot).await?;
-        self.replace_memory(snapshot).await;
+        self.commit(snapshot).await?;
         Ok(event)
     }
 
@@ -120,8 +125,7 @@ impl AutomationEventStore {
             prune_events(&mut snapshot, unix_now());
             snapshot
         };
-        self.save(&snapshot).await?;
-        self.replace_memory(snapshot).await;
+        self.commit(snapshot).await?;
         Ok(event)
     }
 
@@ -234,9 +238,8 @@ impl AutomationEventStore {
             days_to_seconds(failed_days),
             max_events,
         );
-        self.save(&snapshot).await?;
         let removed = before.saturating_sub(snapshot.len());
-        self.replace_memory(snapshot).await;
+        self.commit(snapshot).await?;
         Ok(removed)
     }
 
@@ -245,9 +248,8 @@ impl AutomationEventStore {
         let mut snapshot = self.items.read().await.clone();
         let before = snapshot.len();
         prune_events(&mut snapshot, unix_now());
-        self.save(&snapshot).await?;
         let removed = before.saturating_sub(snapshot.len());
-        self.replace_memory(snapshot).await;
+        self.commit(snapshot).await?;
         Ok(removed)
     }
 
@@ -257,6 +259,24 @@ impl AutomationEventStore {
         let mut current_indexes = self.indexes.write().await;
         *current_items = events;
         *current_indexes = indexes;
+    }
+
+    /// 提交一份新快照：**先更新内存，再落盘**，失败时回滚内存。
+    ///
+    /// 理由同 `SubscriptionStore::commit`：落盘用的 `spawn_blocking` 不可取消，
+    /// 外层 future 被 abort 时「先落盘再改内存」会留下「磁盘新、内存旧」，
+    /// 下一次写盘整份覆盖已落盘的数据造成静默丢失。新顺序只会留下
+    /// 「内存比磁盘新」，下次写盘自然收敛；落盘失败时回滚内存保持一致。
+    async fn commit(&self, snapshot: Vec<AutomationEvent>) -> Result<()> {
+        let previous = self.items.read().await.clone();
+        self.replace_memory(snapshot.clone()).await;
+        match self.save(&snapshot).await {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.replace_memory(previous).await;
+                Err(error)
+            }
+        }
     }
 }
 
@@ -324,7 +344,7 @@ fn prune_events_with_policy(
         now.saturating_sub(event.updated_at.max(event.created_at)) <= retention
     });
     if events.len() > max_events {
-        let remove = events.len() - max_events;
+        let remove = events.len().saturating_sub(max_events);
         events.drain(0..remove);
     }
 }

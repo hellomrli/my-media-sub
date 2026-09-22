@@ -16,7 +16,29 @@ services:
         max-size: "10m"
         max-file: "3"
     ports:
-      - "56001:56001"
+      # 默认只绑本机：管理面不应直接暴露到公网，对外请走反向代理
+      # （见 docs/https-reverse-proxy.md）。需要局域网直连时改成 "56001:56001"。
+      # 若保持本机绑定却仍从外部访问不到，请检查是否被上面的反代覆盖。
+      - "${BIND_ADDRESS:-127.0.0.1}:56001:56001"
+    # 容器加固：入口脚本需要 root 才能修正挂载属主并 gosu 降权到 UID 1000，
+    # 因此这里保留它实际需要的 4 个 capability，其余全部丢弃
+    # （去掉 NET_RAW、SYS_ADMIN、NET_ADMIN 等本服务完全用不到的能力）。
+    # 注意不要直接 cap_drop: ALL —— 那会让 chown 与 gosu 的 setuid/setgid 失败。
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
+    security_opt:
+      # 禁止通过 setuid 二进制提权；gosu 是降权（不需要新权限），不受影响。
+      - no-new-privileges:true
+    # 根文件系统只读：可写的只有两个卷与下面挂的 tmpfs，
+    # 入口脚本的 .tmp 标记文件写在运行时卷内，不在根文件系统上。
+    read_only: true
+    tmpfs:
+      - /tmp
     volumes:
       # 数据持久化
       - ./data:/app/data

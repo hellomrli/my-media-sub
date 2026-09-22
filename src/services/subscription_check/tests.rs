@@ -44,6 +44,8 @@ mod tests {
             known_episodes: vec![],
             transferred_files: vec![],
             transferred_file_keys: vec![],
+            pending_transfers: Vec::new(),
+            pending_downloads: Vec::new(),
             last_probe: None,
             last_plan_summary: String::new(),
             notify_only: false,
@@ -645,6 +647,8 @@ mod tests {
         let mut second = make_subscription();
         second.id = "batch-2".to_string();
         second.url = "https://pan.quark.cn/s/batch".to_string();
+        // 同一分享链接但不同标题：共享 share lock，同时不触发 (url, title) 去重
+        second.title = format!("{} 第二季", second.title);
         store.create(first).await.unwrap();
         store.create(second).await.unwrap();
         let before = store.save_count();
@@ -825,6 +829,49 @@ mod tests {
         );
     }
 
+    /// 回归测试：维护模式必须拦住**自动转存入队**，而不只是拦住 worker 执行。
+    ///
+    /// 旧实现只在 `jobs/worker.rs` 检查 `job_maintenance_mode`，检查照常入队，
+    /// 而 `truncate_jobs` 又不淘汰排队任务，于是开启维护后 jobs.json 无界增长，
+    /// 每次入队还要全量重写 + 2 次 fsync。
+    #[tokio::test]
+    async fn maintenance_mode_blocks_auto_transfer_enqueue() {
+        let (service, _, _) = make_service();
+        let sub = make_subscription();
+        service
+            .settings_store
+            .update(|settings| {
+                settings.quark_save_enabled = true;
+                settings.job_maintenance_mode = true;
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            service.auto_transfer_disabled_reason(&sub, false).await,
+            Some("维护模式已开启，暂停自动转存"),
+            "维护模式下自动转存必须被拦下"
+        );
+        assert_eq!(
+            service.auto_transfer_disabled_reason(&sub, true).await,
+            None,
+            "用户显式 force 转存不受维护模式限制"
+        );
+
+        service
+            .settings_store
+            .update(|settings| {
+                settings.job_maintenance_mode = false;
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            service.auto_transfer_disabled_reason(&sub, false).await,
+            None,
+            "关闭维护模式后自动转存恢复"
+        );
+    }
+
     #[tokio::test]
     async fn test_update_subscription_after_check_records_new_files() {
         let (service, store, _) = make_service();
@@ -986,6 +1033,8 @@ mod tests {
             known_file_keys: vec![],
             transferred_files: vec![],
             transferred_file_keys: vec![],
+            pending_transfers: Vec::new(),
+            pending_downloads: Vec::new(),
             last_probe: None,
             last_plan_summary: String::new(),
             notify_only: false,
@@ -1149,6 +1198,7 @@ mod tests {
         let mut removed = make_subscription();
         removed.id = "removed-sub".to_string();
         removed.url = "https://pan.quark.cn/s/delete".to_string();
+        removed.title = format!("{} 第二季", removed.title);
         store.create(kept).await.unwrap();
         store.create(removed).await.unwrap();
 

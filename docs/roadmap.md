@@ -2,7 +2,7 @@
 
 > 本文件是项目后续工作的**唯一持久化计划入口**。每完成一个任务，必须同步更新复选框、证据和“当前执行指针”，以便跨会话、跨上下文继续。
 >
-> 最近更新：2026-07-23
+> 最近更新：2026-09-21
 
 ## 状态说明
 
@@ -13,12 +13,17 @@
 
 ## 当前执行指针
 
-- **当前阶段**：v2.5.1 发布
-- **当前任务**：发布 v2.5.1（tag / Release 二进制 / GHCR / VPS）
-- **下一任务（建议）**：换源可解释性 / Telegram 运维菜单 / 仪表盘失败归因
+- **当前阶段**：v2.7.2 已发布（含全量代码评审修复与剧名匹配完善）
+- **当前任务**：无进行中任务
+- **下一任务（建议）**：转存幂等与下载对账（P1-2/P1-3）/ 移除 `web-push` 依赖（P2-2）/ God module 拆分（P3-1）
 - **后续阶段**：保持单实例安全模型与 JSON 单写；未经明确需求不启动多用户、SQLite 或第二 Provider
-- **当前发布基线**：v2.5.1（`Cargo.toml` / OpenAPI / PWA 缓存代次）
+- **当前发布基线**：v2.7.2（`Cargo.toml` / OpenAPI / PWA 缓存代次）
 - **工作树状态**：见 `main` 最新提交；历史 v1.x 交接记录保留在下方作审计
+
+> **本轮评审的完整清单与后续待办见
+> [docs/code-review-2026-09-21.md](code-review-2026-09-21.md)。**
+> 该文档逐条说明了哪些条目已修复、哪些仍待处理，是 `P23+` 的实际计划入口。
+> 「当前发布基线」已纳入 CI 门禁，见 `scripts/check-doc-drift.py`。
 
 ---
 
@@ -548,7 +553,7 @@ git diff --check
 
 # P10. 可选功能池
 
-- [!] `P10-01` Telegram 主动控制：status/today/missing/check/search/subscribe/jobs/retry。
+- [x] `P10-01` Telegram 主动控制：已由 **P21** 完整实现（long polling / webhook、白名单、二次确认、限流、审计、写命令与幂等）。本条目曾长期停留在「需产品决策」，实为陈旧记录——决策早已做出并落地，见 P21 与 `docs/telegram-bot.md`。
 - [!] `P10-02` NAS 同步：若保留则实现独立 Job、预览、防误删和下载完成关联；否则移除死配置。
 - [!] `P10-03` 第二云盘 Provider。
 - [x] `P10-04` 浏览器 Push。
@@ -563,18 +568,31 @@ git diff --check
 
 每个任务完成前，根据影响范围执行对应检查；每个发布里程碑必须全部执行：
 
-- [ ] `Q-01` `scripts/build-css.sh`
-- [ ] `Q-02` 所有 `static/**/*.js` 执行 `node --check`
-- [ ] `Q-03` `node --test tests/frontend_*.test.js`
-- [ ] `Q-04` `cargo fmt --all -- --check`
-- [ ] `Q-05` `cargo clippy --all-targets --all-features --locked -- -D warnings`
-- [ ] `Q-06` `cargo test --all --locked`
-- [ ] `Q-07` `cargo build --release --locked`
-- [ ] `Q-08` `git diff --check`
-- [ ] `Q-09` HTTP API 与静态资源烟雾测试
-- [ ] `Q-10` 无头 Chrome：Alpine 初始化、无异常、无控制台错误、无意外失败请求
-- [ ] `Q-11` 1440/768/390px 和深浅主题回归
-- [ ] `Q-12` 真实网络测试只做手动检查，不进入默认 CI
+> **2026-09-21 核对**：下列门禁已全部接入 `.github/workflows/ci.yml`（v2.7.2）。
+> 之前这一整段都是未勾选状态，但 CI 实际上早已在跑——这正是「文档落后于代码」的
+> 典型表现，因此在这里逐项标注对应步骤。
+
+- [x] `Q-01` 样式产物新鲜度。**改为 `scripts/check-css-classes.py`**：它不需要
+  Tailwind CLI（CI 里没有该二进制），通过「被引用的类名是否都有对应选择器」同时
+  抓住产物过期与类名拼写错误，已用修复前的产物验证会失败。
+- [x] `Q-02` 所有 `static/**/*.js` 执行 `node --check` — CI「Check frontend JavaScript」。
+- [x] `Q-03` `node --test tests/frontend_*.test.js` — 同上步骤。
+- [x] `Q-04` `cargo fmt --all -- --check` — CI「Check formatting」。
+- [x] `Q-05` `cargo clippy --all-targets --all-features --locked -- -D warnings` — CI「Run clippy」。
+- [x] `Q-06` `cargo test --all --locked` — CI「Run tests」。
+- [x] `Q-07` `cargo build --release --locked` — CI「Build release binary」。
+- [x] `Q-08` `git diff --check` — CI「Check whitespace errors」。
+- [x] `Q-09` HTTP API 与静态资源烟雾测试 — CI「Smoke test release binary」+「Smoke test Docker entrypoint」。
+- [x] `Q-10` 无头 Chrome：Alpine 初始化、无异常、无控制台错误 — CI「Real browser 390px and PWA shell smoke」。
+- [x] `Q-11` 1440/390px 真实浏览器与 PWA 壳层回归 — 同上。**深浅主题回归未单独断言**：
+  由 `tests/frontend_ux.test.js` 覆盖主题偏好的解析与持久化，视觉层面仍靠人工检查。
+- [x] `Q-12` 真实网络测试只做手动检查，不进入默认 CI — 2 项联网测试标注 `#[ignore]`，
+  另有可选的真实 Telegram 沙箱 smoke（`scripts/smoke-telegram.sh`，需配 Secret）。
+
+> 新增门禁（v2.7.2）：`Q-13` `cargo deny check`（许可证 / 依赖来源 / 重复依赖）、
+> `Q-14` 文档散文漂移（`scripts/check-doc-drift.py`）、`Q-15` 覆盖率报告
+> （`cargo llvm-cov --lib --summary-only`，只报告不设阈值）、
+> `Q-16` DOM 安全与无障碍静态断言（`tests/frontend_dom_safety.test.js`）。
 
 ## 每次进度回写模板
 
@@ -1141,3 +1159,139 @@ P21 明确边界：仅允许预定义命令和预定义资源操作；不执行 
   - 434 个 Rust 测试登记（433 通过、1 个真实 PanSou 网络测试按设计忽略），17 个前端 Node 测试和 OpenAPI 91 paths/103 operations 通过。
   - rustfmt、all-targets/all-features locked check、Clippy `-D warnings`、完整 Rust 测试、Release build、二进制 smoke、10 秒/1428 请求 soak、390/1440px 真实浏览器 E2E、Telegram 安全跳过和 `git diff --check` 通过。
   - 修复提交 `7f24499` 已推送 main；GitHub CI `29166228663` 和 Docker `29166228643` 全部成功，覆盖 RustSec、Release/浏览器/跨版本升级与 Docker 数据卷升级 smoke。
+
+## P23. v2.7.2 代码评审修复（已完成）
+
+> 依据 [docs/code-review-2026-09-21.md](code-review-2026-09-21.md) 的全量评审结论执行。
+> 该文档逐条列出了问题、证据与修复状态，这里只登记范围。
+
+- [x] `P23-01` 修复调度器 `reload()` 不幂等导致的设置保存必然报错（含上游根因回归测试）。
+- [x] `P23-02` 修复认证限流在凭据校验前判定引发的未认证拒绝服务。
+- [x] `P23-03` 修复 scope `read` 隐式满足任意 `*:read` 的越权。
+- [x] `P23-04` 重新编译样式产物、补齐 9 个未定义类，并新增 CSS 类名覆盖 CI 门禁。
+- [x] `P23-05` 维护模式拦入队；备份与 aria2 目录浏览移出 tokio worker。
+- [x] `P23-06` 前端状态同步：bfcache 恢复、订阅列表刷新、下载空闲轮询。
+- [x] `P23-07` 完善剧名匹配（假名截断、噪声词表、逐 token 剥离）并补齐 Rust/前端语料测试。
+- [x] `P23-08` 安全加固：推送 SSRF 过滤、`no-store`、aria2 `out` 清洗、webhook 体积上限、HSTS、容器加固。
+- [x] `P23-19` S7 补充：Host 白名单（`allowed_hosts`，默认关闭）。CSRF 中间件比较
+  `Origin` 与 `Host`，而两者都由客户端提供：DNS rebinding 下攻击者让浏览器把
+  `evil.example` 解析到内网 IP，此时 Origin 与 Host **都是** `evil.example`，
+  比较会通过。固定 Host 白名单能在更早一层拒绝这类请求。配置后同时挡住 userinfo
+  混淆（`host@evil`）与 Host 缺失。
+- [x] `P23-09` 工程化：工具链固定、MSRV 声明、Dependabot、132 个 crate 收敛、release 档溢出检查与行号表、无障碍与 DOM 安全回归测试。
+- [x] `P23-10` 文档漂移收口：roadmap 指针、README「同一事务」表述、OpenAPI 散文数量、未文档化环境变量，并新增 `scripts/check-doc-drift.py` 门禁。
+
+### 仍未处理（需要设计或属于独立议题）
+
+- `[-]` `P23-11` 转存幂等与 `sync_download` 对账（评审 P1-2 / P1-3）。
+  - [x] **转存幂等**：订阅新增 `pending_transfers` 意图记录，在调用云端**之前**落盘；
+    重试时以「有意图记录」+「目标目录出现同名文件」两个条件共同判定上次其实成功，
+    补记本地状态并跳过重复转存。三条回归测试分别锁住：有意图时不重复转存、
+    **无意图时同名文件不构成已转存证据**（避免静默跳过合法转存）、成功后清除意图。
+  - 设计要点（此前走过弯路，务必保留）：**不能**只用「目标目录已有同名文件」判断，
+    用户网盘里本来就可能存在同名文件（手动转存过、或不同来源的同名剧集），
+    那样会静默跳过合法转存并标记为已完成——比重复文件更糟。项目自带的
+    `same_named_directory_episodes_transfer_both_seasons_and_survive_reload`
+    正是这种场景的回归测试。
+  - [x] **`sync_download` 对账**：新增 `pending_downloads`（存 fid 而非会过期的直链）；
+    转存后按 `report.items` 的差集登记「已转存但未成功提交下载」的文件，由订阅检查
+    入口周期性调用 `reconcile_pending_downloads` 重试（重试时重新换取直链），
+    成功后清除并补写 `sync_downloads` 记录供下载监控追踪。`attempts` 上限 10，
+    避免永久静默重试。三条回归测试覆盖：提交失败留记录、不可达时累加 attempts 且保留、
+    成功后清除并补记录。
+- [x] `P23-12` 移除 `web-push` 依赖（评审 P2-2）：Web Push 改为自实现
+  （`src/services/web_push.rs`，`ece` 分组框架 + `p256`/`ring` 密码学后端，零新增 crate），
+  依赖树 370 → **227** 个 crate；`web-push`/`isahc`/`curl-sys`/`libnghttp2-sys`/
+  `libz-sys`/`superboring`/`jwt-simple`/`rsa`/`openssl` 全部消失，
+  RustSec 与 cargo-deny 现在都是**零例外**；Dockerfile 不再需要 libssl-dev/libssl3。
+  11 项测试，其中 6 项比对 RFC 8291 附录 A 的官方中间值。
+  **残留风险**：真实推送链路无法在 CI 端到端验证。
+- `[-]` `P23-13` God module 拆分与内联测试外移（评审 P3-1）。
+  - [x] **内联测试外移**（零行为风险、最大可读性收益）：
+    `download_monitor.rs` 2284 → 1080 行（外移 1208 行到 `download_monitor/tests.rs`）、
+    `episode.rs` 1321 → 935 行（外移 398 行到 `episode_tests.rs`）、
+    `api/update.rs` 1644 → 1330 行（外移 317 行到 `update/tests.rs`）。
+    注意 `episode.rs` 必须用显式 `#[path = "episode_tests.rs"]`：`tests/subscription_flow.rs`
+    会以 `#[path]` 直接编译该文件，那种上下文里相对的 `mod tests;` 会解析到不存在的路径，
+    rustfmt 也会因此报错。
+  - [x] `telegram_bot` 纯函数拆分：`telegram_prompt_callback_data` 等回调签名/HMAC
+    逻辑 → `telegram_bot/callback_sign.rs`；`is_authorized`/白名单校验 →
+    `auth.rs`；转义、标签、分页、消息切分等无副作用函数 → `format.rs`。
+    母文件 1914 → 1552 行（另拆出 393 行）。
+    **注意**：`commands.rs` / `menus.rs` 是通过 `include!` 文本包含进来的，因此
+    子模块必须用 `pub(super)` 且由父模块 `use`，`include!` 的代码才能照常调用；
+    只有 `push.rs` 用到的 `telegram_prompt_callback_data` 需要 `pub(crate)`。
+  - [x] `subscription_check` 的 361 行函数拆为 203 行主流程 + `probe_share_stage`
+    + `handle_probe_failure`（124 行）+ `record_source_check_stage`，
+    并消掉 6 处重复的 13 行 stage 事件调用。
+  - [x] `telegram_bot` 分发拆分：`handle_message`（248 行）与 `handle_callback`
+    （242 行）提取到 `telegram_bot/dispatch.rs`，作为同一类型上的第二个 `impl` 块
+    ——调用点完全不变。母文件 1552 → **1061 行**。
+  - [x] `api/update.rs` 按职责拆分：`progress.rs`（进度状态机与待重启计划）、
+    `package.rs`（下载/主机白名单/SHA256/tar 解包与成员校验）、`github.rs`
+    （Release 客户端）、`runtime.rs`（运行时与部署形态探测）、`signature.rs`
+    （minisign 校验）。母文件 1387 → **794 行**。
+    **拆分时的坑**：`#[cfg(unix)]` 与它标注的 `directory_is_writable` 会被
+    区间提取分开，必须把属性一起搬走，否则会留下「空行后跟外部属性」的编译错误。
+  - [x] 内联测试外移与生产代码拆分均已完成，本项收口。
+- [x] `P23-14` 长驻后台任务加监督（评审 P3-7）：新增 `utils::spawn_supervised`（panic 后重启，含两条回归测试）与全局 panic hook，已覆盖下载监控、Telegram 长轮询、自动化事件投影、定时备份、备份校验与摘要启动恢复。
+- `[-]` `P23-15` 状态一致性（评审 P1-8）。
+  - [x] `DATA_DIR` 单实例锁（`src/instance_lock.rs`，flock + pid + 0600，含单测与集成测试）。
+  - [x] `automation-token.json` 纳入 schema_version 信封（`StoreKind::AutomationToken`），README 的「每个 Store 都有信封」现已成立。
+  - [x] 信号通道满不再把已持久化的推送作业判死；worker 空闲分支补 30 秒周期补扫，避免丢失的唤醒信号让作业无限期停在 Queued。
+  - [x] **取消写入的 abort 安全性**：所有 Store 的提交顺序改为「先更新内存、再落盘」，
+    落盘失败回滚内存（`SubscriptionStore::commit` 有完整说明，其余 6 个 store 同构）。
+    `write_json_atomic_async` 内部的 `spawn_blocking` **不可取消**，因此旧顺序
+    （先落盘再改内存）在 future 被 abort 时会留下「磁盘新、内存旧」，下一次基于
+    旧内存的写入会整份覆盖已落盘的数据——静默丢失。新顺序只会留下「内存比磁盘新」，
+    下次写盘自然收敛。覆盖 subscription / notification / automation_event / jobs /
+    settings / telegram_bot / automation_token。
+  - [x] **隔离策略**：损坏的业务 Store 默认**中止启动**（设置存储本来就是），
+    错误信息给出隔离文件路径与恢复步骤；需要"先起来再修"时用
+    `ALLOW_QUARANTINE_STARTUP=true` 放行。同时修掉隔离文件名只用 1 秒分辨率时间戳
+    的问题——同一秒内二次隔离会静默覆盖第一份副本，而它往往是唯一的数据副本；
+    现在带随机后缀并对父目录做 fsync。
+  - [x] **语义变更的 schema 版本策略**：`CURRENT_SCHEMA_VERSION` 升到 2（纯语义标记，
+    数据结构不变），新增 v1→v2 迁移路径与「迁移不得丢字段」回归测试。核心价值是
+    **降级保护**：v1 程序读到 v2 信封会拒绝启动，而不是把 `season_list` 当未知字段
+    抹掉（那会把跳季订阅永久降级成连续区间）。
+  - 📝 **未知字段透传（`#[serde(flatten)] extra`）经评估后决定不做**，理由是它与
+    上面刚建立的降级保护**方向相反**：
+    1. 透传的目的正是「保留本版本不理解的字段」，而 schema v2 的保护恰恰是
+       「拒绝处理本版本不理解的语义」。若 v2.6.x 二进制读到一个含未来字段的 v2 记录
+       并把未知字段原样写回，就等于绕过了我们刚刚建立的失败关闭。
+    2. 模型字段全部带 `#[serde(default)]`，加 `flatten` 会改变反序列化路径
+       （走缓冲 map），需要逐个模型重新验证默认值与别名行为。
+    3. `Subscription` 在热路径上被频繁 clone（评审记录过 download_monitor 每轮
+       最多 50 次全量 clone），给每条记录再加一个 `HashMap` 会放大这个开销。
+    4. 它让 JSON 字段顺序不稳定，破坏「同内容序列化结果稳定」这一便于排查的性质。
+
+    结论：**版本门禁是比字段透传更合适的机制**，两者叠加会互相抵消。若将来真的需要
+    向前兼容（例如允许多版本共用一个 DATA_DIR），正确做法是让旧版本**只读不写**，
+    而不是让它在不理解语义的情况下继续改写数据。
+- [x] `P23-16` 自更新加真实性校验（评审 S1），分两部分：
+  - **不需要外部密钥就可生效的部分**：下载地址只接受 GitHub 资产主机（精确匹配，
+    挡住 `github.com.evil.example` 这类后缀混淆）且**逐跳校验重定向目标**；
+    `browser_download_url` 是外部输入，旧实现逐字采纳且不限制重定向，
+    API 响应被篡改即可把下载引到任意地址并覆盖运行中的二进制。
+  - **签名校验机制**：实现 minisign 兼容的 Ed25519 分离签名校验
+    （`src/api/update/signature.rs`），配置 `SELF_UPDATE_PUBLIC_KEY` 后**强制**要求
+    Release 附带 `.minisig`（缺签名/格式错/验签失败一律中止）。为支持 minisign 的
+    预哈希模式自实现了 BLAKE2b-512（`ring` 不提供），用 RFC 7693 官方向量锁定。
+    发布端签名步骤已加进 `release.yml`（`MINISIGN_SECRET_KEY` Secret，未配置时跳过并告警）。
+  - **仍未完成**：密钥对的生成与 Secret 配置必须由维护者执行一次；在此之前该机制
+    处于「已实现但未启用」状态，更新仍只有 SHA-256 完整性校验（每次更新会打 WARN）。
+    建议在编译期固化公钥而不是用运行时环境变量。
+- [x] `P23-17` MD5 标识符替换为截断 SHA-256（评审 P3-5）：新增 `src/stable_id.rs`，7 处调用点迁移，`md5` 依赖已移除。
+- `[-]` `P23-18` 引入覆盖率度量与 `cargo-deny`（评审 P3-10）。
+  - [x] 前端高风险测试补齐：SSE 快照/事件的并发交错、网盘删除与批量删除的确认短语、
+    取消与同名重命名等拒绝路径、诊断页的备份/恢复/清理确认与失败提示。
+    前端测试从 128 项增至 144 项。
+  - [x] `deny.toml` + CI 的 cargo-deny：许可证合规（逐条说明非 MIT/Apache 的项）、
+    依赖来源白名单（禁止 git 依赖与未知 registry）、重复依赖告警、`ring` 单版本约束。
+    本地 `cargo deny check` 全部通过。
+  - [x] 覆盖率基线：CI 增加 `cargo llvm-cov --lib --summary-only`（只报告、不设阈值）。
+    **首次基线：lib 行覆盖 62.62%**。缺口集中在 Telegram Bot
+    （`services/telegram_bot*` 合计约 4300 行未覆盖，20.9%–36.4%）、
+    `subscription_scheduler.rs`（55.6%）、`subscription_transfer.rs`（65.2%）。
+    下一步应针对这些文件设增量阈值，而不是全局阈值。

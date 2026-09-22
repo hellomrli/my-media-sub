@@ -121,6 +121,46 @@ test('inferSubscriptionTitle strips fan-sub noise for metadata matching', () => 
   assert.equal(state.inferSubscriptionTitle('凡人修仙传 4K 高码率'), '凡人修仙传');
 });
 
+// 与 Rust 侧 title_normalize 的回归语料保持一致：日文标题内部的假名不是分隔符，
+// 旧实现在第一个假名处截断（鬼滅の刃 → 鬼滅），是日文剧名匹配失败的主因。
+test('inferSubscriptionTitle keeps Japanese titles with inner kana intact', () => {
+  const state = store();
+  assert.equal(state.inferSubscriptionTitle('鬼滅の刃'), '鬼滅の刃');
+  assert.equal(state.inferSubscriptionTitle('進撃の巨人'), '進撃の巨人');
+  assert.equal(state.inferSubscriptionTitle('君の名は。'), '君の名は。');
+  assert.equal(state.inferSubscriptionTitle('四月は君の嘘'), '四月は君の嘘');
+  assert.equal(state.inferSubscriptionTitle('呪術廻戦 第2期'), '呪術廻戦');
+});
+
+test('inferSubscriptionTitle picks the Chinese segment of bilingual titles', () => {
+  const state = store();
+  assert.equal(state.inferSubscriptionTitle('鱿鱼游戏 Squid Game'), '鱿鱼游戏');
+  assert.equal(state.inferSubscriptionTitle('The Last of Us 最后生还者'), '最后生还者');
+  assert.equal(state.inferSubscriptionTitle('孤独摇滚！ / Bocchi the Rock!'), '孤独摇滚！');
+  // 纯数字段不算另一种语言，续集编号必须保留
+  assert.equal(state.inferSubscriptionTitle('沙丘 2'), '沙丘 2');
+  assert.equal(state.inferSubscriptionTitle('Fast & Furious 9'), 'Fast & Furious 9');
+});
+
+// 一个未登记的噪声词不应阻断它前面的噪声被清除。
+test('inferSubscriptionTitle strips noise behind an unknown token', () => {
+  const state = store();
+  assert.equal(state.inferSubscriptionTitle('信号 1080p 韩语中字'), '信号');
+  assert.equal(state.inferSubscriptionTitle('庆余年.WEB-DL.2160p.HDR.国语中字'), '庆余年');
+  assert.equal(state.inferSubscriptionTitle('庆余年_2024_4K_高码率_更新至30集'), '庆余年');
+  assert.equal(state.inferSubscriptionTitle('Mr. Robot Season 1'), 'Mr Robot');
+});
+
+// 短词只允许整 token 匹配：Robots/Drama 这类真实剧名不能被切尾。
+test('inferSubscriptionTitle never truncates real titles with short noise tokens', () => {
+  const state = store();
+  assert.equal(state.inferSubscriptionTitle('Robots'), 'Robots');
+  assert.equal(state.inferSubscriptionTitle('Drama'), 'Drama');
+  assert.equal(state.inferSubscriptionTitle('Pirates of the Caribbean'), 'Pirates of the Caribbean');
+  assert.equal(state.inferSubscriptionTitle('请回答1988'), '请回答1988');
+  assert.equal(state.inferSubscriptionTitle('Spider-Man: No Way Home'), 'Spider-Man: No Way Home');
+});
+
 test('magic title matching waits for the cleaned title before TMDB lookup', async () => {
   const state = store();
   state.newSubscription.title = '凡人修仙传 4K 高码率';
@@ -138,6 +178,35 @@ test('magic title matching waits for the cleaned title before TMDB lookup', asyn
   assert.equal(state.newSubscription.title, '凡人修仙传');
   assert.equal(searchedTitle, '凡人修仙传');
   assert.equal(searchFinished, true);
+});
+
+test('title hints fill the season input and year hint without overriding manual edits', () => {
+  const state = store();
+  state.applyTitleHints({normalized: '庆余年', year: 2024, season: 2, season_end: null});
+  assert.equal(state.newSubscription.metadata_year_hint, 2024);
+  assert.equal(state.newSubscription.season_input, '2');
+  assert.equal(state.newSubscription.season, 2);
+  assert.equal(state.newSubscription.season_end, null);
+
+  // 区间写法回填为 `1-4`
+  const ranged = store();
+  ranged.applyTitleHints({normalized: 'Game of Thrones', year: 2011, season: 1, season_end: 4});
+  assert.equal(ranged.newSubscription.season_input, '1-4');
+  assert.equal(ranged.newSubscription.season_end, 4);
+
+  // 用户已手动填过季号时不覆盖
+  const manual = store();
+  manual.newSubscription.season_input = '3';
+  manual.newSubscription.season = 3;
+  manual.applyTitleHints({normalized: '庆余年', year: null, season: 2, season_end: null});
+  assert.equal(manual.newSubscription.season_input, '3');
+  assert.equal(manual.newSubscription.season, 3);
+  assert.equal(manual.newSubscription.metadata_year_hint, null);
+
+  // 没有季号提示时什么都不动
+  const none = store();
+  none.applyTitleHints({normalized: '庆余年', year: null, season: null, season_end: null});
+  assert.equal(none.newSubscription.season_input, '1');
 });
 
 test('Aria2 directory preview preserves explicit seasons and marks dynamic multi-season paths', () => {

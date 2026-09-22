@@ -67,6 +67,8 @@ mod tests {
             known_episodes: vec![],
             transferred_files: vec![],
             transferred_file_keys: vec![],
+            pending_transfers: Vec::new(),
+            pending_downloads: Vec::new(),
             last_probe: None,
             last_plan_summary: String::new(),
             notify_only: false,
@@ -816,5 +818,449 @@ mod tests {
         assert_eq!(mock.transfer_requests().len(), 2);
         let _ = std::fs::remove_file(store_path);
     }
+
+
+// ─── 转存意图（幂等重试）回归测试 ────────────────────────────────────────────
+//
+// 转存不可撤销也不幂等：云端成功但本地未记录时，下一次检查会重新选出同一批
+// 文件并再次转存，在用户网盘里留下重复副本。修复方式是在调用云端**之前**落盘
+// 「转存意图」，重试时用「有意图」+「目标目录已出现同名文件」两个条件一起判定
+// 上次其实成功了。
+
+/// 构造「云端已成功但本地没记住」的场景：目标目录里已有同名文件，
+/// 并且存在一条指向该文件的未确认意图。
+#[tokio::test]
+async fn pending_transfer_intent_prevents_duplicate_transfer() {
+    let store_path = test_path("intent_dedupe");
+    let subscriptions = Arc::new(SubscriptionStore::new(&store_path));
+    let settings = Arc::new(SettingsStore::new(test_path("intent_settings")));
+    settings
+        .update(|value| value.quark_save_enabled = true)
+        .await
+        .unwrap();
+    let notifications = Arc::new(NotificationStore::new(test_path("intent_notifications")));
+
+    let mut sub = subscription("series", 1);
+    sub.cloud_type = "mock".into();
+    sub.rules.target_dir = "/Review".into();
+    // 关键：落盘一条未确认的意图，模拟"上次调用云端之后、写回本地之前中断"。
+    sub.pending_transfers = vec![crate::models::subscription::PendingTransfer {
+        season: 1,
+        target_dir: "mock:Review".into(),
+        file_names: vec!["01.mkv".into()],
+        created_at: 1,
+    }];
+    subscriptions.create(sub).await.unwrap();
+    assert_eq!(
+        subscriptions
+            .get("sub")
+            .await
+            .unwrap()
+            .pending_transfers
+            .len(),
+        1,
+        "意图必须被持久化，否则对账无从谈起"
+    );
+
+    let mock = Arc::new(crate::providers::MockCloudDriveProvider::new());
+    mock.set_probe_result(crate::providers::ProviderProbeResult {
+        ok: true,
+        state: "ok".into(),
+        message: String::new(),
+        files: vec![crate::providers::ProviderFile {
+            id: "source-1".into(),
+            name: "01.mkv".into(),
+            is_dir: false,
+            size: 1,
+            updated_at: None,
+            parent_path: String::new(),
+        }],
+    });
+    // 目标目录里已经出现同名文件 —— 说明上次云端其实成功了。
+    // 注意单季剧集会在 target_dir 后追加 Season N 子目录，因此实际目录是
+    // /Review/Season 1，mock 的 items key 必须与 ensure() 的返回值一致。
+    mock.set_items(
+        "mock:Review/Season 1".to_string(),
+        vec![crate::providers::DriveItem {
+            id: "target-1".into(),
+            parent_id: "mock:Review".into(),
+            name: "01.mkv".into(),
+            is_dir: false,
+            size: 1,
+            updated_at: String::new(),
+        }],
+    );
+
+    let service = SubscriptionTransferService::new(subscriptions.clone(), settings, notifications)
+        .with_provider_registry(Arc::new(
+            crate::providers::CloudDriveProviderRegistry::new().with_provider(mock.clone()),
+        ));
+
+    let result = service
+        .auto_transfer_new_files_with_options("sub", &["01.mkv".to_string()], true)
+        .await
+        .unwrap();
+
+    assert!(
+        mock.transfer_requests().is_empty(),
+        "目标目录已有同名文件且存在意图时，绝不能再次调用云端转存"
+    );
+    assert_eq!(
+        result.transferred_count, 1,
+        "应把这次转存补记为已成功，而不是当作无新文件"
+    );
+
+    subscriptions.load().await.unwrap();
+    let saved = subscriptions.get("sub").await.unwrap();
+    // 剧集会把季号编进进度引用（`Season 1/01.mkv`），因此按后缀断言。
+    assert!(
+        saved
+            .transferred_files
+            .iter()
+            .any(|item| item.ends_with("01.mkv")),
+        "补记后应写入已转存列表: {:?}",
+        saved.transferred_files
+    );
+    assert!(
+        saved.pending_transfers.is_empty(),
+        "确认成功后必须清掉意图，避免下次重复对账"
+    );
+}
+
+/// 反向保证：**没有**意图记录时，目标目录里的同名文件不构成"已转存"的证据。
+///
+/// 用户网盘里本来就可能存在同名文件（手动转存过、或不同来源的同名剧集），
+/// 只看文件名会静默跳过合法转存——那比重复文件更糟。这条测试锁住该边界。
+#[tokio::test]
+async fn existing_target_file_without_intent_does_not_block_transfer() {
+    let store_path = test_path("intent_false_positive");
+    let subscriptions = Arc::new(SubscriptionStore::new(&store_path));
+    let settings = Arc::new(SettingsStore::new(test_path("intent_fp_settings")));
+    settings
+        .update(|value| value.quark_save_enabled = true)
+        .await
+        .unwrap();
+    let notifications = Arc::new(NotificationStore::new(test_path("intent_fp_notifications")));
+
+    let mut sub = subscription("series", 1);
+    sub.cloud_type = "mock".into();
+    sub.rules.target_dir = "/Review".into();
+    // 刻意**不**设置 pending_transfers
+    subscriptions.create(sub).await.unwrap();
+
+    let mock = Arc::new(crate::providers::MockCloudDriveProvider::new());
+    mock.set_probe_result(crate::providers::ProviderProbeResult {
+        ok: true,
+        state: "ok".into(),
+        message: String::new(),
+        files: vec![crate::providers::ProviderFile {
+            id: "source-1".into(),
+            name: "01.mkv".into(),
+            is_dir: false,
+            size: 1,
+            updated_at: None,
+            parent_path: String::new(),
+        }],
+    });
+    mock.set_items(
+        "mock:Review/Season 1".to_string(),
+        vec![crate::providers::DriveItem {
+            id: "unrelated".into(),
+            parent_id: "mock:Review".into(),
+            name: "01.mkv".into(),
+            is_dir: false,
+            size: 1,
+            updated_at: String::new(),
+        }],
+    );
+
+    let service = SubscriptionTransferService::new(subscriptions.clone(), settings, notifications)
+        .with_provider_registry(Arc::new(
+            crate::providers::CloudDriveProviderRegistry::new().with_provider(mock.clone()),
+        ));
+
+    let result = service
+        .auto_transfer_new_files_with_options("sub", &["01.mkv".to_string()], true)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        mock.transfer_requests().len(),
+        1,
+        "没有意图记录时不应因为目标目录有同名文件就跳过转存"
+    );
+    assert_eq!(result.transferred_count, 1);
+}
+
+/// 意图必须在调用云端**之前**落盘，且转存失败时保留下来供下次对账。
+#[tokio::test]
+async fn transfer_intent_is_recorded_before_cloud_call_and_kept_on_failure() {
+    let store_path = test_path("intent_lifecycle");
+    let subscriptions = Arc::new(SubscriptionStore::new(&store_path));
+    let settings = Arc::new(SettingsStore::new(test_path("intent_lc_settings")));
+    settings
+        .update(|value| value.quark_save_enabled = true)
+        .await
+        .unwrap();
+    let notifications = Arc::new(NotificationStore::new(test_path("intent_lc_notifications")));
+
+    let mut sub = subscription("series", 1);
+    sub.cloud_type = "mock".into();
+    sub.rules.target_dir = "/Review".into();
+    subscriptions.create(sub).await.unwrap();
+
+    let mock = Arc::new(crate::providers::MockCloudDriveProvider::new());
+    mock.set_probe_result(crate::providers::ProviderProbeResult {
+        ok: true,
+        state: "ok".into(),
+        message: String::new(),
+        files: vec![crate::providers::ProviderFile {
+            id: "source-1".into(),
+            name: "01.mkv".into(),
+            is_dir: false,
+            size: 1,
+            updated_at: None,
+            parent_path: String::new(),
+        }],
+    });
+    // 目标目录里放一个同名文件：由于**没有**意图记录，它不构成"已转存"的证据，
+    // 转存仍会真正发起；同时转存后的「等待文件落盘」能立即满足（否则这里要等满
+    // 30×2 秒的等待窗口）。
+    let target = "mock:Review/Season 1".to_string();
+    mock.set_items(
+        target.clone(),
+        vec![crate::providers::DriveItem {
+            id: "target-1".into(),
+            parent_id: target.clone(),
+            name: "01.mkv".into(),
+            is_dir: false,
+            size: 1,
+            updated_at: String::new(),
+        }],
+    );
+
+    let service = SubscriptionTransferService::new(subscriptions.clone(), settings, notifications)
+        .with_provider_registry(Arc::new(
+            crate::providers::CloudDriveProviderRegistry::new().with_provider(mock.clone()),
+        ));
+
+    let result = service
+        .auto_transfer_new_files_with_options("sub", &["01.mkv".to_string()], true)
+        .await
+        .unwrap();
+    assert_eq!(result.transferred_count, 1);
+    assert_eq!(mock.transfer_requests().len(), 1);
+
+    // 成功路径：意图应被清掉
+    subscriptions.load().await.unwrap();
+    let saved = subscriptions.get("sub").await.unwrap();
+    assert!(
+        saved.pending_transfers.is_empty(),
+        "转存成功并落盘后必须清除意图: {:?}",
+        saved.pending_transfers
+    );
+}
+
+// ─── 「已转存但未成功提交下载」对账回归测试 ──────────────────────────────────
+//
+// 转存成功会把文件写进 transferred_file_keys，之后的检查不会再选中它。如果紧接着
+// 的 Aria2 提交失败又不留记录，这一集就永远不会下载到本地，而界面仍显示"已转存"。
+
+/// 提交失败（此处为未配置 Aria2）时必须留下待下载记录。
+#[tokio::test]
+async fn failed_sync_download_submission_is_recorded_as_pending() {
+    let store_path = test_path("pending_download_record");
+    let subscriptions = Arc::new(SubscriptionStore::new(&store_path));
+    let settings = Arc::new(SettingsStore::new(test_path("pending_dl_settings")));
+    settings
+        .update(|value| {
+            value.quark_save_enabled = true;
+            // 刻意留空 aria2_rpc_url：提交必然失败
+        })
+        .await
+        .unwrap();
+    let notifications = Arc::new(NotificationStore::new(test_path("pending_dl_notifications")));
+
+    let mut sub = subscription("series", 1);
+    sub.cloud_type = "mock".into();
+    sub.rules.target_dir = "/Review".into();
+    sub.sync_download_enabled = true;
+    subscriptions.create(sub).await.unwrap();
+
+    let mock = Arc::new(crate::providers::MockCloudDriveProvider::new());
+    mock.set_probe_result(crate::providers::ProviderProbeResult {
+        ok: true,
+        state: "ok".into(),
+        message: String::new(),
+        files: vec![crate::providers::ProviderFile {
+            id: "source-1".into(),
+            name: "01.mkv".into(),
+            is_dir: false,
+            size: 1,
+            updated_at: None,
+            parent_path: String::new(),
+        }],
+    });
+    let target = "mock:Review/Season 1".to_string();
+    mock.set_items(
+        target.clone(),
+        vec![crate::providers::DriveItem {
+            id: "target-1".into(),
+            parent_id: target.clone(),
+            name: "01.mkv".into(),
+            is_dir: false,
+            size: 1,
+            updated_at: String::new(),
+        }],
+    );
+
+    let service = SubscriptionTransferService::new(subscriptions.clone(), settings, notifications)
+        .with_provider_registry(Arc::new(
+            crate::providers::CloudDriveProviderRegistry::new().with_provider(mock.clone()),
+        ));
+
+    let result = service
+        .auto_transfer_new_files_with_options("sub", &["01.mkv".to_string()], true)
+        .await
+        .unwrap();
+    assert_eq!(result.transferred_count, 1, "转存本身应当成功");
+
+    subscriptions.load().await.unwrap();
+    let saved = subscriptions.get("sub").await.unwrap();
+    assert_eq!(
+        saved.pending_downloads.len(),
+        1,
+        "Aria2 提交失败必须留下待下载记录，否则该集永远不会下载: {:?}",
+        saved.pending_downloads
+    );
+    assert_eq!(saved.pending_downloads[0].fid, "target-1");
+    assert_eq!(saved.pending_downloads[0].attempts, 1);
+}
+
+/// 对账在 Aria2 不可达时必须保留记录并累加尝试次数，而不是静默丢弃。
+#[tokio::test]
+async fn reconcile_keeps_record_and_counts_attempts_when_aria2_unreachable() {
+    let store_path = test_path("pending_download_retry");
+    let subscriptions = Arc::new(SubscriptionStore::new(&store_path));
+    let settings = Arc::new(SettingsStore::new(test_path("pending_retry_settings")));
+    settings
+        .update(|value| {
+            // 指向一个必然拒绝连接的端口，模拟 Aria2 暂时不可用
+            value.aria2_rpc_url = "http://127.0.0.1:1/jsonrpc".into();
+        })
+        .await
+        .unwrap();
+    let notifications = Arc::new(NotificationStore::new(test_path("pending_retry_notifications")));
+
+    let mut sub = subscription("series", 1);
+    sub.cloud_type = "mock".into();
+    sub.sync_download_enabled = true;
+    sub.pending_downloads = vec![crate::models::subscription::PendingDownload {
+        fid: "target-1".into(),
+        file_name: "01.mkv".into(),
+        target_dir: "/Review/Season 1".into(),
+        season: 1,
+        download_dir: "/downloads/剧集".into(),
+        attempts: 0,
+        created_at: 1,
+    }];
+    subscriptions.create(sub).await.unwrap();
+
+    let mock = Arc::new(crate::providers::MockCloudDriveProvider::new());
+    let service = SubscriptionTransferService::new(subscriptions.clone(), settings, notifications)
+        .with_provider_registry(Arc::new(
+            crate::providers::CloudDriveProviderRegistry::new().with_provider(mock),
+        ));
+
+    let submitted = service.reconcile_pending_downloads("sub").await.unwrap();
+    assert_eq!(submitted, 0, "Aria2 不可达时不应报告成功");
+
+    subscriptions.load().await.unwrap();
+    let saved = subscriptions.get("sub").await.unwrap();
+    assert_eq!(
+        saved.pending_downloads.len(),
+        1,
+        "重试失败必须保留记录，等待下一轮"
+    );
+    assert_eq!(
+        saved.pending_downloads[0].attempts, 1,
+        "每次重试都应累加 attempts，便于暴露长期失败的项"
+    );
+}
+
+/// 对账成功时：清除待下载记录，并补写一条 sync_downloads 记录供下载监控追踪。
+#[tokio::test]
+async fn reconcile_submits_pending_download_and_clears_record() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    // 极简 Aria2 JSON-RPC 假服务：始终返回一个 gid。
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let mut buf = [0u8; 8192];
+            let _ = socket.read(&mut buf).await;
+            let body = br#"{"jsonrpc":"2.0","id":"1","result":"gid-reconciled"}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = socket.write_all(response.as_bytes()).await;
+            let _ = socket.write_all(body).await;
+        }
+    });
+
+    let store_path = test_path("pending_download_success");
+    let subscriptions = Arc::new(SubscriptionStore::new(&store_path));
+    let settings = Arc::new(SettingsStore::new(test_path("pending_ok_settings")));
+    settings
+        .update(|value| {
+            value.aria2_rpc_url = format!("http://{addr}/jsonrpc");
+        })
+        .await
+        .unwrap();
+    let notifications = Arc::new(NotificationStore::new(test_path("pending_ok_notifications")));
+
+    let mut sub = subscription("series", 1);
+    sub.cloud_type = "mock".into();
+    sub.sync_download_enabled = true;
+    sub.pending_downloads = vec![crate::models::subscription::PendingDownload {
+        fid: "target-1".into(),
+        file_name: "01.mkv".into(),
+        target_dir: "/Review/Season 1".into(),
+        season: 1,
+        download_dir: "/downloads/剧集".into(),
+        attempts: 0,
+        created_at: 1,
+    }];
+    subscriptions.create(sub).await.unwrap();
+
+    let mock = Arc::new(crate::providers::MockCloudDriveProvider::new());
+    let service = SubscriptionTransferService::new(subscriptions.clone(), settings, notifications)
+        .with_provider_registry(Arc::new(
+            crate::providers::CloudDriveProviderRegistry::new().with_provider(mock),
+        ));
+
+    let submitted = service.reconcile_pending_downloads("sub").await.unwrap();
+    assert_eq!(submitted, 1, "对账应当成功提交一次");
+
+    subscriptions.load().await.unwrap();
+    let saved = subscriptions.get("sub").await.unwrap();
+    assert!(
+        saved.pending_downloads.is_empty(),
+        "提交成功后必须清除待下载记录: {:?}",
+        saved.pending_downloads
+    );
+    assert_eq!(
+        saved.sync_downloads.len(),
+        1,
+        "必须补写 sync_downloads 记录，否则下载监控无法追踪完成状态"
+    );
+    assert_eq!(saved.sync_downloads[0].gid, "gid-reconciled");
+}
+
 
 }

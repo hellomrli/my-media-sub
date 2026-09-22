@@ -68,7 +68,10 @@ mod tests {
         assert_eq!(store.list().await.len(), 1);
         let persisted: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&tmp).unwrap()).unwrap();
-        assert_eq!(persisted["schema_version"], 1);
+        assert_eq!(
+            persisted["schema_version"],
+            crate::store::schema::CURRENT_SCHEMA_VERSION
+        );
         assert_eq!(persisted["data"].as_array().unwrap().len(), 1);
 
         let _ = std::fs::remove_file(tmp);

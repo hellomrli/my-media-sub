@@ -15,6 +15,47 @@
 
   const DEFAULT_EXCLUDE_KEYWORDS = '预告, 花絮, 解说, 彩蛋, trailer, preview';
 
+  // 剧名清洗词表，与 Rust 侧 src/services/title_normalize.rs 的 NOISE_CORE /
+  // NOISE_TOKEN_EXTRA 保持一致。分两类是刻意的：
+  //   - core 可以匹配 token 的尾缀（`4K修复版`、`1080p`、`国语中字`）；
+  //   - extra 只允许整 token 匹配，否则 `ts` 会切掉 `Robots`、`ma` 会切掉 `Drama`。
+  const TITLE_NOISE_CORE = [
+    '\\d{3,4}[pi]', '[248]k', 'uhd', 'fhd', 'hdr10', 'hdr', 'sdr', 'dovi', '\\d+\\s*帧',
+    'web[\\s-]?dl', 'web[\\s-]?rip', 'blu[\\s-]?ray', 'bdrip', 'brrip', 'hdtv', 'tvrip',
+    'dvdrip', 'hdrip', 'remux', 'h\\.?26[45]', 'x26[45]', 'hevc', 'avc', 'av1',
+    '10bit', '8bit', 'aac', 'ac3', 'dts', 'flac', 'truehd', 'atmos',
+    '国粤双语', '国语中字', '中文字幕', '内嵌字幕', '外挂字幕', '简繁外挂', '简繁', '简中', '繁中',
+    '双语', '国语', '国配', '粤语', '中配', '台配', '韩语', '日语', '英语', '原声', '中字', '字幕',
+    '内嵌', '外挂',
+    '导演剪辑版', '未删减版', '未删减', '修复版', '重制版', '高清版', '完整版', '纯净版', '收藏版',
+    '加长版', '特别版', '纪念版', '高码率', '低码率', '高帧率', '超高清', '高码', '低码', '高帧',
+    '杜比视界', '杜比', '无损', '原盘', '蓝光', '高清', '标清',
+    '第\\s*[0-9一二三四五六七八九十百两]+\\s*[季期部]',
+    '第\\s*[0-9一二三四五六七八九十百两]+\\s*[集话話回]',
+    '全\\s*\\d+\\s*[集话話回]', '共\\s*\\d+\\s*[集话話回]', '全\\s*\\d+\\s*季', '\\d+\\s*[集话話回]',
+    's\\d{1,2}(?:\\s*[-~～到至]\\s*s?\\d{1,2})?', 'season\\s*\\d+(?:\\s*[-~～到至]\\s*\\d+)?',
+    '全集', '合集', '完结', '已完结', '连载', '更新中', '更新至.*', '更至.*', '年番', '番外',
+    '剧场版', '电视剧', '电影版', '纪录片', '综艺', '国漫', '日漫', '美剧', '英剧', '韩剧', '日剧',
+    '港剧', '台剧', '泰剧', '国产剧', 'imax', '3d', '4d', '2d',
+  ].join('|');
+  const TITLE_NOISE_EXTRA = [
+    'hd', 'sd', 'fhd', 'uhd', 'hq', 'dl', 'web', 'webdl', 'bd', 'br', 'bdr', 'ts', 'tc', 'hc',
+    'sp', 'ma', 'dv', 'ova', 'oad', 'ncop', 'nced', 'op', 'ed', '\\d{3,4}', '(?:19|20)\\d{2}',
+  ].join('|');
+  // 季集/进度尾缀常含空格（`Season 1`、`全 24 集`），需在整串上清除。
+  const TITLE_SPACED_TAIL =
+    'season\\s*\\d+(?:\\s*[-~～到至]\\s*\\d+)?|s\\d{1,2}(?:\\s*[-~～到至]\\s*s?\\d{1,2})?|'
+    + '第\\s*[0-9一二三四五六七八九十百两]+\\s*[季期部]|'
+    + '全\\s*\\d+\\s*[集话話回]|共\\s*\\d+\\s*[集话話回]|全\\s*\\d+\\s*季|'
+    + '更新至.*|更至.*|更新中|连载|年番';
+
+  const titleNoiseCoreRe = new RegExp('^(?:' + TITLE_NOISE_CORE + ')$', 'i');
+  const titleNoiseExtraRe = new RegExp('^(?:' + TITLE_NOISE_EXTRA + ')$', 'i');
+  const titleNoiseSuffixRe = new RegExp('(?:' + TITLE_NOISE_CORE + ')$', 'i');
+  const spacedTitleTailRe = new RegExp('(?:\\s*(?:' + TITLE_SPACED_TAIL + '))+$', 'i');
+  // 标题前方的 emoji / 装饰符号（如 🗄 📺 ★）
+  const leadingDecorationRe = /^[\s\u2000-\u206f\u2190-\u21ff\u2300-\u23ff\u2460-\u24ff\u2500-\u27bf\u2900-\u297f\u2b00-\u2bff\u3000-\u303f\ufe00-\ufe0f\u{1f000}-\u{1faff}★☆✦✧✪✩❖※◆◇■□●○◎◉♦♠♣♥▶▷◀◁►◄▲△▼▽✓✔✕✖✗✘#@~`^*=+|\\/<>{}[\]]+/u;
+
   // newSubscription 表单字段的唯一来源：初始化、重置、创建、编辑都从这里展开，
   // 新增字段只需在此补默认值，再在需要的入口覆盖。
   function blankSubscriptionForm() {
@@ -34,6 +75,7 @@
       season_end: null,
       season_list: null,
       source_title: '',
+      metadata_year_hint: null,
       target_path: '',
       target_fid: '0',
       target_dir_name: '',
@@ -76,6 +118,8 @@
     subscriptions: [],
     /// 请求序号：SSE 联动、手动检查、顶栏刷新并发触发时丢弃过期响应。
     subscriptionsRequestId: 0,
+    /// 最近一次成功加载订阅列表的时间戳，供「进入订阅页按 TTL 刷新」使用。
+    subscriptionsLastLoadedAt: 0,
     /// 订阅编辑器的季度探测：把「手填季号」换成「勾选检测到的季度」。
     subscriptionSeasons: [],
     selectedSubscriptionSeasons: [],
@@ -291,24 +335,99 @@
       return this.searchResultInsights(result).validityLabel;
     },
 
-    // 本地极薄回退；权威实现在 Rust /api/utils/normalize-title
+    // 本地极薄回退；权威实现在 Rust /api/utils/normalize-title。
+    // 结构必须与 Rust 侧一致（分隔符归一化 → 双语选择 → 含空格尾缀 → 噪声 token 逐个剥离），
+    // 否则后端不可达时表单预填的剧名会与保存后的清洗结果不一致。
     inferSubscriptionTitle(rawTitle) {
       const original = String(rawTitle || '').trim();
       if (!original || /^https?:\/\//i.test(original)) return original;
-      let title = original.replace(/\s+/g, ' ').trim();
+
+      const plain = this.stripTitleBrackets(original);
+      let cleaned = this.pickPrimaryTitleSegment(plain);
+      cleaned = cleaned.replace(spacedTitleTailRe, '').trim();
+      cleaned = this.stripTitleNoiseTokens(cleaned);
+      cleaned = cleaned.replace(/\s+/g, ' ').trim();
+      cleaned = cleaned.replace(leadingDecorationRe, '').trim();
+      return cleaned || original;
+    },
+
+    // 丢弃括号内容；`.`/`_` 与「不在字母数字之间」的 `-` 归一化为空格。
+    // `-` 在 ASCII 字母数字之间时保留，避免把 WEB-DL / Spider-Man / S01-S04 拆散。
+    stripTitleBrackets(value) {
+      const chars = Array.from(String(value || ''));
       let depth = 0;
-      let plain = '';
-      for (const ch of title) {
-        if ('[【(（'.includes(ch)) { depth += 1; continue; }
-        if (']】)）'.includes(ch)) { depth = Math.max(0, depth - 1); continue; }
-        if (depth === 0) plain += (ch === '.' || ch === '_' || ch === '-') ? ' ' : ch;
+      let out = '';
+      for (let i = 0; i < chars.length; i += 1) {
+        const ch = chars[i];
+        if ('[【(（《'.includes(ch)) { depth += 1; continue; }
+        if (']】)）》'.includes(ch)) { depth = Math.max(0, depth - 1); continue; }
+        if (depth > 0) continue;
+        if (ch === '.' || ch === '_') { out += ' '; continue; }
+        if (ch === '-') {
+          const prev = chars[i - 1];
+          const next = chars[i + 1];
+          const hyphenated = !!prev && !!next && /[A-Za-z0-9]/.test(prev) && /[A-Za-z0-9]/.test(next);
+          out += hyphenated ? '-' : ' ';
+          continue;
+        }
+        out += ch;
       }
-      plain = plain.replace(/\s+/g, ' ').trim()
-        .replace(/(?:\s*(?:S\d{1,2}(?:\s*[-~～到至]\s*S?\d{1,2})?|Season\s*\d+|第\s*[0-9一二三四五六七八九十两]+\s*季|\d{3,4}\s*p|\d+\s*帧|4k|8k|web[- ]?dl|bluray|bdrip|hdtv|remux|proper|repack|x26[45]|hevc|avc|hdr(?:10)?|dolby|aac|flac|高码率|低码率|高码|低码|超高清?|高清|标清|蓝光|原盘|无损|高帧率|高帧|杜比|完整版|纯净版|收藏版|加长版|导演剪辑版|国语|粤语|中字|简中|繁中|双语|国粤双语|全集|合集|完结|持续更新|更新至.*))+$/ig, '')
-        .trim();
-      // 去掉标题前方 emoji / 装饰符号（如 🗄 📺 ★）
-      plain = plain.replace(/^[\s\u2000-\u206f\u2190-\u21ff\u2300-\u23ff\u2460-\u24ff\u2500-\u27bf\u2900-\u297f\u2b00-\u2bff\u3000-\u303f\ufe00-\ufe0f\u{1f000}-\u{1faff}★☆✦✧✪✩❖※◆◇■□●○◎◉♦♠♣♥▶▷◀◁►◄▲△▼▽✓✔✕✖✗✘#@~`^*=+|\\/<>{}[\]]+/u, '').trim();
-      return plain || original;
+      return out.replace(/\s+/g, ' ').trim();
+    },
+
+    // 中日/中英并列时挑出唯一的纯中文段。
+    // 关键：不因标题内部出现假名就截断——`鬼滅の刃`、`四月は君の嘘` 必须原样保留。
+    pickPrimaryTitleSegment(value) {
+      const title = String(value || '').trim();
+      if (!title) return '';
+      const isCjk = ch => (ch >= '\u4e00' && ch <= '\u9fff') || (ch >= '\u3400' && ch <= '\u4dbf');
+      const isKana = ch => ch >= '\u3040' && ch <= '\u30ff';
+      const isPureCjk = seg => Array.from(seg).some(isCjk)
+        && !Array.from(seg).some(ch => /[A-Za-z]/.test(ch) || isKana(ch));
+      const isOtherLanguage = seg => Array.from(seg).some(ch => /[A-Za-z]/.test(ch) || isKana(ch));
+      const sole = segments => {
+        const list = segments.filter(Boolean);
+        if (list.filter(isPureCjk).length !== 1) return null;
+        if (!list.some(seg => !isPureCjk(seg) && isOtherLanguage(seg))) return null;
+        return list.find(isPureCjk) || null;
+      };
+      const bySeparator = title.split(/[|/／]/).map(s => s.trim()).filter(Boolean);
+      if (bySeparator.length > 1) {
+        const pick = sole(bySeparator);
+        if (pick) return pick;
+      }
+      const bySpace = title.split(/\s+/).filter(Boolean);
+      if (bySpace.length > 1) {
+        const pick = sole(bySpace);
+        if (pick) return pick;
+      }
+      return title;
+    },
+
+    // 从尾部逐个 token 剥离噪声；遇到第一个非噪声 token 停止。
+    // 必须逐个判断：`信号 1080p 韩语中字` 里 `韩语` 若不在词表中，
+    // 「整段尾缀全部匹配」的写法会把 `1080p` 一起留在标题里。
+    stripTitleNoiseTokens(value) {
+      const tokens = String(value || '').split(/\s+/).filter(Boolean);
+      const classify = token => {
+        if (titleNoiseCoreRe.test(token) || titleNoiseExtraRe.test(token)) return {kind: 'whole'};
+        const match = token.match(titleNoiseSuffixRe);
+        if (match && match.index > 0) {
+          return {kind: 'suffix', rest: token.slice(0, match.index).trim()};
+        }
+        return {kind: 'clean'};
+      };
+      while (tokens.length > 1) {
+        const verdict = classify(tokens[tokens.length - 1]);
+        if (verdict.kind === 'clean') break;
+        tokens.pop();
+        if (verdict.kind === 'suffix' && verdict.rest) tokens.push(verdict.rest);
+      }
+      while (tokens.length > 1) {
+        if (classify(tokens[0]).kind !== 'whole') break;
+        tokens.shift();
+      }
+      return tokens.join(' ');
     },
 
     async normalizeTitleRemote(rawTitle) {
@@ -325,11 +444,37 @@
         return {
           original: data.original || original,
           normalized: data.normalized || original,
-          changed: !!data.changed
+          changed: !!data.changed,
+          year: Number.isInteger(data.year) ? data.year : null,
+          season: Number.isInteger(data.season) && data.season > 0 ? data.season : null,
+          season_end: Number.isInteger(data.season_end) && data.season_end > 0 ? data.season_end : null
         };
       } catch (_) {
         const normalized = this.inferSubscriptionTitle(original);
-        return {original, normalized, changed: normalized !== original};
+        return {original, normalized, changed: normalized !== original, year: null, season: null, season_end: null};
+      }
+    },
+
+    /// 把清洗结果里的年份 / 季号提示写进表单：
+    /// - 年份存到 `metadata_year_hint`，元数据搜索用它区分同名翻拍；
+    /// - 季号只在用户**没有手动改过**季输入（仍是默认的 `1`）时回填，
+    ///   `《庆余年》第二季` 这样的分享不该再让用户手填一次 2。
+    applyTitleHints(result) {
+      if (!result || !this.newSubscription) return;
+      this.newSubscription.metadata_year_hint = result.year || null;
+      const season = result.season;
+      if (!season) return;
+      const current = String(this.newSubscription.season_input == null ? '' : this.newSubscription.season_input).trim();
+      if (current && current !== '1') return;
+      if (Array.isArray(this.newSubscription.season_list) && this.newSubscription.season_list.length) return;
+      const end = result.season_end && result.season_end > season ? result.season_end : null;
+      this.newSubscription.season = season;
+      this.newSubscription.season_end = end;
+      this.newSubscription.season_list = null;
+      this.newSubscription.season_input = end ? `${season}-${end}` : String(season);
+      if (Array.isArray(this.subscriptionSeasons) && this.subscriptionSeasons.length
+        && typeof this.applyDefaultSeasonSelection === 'function') {
+        this.applyDefaultSeasonSelection();
       }
     },
 
@@ -340,6 +485,7 @@
       if (!this.newSubscription.source_title) this.newSubscription.source_title = raw;
       const result = await this.normalizeTitleRemote(raw);
       const cleaned = result.normalized || raw;
+      this.applyTitleHints(result);
       if (cleaned && cleaned !== raw) {
         this.newSubscription.title = cleaned;
         if (!silent) this.showNotification('info', `已识别剧名：${cleaned}`);
@@ -389,6 +535,7 @@
       this.normalizeTitleRemote(sourceTitle || rawTitle).then(normalized => {
         if (!normalized || !normalized.normalized) return;
         if (this.newSubscription.url === result.url) {
+          this.applyTitleHints(normalized);
           // 用户可能在异步清洗完成前手动改过标题；此时保留手工输入，
           // 但仍按当前输入触发一次元数据搜索。
           if (this.newSubscription.title === initialTitle) {
@@ -1269,6 +1416,9 @@
           query: this.newSubscription.title.trim(),
           media_type: this.newSubscription.media_type || 'series'
         });
+        // 年份提示来自原始分享标题（`射雕英雄传 (2017)`），是区分同名翻拍的唯一线索。
+        const yearHint = Number(this.newSubscription.metadata_year_hint || 0);
+        if (yearHint > 1900) params.set('year', String(yearHint));
         const response = await apiFetch(`/api/metadata/search?${params.toString()}`);
         const data = await response.json();
         if (response.ok) {
@@ -2150,6 +2300,7 @@
         const data = await response.json();
         if (requestId !== this.subscriptionsRequestId) return;
         this.subscriptions = data.data || [];
+        this.subscriptionsLastLoadedAt = Date.now();
         if (typeof this.recoverRemoteImagesAfterDataRefresh === 'function') {
           this.recoverRemoteImagesAfterDataRefresh();
         }

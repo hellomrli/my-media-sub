@@ -134,6 +134,47 @@ jobs:
           echo "archive=${DIST}.tar.gz" >> "$GITHUB_ENV"
           echo "checksum=${DIST}.tar.gz.sha256" >> "$GITHUB_ENV"
 
+      - name: Sign release archive with minisign
+        # SHA-256 只能证明「下载没坏」，不能证明「出自发布方」——校验和与载荷来自
+        # 同一个 Release，因此能改 Release 的攻击者可以同时替换两者。真实的自动
+        # 更新必须依赖编译进二进制的公钥（SELF_UPDATE_PUBLIC_KEY）。
+        #
+        # 一次性配置：
+        #   minisign -G -p minisign.pub -s minisign.key     # 生成密钥对（CI 用无密码密钥）
+        #   gh secret set MINISIGN_SECRET_KEY < minisign.key
+        #   把 minisign.pub 里那行 base64 设为 CI 变量 SELF_UPDATE_PUBLIC_KEY，
+        #   并在构建时通过 option_env! 固化进二进制（见 docs/docker-online-update.md）
+        #
+        # 未配置 Secret 时本步骤跳过并告警：签名是可选的，但**一旦**发布端签名且
+        # 客户端配置了公钥，签名就是强制的（缺签名会拒绝安装）。
+        #
+        # 条件直接读 secrets 上下文：step 级 `if` 允许引用 secrets，而 step 自身
+        # 声明的 env 在求值 `if` 时**尚不可用**（那会让本步骤永远被跳过）。
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+        if: ${{ secrets.MINISIGN_SECRET_KEY != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v minisign >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y --no-install-recommends minisign
+          fi
+          KEY_FILE="$RUNNER_TEMP/minisign.key"
+          printf '%s\n' "$MINISIGN_SECRET_KEY" > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+          # CI 使用**无密码**密钥（-W）；密钥本身只存在 GitHub Secrets 里，
+          # 再加一层密码对 CI 场景收益很小，却会让这一步依赖交互式输入。
+          minisign -S -s "$KEY_FILE" -m "${{ env.archive }}" -W
+          rm -f "$KEY_FILE"
+          test -s "${{ env.archive }}.minisig" || { echo "签名文件未生成" >&2; exit 1; }
+          echo "signature=${{ env.archive }}.minisig" >> "$GITHUB_ENV"
+          echo "✅ 已生成 minisign 签名 ${{ env.archive }}.minisig"
+
+      - name: Warn when release is unsigned
+        if: ${{ secrets.MINISIGN_SECRET_KEY == '' }}
+        run: |
+          echo "::warning::未配置 MINISIGN_SECRET_KEY，本次 Release 没有 .minisig 签名文件。客户端若设置了 SELF_UPDATE_PUBLIC_KEY 将拒绝安装本版本；配置方式见本文件注释与 docs/docker-online-update.md。"
+
       - name: Prepare release notes
         shell: bash
         run: |
@@ -163,3 +204,4 @@ jobs:
           files: |
             ${{ env.archive }}
             ${{ env.checksum }}
+            ${{ env.signature }}

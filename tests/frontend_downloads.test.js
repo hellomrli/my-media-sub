@@ -119,7 +119,7 @@ test('removing the Aria2 configuration stops an existing download poller', async
   assert.equal(store.downloadsPoller, null);
 });
 
-test('download polling runs only while active or waiting tasks exist', () => {
+test('download polling uses a fast interval when active and a slow idle interval otherwise', () => {
   const started = [];
   const stopped = [];
   const store = downloads.createStore();
@@ -128,26 +128,30 @@ test('download polling runs only while active or waiting tasks exist', () => {
   store.startPolling = (...args) => { started.push(args); return 1; };
   store.stopPolling = name => stopped.push(name);
 
-  store.startDownloadsPolling();
-  assert.deepEqual(started, []);
-
-  store.downloads.active = [{gid: 'active-1', status: 'active'}];
-  store.startDownloadsPolling();
-  assert.equal(started.length, 1);
-  assert.equal(started[0][0], 'downloads');
-  assert.equal(started[0][2], 2000);
-
-  store.downloads = {active: [], waiting: [], stopped: [{gid: 'done-1', status: 'complete'}]};
+  // 空闲时也要轮询（慢速），否则在别处新建的下载永远不会出现。
+  store.downloads.active = [];
   store.syncDownloadsPolling();
-  assert.deepEqual(stopped, ['downloads']);
-  assert.equal(store.downloadsPoller, null);
+  assert.equal(started.length, 1, '空闲时仍应保持轮询');
+  assert.equal(started[0][0], 'downloads');
+  assert.equal(started[0][2], 15000, '空闲间隔应为 15 秒');
+  assert.equal(store.downloadsPollIntervalMs, 15000);
 
+  // 出现进行中任务后切到 2 秒
+  store.downloads.active = [{gid: 'active-1', status: 'active'}];
+  store.syncDownloadsPolling();
+  assert.equal(started.length, 2, '间隔变化时必须重启轮询');
+  assert.equal(started[1][2], 2000);
+
+  // 同一间隔重复 sync 不应重启
+  store.syncDownloadsPolling();
+  assert.equal(started.length, 2);
+
+  // 离开下载/工作台标签页则彻底停止
   store.currentTab = 'settings';
-  store.downloads.active = [{gid: 'active-2', status: 'active'}];
-  store.downloadsPoller = 2;
   store.syncDownloadsPolling();
   assert.deepEqual(stopped, ['downloads', 'downloads']);
   assert.equal(store.downloadsPoller, null);
+  assert.equal(store.downloadsPollIntervalMs, 0);
 });
 
 test('completed and failed history renders in bounded windows', () => {

@@ -65,8 +65,56 @@ docker run -d \
 
 ## 在线更新流程
 
-1. 从 GitHub Release 下载 Linux x86_64 归档和对应 `.sha256`。
-2. 校验 SHA256，拒绝缺少二进制或核心 WebUI 文件（`index.html`、Manifest、Service Worker、OpenAPI）的发布包。
+1. 从 GitHub Release 下载 Linux x86_64 归档和对应 `.sha256`（可选还有 `.minisig`）。
+2. 与下载地址相关的两道防线：**只接受 GitHub 资产主机**（`github.com`、
+   `objects.githubusercontent.com`、`release-assets.githubusercontent.com`、
+   `api.github.com`），并且**逐跳校验重定向目标**。`browser_download_url` 直接来自
+   GitHub API 的 JSON，属于外部输入；不校验的话，API 响应被篡改就能把下载引到任意
+   地址，而下载内容会被解包并覆盖运行中的二进制。
+3. 校验 SHA256，拒绝缺少二进制或核心 WebUI 文件（`index.html`、Manifest、Service Worker、OpenAPI）的发布包。
+4. **可选但强烈建议**：校验 minisign 分离签名（见下节）。
+
+## 升级包的真实性校验（minisign）
+
+SHA-256 只能证明「下载没坏」，**不能证明「出自发布方」**——校验和与载荷来自同一个
+Release，因此能改 Release 的攻击者可以同时替换两者。真实性只能来自一个不走同一下载
+渠道的信任根：把公钥编译进二进制，用它校验发布方用私钥签出的签名。
+
+### 启用
+
+```bash
+# 一次性：生成密钥对（CI 用无密码密钥）
+minisign -G -p minisign.pub -s minisign.key
+
+# 发布端：把私钥存进仓库 Secret
+gh secret set MINISIGN_SECRET_KEY < minisign.key
+# 客户端：把公钥编译进二进制（推荐）或设为运行时环境变量
+export SELF_UPDATE_PUBLIC_KEY="$(tail -n1 minisign.pub)"
+cargo build --release
+```
+
+`SELF_UPDATE_PUBLIC_KEY` 接受两种形式：
+
+- minisign `.pub` 文件的**整份内容**或其中那行 base64（42 字节：算法 + key id + 公钥）；
+- 直接的 32 字节 base64 裸公钥。
+
+### 行为
+
+| 是否配置公钥 | 是否要求签名 | 说明 |
+|---|---|---|
+| 未配置 | 不要求 | 与旧版本一致，但每次更新会在日志里打一条 WARN 说明只有完整性校验 |
+| 已配置 | **强制** | 缺少 `.minisig`、签名格式错误或验签失败都会中止更新 |
+
+一旦配置了公钥，签名就是**失败关闭**的：发布方忘记签名会让升级被拒绝，而不是静默降级
+为只校验 SHA-256。
+
+### 推荐做法
+
+用**编译期**固化公钥（`SELF_UPDATE_PUBLIC_KEY` 参与构建），而不是运行时环境变量：
+运行时变量可以被能修改服务配置的攻击者一并改掉，编译进二进制的公钥不能。
+
+> 若使用官方发布的镜像/二进制，发布方是否已签名以 Release 是否附有 `.minisig` 为准；
+> 没有该文件就说明当前版本只有完整性校验。
 3. 在目标目录旁暂存新二进制和完整静态目录，不直接覆盖正在使用的文件。
 4. 备份旧二进制和旧 `static/`，再分别通过同目录 rename 原子切换；任一步失败会恢复旧静态资源。
 5. 用户确认重启后，主进程停止接收新请求，等待 JobQueue 完成有界优雅关闭，再用新二进制替换当前进程。

@@ -216,22 +216,6 @@ async fn apply_update(request: Option<Json<UpdateApplyRequest>>) -> Result<impl 
     }
 }
 
-/// 升级进度复位 guard：正常路径（成功/失败）已显式结束进度；只有 panic
-/// 展开经过 drop 时 running 仍为 true，此处负责复位互斥状态。
-struct UpdateProgressResetGuard;
-
-impl Drop for UpdateProgressResetGuard {
-    fn drop(&mut self) {
-        if let Ok(mut progress) = UPDATE_PROGRESS.lock() {
-            if progress.running {
-                progress.running = false;
-                progress.error = Some("升级任务异常中止，请重试".to_string());
-                progress.updated_at = Utc::now().to_rfc3339();
-            }
-        }
-    }
-}
-
 async fn update_progress() -> Result<impl IntoResponse> {
     Ok(Json(Response::ok(current_update_progress())))
 }
@@ -256,93 +240,6 @@ async fn restart_update() -> Result<impl IntoResponse> {
     })))
 }
 
-fn current_update_progress() -> UpdateProgressResponse {
-    UPDATE_PROGRESS
-        .lock()
-        .map(|progress| progress.clone())
-        .unwrap_or_else(|_| UpdateProgressResponse::idle())
-}
-
-fn try_begin_update_progress(message: impl Into<String>) -> Result<()> {
-    let mut progress = UPDATE_PROGRESS
-        .lock()
-        .map_err(|_| AppError::Internal("读取升级状态失败".to_string()))?;
-    if progress.running {
-        return Err(AppError::Validation("已有升级任务正在执行".to_string()));
-    }
-
-    *progress = UpdateProgressResponse {
-        running: true,
-        percent: 1,
-        stage: "starting".to_string(),
-        message: message.into(),
-        downloaded_bytes: 0,
-        total_bytes: None,
-        error: None,
-        updated_at: Utc::now().to_rfc3339(),
-    };
-    Ok(())
-}
-
-fn set_update_progress(percent: u8, stage: &str, message: impl Into<String>) {
-    if let Ok(mut progress) = UPDATE_PROGRESS.lock() {
-        progress.running = true;
-        progress.percent = percent.min(100);
-        progress.stage = stage.to_string();
-        progress.message = message.into();
-        progress.error = None;
-        progress.updated_at = Utc::now().to_rfc3339();
-    }
-}
-
-fn set_download_progress(downloaded_bytes: u64, total_bytes: Option<u64>) {
-    let percent = total_bytes
-        .filter(|total| *total > 0)
-        .map(|total| 10 + ((downloaded_bytes.saturating_mul(58) / total).min(58) as u8))
-        .unwrap_or(20);
-    let message = match total_bytes {
-        Some(total) if total > 0 => format!(
-            "正在下载升级包 {} / {}",
-            format_bytes(downloaded_bytes),
-            format_bytes(total)
-        ),
-        _ => format!("正在下载升级包 {}", format_bytes(downloaded_bytes)),
-    };
-
-    if let Ok(mut progress) = UPDATE_PROGRESS.lock() {
-        progress.running = true;
-        progress.percent = percent.min(68);
-        progress.stage = "download".to_string();
-        progress.message = message;
-        progress.downloaded_bytes = downloaded_bytes;
-        progress.total_bytes = total_bytes;
-        progress.error = None;
-        progress.updated_at = Utc::now().to_rfc3339();
-    }
-}
-
-fn finish_update_progress(message: impl Into<String>, stage: &str) {
-    if let Ok(mut progress) = UPDATE_PROGRESS.lock() {
-        progress.running = false;
-        progress.percent = 100;
-        progress.stage = stage.to_string();
-        progress.message = message.into();
-        progress.error = None;
-        progress.updated_at = Utc::now().to_rfc3339();
-    }
-}
-
-fn fail_update_progress(message: impl Into<String>) {
-    let message = message.into();
-    if let Ok(mut progress) = UPDATE_PROGRESS.lock() {
-        progress.running = false;
-        progress.stage = "failed".to_string();
-        progress.message = message.clone();
-        progress.error = Some(message);
-        progress.updated_at = Utc::now().to_rfc3339();
-    }
-}
-
 async fn apply_update_inner(target_tag: Option<String>) -> Result<UpdateApplyResponse> {
     let release = match target_tag {
         Some(ref tag) => fetch_release_by_tag(tag).await?,
@@ -365,6 +262,21 @@ async fn apply_update_inner(target_tag: Option<String>) -> Result<UpdateApplyRes
         .ok_or_else(|| AppError::NotFound("Release 中未找到 Linux x86_64 二进制包".to_string()))?;
     let checksum_asset = find_asset(&release.assets, "linux-x86_64.tar.gz.sha256")
         .ok_or_else(|| AppError::NotFound("Release 中未找到 SHA256 校验文件".to_string()))?;
+    // 签名文件（minisign 分离签名）。配置了公钥时它是**必需**的：
+    // 只有 SHA-256 的话，能篡改 Release 的攻击者可以同时替换载荷与校验和，
+    // 而载荷会被解包并覆盖运行中的二进制。
+    let signature_asset = find_asset(&release.assets, "linux-x86_64.tar.gz.minisig");
+    if signature::signature_verification_enabled() && signature_asset.is_none() {
+        return Err(AppError::Validation(
+            "已配置 SELF_UPDATE_PUBLIC_KEY，但该 Release 缺少 .minisig 签名文件；             拒绝在无法验证真实性时安装升级包"
+                .to_string(),
+        ));
+    }
+    if !signature::signature_verification_enabled() {
+        tracing::warn!(
+            "自更新仅校验 SHA-256：校验和与载荷来自同一个 Release，因此无法证明真实性。             建议设置 SELF_UPDATE_PUBLIC_KEY（最好在编译期固化）以启用分离签名校验，             详见 docs/docker-online-update.md"
+        );
+    }
     let current_exe = std::env::current_exe()
         .map_err(|e| AppError::Internal(format!("无法定位当前二进制: {}", e)))?;
     let target_static_dir = crate::utils::static_dir();
@@ -382,6 +294,7 @@ async fn apply_update_inner(target_tag: Option<String>) -> Result<UpdateApplyRes
     let install_result = download_and_install_release(
         &asset,
         &checksum_asset,
+        signature_asset.as_ref(),
         &work_dir,
         &current_exe,
         &target_static_dir,
@@ -414,6 +327,7 @@ async fn apply_update_inner(target_tag: Option<String>) -> Result<UpdateApplyRes
 async fn download_and_install_release(
     asset: &GithubAsset,
     checksum_asset: &GithubAsset,
+    signature_asset: Option<&GithubAsset>,
     work_dir: &Path,
     current_exe: &Path,
     target_static_dir: &Path,
@@ -422,9 +336,26 @@ async fn download_and_install_release(
     let archive_path = work_dir.join(&asset.name);
     set_update_progress(8, "checksum", "正在下载校验文件");
     let checksum_content = download_asset_bytes(&checksum_asset.browser_download_url).await?;
+    // 签名文件在下载载荷**之前**取，这样签名缺失/非法时不必浪费一次大文件下载。
+    let signature_content = match signature_asset {
+        Some(asset) => Some(download_asset_bytes(&asset.browser_download_url).await?),
+        None => None,
+    };
     download_asset(&asset.browser_download_url, &archive_path, asset.size).await?;
     set_update_progress(69, "checksum", "正在校验升级包 SHA256");
     verify_sha256(&archive_path, &asset.name, &checksum_content).await?;
+    // 完整性之后再校验真实性。顺序是刻意的：先确保字节完整（能给出「下载损坏」
+    // 这类可操作的错误），再确认它确实出自发布方。
+    if let Some(signature_bytes) = signature_content {
+        set_update_progress(69, "signature", "正在校验升级包签名");
+        let signature_text = String::from_utf8_lossy(&signature_bytes);
+        let archive_bytes = tokio::fs::read(&archive_path)
+            .await
+            .map_err(|error| AppError::Internal(format!("读取升级包以校验签名失败: {error}")))?;
+        signature::verify_minisign(&archive_bytes, &signature_text)
+            .map_err(|error| AppError::Validation(format!("升级包签名校验未通过: {error}")))?;
+        tracing::info!("自更新产物签名校验通过（minisign / Ed25519）");
+    }
     set_update_progress(70, "extracting", "正在解压升级包");
     extract_archive(&archive_path, work_dir).await?;
     set_update_progress(82, "locating", "正在检查升级包内容");
@@ -444,489 +375,8 @@ async fn download_and_install_release(
     Ok(())
 }
 
-fn store_pending_restart(plan: RestartPlan) -> Result<()> {
-    let mut pending = PENDING_RESTART
-        .lock()
-        .map_err(|_| AppError::Internal("保存重启计划失败".to_string()))?;
-    if pending.is_some() {
-        return Err(AppError::Validation(
-            "已有升级等待重启，请先完成重启".to_string(),
-        ));
-    }
-    *pending = Some(plan);
-    Ok(())
-}
-
-fn ensure_no_pending_restart() -> Result<()> {
-    let pending = PENDING_RESTART
-        .lock()
-        .map_err(|_| AppError::Internal("读取重启计划失败".to_string()))?;
-    if pending.is_some() {
-        return Err(AppError::Validation(
-            "已有升级等待重启，请先完成重启".to_string(),
-        ));
-    }
-    Ok(())
-}
-
-async fn fetch_latest_release() -> Result<GithubRelease> {
-    let url = format!(
-        "https://api.github.com/repos/{}/releases/latest",
-        GITHUB_REPO
-    );
-    let client = http_pool::default_client();
-    let response = client
-        .get(url)
-        .header(reqwest::header::USER_AGENT, "my-media-sub-update-check")
-        .send()
-        .await?
-        .error_for_status()?;
-
-    Ok(response.json::<GithubRelease>().await?)
-}
-
-async fn fetch_release_by_tag(tag: &str) -> Result<GithubRelease> {
-    let tag = tag.trim().trim_start_matches('/').to_string();
-    // 只接受发布标签的合法字符，防止 `?`/`#` 等改写 GitHub API 请求语义。
-    let tag_is_valid = !tag.is_empty()
-        && !tag.contains('/')
-        && tag
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-' | '+'));
-    if !tag_is_valid {
-        return Err(AppError::Validation("版本标签无效".to_string()));
-    }
-
-    let url = format!(
-        "https://api.github.com/repos/{}/releases/tags/{}",
-        GITHUB_REPO, tag
-    );
-    let client = http_pool::default_client();
-    let response = client
-        .get(url)
-        .header(reqwest::header::USER_AGENT, "my-media-sub-update-check")
-        .send()
-        .await?
-        .error_for_status()?;
-
-    Ok(response.json::<GithubRelease>().await?)
-}
-
-async fn fetch_releases() -> Result<Vec<GithubRelease>> {
-    let url = format!(
-        "https://api.github.com/repos/{}/releases?per_page=20",
-        GITHUB_REPO
-    );
-    let client = http_pool::default_client();
-    let response = client
-        .get(url)
-        .header(reqwest::header::USER_AGENT, "my-media-sub-update-check")
-        .send()
-        .await?
-        .error_for_status()?;
-
-    Ok(response.json::<Vec<GithubRelease>>().await?)
-}
-
-fn release_to_response(release: GithubRelease, current_version: &str) -> UpdateReleaseResponse {
-    let version = normalize_version(&release.tag_name);
-    let is_current = version == current_version;
-    let is_newer = is_newer_version(&version, current_version);
-    UpdateReleaseResponse {
-        tag: release.tag_name.clone(),
-        version,
-        name: release.name.unwrap_or_else(|| release.tag_name.clone()),
-        release_url: release.html_url,
-        published_at: release.published_at,
-        asset: find_asset(&release.assets, "linux-x86_64.tar.gz").map(Into::into),
-        is_current,
-        is_newer,
-    }
-}
-
-fn detect_runtime() -> String {
-    if std::path::Path::new("/.dockerenv").exists() {
-        "docker".to_string()
-    } else {
-        "binary".to_string()
-    }
-}
-
-fn online_update_supported(runtime: &str) -> bool {
-    online_update_supported_for(
-        runtime,
-        optional_env_flag("SELF_UPDATE_ENABLED"),
-        managed_docker_runtime_layout(),
-    )
-}
-
-fn online_update_supported_for(
-    runtime: &str,
-    configured_enabled: Option<bool>,
-    managed_runtime_layout: bool,
-) -> bool {
-    match runtime {
-        "binary" => configured_enabled.unwrap_or(true),
-        "docker" => configured_enabled.unwrap_or(false) && managed_runtime_layout,
-        _ => false,
-    }
-}
-
-fn optional_env_flag(key: &str) -> Option<bool> {
-    std::env::var(key)
-        .ok()
-        .and_then(|value| match value.trim().to_ascii_lowercase().as_str() {
-            "1" | "true" | "yes" | "on" => Some(true),
-            "0" | "false" | "no" | "off" => Some(false),
-            _ => None,
-        })
-}
-
-fn managed_runtime_dir() -> Option<PathBuf> {
-    std::env::var("APP_RUNTIME_DIR")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-}
-
-fn managed_docker_runtime_layout() -> bool {
-    let Some(runtime_dir) = managed_runtime_dir() else {
-        return false;
-    };
-    let Ok(executable) = std::env::current_exe() else {
-        return false;
-    };
-    path_is_within(&executable, &runtime_dir)
-        && path_is_within(&crate::utils::static_dir(), &runtime_dir)
-        && directory_is_writable(&runtime_dir)
-}
-
-fn path_is_within(path: &Path, directory: &Path) -> bool {
-    let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let directory = std::fs::canonicalize(directory).unwrap_or_else(|_| directory.to_path_buf());
-    path.starts_with(directory)
-}
-
-#[cfg(unix)]
-fn directory_is_writable(path: &Path) -> bool {
-    use std::os::unix::ffi::OsStrExt;
-
-    let Ok(path) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
-        return false;
-    };
-    // Replacing entries requires both write and search permission on the
-    // containing directory. `access` evaluates the real uid/gid of the app.
-    unsafe { libc::access(path.as_ptr(), libc::W_OK | libc::X_OK) == 0 }
-}
-
-#[cfg(not(unix))]
-fn directory_is_writable(_path: &Path) -> bool {
-    true
-}
-
-fn online_update_unavailable_message(runtime: &str) -> String {
-    if runtime == "docker" {
-        "当前 Docker 容器未启用可写的持久化运行目录，不能在线替换程序；请升级到新版 Compose 配置，或在宿主机执行：docker compose pull && docker compose up -d"
-            .to_string()
-    } else {
-        "当前运行环境不支持在线替换程序，请手工升级二进制和完整 static 目录".to_string()
-    }
-}
-
 /// 升级包体积硬上限（期望大小的 3 倍，兼顾压缩包与异常大文件的容差）。
 const MAX_UPDATE_PACKAGE_BYTES: u64 = 3;
-
-async fn download_asset(url: &str, path: &Path, expected_size: u64) -> Result<()> {
-    set_update_progress(10, "download", "正在连接 Release 下载地址");
-    // 发布压缩包通常 10MB 以上，跨境下载经常超过 30 秒的总超时；
-    // 大文件下载使用流式客户端，避免慢链路下升级反复在下载阶段失败。
-    let mut response = http_pool::streaming_client()
-        .get(url)
-        .header(reqwest::header::USER_AGENT, "my-media-sub-self-update")
-        .send()
-        .await?
-        .error_for_status()?;
-
-    let fallback_total_bytes = (expected_size > 0).then_some(expected_size);
-    let total_bytes = response.content_length().or(fallback_total_bytes);
-    if let Some(total) = total_bytes {
-        if total
-            > expected_size
-                .saturating_mul(MAX_UPDATE_PACKAGE_BYTES)
-                .max(64 * 1024 * 1024)
-        {
-            return Err(AppError::Validation(
-                "升级包体积异常，已取消下载".to_string(),
-            ));
-        }
-    }
-    let max_bytes = expected_size
-        .saturating_mul(MAX_UPDATE_PACKAGE_BYTES)
-        .max(64 * 1024 * 1024);
-    let mut downloaded_bytes = 0u64;
-    let mut file = tokio::fs::File::create(path)
-        .await
-        .map_err(|e| AppError::Internal(format!("创建升级包文件失败: {}", e)))?;
-
-    while let Some(chunk) = response.chunk().await? {
-        downloaded_bytes += chunk.len() as u64;
-        if downloaded_bytes > max_bytes {
-            return Err(AppError::Validation(
-                "升级包体积异常，已取消下载".to_string(),
-            ));
-        }
-        file.write_all(&chunk)
-            .await
-            .map_err(|e| AppError::Internal(format!("写入升级包失败: {}", e)))?;
-        set_download_progress(downloaded_bytes, total_bytes);
-    }
-    file.flush()
-        .await
-        .map_err(|e| AppError::Internal(format!("刷新升级包文件失败: {}", e)))?;
-    file.sync_all()
-        .await
-        .map_err(|e| AppError::Internal(format!("同步升级包文件失败: {}", e)))?;
-    set_download_progress(downloaded_bytes, total_bytes);
-    Ok(())
-}
-
-async fn download_asset_bytes(url: &str) -> Result<Vec<u8>> {
-    let response = http_pool::default_client()
-        .get(url)
-        .header(reqwest::header::USER_AGENT, "my-media-sub-self-update")
-        .send()
-        .await?
-        .error_for_status()?;
-    Ok(response.bytes().await?.to_vec())
-}
-
-async fn verify_sha256(path: &Path, asset_name: &str, checksum_content: &[u8]) -> Result<()> {
-    let expected = parse_sha256_checksum(checksum_content, asset_name)
-        .ok_or_else(|| AppError::Validation("SHA256 校验文件格式无效".to_string()))?;
-    let bytes = tokio::fs::read(path)
-        .await
-        .map_err(|e| AppError::Internal(format!("读取升级包失败: {}", e)))?;
-    let actual = digest::digest(&digest::SHA256, &bytes)
-        .as_ref()
-        .iter()
-        .map(|byte| format!("{:02x}", byte))
-        .collect::<String>();
-
-    if !constant_time_eq(&actual, &expected) {
-        return Err(AppError::Validation("升级包 SHA256 校验失败".to_string()));
-    }
-
-    Ok(())
-}
-
-fn parse_sha256_checksum(content: &[u8], asset_name: &str) -> Option<String> {
-    let text = String::from_utf8_lossy(content);
-    let mut bare_checksum = None;
-    let mut bare_count = 0usize;
-
-    for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-
-        let parts = line.split_whitespace().collect::<Vec<_>>();
-        let Some(checksum) = parts.iter().copied().find(|part| is_sha256_checksum(part)) else {
-            continue;
-        };
-
-        if checksum_matches_asset_line(line, checksum, asset_name) {
-            return Some(checksum.to_ascii_lowercase());
-        }
-
-        if parts.len() == 1 && parts[0] == checksum {
-            bare_count += 1;
-            bare_checksum = Some(checksum.to_ascii_lowercase());
-        }
-    }
-
-    (bare_count == 1).then_some(bare_checksum?).filter(|_| {
-        text.lines()
-            .filter(|line| {
-                let line = line.trim();
-                !line.is_empty() && !line.starts_with('#')
-            })
-            .count()
-            == 1
-    })
-}
-
-fn is_sha256_checksum(value: &str) -> bool {
-    value.len() == 64 && value.chars().all(|ch| ch.is_ascii_hexdigit())
-}
-
-fn checksum_matches_asset_line(line: &str, checksum: &str, asset_name: &str) -> bool {
-    let normalized = line.replace('*', " ");
-    if normalized.split_whitespace().any(|part| part == asset_name) {
-        return true;
-    }
-
-    let bsd_prefix = format!("SHA256 ({asset_name}) =");
-    line.starts_with(&bsd_prefix) && line.split_whitespace().last() == Some(checksum)
-}
-
-async fn extract_archive(archive_path: &Path, output_dir: &Path) -> Result<()> {
-    let archive_path = archive_path.to_path_buf();
-    let output_dir = output_dir.to_path_buf();
-    tokio::task::spawn_blocking(move || {
-        verify_archive_members(&archive_path)?;
-        let output = std::process::Command::new("tar")
-            .arg("-xzf")
-            .arg(&archive_path)
-            .arg("-C")
-            .arg(&output_dir)
-            // 升级包由发行流水线以非 root 构建，不保留属主/权限位可避免本地
-            // 覆盖时把升级包里的 uid/可执行位原样写进运行目录。
-            .arg("--no-same-owner")
-            .arg("--no-same-permissions")
-            .output()
-            .map_err(|e| AppError::Internal(format!("执行 tar 解压失败: {}", e)))?;
-        if !output.status.success() {
-            return Err(AppError::Internal(format!(
-                "解压升级包失败: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
-        }
-        ensure_extracted_inside(&output_dir)
-    })
-    .await
-    .map_err(|e| AppError::Internal(format!("解压任务失败: {}", e)))?
-}
-
-/// 解压前校验归档成员：成员名必须为相对路径、不含 `..` 组件且非空，链接
-/// 目标不得为绝对路径或包含 `..`。校验通过前不执行任何解压，防止恶意
-/// 升级包把文件写出 work_dir。
-fn verify_archive_members(archive_path: &Path) -> Result<()> {
-    let list = std::process::Command::new("tar")
-        .arg("-tvzf")
-        .arg(archive_path)
-        .output()
-        .map_err(|e| AppError::Internal(format!("列出升级包内容失败: {}", e)))?;
-    if !list.status.success() {
-        return Err(AppError::Internal(format!(
-            "列出升级包内容失败: {}",
-            String::from_utf8_lossy(&list.stderr)
-        )));
-    }
-    let listing = String::from_utf8_lossy(&list.stdout);
-    let mut member_count = 0usize;
-    for line in listing.lines() {
-        // GNU tar 冗长列表格式：`permissions owner/group size date name [-> target]`。
-        // 符号链接行含 ` -> `，需额外校验链接目标不逃逸。
-        let (name, target) = parse_tar_listing_line(line);
-        if !is_safe_member_path(name) {
-            return Err(AppError::Validation(format!(
-                "升级包包含不安全路径: {:?}",
-                line
-            )));
-        }
-        if let Some(target) = target {
-            if !is_safe_member_path(target) {
-                return Err(AppError::Validation(format!(
-                    "升级包包含逃逸链接目标: {:?}",
-                    line
-                )));
-            }
-        }
-        member_count += 1;
-    }
-    if member_count == 0 {
-        return Err(AppError::Validation("升级包为空".to_string()));
-    }
-    Ok(())
-}
-
-/// 从 tar 冗长列表行解析成员名与可选的符号链接目标。
-fn parse_tar_listing_line(line: &str) -> (&str, Option<&str>) {
-    // GNU tar 冗长列表：`权限 owner/group 大小 日期 时间 name [-> target]`。
-    // 字段间空白数量不定（size 前有大量填充空格），因此按「空白分隔字段计数」
-    // 跳过前 5 个不含空格的字段，剩余部分从第 6 个字段起是成员名（可含空格）。
-    let rest = line.trim_start();
-    let mut field_count = 0usize;
-    let mut in_field = false;
-    let mut name_start = rest.len();
-    for (index, ch) in rest.char_indices() {
-        if ch.is_whitespace() {
-            if in_field {
-                field_count += 1;
-                in_field = false;
-                if field_count == 5 {
-                    name_start = index;
-                    break;
-                }
-            }
-        } else {
-            in_field = true;
-        }
-    }
-    let name_with_target = rest[name_start..].trim_start();
-    match name_with_target.split_once(" -> ") {
-        Some((name, target)) => (name.trim(), Some(target.trim())),
-        None => (name_with_target.trim(), None),
-    }
-}
-
-/// 安全成员路径：相对路径、无 `..`/`.` 组件、无 NUL、不以 `/` 开头。
-fn is_safe_member_path(path: &str) -> bool {
-    // 目录成员名以 `/` 结尾，先剥掉再做逐组件校验。
-    let path = path.trim_end_matches('/');
-    if path.is_empty() || path.starts_with('/') || path.contains('\0') {
-        return false;
-    }
-    path.split('/')
-        .all(|component| !component.is_empty() && component != ".." && component != ".")
-}
-
-/// 解压完成后兜底校验：work_dir 下每个真实路径（含通过符号链接到达的）必须
-/// 位于输出目录内；发现越界项则删除并报错，阻断符号链接绕过。
-fn ensure_extracted_inside(output_dir: &Path) -> Result<()> {
-    let output_dir = output_dir
-        .canonicalize()
-        .map_err(|e| AppError::Internal(format!("解析解压目录失败: {}", e)))?;
-    let mut stack = vec![output_dir.clone()];
-    let mut offenders = Vec::new();
-    while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let canonical = match path.canonicalize() {
-                Ok(canonical) => canonical,
-                Err(_) => {
-                    offenders.push(path);
-                    continue;
-                }
-            };
-            if !canonical.starts_with(&output_dir) {
-                offenders.push(path);
-                continue;
-            }
-            if path.is_dir() {
-                stack.push(path);
-            }
-        }
-    }
-    if !offenders.is_empty() {
-        let joined = offenders
-            .iter()
-            .map(|path| path.display().to_string())
-            .collect::<Vec<_>>()
-            .join(", ");
-        let _ = std::fs::remove_dir_all(&output_dir);
-        return Err(AppError::Validation(format!(
-            "升级包解压结果越界，已回滚: {}",
-            joined
-        )));
-    }
-    Ok(())
-}
 
 fn backup_path(current_exe: &Path) -> PathBuf {
     let file_name = current_exe
@@ -1326,319 +776,19 @@ pub fn routes() -> Router {
         .route("/api/update/restart", post(restart_update))
 }
 
+mod github;
+mod package;
+mod progress;
+mod runtime;
+mod signature;
+
+// 四个子模块承载原本挤在同一个文件里的职责：进度状态机、发布包下载与校验、
+// GitHub 客户端、运行时/部署形态探测。它们都是 `pub(super)`，只在本模块内使用；
+// 模块内部的 `use super::*;` 让拆分后的函数继续看到原有的导入。
+use github::*;
+use package::*;
+use progress::*;
+use runtime::*;
+
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn asset(name: &str) -> GithubAsset {
-        GithubAsset {
-            name: name.to_string(),
-            size: 42,
-            browser_download_url: format!("https://example.com/{}", name),
-        }
-    }
-
-    #[test]
-    fn test_version_compare_handles_tags() {
-        assert!(is_newer_version("v0.7.15", "0.7.14"));
-        assert!(is_newer_version("0.8.0", "0.7.99"));
-        assert!(!is_newer_version("0.7.14", "0.7.14"));
-        assert!(!is_newer_version("0.7.13", "0.7.14"));
-    }
-
-    #[test]
-    fn test_find_release_assets() {
-        let assets = vec![
-            asset("my-media-sub-v0.7.15-linux-x86_64.tar.gz"),
-            asset("my-media-sub-v0.7.15-linux-x86_64.tar.gz.sha256"),
-        ];
-
-        let archive = find_asset(&assets, "linux-x86_64.tar.gz").unwrap();
-        let checksum = find_asset(&assets, "linux-x86_64.tar.gz.sha256").unwrap();
-
-        assert_eq!(archive.name, "my-media-sub-v0.7.15-linux-x86_64.tar.gz");
-        assert_eq!(
-            checksum.name,
-            "my-media-sub-v0.7.15-linux-x86_64.tar.gz.sha256"
-        );
-    }
-
-    #[test]
-    fn test_parse_sha256_checksum_accepts_common_formats() {
-        let checksum = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-        let asset_name = "archive.tar.gz";
-        assert_eq!(
-            parse_sha256_checksum(
-                format!("{}  {}\n", checksum, asset_name).as_bytes(),
-                asset_name
-            ),
-            Some(checksum.to_string())
-        );
-        assert_eq!(
-            parse_sha256_checksum(
-                format!("{} *{}\n", checksum.to_ascii_uppercase(), asset_name).as_bytes(),
-                asset_name
-            ),
-            Some(checksum.to_string())
-        );
-        assert_eq!(
-            parse_sha256_checksum(
-                format!("SHA256 ({}) = {}\n", asset_name, checksum).as_bytes(),
-                asset_name
-            ),
-            Some(checksum.to_string())
-        );
-        assert_eq!(
-            parse_sha256_checksum(
-                format!("{}\n", checksum.to_ascii_uppercase()).as_bytes(),
-                asset_name
-            ),
-            Some(checksum.to_string())
-        );
-        assert_eq!(
-            parse_sha256_checksum(
-                format!("{}  other.tar.gz\n{}  another.tar.gz\n", checksum, checksum).as_bytes(),
-                asset_name
-            ),
-            None
-        );
-        assert_eq!(parse_sha256_checksum(b"not-a-checksum", asset_name), None);
-    }
-
-    #[test]
-    fn test_release_response_marks_current_and_newer() {
-        let release = GithubRelease {
-            tag_name: "v0.9.1".to_string(),
-            name: None,
-            html_url: "https://example.com/release".to_string(),
-            body: None,
-            published_at: None,
-            assets: vec![asset("my-media-sub-v0.9.1-linux-x86_64.tar.gz")],
-        };
-        let current = release_to_response(release.clone(), "0.9.1");
-        let newer = release_to_response(release, "0.9.0");
-
-        assert!(current.is_current);
-        assert!(!current.is_newer);
-        assert!(!newer.is_current);
-        assert!(newer.is_newer);
-        assert!(newer.asset.is_some());
-    }
-
-    #[test]
-    fn test_online_update_requires_managed_docker_runtime() {
-        assert!(online_update_supported_for("binary", None, false));
-        assert!(!online_update_supported_for("binary", Some(false), false));
-        assert!(!online_update_supported_for("docker", None, true));
-        assert!(!online_update_supported_for("docker", Some(false), true));
-        assert!(!online_update_supported_for("docker", Some(true), false));
-        assert!(online_update_supported_for("docker", Some(true), true));
-        assert!(!online_update_supported_for("unknown", Some(true), true));
-    }
-
-    /// 同一进程内不得并发跑两次升级：第二次 apply 必须被拦在下载之前，
-    /// 否则两个任务会同时改写同一个二进制和 static 目录。
-    #[test]
-    fn concurrent_update_attempts_are_rejected_and_progress_recovers() {
-        // 这些断言操作进程级的 UPDATE_PROGRESS 单例，结束前必须复位。
-        assert!(try_begin_update_progress("第一次升级").is_ok());
-        let running = current_update_progress();
-        assert!(running.running);
-        assert_eq!(running.stage, "starting");
-
-        let rejected = try_begin_update_progress("第二次升级").unwrap_err();
-        assert!(matches!(rejected, AppError::Validation(_)));
-        assert!(rejected.to_string().contains("已有升级任务正在执行"));
-
-        // 失败后必须回到非 running，否则后续升级会被永久拒绝。
-        fail_update_progress("模拟失败".to_string());
-        let failed = current_update_progress();
-        assert!(!failed.running);
-        assert_eq!(failed.error.as_deref(), Some("模拟失败"));
-
-        assert!(try_begin_update_progress("失败后重试").is_ok());
-        finish_update_progress("已复位", "idle");
-        assert!(!current_update_progress().running);
-    }
-
-    #[test]
-    fn test_replace_update_payload_switches_binary_and_static_together() {
-        let root = std::env::temp_dir().join(format!(
-            "my-media-sub-update-payload-test-{}",
-            uuid::Uuid::new_v4()
-        ));
-        let release = root.join("release");
-        let runtime = root.join("runtime");
-        let new_static = release.join("static");
-        let target_static = runtime.join("static");
-        std::fs::create_dir_all(&new_static).unwrap();
-        std::fs::create_dir_all(&target_static).unwrap();
-        std::fs::write(release.join("my-media-sub"), b"new-binary").unwrap();
-        for asset in REQUIRED_STATIC_ASSETS {
-            std::fs::write(new_static.join(asset), format!("new-{asset}")).unwrap();
-        }
-        std::fs::write(runtime.join("my-media-sub"), b"old-binary").unwrap();
-        std::fs::write(target_static.join("index.html"), b"old-static").unwrap();
-        let backup = runtime.join("my-media-sub.bak-test");
-
-        replace_update_payload_blocking(
-            &release.join("my-media-sub"),
-            &new_static,
-            &runtime.join("my-media-sub"),
-            &target_static,
-            &backup,
-        )
-        .unwrap();
-
-        assert_eq!(
-            std::fs::read(runtime.join("my-media-sub")).unwrap(),
-            b"new-binary"
-        );
-        assert_eq!(
-            std::fs::read(target_static.join("index.html")).unwrap(),
-            b"new-index.html"
-        );
-        assert_eq!(std::fs::read(backup).unwrap(), b"old-binary");
-        assert!(std::fs::read_dir(&runtime).unwrap().any(|entry| {
-            entry
-                .ok()
-                .and_then(|entry| entry.file_name().into_string().ok())
-                .is_some_and(|name| name.starts_with("static.bak-"))
-        }));
-
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn test_static_payload_requires_release_shell_assets() {
-        let root = std::env::temp_dir().join(format!(
-            "my-media-sub-update-static-test-{}",
-            uuid::Uuid::new_v4()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-
-        for asset in REQUIRED_STATIC_ASSETS {
-            std::fs::write(root.join(asset), asset).unwrap();
-        }
-        assert!(static_payload_is_complete(&root));
-
-        std::fs::remove_file(root.join("openapi.json")).unwrap();
-        assert!(!static_payload_is_complete(&root));
-
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn test_prune_sibling_backups_keeps_latest_named_entries() {
-        let root = std::env::temp_dir().join(format!(
-            "my-media-sub-update-backup-test-{}",
-            uuid::Uuid::new_v4()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        let target = root.join("my-media-sub");
-        for suffix in ["20260101", "20260201", "20260301", "20260401"] {
-            std::fs::write(root.join(format!("my-media-sub.bak-{suffix}")), suffix).unwrap();
-        }
-
-        prune_sibling_backups(&target, 2).unwrap();
-
-        let mut remaining = std::fs::read_dir(&root)
-            .unwrap()
-            .filter_map(|entry| entry.ok())
-            .map(|entry| entry.file_name().to_string_lossy().into_owned())
-            .collect::<Vec<_>>();
-        remaining.sort();
-        assert_eq!(
-            remaining,
-            vec![
-                "my-media-sub.bak-20260301".to_string(),
-                "my-media-sub.bak-20260401".to_string()
-            ]
-        );
-
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn test_safe_member_path_rejects_escape_and_absolute() {
-        assert!(is_safe_member_path("my-media-sub/my-media-sub"));
-        assert!(is_safe_member_path("my-media-sub/static/js/app.js"));
-        assert!(!is_safe_member_path("../escape"));
-        assert!(!is_safe_member_path("a/../../b"));
-        assert!(!is_safe_member_path("/absolute/path"));
-        assert!(!is_safe_member_path(""));
-        assert!(!is_safe_member_path("a/\0/b"));
-        assert!(!is_safe_member_path("./dot"));
-    }
-
-    #[test]
-    fn test_parse_tar_listing_line_extracts_name_and_link_target() {
-        let (name, target) =
-            parse_tar_listing_line("-rw-r--r-- user/group 123 2023-01-01 12:00 a/b.txt");
-        assert_eq!(name, "a/b.txt");
-        assert!(target.is_none());
-
-        let (name, target) = parse_tar_listing_line(
-            "lrwxrwxrwx user/group 0 2023-01-01 12:00 a/link -> /etc/passwd",
-        );
-        assert_eq!(name, "a/link");
-        assert_eq!(target, Some("/etc/passwd"));
-    }
-
-    /// 集成测试：构造含绝对链接目标的符号链接成员归档，verify_archive_members 必须拒绝。
-    #[test]
-    fn test_verify_archive_members_rejects_absolute_symlink_target() {
-        let root = std::env::temp_dir().join(format!(
-            "my-media-sub-update-member-test-{}",
-            uuid::Uuid::new_v4()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-
-        let link_dir = root.join("link-src");
-        std::fs::create_dir_all(&link_dir).unwrap();
-        std::os::unix::fs::symlink("/etc/passwd", link_dir.join("abs_link")).unwrap();
-        let archive = root.join("abs.tar.gz");
-        let status = std::process::Command::new("tar")
-            .arg("-czf")
-            .arg(&archive)
-            .arg("-C")
-            .arg(&link_dir)
-            .arg(".")
-            .status()
-            .unwrap();
-        assert!(status.success());
-        assert!(
-            verify_archive_members(&archive).is_err(),
-            "含绝对链接目标的归档必须被拒绝"
-        );
-
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn test_verify_archive_members_accepts_normal_payload() {
-        let root = std::env::temp_dir().join(format!(
-            "my-media-sub-update-member-ok-test-{}",
-            uuid::Uuid::new_v4()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        let payload = root.join("payload.tar.gz");
-        let dir = root.join("payload");
-        std::fs::create_dir_all(dir.join("static")).unwrap();
-        std::fs::write(dir.join("my-media-sub"), b"bin").unwrap();
-        std::fs::write(dir.join("static/index.html"), b"html").unwrap();
-
-        let status = std::process::Command::new("tar")
-            .arg("-czf")
-            .arg(&payload)
-            .arg("-C")
-            .arg(&root)
-            .arg("payload")
-            .status()
-            .unwrap();
-        assert!(status.success());
-        assert!(verify_archive_members(&payload).is_ok());
-
-        let _ = std::fs::remove_dir_all(root);
-    }
-}
+mod tests;

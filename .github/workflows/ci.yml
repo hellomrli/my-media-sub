@@ -43,8 +43,20 @@ jobs:
         # no-undef 拦截模块作用域裸标识符（v2.2.14 浏览器 Push 失效的根因）。
         run: npx --yes eslint@10.8.0 'static/**/*.js'
 
+      - name: Check compiled CSS covers every referenced class
+        # static/styles.css 是入库的构建产物，源码改动后必须重新编译。
+        # 之前没有任何步骤校验它：v2.7.0 新增的 py-1.5 / opacity-75 一直到
+        # v2.7.1 都没进产物，线上样式静默失效。该脚本不需要 Tailwind CLI，
+        # 只比对「被引用的类名是否都有对应选择器」，同时能抓住产物过期与拼写错误。
+        run: python3 scripts/check-css-classes.py
+
       - name: Check OpenAPI route and compatibility contract
         run: python3 scripts/check-openapi.py
+
+      - name: Check whitespace errors
+        # Q-08：阻止行尾空白、混合缩进、文件末尾缺换行之类的问题进入 main。
+        # 用 HEAD 比较而不是 --cached：PR 检出时工作树就是待检内容。
+        run: git diff --check HEAD^ HEAD 2>/dev/null || git diff --check
 
       - name: Check documentation version consistency
         # release.yml 的同名检查只告警不阻断，漂移进了 main 要等下次发布才暴露；
@@ -63,6 +75,12 @@ jobs:
           grep -Fq -- "- 当前版本：[v$VERSION 升级指南](docs/upgrade-v$VERSION.md)" README.md \
             || { echo "❌ README.md 文档索引的「当前版本」链接未指向 v$VERSION" >&2; exit 1; }
           echo "✅ 版本说明段 / CHANGELOG / upgrade 文档 / 文档索引链接均与 $VERSION 一致"
+
+      - name: Check documentation prose drift
+        # 上面那步只覆盖「版本面」。以下三项是评审中发现的、结构上逃过一切门禁的
+        # 散文漂移：roadmap 的执行指针曾落后两个小版本，而文档里手写的
+        # OpenAPI 路径/操作数量曾出现四个互不相同的值。
+        run: python3 scripts/check-doc-drift.py
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -83,11 +101,33 @@ jobs:
           TELEGRAM_SMOKE_SEND: "false"
         run: scripts/smoke-telegram.sh
 
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Report test coverage
+        # 只产出报告、**不设硬阈值**：先把基线固定下来，再针对缺口设增量阈值。
+        # 首次基线（2026-09-21）为 lib 行覆盖 62.62%；缺口集中在 Telegram Bot
+        # （services/telegram_bot* 合计约 4300 行未覆盖，20.9%–36.4%）、
+        # subscription_scheduler.rs（55.6%）与 subscription_transfer.rs（65.2%）。
+        # 新增代码应避免继续拉低这些数字。
+        run: cargo llvm-cov --lib --locked --summary-only
+
       - name: Audit Rust dependencies
+        # 自 v2.7.2 起**不再有任何 ignore**：历史上唯一一条 RUSTSEC-2023-0071
+        # 完全由 web-push 依赖链引入，而 Web Push 已改为自实现
+        # （src/services/web_push.rs），该链条已从依赖树移除。
         uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          ignore: RUSTSEC-2023-0071
+
+      - name: Audit dependency licenses, sources and duplicates
+        # 与上一步的分工：rustsec/audit-check 负责安全公告并上报到 GitHub Security
+        # 标签页；cargo-deny 负责 audit-check 不覆盖的三件事——许可证合规、
+        # 依赖来源白名单、重复依赖。配置见 deny.toml（含 RUSTSEC-2023-0071 的
+        # 例外说明与逐条许可证理由）。
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
 
       - name: Build release binary
         run: cargo build --release --locked

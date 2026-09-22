@@ -231,12 +231,14 @@ impl SubscriptionSourceSwitchService {
         now_ms: i64,
     ) -> Result<SourceCandidate> {
         let now = now_ms / 1000;
-        let probe = if candidate.probe_info.is_some()
-            && now.saturating_sub(candidate.discovered_at) <= 300
+        // 用 filter 一次成型，避免 is_some() + unwrap() 这种「看着会 panic」的写法。
+        let probe = match candidate
+            .probe_info
+            .clone()
+            .filter(|_| now.saturating_sub(candidate.discovered_at) <= 300)
         {
-            candidate.probe_info.clone().unwrap()
-        } else {
-            self.probe_candidate(candidate, cookie).await?
+            Some(probe) => probe,
+            None => self.probe_candidate(candidate, cookie).await?,
         };
         let mut candidate = candidate.clone();
         candidate.probe_info = Some(probe);
@@ -424,7 +426,7 @@ impl SubscriptionSourceSwitchService {
         if !subscription.previous_share_links.contains(&from_url) {
             subscription.previous_share_links.push(from_url.clone());
             if subscription.previous_share_links.len() > 50 {
-                let remove = subscription.previous_share_links.len() - 50;
+                let remove = subscription.previous_share_links.len().saturating_sub(50);
                 subscription.previous_share_links.drain(0..remove);
             }
         }
@@ -773,6 +775,8 @@ mod tests {
             known_episodes: vec![],
             transferred_files: vec![],
             transferred_file_keys: vec![],
+            pending_transfers: Vec::new(),
+            pending_downloads: Vec::new(),
             last_probe: None,
             last_plan_summary: String::new(),
             notify_only: false,

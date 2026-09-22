@@ -54,7 +54,13 @@ impl NotificationStore {
             }
             Err(error) => {
                 tracing::error!("解析通知 JSON 失败，已隔离损坏文件并使用空通知: {}", error);
-                quarantine_corrupt_file(&self.path);
+                let quarantined = quarantine_corrupt_file(&self.path);
+                crate::utils::ensure_quarantine_startup_allowed(
+                    "通知存储",
+                    &self.path,
+                    quarantined.as_deref(),
+                    &error.to_string(),
+                )?;
                 *items = Vec::new();
             }
         }
@@ -63,6 +69,25 @@ impl NotificationStore {
 
     async fn save(&self, items: &[Notification]) -> Result<()> {
         write_versioned_json_atomic_async(&self.path, &items, 0o600).await
+    }
+
+    /// 提交一份新快照：**先更新内存，再落盘**，失败时回滚内存。
+    ///
+    /// 写入是「整份快照 + spawn_blocking 落盘 + 更新内存」两步，而 spawn_blocking
+    /// **不可取消**：外层 future 被 abort 时磁盘可能已写完，但内存更新永远不执行。
+    /// 旧顺序（先落盘）会留下「磁盘新、内存旧」，下一次写盘把新数据整份覆盖——
+    /// 静默丢失。新顺序只会留下「内存比磁盘新」，下一次写盘自然收敛；
+    /// 落盘失败时这里回滚内存，保持两者一致。
+    async fn commit(&self, snapshot: Vec<Notification>) -> Result<()> {
+        let previous = self.items.read().await.clone();
+        *self.items.write().await = snapshot.clone();
+        match self.save(&snapshot).await {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                *self.items.write().await = previous;
+                Err(error)
+            }
+        }
     }
 
     /// 添加通知
@@ -75,8 +100,7 @@ impl NotificationStore {
             truncate_notifications(&mut snapshot);
             snapshot
         };
-        self.save(&snapshot).await?;
-        *self.items.write().await = snapshot;
+        self.commit(snapshot).await?;
         Ok(notif)
     }
 
@@ -98,8 +122,7 @@ impl NotificationStore {
         };
 
         if let Some((updated, snapshot)) = updated {
-            self.save(&snapshot).await?;
-            *self.items.write().await = snapshot;
+            self.commit(snapshot).await?;
             Ok(Some(updated))
         } else {
             Ok(None)
@@ -130,8 +153,7 @@ impl NotificationStore {
             }
             snapshot
         };
-        self.save(&snapshot).await?;
-        *self.items.write().await = snapshot;
+        self.commit(snapshot).await?;
         Ok(())
     }
 
@@ -144,11 +166,12 @@ impl NotificationStore {
         let mut snapshot = self.items.read().await.clone();
         let before = snapshot.len();
         if snapshot.len() > retain {
-            snapshot.drain(0..snapshot.len() - retain);
+            let keep = snapshot.len().saturating_sub(retain);
+            snapshot.drain(0..keep);
         }
-        self.save(&snapshot).await?;
+        // commit 会消费 snapshot，因此先算好返回值。
         let removed = before.saturating_sub(snapshot.len());
-        *self.items.write().await = snapshot;
+        self.commit(snapshot).await?;
         Ok(removed)
     }
 
@@ -157,8 +180,7 @@ impl NotificationStore {
         let mut snapshot = self.items.read().await.clone();
         let before = snapshot.len();
         truncate_notifications(&mut snapshot);
-        self.save(&snapshot).await?;
-        *self.items.write().await = snapshot;
+        self.commit(snapshot).await?;
         Ok(before.saturating_sub(self.items.read().await.len()))
     }
 
@@ -166,8 +188,7 @@ impl NotificationStore {
     pub async fn clear(&self) -> Result<()> {
         let _save_guard = self.save_lock.lock().await;
         let snapshot = Vec::new();
-        self.save(&snapshot).await?;
-        *self.items.write().await = snapshot;
+        self.commit(snapshot).await?;
         Ok(())
     }
 
@@ -223,8 +244,7 @@ impl NotificationStore {
             (taken, snapshot)
         };
         if !taken.is_empty() {
-            self.save(&snapshot).await?;
-            *self.items.write().await = snapshot;
+            self.commit(snapshot).await?;
         }
         Ok(taken)
     }
@@ -251,8 +271,7 @@ impl NotificationStore {
             (restored, snapshot)
         };
         if restored > 0 {
-            self.save(&snapshot).await?;
-            *self.items.write().await = snapshot;
+            self.commit(snapshot).await?;
         }
         Ok(())
     }
@@ -260,8 +279,10 @@ impl NotificationStore {
 
 fn truncate_notifications(items: &mut Vec<Notification>) {
     let retention = configured_notification_retention();
+    // 保留最新的 retention 条，因此必须从**头部**丢弃而不是 truncate
+    // （truncate 丢的是尾部，语义相反）。用 saturating_sub 避免无守卫时回绕。
     if items.len() > retention {
-        let remove_count = items.len() - retention;
+        let remove_count = items.len().saturating_sub(retention);
         items.drain(0..remove_count);
     }
 }
@@ -479,7 +500,10 @@ mod tests {
         assert_eq!(store.list(true).await[0].id, "legacy");
         let persisted: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&tmp).unwrap()).unwrap();
-        assert_eq!(persisted["schema_version"], 1);
+        assert_eq!(
+            persisted["schema_version"],
+            crate::store::schema::CURRENT_SCHEMA_VERSION
+        );
         assert_eq!(persisted["data"][0]["id"], "legacy");
         assert_private_file_mode(&tmp);
 
@@ -514,9 +538,13 @@ mod tests {
         std::fs::write(&tmp, b"{not-valid-json").unwrap();
 
         let store = NotificationStore::new(&tmp);
-        store.load().await.unwrap();
+        // 默认策略：损坏的业务 Store 中止启动，而不是静默换成空集合。
+        let error = store.load().await.expect_err("损坏的通知存储必须中止启动");
+        assert!(
+            error.to_string().contains("ALLOW_QUARANTINE_STARTUP"),
+            "错误信息必须给出恢复路径与逃生舱: {error}"
+        );
 
-        assert!(store.list(true).await.is_empty());
         assert!(!tmp.exists());
         let quarantined =
             quarantine_path(&tmp).expect("corrupt notification file was not quarantined");

@@ -7,7 +7,18 @@ use serde_json::Value;
 use crate::error::{AppError, Result};
 use crate::utils::{set_file_mode, write_file_atomic, write_json_atomic_async};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+/// 当前 Store 信封的 schema 版本。
+///
+/// **为什么 v2 只是"语义版本"**：v2.7.0 引入了具有新语义的字段（最典型的是
+/// `season_list`：跳季订阅 S1+S3，而 `season`/`season_end` 只是冗余的最小/最大值）。
+/// 旧版本读到这样的记录时，`season_list` 会被当成未知字段在下次写入时**丢弃**，
+/// 于是订阅被永久降级成连续区间（S2 会被错误转存，且再升级也回不来）。
+///
+/// 因此 v2 不改变任何数据结构，只是把"这份数据含有 v1 无法正确理解的语义"这一点
+/// 写进信封：v1 的程序会因为版本更高而**拒绝启动**（`UnsupportedVersion`），
+/// 从而避免静默改写。这是有意的破坏性保护——需要回滚时必须先恢复备份，
+/// 或手工把 `schema_version` 改回 1（仅在确认数据中未使用新语义时）。
+pub const CURRENT_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StoreKind {
@@ -17,6 +28,7 @@ pub enum StoreKind {
     Jobs,
     AutomationEvents,
     TelegramBot,
+    AutomationToken,
 }
 
 impl fmt::Display for StoreKind {
@@ -28,6 +40,7 @@ impl fmt::Display for StoreKind {
             StoreKind::Jobs => "jobs",
             StoreKind::AutomationEvents => "automation_events",
             StoreKind::TelegramBot => "telegram_bot",
+            StoreKind::AutomationToken => "automation_token",
         })
     }
 }
@@ -128,6 +141,9 @@ fn migrate_store_data(
         data = match version {
             // v0 was the historical bare array/object. v1 wraps the same payload in an envelope.
             0 => migrate_v0_to_v1(kind, data),
+            // v1 -> v2 是纯语义标记：数据结构不变，但 v2 的数据可能含有 v1 无法正确
+            // 理解的字段（如订阅的 season_list）。见 CURRENT_SCHEMA_VERSION 的说明。
+            1 => data,
             other => {
                 return Err(StoreSchemaError::Invalid(format!(
                     "没有 {} 存储从 schema {} 开始的迁移路径",
@@ -212,7 +228,8 @@ mod tests {
             decode_store_json::<Vec<i32>>(r#"{"schema_version":1,"data":[1,2]}"#, StoreKind::Jobs)
                 .unwrap();
         assert_eq!(decoded.data, vec![1, 2]);
-        assert!(!decoded.needs_write);
+        // v1 数据需要回写成 v2 信封（语义标记），但内容不变。
+        assert!(decoded.needs_write);
         assert_eq!(decoded.source_version, 1);
     }
 
@@ -257,5 +274,52 @@ mod tests {
 
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_file(backup);
+    }
+
+    /// v1 → v2 迁移只做语义标记，**不得丢字段**。
+    ///
+    /// v2 的存在意义正是保护 `season_list` 这类 v1 无法正确理解的语义字段：
+    /// 旧版本会把它们当未知字段在下次写入时抹掉，把跳季订阅永久降级成连续区间。
+    #[test]
+    fn v1_payload_keeps_semantic_fields_when_migrated() {
+        let raw = json!({
+            "schema_version": 1,
+            "data": [{
+                "id": "s1",
+                "title": "跳季订阅",
+                "season": 1,
+                "season_end": 3,
+                "season_list": [1, 3]
+            }]
+        })
+        .to_string();
+
+        let decoded = decode_store_json::<Value>(&raw, StoreKind::Subscriptions).unwrap();
+        assert_eq!(decoded.source_version, 1);
+        assert!(
+            decoded.needs_write,
+            "v1 信封必须被回写成 v2，否则版本标记永远停留在 1"
+        );
+        let first = &decoded.data[0];
+        assert_eq!(
+            first["season_list"],
+            json!([1, 3]),
+            "迁移不得丢弃 season_list（跳季订阅的核心语义）"
+        );
+        assert_eq!(first["season"], json!(1));
+        assert_eq!(first["season_end"], json!(3));
+    }
+
+    /// v2 信封不需要回写。
+    #[test]
+    fn current_v2_envelope_does_not_require_rewrite() {
+        let raw = json!({
+            "schema_version": CURRENT_SCHEMA_VERSION,
+            "data": {"id": "s1"}
+        })
+        .to_string();
+        let decoded = decode_store_json::<Value>(&raw, StoreKind::Settings).unwrap();
+        assert!(!decoded.needs_write);
+        assert_eq!(decoded.source_version, CURRENT_SCHEMA_VERSION);
     }
 }

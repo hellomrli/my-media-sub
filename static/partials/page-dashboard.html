@@ -92,10 +92,10 @@
                     <button @click="setCalendarView('month')" :class="calendarView === 'month' ? 'is-active' : ''">月</button>
                     <button @click="setCalendarView('list')" :class="calendarView === 'list' ? 'is-active' : ''">列表</button>
                   </div>
-                  <select x-model="calendarStatusFilter" @change="loadCalendar()" class="app-select">
+                  <select x-model="calendarStatusFilter" @change="loadCalendar()" aria-label="按状态筛选日历" class="app-select">
                     <template x-for="option in calendarStatusOptions" :key="option.id"><option :value="option.id" x-text="option.name"></option></template>
                   </select>
-                  <select x-model="calendarMediaFilter" @change="loadCalendar()" class="app-select">
+                  <select x-model="calendarMediaFilter" @change="loadCalendar()" aria-label="按媒体类型筛选日历" class="app-select">
                     <option value="all">全部类型</option>
                     <option value="series">剧集</option>
                     <option value="anime">动画</option>
@@ -128,7 +128,7 @@
                       <div class="calendar-day-items">
                         <template x-for="(item, itemIndex) in day.items" :key="'calendar-week-' + (item.id || 'missing') + '-' + itemIndex">
                           <article :class="calendarItemClass(item)" class="calendar-item is-row">
-                            <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-item-title"><img x-show="item.thumbnail_url" :src="remoteImageUrl(item.thumbnail_url)" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" class="calendar-thumbnail is-week"><span class="calendar-item-copy"><strong x-text="item.subscription_title"></strong><small x-text="calendarCardDayLabel(item)"></small><small x-text="calendarCardSavedLabel(item)"></small></span></button>
+                            <button @click="openSubscriptionDetail(item.subscription_id)" class="calendar-item-title"><img x-show="item.thumbnail_url" :src="remoteImageUrl(item.thumbnail_url)" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" class="calendar-thumbnail is-week"><span class="calendar-item-copy"><strong x-text="item.subscription_title"></strong><small x-text="calendarCardDayLabel(item)"></small><small x-text="calendarCardSavedLabel(item)"></small><small class="calendar-item-status" x-text="calendarStatusLabel(item.primary_status)"></small></span></button>
                           </article>
                         </template>
                         <div x-show="day.items.length === 0" class="calendar-day-empty">暂无排期</div>
@@ -146,7 +146,7 @@
                       <div class="calendar-month-date"><strong x-text="day.day"></strong><small x-show="day.items.length" x-text="day.items.length"></small></div>
                       <div class="calendar-month-items">
                         <template x-for="(item, itemIndex) in day.items.slice(0, 3)" :key="'calendar-month-' + (item.id || 'missing') + '-' + itemIndex">
-                          <button @click="openSubscriptionDetail(item.subscription_id)" :class="calendarItemClass(item)" :title="calendarTransferProgressLabel(item)"><img x-show="item.thumbnail_url" :src="remoteImageUrl(item.thumbnail_url)" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" class="calendar-thumbnail is-month"><span class="calendar-month-copy"><strong x-text="item.subscription_title"></strong><small x-text="item.episode ? 'E' + item.episode + ' · ' + calendarTransferProgressLabel(item, true) : calendarTransferProgressLabel(item, true)"></small></span></button>
+                          <button @click="openSubscriptionDetail(item.subscription_id)" :class="calendarItemClass(item)" :title="calendarTransferProgressLabel(item)"><img x-show="item.thumbnail_url" :src="remoteImageUrl(item.thumbnail_url)" :alt="item.subscription_title + ' 缩略图'" loading="lazy" referrerpolicy="no-referrer" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" class="calendar-thumbnail is-month"><span class="calendar-month-copy"><strong x-text="item.subscription_title"></strong><small x-text="item.episode ? 'E' + item.episode + ' · ' + calendarTransferProgressLabel(item, true) : calendarTransferProgressLabel(item, true)"></small><small class="calendar-item-status" x-text="calendarStatusLabel(item.primary_status)"></small></span></button>
                         </template>
                         <button x-show="day.items.length > 3" @click="setCalendarView('list')" class="calendar-month-more" x-text="'还有 ' + (day.items.length - 3) + ' 项'"></button>
                       </div>

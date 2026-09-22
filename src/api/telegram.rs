@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, Query, State},
+    extract::{DefaultBodyLimit, Path, Query, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
     Router,
@@ -42,9 +42,16 @@ async fn webhook(
     StatusCode::OK
 }
 
+/// Telegram update 的实际体积远小于此值（文本消息通常 < 10 KiB）。
+/// 认证中间件对 webhook 前缀放行（它用随机路径 + Header secret 双重认证），
+/// 因此这是唯一能在验密之前限制「未认证请求解析 JSON 体」成本的地方：
+/// axum 默认体限制是 2 MiB，一个扫描器即可用它放大 CPU 与带宽。
+const TELEGRAM_WEBHOOK_BODY_LIMIT: usize = 64 * 1024;
+
 pub fn routes(service: Arc<TelegramBotService>) -> Router {
     Router::new()
         .route("/api/telegram/audits", get(audits))
         .route("/api/telegram/webhook/{path_secret}", post(webhook))
+        .layer(DefaultBodyLimit::max(TELEGRAM_WEBHOOK_BODY_LIMIT))
         .with_state(service)
 }

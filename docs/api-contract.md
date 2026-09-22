@@ -48,7 +48,7 @@
 | 413 | `payload_too_large` | 请求体过大 |
 | 415 | `unsupported_media_type` | Content-Type 不支持 |
 | 422 | `invalid_request` | JSON 等请求内容无法解析 |
-| 429 | `rate_limited` | 请求频率受限 |
+| 429 | `auth_rate_limited` / `rate_limited` | 认证失败次数超限 60 秒窗口（带 `Retry-After: 60`）或请求频率受限 |
 | 500 | `internal_error` / `database_error` / `config_error` | 服务内部错误 |
 | 502 | `http_error` | 上游服务失败 |
 
@@ -179,7 +179,7 @@
 - `POST /api/push/test` 支持 `browser` 和 `webhook` 渠道；Webhook 可使用 HMAC-SHA256 签名。
 - `/openapi.json` 为 OpenAPI 3.1 机器契约，`/api-docs.html` 为同源受保护查看页。
 - `scripts/check-openapi.py` 从 `src/api/**/*.rs` 的字面量 Axum `.route()` 注册提取路径与方法，要求与 OpenAPI 双向完全一致；非字面量路由和未显式展开的 `any()` 会直接失败。
-- `docs/openapi-baseline-v1.12.0.json` 固化 v1.12.0 的 84 条路径、94 个操作及稳定 Success/Error 信封；删除路径/方法或修改稳定信封会作为破坏性变更阻断 CI。
+- `docs/openapi-baseline-v1.12.0.json` 固化 v1.12.0 的 81 条路径快照及稳定 Success/Error 信封（文件按路径记录操作，不含方法维度）；删除路径/方法或修改稳定信封会作为破坏性变更阻断 CI。
 - 新增路由后先运行 `scripts/check-openapi.py --update` 生成基础操作，再补充有意义的 summary、参数、请求体和响应说明，最后运行 `scripts/check-openapi.py` 验证；不得只改代码或只改 JSON。
 - 完整数据导入导出使用 `/api/backups/export|preview|restore`；订阅 create/update 支持 `tags`。
 
@@ -194,7 +194,7 @@
 
 ## P20 API 与自动化集成
 
-- `scripts/check-openapi.py` 在 CI 和 Release 中双向核对 92 条 Axum 路径、104 个操作与 OpenAPI；v1.12.0 基线禁止删除既有路径/方法或修改稳定 Success/Error 信封。
+- `scripts/check-openapi.py` 在 CI 和 Release 中双向核对 Axum 路由与 OpenAPI（当前 94 条路径、106 个操作，以脚本输出为准）；v1.12.0 基线禁止删除既有路径/方法或修改稳定 Success/Error 信封。
 - `GET|POST|DELETE /api/automation-token` 仅允许管理员 Basic Auth，用于读取脱敏状态、轮换和撤销单实例 Token；明文只在轮换响应显示一次，磁盘只保存 SHA-256、前缀、scope、有效期和审计时间。
 - Bearer Token 按 subscriptions/jobs/notifications/diagnostics 的 read/write/check 最小作用域鉴权；设置、Token 管理、备份恢复、Store 清理和在线升级始终拒绝 Bearer Token。
 - `GET /api/subscriptions/export` 返回版本化订阅信封；`POST /api/subscriptions/import/preview` 只读报告冲突，执行接口支持 skip/update/new_id、确认短语及 24 小时有界 Idempotency-Key 去重。

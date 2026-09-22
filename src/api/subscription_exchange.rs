@@ -112,10 +112,7 @@ async fn import(
         .ok_or_else(|| AppError::Validation("订阅导入必须提供 Idempotency-Key".into()))?
         .to_string();
     let body = serde_json::to_vec(&req.archive)?;
-    let fingerprint = format!(
-        "{:x}",
-        md5::compute([body, req.strategy.as_bytes().to_vec()].concat())
-    );
+    let fingerprint = crate::utils::stable_id([body, req.strategy.as_bytes().to_vec()].concat());
     let mut records = IDEMPOTENCY.lock().await;
     records.retain(|_, r| unix_now() - r.created_at < 86400);
     if let Some(old) = records.get(&key) {

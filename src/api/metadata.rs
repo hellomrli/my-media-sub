@@ -22,18 +22,25 @@ struct MetadataSearchQuery {
     query: String,
     #[serde(default)]
     media_type: Option<String>,
+    /// 发行年份提示（可选）。未提供时从 `query` 里自动提取（`庆余年 (2024)`）。
+    #[serde(default)]
+    year: Option<i32>,
 }
 
 async fn search_metadata(
     State(state): State<Arc<MetadataState>>,
     Query(query): Query<MetadataSearchQuery>,
 ) -> Result<Json<Response<Vec<MediaMetadata>>>> {
-    let cleaned = crate::services::metadata::clean_media_title(&query.query);
-    let search_query = if cleaned.is_empty() {
+    let detailed = crate::services::title_normalize::normalize_title_detailed(&query.query);
+    let search_query = if detailed.normalized.is_empty() {
         query.query.as_str()
     } else {
-        cleaned.as_str()
+        detailed.normalized.as_str()
     };
+    let year = query
+        .year
+        .filter(|year| (1900..=2100).contains(year))
+        .or(detailed.year);
     let results = state
         .metadata_service
         .search(
@@ -42,6 +49,12 @@ async fn search_metadata(
             query.media_type.as_deref(),
         )
         .await?;
+    let results = crate::services::metadata::MetadataService::rank_candidates(
+        search_query,
+        query.media_type.as_deref(),
+        year,
+        results,
+    );
 
     Ok(Json(Response::ok(results)))
 }

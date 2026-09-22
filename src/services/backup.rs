@@ -136,91 +136,28 @@ impl BackupPolicy {
     }
 }
 
-pub struct BackupService {
+/// 只在阻塞线程池里执行的备份文件操作。
+///
+/// 独立成结构体是因为 `spawn_blocking` 要求 `'static`：它只携带
+/// `data_dir` / `backup_dir` / `policy` / `metrics` 四个可克隆字段，
+/// 不持有 `Arc<BackupService>`，也不需要 `operation_lock`
+/// （调用方仍在异步侧持有该 tokio 锁，串行语义不变）。
+#[derive(Clone)]
+struct BackupFsWorker {
     data_dir: PathBuf,
     backup_dir: PathBuf,
     policy: BackupPolicy,
-    operation_lock: Mutex<()>,
     metrics: Arc<Metrics>,
 }
 
-impl BackupService {
-    pub fn new(data_dir: impl Into<PathBuf>, metrics: Arc<Metrics>) -> Self {
-        Self::with_policy(data_dir, metrics, BackupPolicy::from_env())
-    }
-
-    pub fn with_policy(
-        data_dir: impl Into<PathBuf>,
-        metrics: Arc<Metrics>,
-        policy: BackupPolicy,
-    ) -> Self {
-        let data_dir = data_dir.into();
-        let backup_dir = data_dir.join("backups");
-        Self {
-            data_dir,
-            backup_dir,
-            policy,
-            operation_lock: Mutex::new(()),
-            metrics,
-        }
-    }
-
-    pub fn start(self: Arc<Self>) {
-        if !self.policy.interval.is_zero() {
-            let service = self.clone();
-            tokio::spawn(async move {
-                let mut interval = tokio::time::interval(service.policy.interval);
-                interval.tick().await;
-                loop {
-                    interval.tick().await;
-                    if let Err(error) = service.create_stored_backup("scheduled").await {
-                        tracing::error!(error = %error, "scheduled backup failed");
-                    }
-                }
-            });
-        }
-        if !self.policy.verification_interval.is_zero() {
-            tokio::spawn(async move {
-                let mut interval = tokio::time::interval(self.policy.verification_interval);
-                loop {
-                    interval.tick().await;
-                    match self.verify_latest_stored_backup().await {
-                        Ok(Some(report)) => {
-                            tracing::info!(backup = %report.backup, restored_files = report.restored_files, "backup recoverability verified")
-                        }
-                        Ok(None) => tracing::info!(
-                            "backup recoverability verification skipped: no stored backup"
-                        ),
-                        Err(error) => {
-                            tracing::error!(error = %error, "backup recoverability verification failed")
-                        }
-                    }
-                }
-            });
-        }
-    }
-
-    pub async fn export_archive(&self) -> Result<BackupArchive> {
-        let data_dir = self.data_dir.clone();
-        let max_bytes = self.policy.max_archive_bytes;
-        tokio::task::spawn_blocking(move || build_archive(&data_dir, max_bytes))
-            .await
-            .map_err(|error| AppError::Internal(format!("备份任务异常退出: {error}")))?
-    }
-
-    pub async fn create_stored_backup(&self, label: &str) -> Result<StoredBackup> {
-        let _guard = self.operation_lock.lock().await;
-        let archive = self.export_archive().await?;
-        let bytes = serde_json::to_vec_pretty(&archive)
-            .map_err(|error| AppError::Internal(format!("序列化备份失败: {error}")))?;
-        let safe_label = sanitize_label(label);
+impl BackupFsWorker {
+    /// 写入一份新备份：存储预算 → 落盘 → 隔离恢复校验 → 外拷 → 清理。
+    ///
+    /// 整个过程都是阻塞 IO（含读回整份归档、把每个文件写回磁盘并重算 SHA-256），
+    /// 必须整体跑在阻塞线程池里。
+    fn store_archive(&self, created_at: i64, label: &str, bytes: &[u8]) -> Result<StoredBackup> {
         let unique = uuid::Uuid::new_v4().simple().to_string();
-        let name = format!(
-            "backup-{}-{}-{}.json",
-            archive.created_at,
-            safe_label,
-            &unique[..8]
-        );
+        let name = format!("backup-{}-{}-{}.json", created_at, label, &unique[..8]);
         let path = self.backup_dir.join(&name);
         let projected = backup_storage_size(&self.backup_dir)?
             .saturating_add(u64::try_from(bytes.len()).unwrap_or(u64::MAX));
@@ -236,157 +173,17 @@ impl BackupService {
                 )));
             }
         }
-        write_file_atomic(&path, &bytes, 0o600)?;
+        write_file_atomic(&path, bytes, 0o600)?;
         set_file_mode(&path, 0o600)?;
         if let Err(error) = self.verify_path_locked(&path) {
             self.metrics.increment_backup_failure();
             return Err(error);
         }
-        self.copy_external_locked(&name, &bytes)?;
+        self.copy_external_locked(&name, bytes)?;
         self.prune_locked(self.policy.retention)?;
         self.prune_external_locked(self.policy.retention)?;
         self.metrics.increment_backup_success();
         stored_backup_from_path(&path)
-    }
-
-    pub async fn list_stored_backups(&self) -> Result<Vec<StoredBackup>> {
-        let backup_dir = self.backup_dir.clone();
-        tokio::task::spawn_blocking(move || list_backups(&backup_dir))
-            .await
-            .map_err(|error| AppError::Internal(format!("列出备份任务异常退出: {error}")))?
-    }
-
-    pub async fn preview(&self, archive: &BackupArchive) -> Result<BackupPreview> {
-        validate_archive(archive, self.policy.max_archive_bytes)
-    }
-
-    pub async fn restore(
-        &self,
-        archive: &BackupArchive,
-        confirmation: &str,
-    ) -> Result<RestoreResult> {
-        if confirmation != "RESTORE DATA" {
-            return Err(AppError::Validation(
-                "恢复确认文本必须为 RESTORE DATA".to_string(),
-            ));
-        }
-        let _guard = self.operation_lock.lock().await;
-        validate_archive(archive, self.policy.max_archive_bytes)?;
-
-        // Snapshot is created before any business file is replaced.
-        let current = self.export_archive().await?;
-        let unique = uuid::Uuid::new_v4().simple().to_string();
-        let snapshot_name = format!("backup-{}-pre-restore-{}.json", unix_now(), &unique[..8]);
-        let snapshot_path = self.backup_dir.join(&snapshot_name);
-        let snapshot_bytes = serde_json::to_vec_pretty(&current)
-            .map_err(|error| AppError::Internal(format!("序列化恢复前快照失败: {error}")))?;
-        write_file_atomic(&snapshot_path, &snapshot_bytes, 0o600)?;
-
-        let restart_plan = serde_json::json!({
-            "reason": "data_restore",
-            "created_at": unix_now(),
-            "snapshot": snapshot_name,
-        });
-        write_file_atomic(
-            &self.data_dir.join("restart-required.json"),
-            serde_json::to_vec_pretty(&restart_plan)?.as_slice(),
-            0o600,
-        )?;
-        // Never replace live Store files. Old workers may still persist their
-        // snapshots until shutdown; apply the archive before loading any Store
-        // in the next process instead.
-        let pending = PendingRestore {
-            archive: archive.clone(),
-            snapshot: snapshot_name.clone(),
-            started: false,
-        };
-        write_file_atomic(
-            &self.backup_dir.join(PENDING_RESTORE),
-            &serde_json::to_vec(&pending)?,
-            0o600,
-        )?;
-        Ok(RestoreResult {
-            restored_files: 0,
-            staged_files: archive.files.len(),
-            snapshot: snapshot_name,
-            restart_required: true,
-            message: "备份已校验并暂存；请重启服务，启动时将恢复备份。重启前的后续修改会被备份覆盖"
-                .to_string(),
-        })
-    }
-
-    /// Call only during startup, before constructing Stores, workers or routes.
-    /// A failed/interrupted restore leaves the request on disk and prevents startup.
-    pub async fn apply_pending_restore(&self) -> Result<()> {
-        let data_dir = self.data_dir.clone();
-        let backup_dir = self.backup_dir.clone();
-        let max_bytes = self.policy.max_archive_bytes;
-        let applied = tokio::task::spawn_blocking(move || -> Result<bool> {
-            let path = backup_dir.join(PENDING_RESTORE);
-            if !path.exists() {
-                return Ok(false);
-            }
-            let mut pending: PendingRestore = serde_json::from_slice(&std::fs::read(&path)?)?;
-            validate_archive(&pending.archive, max_bytes)?;
-            if !pending.snapshot.starts_with("backup-") || pending.snapshot.contains(['/', '\\']) {
-                return Err(AppError::Validation("恢复快照路径无效".to_string()));
-            }
-            let snapshot_path = backup_dir.join(&pending.snapshot);
-            if !pending.started {
-                // Include writes made while the old process was shutting down.
-                let snapshot = build_archive(&data_dir, max_bytes)?;
-                write_file_atomic(&snapshot_path, &serde_json::to_vec(&snapshot)?, 0o600)?;
-                pending.started = true;
-                write_file_atomic(&path, &serde_json::to_vec(&pending)?, 0o600)?;
-            }
-            let before: BackupArchive = serde_json::from_slice(&std::fs::read(snapshot_path)?)?;
-            validate_archive(&before, max_bytes)?;
-            let files = decode_archive_files(&pending.archive)?;
-            if let Err(error) = restore_files(&data_dir, files) {
-                restore_files(&data_dir, decode_archive_files(&before)?)?;
-                let original_paths: HashSet<_> =
-                    before.files.iter().map(|file| &file.path).collect();
-                for file in &pending.archive.files {
-                    if !original_paths.contains(&file.path) {
-                        let destination = data_dir.join(&file.path);
-                        if destination.is_file() {
-                            reject_symlink_ancestors(&data_dir, Path::new(&file.path))?;
-                            std::fs::remove_file(destination)?;
-                        }
-                    }
-                }
-                return Err(error);
-            }
-            std::fs::remove_file(path)?;
-            let _ = std::fs::remove_file(data_dir.join("restart-required.json"));
-            Ok(true)
-        })
-        .await
-        .map_err(|error| AppError::Internal(format!("恢复任务异常退出: {error}")))??;
-        if applied {
-            self.metrics.increment_restore_success();
-        }
-        Ok(())
-    }
-
-    pub async fn verify_latest_stored_backup(&self) -> Result<Option<BackupVerificationReport>> {
-        let _guard = self.operation_lock.lock().await;
-        let Some(backup) = list_backups(&self.backup_dir)?.into_iter().next() else {
-            return Ok(None);
-        };
-        self.verify_path_locked(&self.backup_dir.join(backup.name))
-            .map(Some)
-    }
-
-    pub async fn latest_verification(&self) -> Result<Option<BackupVerificationReport>> {
-        let path = self.backup_dir.join("verification.json");
-        match tokio::fs::read(path).await {
-            Ok(bytes) => serde_json::from_slice(&bytes)
-                .map(Some)
-                .map_err(|error| AppError::Database(format!("读取备份验证报告失败: {error}"))),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(AppError::Database(format!("读取备份验证报告失败: {error}"))),
-        }
     }
 
     fn verify_path_locked(&self, path: &Path) -> Result<BackupVerificationReport> {
@@ -540,6 +337,262 @@ impl BackupService {
                 .map_err(|error| AppError::Database(format!("删除过期备份失败: {error}")))?;
         }
         Ok(())
+    }
+}
+
+pub struct BackupService {
+    data_dir: PathBuf,
+    backup_dir: PathBuf,
+    policy: BackupPolicy,
+    operation_lock: Mutex<()>,
+    metrics: Arc<Metrics>,
+}
+
+impl BackupService {
+    pub fn new(data_dir: impl Into<PathBuf>, metrics: Arc<Metrics>) -> Self {
+        Self::with_policy(data_dir, metrics, BackupPolicy::from_env())
+    }
+
+    pub fn with_policy(
+        data_dir: impl Into<PathBuf>,
+        metrics: Arc<Metrics>,
+        policy: BackupPolicy,
+    ) -> Self {
+        let data_dir = data_dir.into();
+        let backup_dir = data_dir.join("backups");
+        Self {
+            data_dir,
+            backup_dir,
+            policy,
+            operation_lock: Mutex::new(()),
+            metrics,
+        }
+    }
+
+    pub fn start(self: Arc<Self>) {
+        if !self.policy.interval.is_zero() {
+            let service = self.clone();
+            // spawn_supervised：备份循环 panic 后不再重建意味着**备份永久停止**，
+            // 这是自托管服务最危险的静默失败。
+            crate::utils::spawn_supervised("定时备份", move || {
+                let service = service.clone();
+                async move {
+                    let mut interval = tokio::time::interval(service.policy.interval);
+                    interval.tick().await;
+                    loop {
+                        interval.tick().await;
+                        if let Err(error) = service.create_stored_backup("scheduled").await {
+                            tracing::error!(error = %error, "scheduled backup failed");
+                        }
+                    }
+                }
+            });
+        }
+        if !self.policy.verification_interval.is_zero() {
+            let service = self.clone();
+            crate::utils::spawn_supervised("备份可恢复性校验", move || {
+                let service = service.clone();
+                async move {
+                    let mut interval = tokio::time::interval(service.policy.verification_interval);
+                    loop {
+                        interval.tick().await;
+                        match service.verify_latest_stored_backup().await {
+                            Ok(Some(report)) => {
+                                tracing::info!(backup = %report.backup, restored_files = report.restored_files, "backup recoverability verified")
+                            }
+                            Ok(None) => tracing::info!(
+                                "backup recoverability verification skipped: no stored backup"
+                            ),
+                            Err(error) => {
+                                tracing::error!(error = %error, "backup recoverability verification failed")
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    pub async fn export_archive(&self) -> Result<BackupArchive> {
+        let data_dir = self.data_dir.clone();
+        let max_bytes = self.policy.max_archive_bytes;
+        tokio::task::spawn_blocking(move || build_archive(&data_dir, max_bytes))
+            .await
+            .map_err(|error| AppError::Internal(format!("备份任务异常退出: {error}")))?
+    }
+
+    /// 构造一个只含阻塞 IO 所需字段的 worker。
+    fn fs_worker(&self) -> BackupFsWorker {
+        BackupFsWorker {
+            data_dir: self.data_dir.clone(),
+            backup_dir: self.backup_dir.clone(),
+            policy: self.policy.clone(),
+            metrics: self.metrics.clone(),
+        }
+    }
+
+    pub async fn create_stored_backup(&self, label: &str) -> Result<StoredBackup> {
+        let _guard = self.operation_lock.lock().await;
+        let archive = self.export_archive().await?;
+        let bytes = serde_json::to_vec_pretty(&archive)
+            .map_err(|error| AppError::Internal(format!("序列化备份失败: {error}")))?;
+        let worker = self.fs_worker();
+        let safe_label = sanitize_label(label);
+        let created_at = archive.created_at;
+
+        // 剩余步骤全是阻塞 IO：预算检查、写整份归档（fsync + rename + 父目录
+        // fsync）、隔离恢复校验（读回整份、逐文件写回并重算 SHA-256）、外拷与清理。
+        // 旧实现只把 `export_archive` 放进了 spawn_blocking，其余留在 tokio worker
+        // 上，而定时备份/校验循环每轮都会走到这里，大数据集下可占住运行时数十秒。
+        tokio::task::spawn_blocking(move || worker.store_archive(created_at, &safe_label, &bytes))
+            .await
+            .map_err(|error| AppError::Internal(format!("备份任务异常退出: {error}")))?
+    }
+
+    pub async fn list_stored_backups(&self) -> Result<Vec<StoredBackup>> {
+        let backup_dir = self.backup_dir.clone();
+        tokio::task::spawn_blocking(move || list_backups(&backup_dir))
+            .await
+            .map_err(|error| AppError::Internal(format!("列出备份任务异常退出: {error}")))?
+    }
+
+    pub async fn preview(&self, archive: &BackupArchive) -> Result<BackupPreview> {
+        validate_archive(archive, self.policy.max_archive_bytes)
+    }
+
+    pub async fn restore(
+        &self,
+        archive: &BackupArchive,
+        confirmation: &str,
+    ) -> Result<RestoreResult> {
+        if confirmation != "RESTORE DATA" {
+            return Err(AppError::Validation(
+                "恢复确认文本必须为 RESTORE DATA".to_string(),
+            ));
+        }
+        let _guard = self.operation_lock.lock().await;
+        validate_archive(archive, self.policy.max_archive_bytes)?;
+
+        // Snapshot is created before any business file is replaced.
+        let current = self.export_archive().await?;
+        let unique = uuid::Uuid::new_v4().simple().to_string();
+        let snapshot_name = format!("backup-{}-pre-restore-{}.json", unix_now(), &unique[..8]);
+        let snapshot_path = self.backup_dir.join(&snapshot_name);
+        let snapshot_bytes = serde_json::to_vec_pretty(&current)
+            .map_err(|error| AppError::Internal(format!("序列化恢复前快照失败: {error}")))?;
+        write_file_atomic(&snapshot_path, &snapshot_bytes, 0o600)?;
+
+        let restart_plan = serde_json::json!({
+            "reason": "data_restore",
+            "created_at": unix_now(),
+            "snapshot": snapshot_name,
+        });
+        write_file_atomic(
+            &self.data_dir.join("restart-required.json"),
+            serde_json::to_vec_pretty(&restart_plan)?.as_slice(),
+            0o600,
+        )?;
+        // Never replace live Store files. Old workers may still persist their
+        // snapshots until shutdown; apply the archive before loading any Store
+        // in the next process instead.
+        let pending = PendingRestore {
+            archive: archive.clone(),
+            snapshot: snapshot_name.clone(),
+            started: false,
+        };
+        write_file_atomic(
+            &self.backup_dir.join(PENDING_RESTORE),
+            &serde_json::to_vec(&pending)?,
+            0o600,
+        )?;
+        Ok(RestoreResult {
+            restored_files: 0,
+            staged_files: archive.files.len(),
+            snapshot: snapshot_name,
+            restart_required: true,
+            message: "备份已校验并暂存；请重启服务，启动时将恢复备份。重启前的后续修改会被备份覆盖"
+                .to_string(),
+        })
+    }
+
+    /// Call only during startup, before constructing Stores, workers or routes.
+    /// A failed/interrupted restore leaves the request on disk and prevents startup.
+    pub async fn apply_pending_restore(&self) -> Result<()> {
+        let data_dir = self.data_dir.clone();
+        let backup_dir = self.backup_dir.clone();
+        let max_bytes = self.policy.max_archive_bytes;
+        let applied = tokio::task::spawn_blocking(move || -> Result<bool> {
+            let path = backup_dir.join(PENDING_RESTORE);
+            if !path.exists() {
+                return Ok(false);
+            }
+            let mut pending: PendingRestore = serde_json::from_slice(&std::fs::read(&path)?)?;
+            validate_archive(&pending.archive, max_bytes)?;
+            if !pending.snapshot.starts_with("backup-") || pending.snapshot.contains(['/', '\\']) {
+                return Err(AppError::Validation("恢复快照路径无效".to_string()));
+            }
+            let snapshot_path = backup_dir.join(&pending.snapshot);
+            if !pending.started {
+                // Include writes made while the old process was shutting down.
+                let snapshot = build_archive(&data_dir, max_bytes)?;
+                write_file_atomic(&snapshot_path, &serde_json::to_vec(&snapshot)?, 0o600)?;
+                pending.started = true;
+                write_file_atomic(&path, &serde_json::to_vec(&pending)?, 0o600)?;
+            }
+            let before: BackupArchive = serde_json::from_slice(&std::fs::read(snapshot_path)?)?;
+            validate_archive(&before, max_bytes)?;
+            let files = decode_archive_files(&pending.archive)?;
+            if let Err(error) = restore_files(&data_dir, files) {
+                restore_files(&data_dir, decode_archive_files(&before)?)?;
+                let original_paths: HashSet<_> =
+                    before.files.iter().map(|file| &file.path).collect();
+                for file in &pending.archive.files {
+                    if !original_paths.contains(&file.path) {
+                        let destination = data_dir.join(&file.path);
+                        if destination.is_file() {
+                            reject_symlink_ancestors(&data_dir, Path::new(&file.path))?;
+                            std::fs::remove_file(destination)?;
+                        }
+                    }
+                }
+                return Err(error);
+            }
+            std::fs::remove_file(path)?;
+            let _ = std::fs::remove_file(data_dir.join("restart-required.json"));
+            Ok(true)
+        })
+        .await
+        .map_err(|error| AppError::Internal(format!("恢复任务异常退出: {error}")))??;
+        if applied {
+            self.metrics.increment_restore_success();
+        }
+        Ok(())
+    }
+
+    pub async fn verify_latest_stored_backup(&self) -> Result<Option<BackupVerificationReport>> {
+        let _guard = self.operation_lock.lock().await;
+        let worker = self.fs_worker();
+        // 校验会读回整份归档、把每个文件写回磁盘并重算 SHA-256，是纯阻塞工作。
+        tokio::task::spawn_blocking(move || -> Result<Option<BackupVerificationReport>> {
+            let Some(backup) = list_backups(&worker.backup_dir)?.into_iter().next() else {
+                return Ok(None);
+            };
+            let path = worker.backup_dir.join(backup.name);
+            worker.verify_path_locked(&path).map(Some)
+        })
+        .await
+        .map_err(|error| AppError::Internal(format!("备份校验任务异常退出: {error}")))?
+    }
+
+    pub async fn latest_verification(&self) -> Result<Option<BackupVerificationReport>> {
+        let path = self.backup_dir.join("verification.json");
+        match tokio::fs::read(path).await {
+            Ok(bytes) => serde_json::from_slice(&bytes)
+                .map(Some)
+                .map_err(|error| AppError::Database(format!("读取备份验证报告失败: {error}"))),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(AppError::Database(format!("读取备份验证报告失败: {error}"))),
+        }
     }
 
     pub fn data_dir(&self) -> &Path {

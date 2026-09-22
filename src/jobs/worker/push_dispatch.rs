@@ -143,16 +143,19 @@ impl JobWorker {
             return Ok(job);
         }
         if let Err(e) = self.sender.try_send(id.clone()) {
-            self.store
-                .update(&id, |job| {
-                    job.status = JobStatus::Failed;
-                    job.progress = 100;
-                    job.message = "任务队列不可用".to_string();
-                    job.error = Some(format!("推送任务入队失败: {}", e));
-                    job.finished_at = Some(now());
-                })
-                .await?;
-            return Err(AppError::Internal(format!("推送任务入队失败: {}", e)));
+            // 作业**已经持久化为 Queued**，绝不能因为一次唤醒信号没发出去就判死。
+            //
+            // 旧实现在这里把 job 标成 Failed / "推送任务入队失败"。通道满（512）在
+            // 维护模式积压或启动恢复时才可能出现，而 reconcile 扫描本来就能发现并
+            // 执行这个作业——把它标死等于让一次瞬时拥塞永久丢掉一条通知。
+            //
+            // 通道满只说明"没人正在等这个信号"，而 worker 在 `recv()` 之外还有
+            // 周期性的 reconcile 兜底，因此记录一条警告即可。
+            tracing::warn!(
+                "推送派发作业 {} 的唤醒信号未能入队（{}），已持久化为 Queued，等待 reconcile 扫描接管",
+                id,
+                e
+            );
         }
 
         Ok(job)

@@ -107,7 +107,36 @@
 
       setupLifecycleCleanup() {
         if (!root || typeof root.addEventListener !== 'function') return;
-        this.listenLifecycle('app-pagehide', root, 'pagehide', () => this.destroy());
+        // bfcache：进入往返缓存时浏览器会触发 pagehide，但页面并没有被销毁，
+        // 返回时用 pageshow 原样恢复（**不会**重新执行脚本）。
+        // 因此 persisted 的 pagehide 不能做 destroy——旧实现无条件 destroy，
+        // 结果从 bfcache 返回后轮询、SSE、快捷键、popstate 路由与错误边界全部消失，
+        // 页面静默停在旧数据上，且没有任何用户可见提示。
+        this.listenLifecycle('app-pagehide', root, 'pagehide', event => {
+          if (event && event.persisted) {
+            // 定时器由浏览器挂起、返回后自动继续，无需干预；只需显式关掉
+            // EventSource 并让 pageshow 重建，避免半死连接。
+            this.closeJobEventsForBfcache();
+            return;
+          }
+          this.destroy();
+        });
+        this.listenLifecycle('app-pageshow', root, 'pageshow', event => {
+          if (!event || !event.persisted) return;
+          this.closeJobEventsForBfcache();
+          if (typeof this.setupJobEvents === 'function') this.setupJobEvents();
+          // 冻结期间数据可能已经变化，返回时立即重跑当前标签页的取数逻辑，
+          // 而不是等下一个轮询周期。
+          if (typeof this.runCurrentTabEffects === 'function') this.runCurrentTabEffects();
+        });
+      },
+
+      /// 关闭作业 SSE 连接并清空句柄，供 bfcache 进出时重复调用。
+      closeJobEventsForBfcache() {
+        if (this.jobEvents && typeof this.jobEvents.close === 'function') {
+          this.jobEvents.close();
+        }
+        this.jobEvents = null;
       },
 
       destroy() {

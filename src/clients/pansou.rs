@@ -136,7 +136,7 @@ impl PanSouClient {
         let mut results = Vec::new();
         for item in quark_results {
             let url = item.url;
-            let unique_id = format!("pansou:{}", md5_short(&url));
+            let unique_id = format!("pansou:{}", stable_short_id(&url));
             let note = item.note.unwrap_or_default();
             let display_title = crate::services::title_normalize::clean_media_title(&note);
             results.push(SearchResult {
@@ -171,12 +171,9 @@ impl Default for PanSouClient {
     }
 }
 
-/// 简单的 MD5 摘要（前 12 位）
-fn md5_short(s: &str) -> String {
-    format!("{:x}", md5::compute(s.as_bytes()))
-        .chars()
-        .take(12)
-        .collect()
+/// 搜索结果稳定 ID（截断 SHA-256，取前 12 位十六进制）
+fn stable_short_id(s: &str) -> String {
+    crate::utils::stable_id(s).chars().take(12).collect()
 }
 
 #[cfg(test)]
@@ -184,8 +181,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_md5_short() {
-        let result = md5_short("https://pan.quark.cn/s/test");
+    fn test_stable_short_id() {
+        let result = stable_short_id("https://pan.quark.cn/s/test");
         assert_eq!(result.len(), 12);
     }
 
