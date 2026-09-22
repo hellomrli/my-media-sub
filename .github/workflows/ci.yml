@@ -144,6 +144,9 @@ jobs:
         run: scripts/smoke-soak.sh target/release/my-media-sub
 
       - name: Install Chromium for browser smoke
+        # 上一次成功运行这一步只需 1 分钟；runner 上 apt 偶发挂死会让整个 job 卡到
+        # 6 小时默认上限。超时直接失败，重跑即可。
+        timeout-minutes: 10
         run: |
           set -euo pipefail
           sudo apt-get update
