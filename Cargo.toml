@@ -52,7 +52,7 @@ tokio-cron-scheduler = "0.13"
 # ece 只用来做 RFC 8188/8291 的分组框架，密码学后端换成 p256 + ring，
 # 因此必须 default-features = false（默认后端是 OpenSSL）。
 ece = { version = "2.4", default-features = false }
-p256 = { version = "0.13", features = ["ecdh"] }
+p256 = { version = "0.14", features = ["ecdh"] }
 
 [dev-dependencies]
 # 仅 tests/api_integration.rs 的 ServiceExt::oneshot 使用。
