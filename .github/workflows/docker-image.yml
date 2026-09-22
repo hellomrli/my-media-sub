@@ -50,7 +50,7 @@ jobs:
           echo "short=${SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.commit.outputs.sha }}
 
