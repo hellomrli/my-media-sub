@@ -3,9 +3,13 @@ set -euo pipefail
 BINARY="${1:-target/release/my-media-sub}"
 CHROME="${CHROME_BIN:-$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)}"
 [[ -n "$CHROME" ]] || { echo 'Chrome/Chromium is required for browser smoke testing' >&2; exit 1; }
-PORT="${BROWSER_SMOKE_PORT:-56195}"; BASE="http://127.0.0.1:${PORT}"
+# 端口默认动态选取：CI 里前面的 smoke 步骤偶尔会残留监听进程，固定端口会撞上
+# `Address already in use`。仍可用环境变量固定。
+free_port(){ python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()'; }
+PORT="${BROWSER_SMOKE_PORT:-$(free_port)}"; BASE="http://127.0.0.1:${PORT}"
 # Chrome 已不支持 URL 内嵌 Basic 凭据，渲染流量经本地代理注入 Authorization。
-PROXY_PORT="${BROWSER_SMOKE_PROXY_PORT:-56196}"; PROXY_BASE="http://127.0.0.1:${PROXY_PORT}"
+PROXY_PORT="${BROWSER_SMOKE_PROXY_PORT:-$(free_port)}"; PROXY_BASE="http://127.0.0.1:${PROXY_PORT}"
+[[ "$PORT" != "$PROXY_PORT" ]] || PROXY_PORT="$(free_port)"; PROXY_BASE="http://127.0.0.1:${PROXY_PORT}"
 TMP="$(mktemp -d)"; PID=""; PROXY_PID=""
 USER=browser-admin; PASSWORD=browser-password-not-for-production
 fail(){ echo "browser smoke failed: $*" >&2; for log in server.log proxy.log chrome.log; do [[ -f "$TMP/$log" ]] && { echo "--- $log ---" >&2; tail -n 80 "$TMP/$log" >&2; }; done; exit 1; }
