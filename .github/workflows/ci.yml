@@ -143,15 +143,22 @@ jobs:
           SOAK_SECONDS: 10
         run: scripts/smoke-soak.sh target/release/my-media-sub
 
-      - name: Install Chromium for browser smoke
-        # 上一次成功运行这一步只需 1 分钟；runner 上 apt 偶发挂死会让整个 job 卡到
-        # 6 小时默认上限。超时直接失败，重跑即可。
+      - name: Ensure a browser for browser smoke
+        # GitHub 的 ubuntu 镜像预装了 Google Chrome，smoke 脚本也优先使用它。
+        # 不要无条件 apt 装 chromium：ubuntu-24.04 上 `chromium-browser` 是 snap
+        # 过渡包，会去 snap 商店下载 core24——商店限速时（实测 200 kB/s）十几分钟
+        # 都装不完，曾把整个 job 拖到超时。只在没有任何浏览器时才回退到 apt。
         timeout-minutes: 10
         run: |
           set -euo pipefail
+          if command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser; then
+            echo "使用预装浏览器"
+            exit 0
+          fi
+          echo "未发现预装浏览器，回退到 apt 安装 chromium"
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends chromium-browser || sudo apt-get install -y --no-install-recommends chromium
-          command -v chromium-browser || command -v chromium || command -v google-chrome || command -v google-chrome-stable
+          sudo apt-get install -y --no-install-recommends chromium || sudo apt-get install -y --no-install-recommends chromium-browser
+          command -v chromium || command -v chromium-browser
 
       - name: Real browser 390px and PWA shell smoke
         run: scripts/smoke-browser.sh target/release/my-media-sub
