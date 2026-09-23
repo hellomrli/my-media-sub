@@ -88,9 +88,14 @@ test('x-html usage stays on the approved allowlist', () => {
   }
 });
 
+// 属性值里可能含 `>`（Alpine 表达式中的 `=>`），因此标签内部必须按「引号外的
+// 非 > 字符，或整段双引号串」来吃，不能写 [^>]*——否则 `@input="... v => v.trim()"`
+// 会把标签截断，后面的 id= 就被看不见了（v2.7.2 曾因此把 id 误插进表达式内部）。
+const TAG_ATTRS = String.raw`((?:[^>"]|"[^"]*")*)`;
+
 // 表单控件的可访问名称：每个 <label> 要么通过 for= 关联控件，要么把控件包在内部。
 test('every label is associated with a form control', () => {
-  const labelPattern = /<label\b([^>]*)>([\s\S]*?)<\/label>/g;
+  const labelPattern = new RegExp(String.raw`<label\b${TAG_ATTRS}>([\s\S]*?)<\/label>`, 'g');
   let match;
   let checked = 0;
   while ((match = labelPattern.exec(html)) !== null) {
@@ -109,9 +114,9 @@ test('every label is associated with a form control', () => {
 // 非隐藏控件必须有可访问名称：id 被某个 label 引用，或有 aria-label/aria-labelledby。
 test('every visible form control has an accessible name', () => {
   const labelledIds = new Set(
-    [...html.matchAll(/<label\b[^>]*\bfor="([^"]+)"/g)].map(match => match[1])
+    [...html.matchAll(new RegExp(String.raw`<label\b(?:[^>"]|"[^"]*")*?\bfor="([^"]+)"`, 'g'))].map(match => match[1])
   );
-  const controlPattern = /<(input|select|textarea)\b([^>]*)>/g;
+  const controlPattern = new RegExp(String.raw`<(input|select|textarea)\b${TAG_ATTRS}>`, 'g');
   let match;
   let checked = 0;
   while ((match = controlPattern.exec(html)) !== null) {
@@ -120,7 +125,7 @@ test('every visible form control has an accessible name', () => {
     const explicit = /\baria-label(?:ledby)?="/.test(attrs);
     // 控件被 label 包裹时也具备可访问名称
     const before = html.slice(Math.max(0, match.index - 200), match.index);
-    const wrapped = /<label\b[^>]*>[^<]*$/.test(before);
+    const wrapped = new RegExp(String.raw`<label\b(?:[^>"]|"[^"]*")*>[^<]*$`).test(before);
     const idMatch = attrs.match(/\bid="([^"]+)"/);
     const referenced = idMatch ? labelledIds.has(idMatch[1]) : false;
     checked += 1;
