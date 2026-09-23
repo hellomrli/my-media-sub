@@ -9,6 +9,10 @@ RUNTIME_VOLUME="${NAME}-runtime"
 USER=upgrade-admin
 PASSWORD=upgrade-password-not-for-production
 BASE_URL="http://127.0.0.1:${PORT}"
+# 期望的 schema 版本从源码常量读取：升级 smoke 的意义正是"旧数据被当前版本正确
+# 迁移"，硬编码数字会在每次 bump 时让这里静默过期（v2.7.2 升到 v2 时就撞上了）。
+SCHEMA_VERSION="$(sed -n 's/^pub const CURRENT_SCHEMA_VERSION: u32 = \([0-9]\+\);/\1/p' "$(dirname "$0")/../src/store/schema.rs")"
+[[ -n "${SCHEMA_VERSION}" ]] || { echo 'cannot read CURRENT_SCHEMA_VERSION from src/store/schema.rs' >&2; exit 1; }
 
 cleanup() {
   docker rm -f "${NAME}" >/dev/null 2>&1 || true
@@ -49,7 +53,7 @@ start "${CURRENT_IMAGE}"
 curl --fail --silent --show-error --user "${USER}:${PASSWORD}" "${BASE_URL}/api/subscriptions" \
   | grep -F 'docker-upgrade-smoke-series' >/dev/null
 curl --fail --silent --show-error --user "${USER}:${PASSWORD}" "${BASE_URL}/api/diagnostics" \
-  | grep -F '"schema_version":1' >/dev/null
+  | grep -F "\"schema_version\":${SCHEMA_VERSION}" >/dev/null
 docker exec -u 1000 "${NAME}" test -x /app/runtime/my-media-sub
 docker exec -u 1000 "${NAME}" test -w /app/runtime
 docker exec -u 1000 "${NAME}" sh -c 'test -s /opt/my-media-sub/PAYLOAD_ID && cmp -s /opt/my-media-sub/PAYLOAD_ID /app/runtime/.image-version'

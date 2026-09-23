@@ -13,6 +13,10 @@ BASE_URL="http://${HOST}:${PORT}"
 TMP_DIR="$(mktemp -d)"
 DATA_DIR="${TMP_DIR}/data"
 PID=""
+# 期望的 schema 版本从源码常量读取：升级 smoke 的意义正是"旧数据被当前版本正确
+# 迁移"，硬编码数字会在每次 bump 时让这里静默过期（v2.7.2 升到 v2 时就撞上了）。
+SCHEMA_VERSION="$(sed -n 's/^pub const CURRENT_SCHEMA_VERSION: u32 = \([0-9]\+\);/\1/p' "$(dirname "$0")/../src/store/schema.rs")"
+[[ -n "${SCHEMA_VERSION}" ]] || { echo 'cannot read CURRENT_SCHEMA_VERSION from src/store/schema.rs' >&2; exit 1; }
 
 cleanup_process() {
   if [[ -n "${PID}" ]] && kill -0 "${PID}" 2>/dev/null; then
@@ -64,7 +68,7 @@ curl --fail --silent --show-error --user "${USER}:${PASSWORD}" \
 grep -F '升级烟雾测试剧集' "${TMP_DIR}/subscriptions.json" >/dev/null
 curl --fail --silent --show-error --user "${USER}:${PASSWORD}" \
   "${BASE_URL}/api/diagnostics" >"${TMP_DIR}/diagnostics.json"
-grep -F '"schema_version":1' "${TMP_DIR}/diagnostics.json" >/dev/null
+grep -F "\"schema_version\":${SCHEMA_VERSION}" "${TMP_DIR}/diagnostics.json" >/dev/null
 
 if find "${DATA_DIR}" -type f -name '*.corrupt-*' -print -quit | grep -q .; then
   echo 'upgrade produced corrupt quarantine files' >&2
