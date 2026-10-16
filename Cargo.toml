@@ -16,7 +16,7 @@ license = "MIT"
 [dependencies]
 # Web framework
 axum = "0.8"
-tower-http = { version = "0.6", features = ["compression-br", "compression-gzip", "cors", "fs", "trace"] }
+tower-http = { version = "0.7", features = ["compression-br", "compression-gzip", "cors", "fs", "trace"] }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
