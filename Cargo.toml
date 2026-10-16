@@ -46,7 +46,7 @@ ring = "0.17.14"
 libc = "0.2"
 
 # Scheduler
-tokio-cron-scheduler = "0.13"
+tokio-cron-scheduler = "0.15"
 # 自实现 Web Push（src/services/web_push.rs）：不依赖 web-push，避免它引入的
 # rsa（唯一 RustSec 例外）、isahc/libcurl（第二套 C TLS 栈）与 superboring（BoringSSL）。
 # ece 只用来做 RFC 8188/8291 的分组框架，密码学后端换成 p256 + ring，
