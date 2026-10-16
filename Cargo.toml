@@ -1,14 +1,14 @@
 [package]
 name = "my-media-sub"
-version = "2.7.2"
+version = "2.7.4"
 edition = "2021"
-# MSRV。取两个下限的较大者：
-#   - 依赖图：ICU 系列（经 idna → url → reqwest）声明 1.86；
+# MSRV。取依赖图与本仓库 API 下限的较大者：
+#   - 依赖图：uuid 1.27 声明 1.89，ICU 2.3（经 idna → url → reqwest）声明 1.88；
 #   - 本仓库自身用到的 API：`is_multiple_of` 稳定于 1.87。
 # 声明之后 clippy 的 `incompatible_msrv` 会在 CI（-D warnings）里持续守住这条线：
 # 一旦有人用了更新的 API，构建会直接失败而不是悄悄抬高实际下限。
 # 与 rust-toolchain.toml 分工不同——那里固定的是开发/CI 实际使用的版本。
-rust-version = "1.87"
+rust-version = "1.89"
 authors = ["my-media-sub contributors"]
 description = "Media subscription and management system written in Rust"
 license = "MIT"
@@ -16,7 +16,7 @@ license = "MIT"
 [dependencies]
 # Web framework
 axum = "0.8"
-tower-http = { version = "0.6", features = ["compression-br", "compression-gzip", "cors", "fs", "trace"] }
+tower-http = { version = "0.7", features = ["compression-br", "compression-gzip", "cors", "fs", "trace"] }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -41,12 +41,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # Regex
 regex = "1.0"
-base64 = "0.22"
+base64 = "0.23"
 ring = "0.17.14"
 libc = "0.2"
 
 # Scheduler
-tokio-cron-scheduler = "0.13"
+tokio-cron-scheduler = "0.15"
 # 自实现 Web Push（src/services/web_push.rs）：不依赖 web-push，避免它引入的
 # rsa（唯一 RustSec 例外）、isahc/libcurl（第二套 C TLS 栈）与 superboring（BoringSSL）。
 # ece 只用来做 RFC 8188/8291 的分组框架，密码学后端换成 p256 + ring，

@@ -273,6 +273,14 @@ cargo build --release --locked
 
 ## 版本说明
 
+### 2.7.4
+
+- **依赖维护**：更新 `tokio` 至 1.53.2、`libc` 至 0.2.190、`uuid` 至 1.27.0、`base64` 至 0.23.1、`tower-http` 至 0.7.1、`tokio-cron-scheduler` 至 0.15.1，包含运行时同步与计时器、文件服务和时区处理修复；GitHub Actions 的 `actions/checkout` 更新至 v7。
+- **依赖安全**：定点更新间接依赖 `rustls` 至 0.23.46，修复审计发现的 RUSTSEC-2026-0346 / 0347 / 0348 / 0349；将已撤回的 `yoke-derive` 0.8.3 更新至 0.8.4，不新增任何安全公告例外。
+- **最低构建版本修正为 Rust 1.89**：`uuid 1.27` 要求 Rust 1.89，现有 ICU 依赖也已要求 1.88，原来的 1.87 声明已不符合锁文件。新增独立 MSRV CI，使用 `Cargo.toml` 声明的最低版本实际编译，避免依赖升级静默抬高下限。现成二进制和 Docker 用户不受此构建要求影响。
+- **兼容性回归**：补充北京时间签到排期、静态文件单段 Range 与多段 Range 错误响应测试；`p256` 保持 0.13.2，暂不引入 0.14 的密码学接口迁移。
+- **升级说明**：不改变 API 或 JSON Store schema，可直接复用 v2.7.2 的数据和配置；前端资源与 PWA 缓存代次同步更新。
+
 ### 2.7.2
 
 - **修复设置保存必然报错**：调度器 `reload()` 在首次启动后总是返回错误，导致修改检查间隔、夸克 Cookie 或签到设置时界面报错（配置其实已生效）。根因是 `tokio-cron-scheduler` 的 `JobScheduler::start()` 不幂等，而 `reload()` 每次无条件调用它；现在用一次性标志把 ticker 启动与任务增删解耦，并补了回归测试。
@@ -297,7 +305,7 @@ cargo build --release --locked
 - 切换季度后按新季重算进度，不再沿用旧季完结记录；详情与日历按选中季度分别展示。
 - 季度探测按链接与密码标识在途请求，快速切换时旧结果不会覆盖当前编辑器。
 
-- 当前版本：[v2.7.2 升级指南](docs/upgrade-v2.7.2.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
+- 当前版本：[v2.7.4 升级指南](docs/upgrade-v2.7.4.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
 
 各版本升级步骤在 `docs/upgrade-v*.md`。
 
