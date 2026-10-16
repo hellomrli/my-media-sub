@@ -1,4 +1,4 @@
-# v2.7.3 升级指南
+# v2.7.4 升级指南
 
 ## 升级方式
 
@@ -8,15 +8,15 @@ docker compose up -d
 docker compose logs --tail=100 -f
 ```
 
-固定版本部署请使用 `ghcr.io/hellomrli/my-media-sub:2.7.3`。
+固定版本部署请使用 `ghcr.io/hellomrli/my-media-sub:2.7.4`。
 
-二进制部署请使用 v2.7.3 Release 中的 Linux x86_64 归档，校验 SHA-256，停止旧进程后同时替换二进制和整个 `static/` 目录，再重新启动。不要让两个实例同时使用同一个 `DATA_DIR`。
+二进制部署请使用 v2.7.4 Release 中的 Linux x86_64 归档，校验 SHA-256，停止旧进程后同时替换二进制和整个 `static/` 目录，再重新启动。不要让两个实例同时使用同一个 `DATA_DIR`。
 
 ## 数据与接口兼容性
 
 - 本版本不修改 API 或 JSON Store schema，信封版本仍为 **2**；可直接复用 v2.7.2 的 `data/` 和配置，无需手工迁移。
 - 回滚到 v2.7.2 不需要转换数据。若从更早的版本升级，仍需阅读 [v2.7.2 升级指南](upgrade-v2.7.2.md) 中关于 Token scope、schema v2 和旧版回滚的说明。
-- 前端资源 URL 带有 `?v=2.7.3`，PWA 缓存代次同步更新。二进制用户必须一并部署新 `static/`，避免继续加载旧资源。
+- 前端资源 URL 带有 `?v=2.7.4`，PWA 缓存代次同步更新。二进制用户必须一并部署新 `static/`，避免继续加载旧资源。
 
 ## 依赖与构建要求
 
@@ -40,4 +40,4 @@ docker compose logs --tail=100 -f
 
 `p256` 0.14 涉及随机源与公钥编码 API 迁移，本次保持 0.13.2，不为追求版本号引入未经迁移验证的密码学改动。`base64` 0.22 和 `tower-http` 0.6 仍被部分间接依赖使用，锁文件保留两代版本是正常现象。
 
-完整变更见 [CHANGELOG.md](../CHANGELOG.md) 的 `## 2.7.3` 段。
+完整变更见 [CHANGELOG.md](../CHANGELOG.md) 的 `## 2.7.4` 段。

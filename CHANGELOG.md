@@ -4,7 +4,7 @@ My Media Sub 的版本变更记录。新版本写在上方。
 
 升级步骤见对应的 [`docs/upgrade-v*.md`](docs/)；当前版本发布说明摘要也写在 [`README.md`](README.md) 的「版本说明」中。
 
-## 2.7.3
+## 2.7.4
 
 ### 依赖维护
 

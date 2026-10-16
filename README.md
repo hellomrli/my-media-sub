@@ -273,7 +273,7 @@ cargo build --release --locked
 
 ## 版本说明
 
-### 2.7.3
+### 2.7.4
 
 - **依赖维护**：更新 `tokio` 至 1.53.2、`libc` 至 0.2.190、`uuid` 至 1.27.0、`base64` 至 0.23.1、`tower-http` 至 0.7.1、`tokio-cron-scheduler` 至 0.15.1，包含运行时同步与计时器、文件服务和时区处理修复；GitHub Actions 的 `actions/checkout` 更新至 v7。
 - **依赖安全**：定点更新间接依赖 `rustls` 至 0.23.46，修复审计发现的 RUSTSEC-2026-0346 / 0347 / 0348 / 0349；将已撤回的 `yoke-derive` 0.8.3 更新至 0.8.4，不新增任何安全公告例外。
@@ -305,7 +305,7 @@ cargo build --release --locked
 - 切换季度后按新季重算进度，不再沿用旧季完结记录；详情与日历按选中季度分别展示。
 - 季度探测按链接与密码标识在途请求，快速切换时旧结果不会覆盖当前编辑器。
 
-- 当前版本：[v2.7.3 升级指南](docs/upgrade-v2.7.3.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
+- 当前版本：[v2.7.4 升级指南](docs/upgrade-v2.7.4.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
 
 各版本升级步骤在 `docs/upgrade-v*.md`。
 
