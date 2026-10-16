@@ -4,6 +4,28 @@ My Media Sub 的版本变更记录。新版本写在上方。
 
 升级步骤见对应的 [`docs/upgrade-v*.md`](docs/)；当前版本发布说明摘要也写在 [`README.md`](README.md) 的「版本说明」中。
 
+## 2.7.3
+
+### 依赖维护
+
+- 合并 Dependabot 的 `actions/checkout` v7、`base64` 0.23.1、`tower-http` 0.7.1、`tokio-cron-scheduler` 0.15.1，以及 `tokio` 1.53.2 / `uuid` 1.27.0 / `libc` 0.2.190 分组更新。
+- `tokio` 补丁包含阻塞线程池、同步原语、计时器及文件 seek 的修复；调度器更新包含时区修复与 croner 3 升级；保留现有 ticker 只启动一次的保护。
+- `base64` 和 `tower-http` 的旧版仍分别由 ece / HTTP 客户端间接依赖；保留上游要求，不强制替换其依赖约束。
+- 暂缓 `p256` 0.14：它更改了随机源与公钥编码接口，不能仅修改版本号。本次保持经过现有 Web Push 回归验证的 0.13.2。
+
+### 安全
+
+- 将间接依赖 `rustls` 从 0.23.45 定点更新至 0.23.46，消除 RUSTSEC-2026-0346（Debug 输出 TLS 会话秘密）、0347（ECH 拒绝后发送缓冲应用数据）、0348（Brotli 证书解压的过量内存分配）、0349（未认证 ServerHello 污染后续密钥交换选择）四项审计发现。公告各有触发条件，不代表本项目默认配置全部可利用；仍统一升级到修复版本，不添加例外。
+- 将已撤回的 `yoke-derive` 0.8.3 定点更新至 0.8.4。
+
+### 构建与验证
+
+- 将 `rust-version` 从 1.87 调整为 **1.89**，与 `uuid` 1.27 的最低要求一致；旧锁文件中的 ICU 2.3 已要求 1.88，修正原先偏低的声明。开发工具链仍为 1.97.0。
+- 新增独立 MSRV CI job，从 `Cargo.toml` 读取最低版本并通过 `RUSTUP_TOOLCHAIN` 覆盖开发工具链，运行 locked、all-targets、all-features 编译检查。
+- 新增北京时间签到 cron 的下一次执行时间回归，以及静态文件单段 Range 内容和多段 Range 的 416 / 表示头清理回归。
+- 清理 malformed JSON 集成测试里重复的 `BAD_REQUEST` 模式，消除 Rust 1.89 编译器的不可达模式警告，断言语义不变。
+- 同步 Cargo、OpenAPI、README、升级指南、前端资源 URL 与 PWA 缓存版本；不改变 API 或 JSON Store schema（仍为 2）。
+
 ## 2.7.2
 
 ### 修复

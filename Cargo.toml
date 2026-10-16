@@ -1,14 +1,14 @@
 [package]
 name = "my-media-sub"
-version = "2.7.2"
+version = "2.7.3"
 edition = "2021"
-# MSRV。取两个下限的较大者：
-#   - 依赖图：ICU 系列（经 idna → url → reqwest）声明 1.86；
+# MSRV。取依赖图与本仓库 API 下限的较大者：
+#   - 依赖图：uuid 1.27 声明 1.89，ICU 2.3（经 idna → url → reqwest）声明 1.88；
 #   - 本仓库自身用到的 API：`is_multiple_of` 稳定于 1.87。
 # 声明之后 clippy 的 `incompatible_msrv` 会在 CI（-D warnings）里持续守住这条线：
 # 一旦有人用了更新的 API，构建会直接失败而不是悄悄抬高实际下限。
 # 与 rust-toolchain.toml 分工不同——那里固定的是开发/CI 实际使用的版本。
-rust-version = "1.87"
+rust-version = "1.89"
 authors = ["my-media-sub contributors"]
 description = "Media subscription and management system written in Rust"
 license = "MIT"

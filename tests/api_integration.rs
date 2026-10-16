@@ -455,6 +455,57 @@ async fn static_javascript_is_not_wrapped_as_an_api_response() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+#[tokio::test]
+async fn static_single_range_returns_only_requested_bytes() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+    let expected = include_bytes!("../static/manifest.webmanifest");
+    let mut request = auth_get("/manifest.webmanifest");
+    request
+        .headers_mut()
+        .insert(header::RANGE, "bytes=0-15".parse().unwrap());
+
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(
+        response.headers()[header::CONTENT_RANGE],
+        format!("bytes 0-15/{}", expected.len())
+    );
+    assert_eq!(response.headers()[header::CONTENT_LENGTH], "16");
+    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    assert_eq!(bytes.as_ref(), &expected[..16]);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn static_multipart_range_rejects_without_representation_headers() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+    let mut request = auth_get("/manifest.webmanifest");
+    request
+        .headers_mut()
+        .insert(header::RANGE, "bytes=0-1,4-5".parse().unwrap());
+
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+    assert_eq!(
+        response.headers()[header::CONTENT_RANGE],
+        format!(
+            "bytes */{}",
+            include_bytes!("../static/manifest.webmanifest").len()
+        )
+    );
+    assert!(!response.headers().contains_key(header::CONTENT_TYPE));
+    assert!(!response.headers().contains_key(header::CONTENT_ENCODING));
+    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    assert_eq!(bytes.as_ref(), b"Cannot serve multipart range requests");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 // ─── CSRF 防护 ────────────────────────────────────────────────────────────
 
 #[tokio::test]
@@ -540,10 +591,7 @@ async fn malformed_json_rejection_uses_the_error_envelope() {
         .unwrap();
     let (status, headers, body) = json_response(&app, req).await;
 
-    assert!(matches!(
-        status,
-        StatusCode::BAD_REQUEST | StatusCode::BAD_REQUEST
-    ));
+    assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_json_content_type(&headers);
     assert_eq!(body["ok"], false);
     assert!(matches!(

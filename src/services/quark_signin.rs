@@ -362,6 +362,26 @@ mod tests {
     }
 
     #[test]
+    fn signin_cron_jobs_keep_beijing_hours() {
+        for hour in [0, 8, 23] {
+            let mut job = Job::new_async_tz(
+                format!("0 0 {hour} * * *"),
+                signin_timezone(),
+                |_uuid, _scheduler| Box::pin(async {}),
+            )
+            .expect("valid daily signin cron");
+            let data = job.job_data().expect("signin job data");
+            assert_eq!(data.time_offset_seconds, SIGNIN_TIMEZONE_OFFSET_SECONDS);
+            let next_tick = DateTime::from_timestamp(data.next_tick.try_into().unwrap(), 0)
+                .expect("valid next tick")
+                .with_timezone(&signin_timezone());
+            assert_eq!(next_tick.hour(), hour);
+            assert_eq!(next_tick.minute(), 0);
+            assert_eq!(next_tick.second(), 0);
+        }
+    }
+
+    #[test]
     fn test_signin_message() {
         let message = signin_message(&QuarkSigninResult {
             signed: true,
