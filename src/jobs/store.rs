@@ -1,7 +1,10 @@
+use crate::store::commit::finish_commit;
+use crate::store::schema::ensure_store_can_initialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use tokio::sync::{broadcast, Mutex, RwLock};
+use tokio::sync::{broadcast, Mutex, OwnedMutexGuard, RwLock};
 
 use crate::error::{AppError, Result};
 use crate::store::schema::{
@@ -15,12 +18,13 @@ use super::model::{now, Job, JobStatus};
 const MAX_JOBS: usize = 500;
 const MAX_ARCHIVED_JOBS: usize = 5_000;
 
+#[derive(Clone)]
 pub struct JobStore {
     path: PathBuf,
     archive_path: PathBuf,
-    jobs: RwLock<Vec<Job>>,
-    id_index: RwLock<HashMap<String, usize>>,
-    save_lock: Mutex<()>,
+    jobs: Arc<RwLock<Vec<Job>>>,
+    id_index: Arc<RwLock<HashMap<String, usize>>>,
+    save_lock: Arc<Mutex<()>>,
     events: broadcast::Sender<Job>,
 }
 
@@ -36,15 +40,22 @@ impl JobStore {
         Self {
             path,
             archive_path,
-            jobs: RwLock::new(Vec::new()),
-            id_index: RwLock::new(HashMap::new()),
-            save_lock: Mutex::new(()),
+            jobs: Arc::new(RwLock::new(Vec::new())),
+            id_index: Arc::new(RwLock::new(HashMap::new())),
+            save_lock: Arc::new(Mutex::new(())),
             events: broadcast::channel(200).0,
         }
     }
 
     pub async fn load(&self) -> Result<()> {
+        let guard = self.save_lock.clone().lock_owned().await;
+        let store = self.clone();
+        finish_commit(guard, async move { store.load_locked().await }).await
+    }
+
+    async fn load_locked(&self) -> Result<()> {
         if !self.path.exists() {
+            ensure_store_can_initialize(&self.path, StoreKind::Jobs)?;
             self.replace_memory(Vec::new()).await;
             return Ok(());
         }
@@ -85,7 +96,7 @@ impl JobStore {
     }
 
     pub async fn add(&self, job: Job) -> Result<Job> {
-        let _save_guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let snapshot = {
             let jobs = self.jobs.read().await;
             let mut snapshot = jobs.clone();
@@ -93,14 +104,13 @@ impl JobStore {
             truncate_jobs(&mut snapshot);
             snapshot
         };
-        self.commit(snapshot).await?;
-        self.emit(job.clone());
+        self.commit(snapshot, save_guard, Some(job.clone())).await?;
         Ok(job)
     }
 
     /// 添加任务；若存在相同幂等键的排队或运行任务，则返回已有任务。
     pub async fn add_idempotent(&self, job: Job) -> Result<(Job, bool)> {
-        let _save_guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let snapshot = {
             let jobs = self.jobs.read().await;
             if let Some(key) = job.idempotency_key.as_deref() {
@@ -119,8 +129,7 @@ impl JobStore {
             truncate_jobs(&mut snapshot);
             snapshot
         };
-        self.commit(snapshot).await?;
-        self.emit(job.clone());
+        self.commit(snapshot, save_guard, Some(job.clone())).await?;
         Ok((job, true))
     }
 
@@ -161,7 +170,7 @@ impl JobStore {
     where
         F: FnOnce(&mut Job) -> Result<()>,
     {
-        let _save_guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let updated = {
             let jobs = self.jobs.read().await;
             let mut snapshot = jobs.clone();
@@ -174,12 +183,9 @@ impl JobStore {
             }
         };
 
-        if let Some((_, snapshot)) = &updated {
-            self.commit(snapshot.clone()).await?;
-        }
-
-        if let Some((job, _)) = &updated {
-            self.emit(job.clone());
+        if let Some((job, snapshot)) = &updated {
+            self.commit(snapshot.clone(), save_guard, Some(job.clone()))
+                .await?;
         }
 
         Ok(updated.map(|(job, _)| job))
@@ -193,7 +199,7 @@ impl JobStore {
     where
         F: FnOnce(&mut Job) -> bool,
     {
-        let _save_guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let updated = {
             let jobs = self.jobs.read().await;
             let mut snapshot = jobs.clone();
@@ -207,24 +213,23 @@ impl JobStore {
             (job.clone(), snapshot)
         };
 
-        self.save_snapshot(&updated.1).await?;
-        self.replace_memory(updated.1).await;
-        self.emit(updated.0.clone());
+        self.commit(updated.1, save_guard, Some(updated.0.clone()))
+            .await?;
         Ok(Some(updated.0))
     }
 
     pub async fn compact(&self) -> Result<usize> {
-        let _guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let mut snapshot = self.jobs.read().await.clone();
         let before = snapshot.len();
         truncate_jobs(&mut snapshot);
         let removed = before.saturating_sub(snapshot.len());
-        self.commit(snapshot).await?;
+        self.commit(snapshot, save_guard, None).await?;
         Ok(removed)
     }
 
     pub async fn archive_completed(&self, retain: usize) -> Result<usize> {
-        let _guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let current = self.jobs.read().await.clone();
         let terminal_count = current.iter().filter(|job| is_terminal(job)).count();
         let move_count = terminal_count.saturating_sub(retain);
@@ -247,8 +252,12 @@ impl JobStore {
             let keep = archive.len().saturating_sub(archive_retention);
             archive.drain(0..keep);
         }
-        write_versioned_json_atomic_async(&self.archive_path, &archive, 0o600).await?;
-        self.commit(active).await?;
+        let store = self.clone();
+        finish_commit(save_guard, async move {
+            write_versioned_json_atomic_async(&store.archive_path, &archive, 0o600).await?;
+            store.persist_snapshot(active).await
+        })
+        .await?;
         Ok(move_count)
     }
 
@@ -269,7 +278,7 @@ impl JobStore {
     /// 清空已结束的任务记录（含归档），排队中和运行中的任务保留。
     /// 活动中心里推送派发这类高频任务会迅速堆满历史，需要一个手动清理入口。
     pub async fn clear_finished(&self) -> Result<usize> {
-        let _guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let current = self.jobs.read().await.clone();
         let before = current.len();
         let active = current
@@ -277,24 +286,33 @@ impl JobStore {
             .filter(|job| !is_terminal(job))
             .collect::<Vec<_>>();
         let removed_active = before.saturating_sub(active.len());
-        self.commit(active).await?;
-
-        let archived = self.read_archive().await?.len();
-        if archived > 0 {
-            write_versioned_json_atomic_async(&self.archive_path, &Vec::<Job>::new(), 0o600)
-                .await?;
-        }
-        Ok(removed_active + archived)
+        let store = self.clone();
+        finish_commit(save_guard, async move {
+            store.persist_snapshot(active).await?;
+            let archived = store.read_archive().await?.len();
+            if archived > 0 {
+                write_versioned_json_atomic_async(&store.archive_path, &Vec::<Job>::new(), 0o600)
+                    .await?;
+            }
+            Ok(removed_active + archived)
+        })
+        .await
     }
 
     pub async fn prune_archive(&self, retain: usize) -> Result<usize> {
-        let _guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let mut archive = self.read_archive().await?;
         let before = archive.len();
         if archive.len() > retain {
             let keep = archive.len().saturating_sub(retain);
             archive.drain(0..keep);
-            write_versioned_json_atomic_async(&self.archive_path, &archive, 0o600).await?;
+            let path = self.archive_path.clone();
+            let removed = before.saturating_sub(archive.len());
+            return finish_commit(save_guard, async move {
+                write_versioned_json_atomic_async(&path, &archive, 0o600).await?;
+                Ok(removed)
+            })
+            .await;
         }
         Ok(before.saturating_sub(archive.len()))
     }
@@ -329,22 +347,29 @@ impl JobStore {
         *current_index = index;
     }
 
-    /// 提交一份新快照：**先更新内存，再落盘**，失败时回滚内存。
-    ///
-    /// 理由同 `SubscriptionStore::commit`：落盘走 `spawn_blocking`，不可取消。
-    /// 「先落盘再改内存」在 future 被 abort（例如取消一个正在写元数据的
-    /// MetadataScrape）时会留下「磁盘新、内存旧」，下一次写盘整份覆盖已落盘的数据
-    /// 造成静默丢失；反过来只会留下「内存比磁盘新」，下次写盘自然收敛。
-    async fn commit(&self, snapshot: Vec<Job>) -> Result<()> {
-        let previous = self.jobs.read().await.clone();
-        self.replace_memory(snapshot.clone()).await;
-        match self.save_snapshot(&snapshot).await {
-            Ok(()) => Ok(()),
-            Err(error) => {
-                self.replace_memory(previous).await;
-                Err(error)
+    /// Persist and publish a snapshot while retaining the lock through cancellation.
+    async fn commit(
+        &self,
+        snapshot: Vec<Job>,
+        guard: OwnedMutexGuard<()>,
+        event: Option<Job>,
+    ) -> Result<()> {
+        let store = self.clone();
+        finish_commit(guard, async move {
+            store.persist_snapshot(snapshot).await?;
+            if let Some(event) = event {
+                store.emit(event);
             }
-        }
+            Ok(())
+        })
+        .await
+    }
+
+    // Only called inside finish_commit, with the owned save lock held.
+    async fn persist_snapshot(&self, snapshot: Vec<Job>) -> Result<()> {
+        self.save_snapshot(&snapshot).await?;
+        self.replace_memory(snapshot).await;
+        Ok(())
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Job> {
@@ -402,6 +427,45 @@ fn configured_archive_retention() -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::write_gate::WriteGate;
+
+    #[tokio::test]
+    async fn canceled_conditional_update_commits_and_emits_before_next_update() {
+        let path = temp_path("job-cancel");
+        let store = JobStore::new(&path);
+        store.add(make_job("first")).await.unwrap();
+        let mut events = store.subscribe();
+        let mut gate = WriteGate::arm(&path);
+        let writer = store.clone();
+        let first = tokio::spawn(async move {
+            writer
+                .update_if("first", |job| {
+                    job.message = "claimed".into();
+                    true
+                })
+                .await
+        });
+        gate.wait().await;
+        first.abort();
+        assert!(first.await.unwrap_err().is_cancelled());
+        assert!(store.save_lock.try_lock().is_err());
+        let writer = store.clone();
+        let second = tokio::spawn(async move {
+            writer
+                .update("first", |job| job.title = "second".into())
+                .await
+        });
+        drop(gate);
+        second.await.unwrap().unwrap();
+        assert_eq!(events.try_recv().unwrap().message, "claimed");
+        assert_eq!(events.try_recv().unwrap().title, "second");
+        let reloaded = JobStore::new(&path);
+        reloaded.load().await.unwrap();
+        let job = reloaded.get("first").await.unwrap();
+        assert_eq!(job.message, "claimed");
+        assert_eq!(job.title, "second");
+        std::fs::remove_file(path).unwrap();
+    }
     use crate::jobs::{JobKind, JobPriority, JobStatus};
     use crate::store::schema::migration_backup_path;
     use serde_json::json;
@@ -536,10 +600,10 @@ mod tests {
     #[tokio::test]
     async fn add_keeps_jobs_unchanged_when_save_fails() {
         let blocker = temp_path("jobs-save-blocker");
-        std::fs::write(&blocker, b"not-a-directory").unwrap();
         let path = blocker.join("jobs.json");
         let store = JobStore::new(&path);
         store.load().await.unwrap();
+        std::fs::write(&blocker, b"not-a-directory").unwrap();
 
         let result = store.add(make_job("should-not-stick")).await;
 

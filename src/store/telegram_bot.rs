@@ -1,4 +1,7 @@
+use crate::store::commit::finish_commit;
+use crate::store::schema::ensure_store_can_initialize;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, RwLock};
@@ -60,23 +63,31 @@ pub struct TelegramBotPersistentState {
     pub user_sessions: Vec<TelegramUserSessionRecord>,
 }
 
+#[derive(Clone)]
 pub struct TelegramBotStore {
     path: PathBuf,
-    state: RwLock<TelegramBotPersistentState>,
-    save_lock: Mutex<()>,
+    state: Arc<RwLock<TelegramBotPersistentState>>,
+    save_lock: Arc<Mutex<()>>,
 }
 
 impl TelegramBotStore {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
             path: path.into(),
-            state: RwLock::new(TelegramBotPersistentState::default()),
-            save_lock: Mutex::new(()),
+            state: Arc::new(RwLock::new(TelegramBotPersistentState::default())),
+            save_lock: Arc::new(Mutex::new(())),
         }
     }
 
     pub async fn load(&self) -> Result<()> {
+        let guard = self.save_lock.clone().lock_owned().await;
+        let store = self.clone();
+        finish_commit(guard, async move { store.load_locked().await }).await
+    }
+
+    async fn load_locked(&self) -> Result<()> {
         if !self.path.exists() {
+            ensure_store_can_initialize(&self.path, StoreKind::TelegramBot)?;
             self.save(&TelegramBotPersistentState::default()).await?;
             return Ok(());
         }
@@ -210,7 +221,7 @@ impl TelegramBotStore {
     where
         F: FnOnce(&mut TelegramBotPersistentState) -> T,
     {
-        let _guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let mut snapshot = self.state.read().await.clone();
         let before = snapshot.clone();
         let result = update(&mut snapshot);
@@ -218,15 +229,13 @@ impl TelegramBotStore {
         // Telegram 会高频重投已处理过的 update/callback；未发生任何变更时
         // 跳过全文件重写，避免每次轮询都触发一次 fsync + rename。
         if snapshot != before {
-            // 先更新内存再落盘，理由同 `SubscriptionStore::commit`：落盘不可取消，
-            // 「先落盘」在被 abort 时会留下「磁盘新、内存旧」，下一次写盘会整份
-            // 覆盖已落盘的会话状态。失败时回滚内存。
-            let previous = self.state.read().await.clone();
-            *self.state.write().await = snapshot.clone();
-            if let Err(error) = self.save(&snapshot).await {
-                *self.state.write().await = previous;
-                return Err(error);
-            }
+            let store = self.clone();
+            finish_commit(save_guard, async move {
+                store.save(&snapshot).await?;
+                *store.state.write().await = snapshot;
+                Ok(())
+            })
+            .await?;
         }
         Ok(result)
     }
@@ -259,6 +268,31 @@ fn trim_front<T>(items: &mut Vec<T>, limit: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::write_gate::WriteGate;
+
+    #[tokio::test]
+    async fn canceled_claim_finishes_before_next_claim() {
+        let path =
+            std::env::temp_dir().join(format!("telegram-cancel-{}.json", uuid::Uuid::new_v4()));
+        let store = TelegramBotStore::new(&path);
+        store.load().await.unwrap();
+        let mut gate = WriteGate::arm(&path);
+        let writer = store.clone();
+        let first = tokio::spawn(async move { writer.claim_update(1).await });
+        gate.wait().await;
+        first.abort();
+        assert!(first.await.unwrap_err().is_cancelled());
+        assert!(store.save_lock.try_lock().is_err());
+        let writer = store.clone();
+        let second = tokio::spawn(async move { writer.claim_update(2).await });
+        drop(gate);
+        assert!(second.await.unwrap().unwrap());
+        let reloaded = TelegramBotStore::new(&path);
+        reloaded.load().await.unwrap();
+        assert!(!reloaded.claim_update(1).await.unwrap());
+        assert!(!reloaded.claim_update(2).await.unwrap());
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[tokio::test]
     async fn claims_and_audits_survive_restart() {

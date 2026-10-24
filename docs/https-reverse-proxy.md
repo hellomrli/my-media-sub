@@ -18,10 +18,15 @@ server {
         proxy_set_header X-Forwarded-Proto https;
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_http_version 1.1;
+        proxy_read_timeout 90s;
         proxy_buffering off;
     }
 }
 ```
+
+搜索应用预算为 50 秒，低于 Nginx 默认读取超时 60 秒；本示例显式设置反代读取超时
+90 秒，前端总超时为 120 秒。使用其它反代时也应保持“应用预算 < 反代超时 < 前端超时”，
+为响应序列化和网络传输留出余量。
 
 ## 安全要求
 

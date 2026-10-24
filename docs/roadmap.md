@@ -13,17 +13,28 @@
 
 ## 当前执行指针
 
-- **当前阶段**：v2.7.5 搜索并发与依赖安全修复
-- **当前任务**：代码、发布说明与本地门禁已完成；推送与 Release 状态见 GitHub Actions
+- **当前阶段**：v2.7.6 Store 恢复与搜索可靠性修复
+- **当前任务**：发布提交已完成本地回归验证；GitHub Release 与镜像构建状态见 Actions
 - **下一任务（建议）**：单独评估剩余约 50 个 semver 兼容依赖更新；升级后补一次真实浏览器推送验证
 - **后续阶段**：保持单实例安全模型与 JSON 单写；未经明确需求不启动多用户、SQLite 或第二 Provider
-- **当前发布基线**：v2.7.5（`Cargo.toml` / OpenAPI / PWA 缓存代次）
+- **当前发布基线**：v2.7.6（`Cargo.toml` / OpenAPI / PWA 缓存代次）
 - **工作树状态**：见 `main` 最新提交；历史 v1.x 交接记录保留在下方作审计
 
 > **本轮评审的完整清单与后续待办见
 > [docs/code-review-2026-09-21.md](code-review-2026-09-21.md)。**
 > 该文档逐条说明了哪些条目已修复、哪些仍待处理，是 `P23+` 的实际计划入口。
 > 「当前发布基线」已纳入 CI 门禁，见 `scripts/check-doc-drift.py`。
+
+---
+
+## v2.7.6 Store 恢复与搜索可靠性修复
+
+- [x] 持久化提交取消安全：独立提交任务持有共享保存锁直到写盘和内存状态同步结束，覆盖各 JSON Store；回归测试覆盖提交中取消、随后写入、写盘失败和 Token 撤销。
+- [x] 隔离恢复失败关闭：业务 Store 原文件缺失但存在隔离副本时，默认拒绝空数据启动；显式放行设置只对业务 Store 生效，设置文件始终失败关闭；恢复原路径文件后可正常启动。
+- [x] 搜索部分结果契约与前端提示：50 秒服务端预算、最多 8 路探测并发；API 保留数组响应并提供完成状态/计数，未知结果不会被误判为失效或完整无结果。
+- [x] 反向代理读取超时、API 契约、升级说明与静态资源/PWA 缓存版本同步更新。
+- 验证：751 个 Rust 测试通过、2 个网络测试按设计忽略；153 个前端测试通过；格式、Clippy、locked check、Rust 1.89 MSRV、ESLint、CSS/OpenAPI/文档门禁通过。Release build、二进制/Docker 入口 smoke、10 秒 1,698 请求 soak，以及 Chrome 390px / 1440px 浏览器 smoke 通过。
+- 验证和云端发布状态以 [Actions](https://github.com/hellomrli/my-media-sub/actions) 与 [v2.7.6 Release](https://github.com/hellomrli/my-media-sub/releases/tag/v2.7.6) 为准。
 
 ---
 

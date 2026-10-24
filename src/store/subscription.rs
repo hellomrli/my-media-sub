@@ -1,5 +1,7 @@
 use crate::error::{AppError, Result};
 use crate::models::Subscription;
+use crate::store::commit::finish_commit;
+use crate::store::schema::ensure_store_can_initialize;
 use crate::store::schema::{
     backup_store_before_migration, decode_store_json, write_versioned_json_atomic_async, StoreKind,
     StoreSchemaError,
@@ -8,25 +10,27 @@ use crate::utils::{quarantine_corrupt_file, set_file_mode};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use tokio::sync::{Mutex, RwLock};
+use std::sync::Arc;
+use tokio::sync::{Mutex, OwnedMutexGuard, RwLock};
 
 /// 订阅存储（JSON 文件，原子写入）
+#[derive(Clone)]
 pub struct SubscriptionStore {
     path: Option<PathBuf>,
-    items: RwLock<Vec<Subscription>>,
-    id_index: RwLock<HashMap<String, usize>>,
-    save_lock: Mutex<()>,
-    save_count: AtomicU64,
+    items: Arc<RwLock<Vec<Subscription>>>,
+    id_index: Arc<RwLock<HashMap<String, usize>>>,
+    save_lock: Arc<Mutex<()>>,
+    save_count: Arc<AtomicU64>,
 }
 
 impl SubscriptionStore {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
             path: Some(path.into()),
-            items: RwLock::new(Vec::new()),
-            id_index: RwLock::new(HashMap::new()),
-            save_lock: Mutex::new(()),
-            save_count: AtomicU64::new(0),
+            items: Arc::new(RwLock::new(Vec::new())),
+            id_index: Arc::new(RwLock::new(HashMap::new())),
+            save_lock: Arc::new(Mutex::new(())),
+            save_count: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -34,19 +38,26 @@ impl SubscriptionStore {
     pub fn from_snapshot(items: Vec<Subscription>) -> Self {
         Self {
             path: None,
-            id_index: RwLock::new(build_subscription_index(&items)),
-            items: RwLock::new(items),
-            save_lock: Mutex::new(()),
-            save_count: AtomicU64::new(0),
+            id_index: Arc::new(RwLock::new(build_subscription_index(&items))),
+            items: Arc::new(RwLock::new(items)),
+            save_lock: Arc::new(Mutex::new(())),
+            save_count: Arc::new(AtomicU64::new(0)),
         }
     }
 
     /// 从文件加载
     pub async fn load(&self) -> Result<()> {
+        let guard = self.save_lock.clone().lock_owned().await;
+        let store = self.clone();
+        finish_commit(guard, async move { store.load_locked().await }).await
+    }
+
+    async fn load_locked(&self) -> Result<()> {
         let Some(path) = self.path.as_ref() else {
             return Ok(());
         };
         if !path.exists() {
+            ensure_store_can_initialize(path, StoreKind::Subscriptions)?;
             self.replace_memory(Vec::new()).await;
             return Ok(());
         }
@@ -98,30 +109,15 @@ impl SubscriptionStore {
         Ok(())
     }
 
-    /// 提交一份新快照：**先更新内存，再落盘**，失败时回滚内存。
-    ///
-    /// 顺序很关键。写入是「整份快照 + spawn_blocking 落盘 + 替换内存」两步，而
-    /// `write_json_atomic_async` 内部的 `spawn_blocking` **不可取消**：外层 future
-    /// 被 abort（例如取消一个正在写元数据的 MetadataScrape）时，磁盘可能已经写完，
-    /// 但后续的 `replace_memory` 永远不会执行。
-    ///
-    /// - 旧顺序（先落盘再改内存）：取消后**磁盘新、内存旧**；下一次基于旧内存的
-    ///   写入会把刚落盘的新数据整份覆盖掉——静默丢失一次抓取结果。
-    /// - 新顺序（先改内存再落盘）：取消后只是**内存比磁盘新**，下一次写盘会用
-    ///   新内存覆盖磁盘，自然收敛；而落盘失败时这里会回滚内存，保持两者一致。
-    ///
-    /// 代价是每次提交多一次内存快照 clone（用于失败回滚），并且这条路径本来就在
-    /// clone 修改用的快照；失败回滚属于罕见路径，正确性优先。
-    async fn commit(&self, snapshot: Vec<Subscription>) -> Result<()> {
-        let previous = self.items.read().await.clone();
-        self.replace_memory(snapshot.clone()).await;
-        match self.save(&snapshot).await {
-            Ok(()) => Ok(()),
-            Err(error) => {
-                self.replace_memory(previous).await;
-                Err(error)
-            }
-        }
+    /// Persist and publish a snapshot while retaining the lock through cancellation.
+    async fn commit(&self, snapshot: Vec<Subscription>, guard: OwnedMutexGuard<()>) -> Result<()> {
+        let store = self.clone();
+        finish_commit(guard, async move {
+            store.save(&snapshot).await?;
+            store.replace_memory(snapshot).await;
+            Ok(())
+        })
+        .await
     }
 
     /// 已成功执行的持久化次数。
@@ -134,10 +130,10 @@ impl SubscriptionStore {
     where
         F: FnOnce(&mut Vec<Subscription>) -> Result<R>,
     {
-        let _save_guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let mut snapshot = self.items.read().await.clone();
         let result = mutate(&mut snapshot)?;
-        self.commit(snapshot).await?;
+        self.commit(snapshot, save_guard).await?;
         Ok(result)
     }
 
@@ -226,7 +222,7 @@ impl SubscriptionStore {
 
     /// 创建订阅
     pub async fn create(&self, sub: Subscription) -> Result<Subscription> {
-        let _save_guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let snapshot = {
             let items = self.items.read().await;
             // 同时按 ID 与 (url, title) 查重：ID 由 (url, title) 派生，但派生算法在
@@ -247,7 +243,7 @@ impl SubscriptionStore {
             snapshot.push(sub.clone());
             snapshot
         };
-        self.commit(snapshot).await?;
+        self.commit(snapshot, save_guard).await?;
         Ok(sub)
     }
 
@@ -256,7 +252,7 @@ impl SubscriptionStore {
     where
         F: FnOnce(&mut Subscription),
     {
-        let _save_guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let updated = {
             let items = self.items.read().await;
             let mut snapshot = items.clone();
@@ -270,7 +266,7 @@ impl SubscriptionStore {
         };
 
         if let Some((updated, snapshot)) = updated {
-            self.commit(snapshot).await?;
+            self.commit(snapshot, save_guard).await?;
             Ok(Some(updated))
         } else {
             Ok(None)
@@ -279,7 +275,7 @@ impl SubscriptionStore {
 
     /// 删除订阅，返回是否删除成功
     pub async fn delete(&self, id: &str) -> Result<bool> {
-        let _save_guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let snapshot = {
             let items = self.items.read().await;
             let mut snapshot = items.clone();
@@ -293,7 +289,7 @@ impl SubscriptionStore {
         };
 
         if let Some(snapshot) = snapshot {
-            self.commit(snapshot).await?;
+            self.commit(snapshot, save_guard).await?;
             Ok(true)
         } else {
             Ok(false)
@@ -310,7 +306,7 @@ impl SubscriptionStore {
 
     /// Reapply bounded history retention and rewrite the compact JSON envelope.
     pub async fn compact(&self) -> Result<usize> {
-        let _guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let mut snapshot = self.items.read().await.clone();
         let before: usize = snapshot
             .iter()
@@ -329,7 +325,7 @@ impl SubscriptionStore {
                     + item.previous_share_links.len()
             })
             .sum();
-        self.commit(snapshot).await?;
+        self.commit(snapshot, save_guard).await?;
         Ok(before.saturating_sub(after))
     }
 
@@ -367,7 +363,7 @@ impl SubscriptionStore {
         source_switch_history: usize,
         previous_share_links: usize,
     ) -> Result<usize> {
-        let _guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let mut snapshot = self.items.read().await.clone();
         let before = history_total(&snapshot);
         compact_subscription_histories(
@@ -375,7 +371,7 @@ impl SubscriptionStore {
             (check_history, source_switch_history, previous_share_links),
         );
         let after = history_total(&snapshot);
-        self.commit(snapshot).await?;
+        self.commit(snapshot, save_guard).await?;
         Ok(before.saturating_sub(after))
     }
 
@@ -496,6 +492,7 @@ mod tests {
     use super::*;
     use crate::models::Subscription;
     use crate::store::schema::migration_backup_path;
+    use crate::utils::write_gate::WriteGate;
 
     fn temp_path(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
@@ -946,6 +943,66 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    #[tokio::test]
+    async fn canceled_write_cannot_overwrite_a_later_commit() {
+        let path = temp_path("cancel-write");
+        let store = SubscriptionStore::new(&path);
+        let sub: Subscription = serde_json::from_value(serde_json::json!({
+            "id": "sub-cancel", "title": "original", "url": "https://pan.quark.cn/s/test",
+            "created_at": 1, "updated_at": 1, "last_checked_at": 1
+        }))
+        .unwrap();
+        store.create(sub).await.unwrap();
+
+        for fail in [false, true] {
+            let mut gate = WriteGate::arm(&path);
+            let writer = store.clone();
+            let first = tokio::spawn(async move {
+                writer
+                    .update("sub-cancel", |sub| sub.title = "first".into())
+                    .await
+            });
+            gate.wait().await;
+            first.abort();
+            assert!(first.await.unwrap_err().is_cancelled());
+            assert!(
+                store.save_lock.try_lock().is_err(),
+                "commit must retain its lock"
+            );
+            assert_ne!(store.get("sub-cancel").await.unwrap().title, "first");
+
+            let writer = store.clone();
+            let second = tokio::spawn(async move {
+                writer
+                    .update("sub-cancel", |sub| sub.url = "second".into())
+                    .await
+            });
+            if fail {
+                gate.fail();
+            } else {
+                drop(gate);
+            }
+            tokio::time::timeout(std::time::Duration::from_secs(10), second)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            let expected_title = if fail { "original" } else { "first" };
+            let reloaded = SubscriptionStore::new(&path);
+            reloaded.load().await.unwrap();
+            for snapshot in [&store, &reloaded] {
+                let sub = snapshot.get("sub-cancel").await.unwrap();
+                assert_eq!(sub.title, expected_title);
+                assert_eq!(sub.url, "second");
+            }
+            store
+                .update("sub-cancel", |sub| sub.title = "original".into())
+                .await
+                .unwrap();
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
     /// 逃生舱：显式设置 `ALLOW_QUARANTINE_STARTUP=true` 时允许以空数据启动，
     /// 便于"先把服务起来再手工修复"。
     #[tokio::test]
@@ -967,9 +1024,24 @@ mod tests {
         );
         assert_eq!(store.count().await, 0);
 
+        // Explicit consent must also work on subsequent starts after rename.
+        SubscriptionStore::new(&tmp).load().await.unwrap();
+
+        std::env::remove_var("ALLOW_QUARANTINE_STARTUP");
+        assert!(SubscriptionStore::new(&tmp).load().await.is_err());
+        // Restoring the original path resolves the block while retaining evidence.
+        std::fs::write(&tmp, b"[]").unwrap();
+        SubscriptionStore::new(&tmp).load().await.unwrap();
+
         match previous {
             Some(value) => std::env::set_var("ALLOW_QUARANTINE_STARTUP", value),
             None => std::env::remove_var("ALLOW_QUARANTINE_STARTUP"),
+        }
+        let prefix = tmp.file_name().unwrap().to_string_lossy().into_owned();
+        for entry in std::fs::read_dir(tmp.parent().unwrap()).unwrap().flatten() {
+            if entry.file_name().to_string_lossy().starts_with(&prefix) {
+                let _ = std::fs::remove_file(entry.path());
+            }
         }
     }
 }

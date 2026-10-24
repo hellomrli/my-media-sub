@@ -15,6 +15,23 @@
 
 可选的人类可读提示位于顶层 `message`；业务对象自身也可以包含业务 `message` 字段。
 
+### 资源搜索的部分完成状态
+
+`POST /api/search` 保持 `data` 为结果数组，另返回顶层字段：
+
+| 字段 | 含义 |
+|---|---|
+| `partial` | 请求了探测，但部分探测未完成（超时或任务异常） |
+| `timed_out` | 探测达到服务端总预算 |
+| `probed_count` | 已完成探测的资源数，包含探测结果为无效的项 |
+| `total_count` | PanSou 返回的资源数，过滤前计数 |
+
+搜索总预算为 50 秒，包含 PanSou 和探测阶段。PanSou 阶段超时返回错误；已经取得搜索
+结果但探测未完成时返回 HTTP 200、`partial: true` 和提示 `message`，不应展示为完整成功
+或“没有匹配”。`filter_bad=false` 会保留未完成探测的原始项（缺少 `probe_info`/`is_valid`
+代表未知，不能当成无效）；`filter_bad=true` 仅展示已确认有效项，即使 `data` 为空也可能
+仍有未完成探测的资源。关闭探测时 `partial`/`timed_out` 均为 false，`probed_count` 为 0。
+
 ## 2. JSON 错误响应
 
 业务错误、中间件拒绝和 Axum 框架请求拒绝统一为：

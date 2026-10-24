@@ -82,6 +82,11 @@
             </div>
           </section>
 
+          <section x-show="searchPartial && !searching" x-cloak class="app-panel p-4" role="status" aria-live="polite">
+            <p class="text-sm text-muted" x-text="searchWarning"></p>
+            <button @click="search()" :disabled="searching" class="btn-secondary mt-3">重新搜索</button>
+          </section>
+
           <section x-show="searchResults.length > 0" class="app-panel search-results-panel">
             <div class="search-results-toolbar">
               <div class="min-w-0">
@@ -197,7 +202,7 @@
             </div>
           </section>
 
-          <section x-show="searchHasRun && !searching && searchResults.length === 0" class="app-panel search-empty-state">
+          <section x-show="searchHasRun && !searching && !searchPartial && searchResults.length === 0" class="app-panel search-empty-state">
             <div class="search-empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" d="M21 21l-5-5m2-6a8 8 0 11-16 0 8 8 0 0116 0zM8 10h4"/></svg></div>
             <h3>没有找到可用资源</h3>
             <p>尝试减少版本关键词、关闭失效过滤，或仅使用片名重新搜索。</p>

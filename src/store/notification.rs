@@ -1,18 +1,22 @@
 use crate::error::{AppError, Result};
 use crate::models::Notification;
+use crate::store::commit::finish_commit;
+use crate::store::schema::ensure_store_can_initialize;
 use crate::store::schema::{
     backup_store_before_migration, decode_store_json, write_versioned_json_atomic_async, StoreKind,
     StoreSchemaError,
 };
 use crate::utils::{quarantine_corrupt_file, set_file_mode};
 use std::path::PathBuf;
-use tokio::sync::{Mutex, RwLock};
+use std::sync::Arc;
+use tokio::sync::{Mutex, OwnedMutexGuard, RwLock};
 
 /// 通知存储（JSON 文件，保留最近 300 条，原子写入）
+#[derive(Clone)]
 pub struct NotificationStore {
     path: PathBuf,
-    items: RwLock<Vec<Notification>>,
-    save_lock: Mutex<()>,
+    items: Arc<RwLock<Vec<Notification>>>,
+    save_lock: Arc<Mutex<()>>,
 }
 
 const MAX_NOTIFICATIONS: usize = 300;
@@ -21,14 +25,21 @@ impl NotificationStore {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
             path: path.into(),
-            items: RwLock::new(Vec::new()),
-            save_lock: Mutex::new(()),
+            items: Arc::new(RwLock::new(Vec::new())),
+            save_lock: Arc::new(Mutex::new(())),
         }
     }
 
     pub async fn load(&self) -> Result<()> {
+        let guard = self.save_lock.clone().lock_owned().await;
+        let store = self.clone();
+        finish_commit(guard, async move { store.load_locked().await }).await
+    }
+
+    async fn load_locked(&self) -> Result<()> {
         let mut items = self.items.write().await;
         if !self.path.exists() {
+            ensure_store_can_initialize(&self.path, StoreKind::Notifications)?;
             *items = Vec::new();
             return Ok(());
         }
@@ -71,28 +82,20 @@ impl NotificationStore {
         write_versioned_json_atomic_async(&self.path, &items, 0o600).await
     }
 
-    /// 提交一份新快照：**先更新内存，再落盘**，失败时回滚内存。
-    ///
-    /// 写入是「整份快照 + spawn_blocking 落盘 + 更新内存」两步，而 spawn_blocking
-    /// **不可取消**：外层 future 被 abort 时磁盘可能已写完，但内存更新永远不执行。
-    /// 旧顺序（先落盘）会留下「磁盘新、内存旧」，下一次写盘把新数据整份覆盖——
-    /// 静默丢失。新顺序只会留下「内存比磁盘新」，下一次写盘自然收敛；
-    /// 落盘失败时这里回滚内存，保持两者一致。
-    async fn commit(&self, snapshot: Vec<Notification>) -> Result<()> {
-        let previous = self.items.read().await.clone();
-        *self.items.write().await = snapshot.clone();
-        match self.save(&snapshot).await {
-            Ok(()) => Ok(()),
-            Err(error) => {
-                *self.items.write().await = previous;
-                Err(error)
-            }
-        }
+    /// Persist and publish a snapshot while retaining the lock through cancellation.
+    async fn commit(&self, snapshot: Vec<Notification>, guard: OwnedMutexGuard<()>) -> Result<()> {
+        let store = self.clone();
+        finish_commit(guard, async move {
+            store.save(&snapshot).await?;
+            *store.items.write().await = snapshot;
+            Ok(())
+        })
+        .await
     }
 
     /// 添加通知
     pub async fn add(&self, notif: Notification) -> Result<Notification> {
-        let _save_guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let snapshot = {
             let items = self.items.read().await;
             let mut snapshot = items.clone();
@@ -100,7 +103,7 @@ impl NotificationStore {
             truncate_notifications(&mut snapshot);
             snapshot
         };
-        self.commit(snapshot).await?;
+        self.commit(snapshot, save_guard).await?;
         Ok(notif)
     }
 
@@ -108,7 +111,7 @@ impl NotificationStore {
     where
         F: FnOnce(&mut Notification),
     {
-        let _save_guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let updated = {
             let items = self.items.read().await;
             let mut snapshot = items.clone();
@@ -122,7 +125,7 @@ impl NotificationStore {
         };
 
         if let Some((updated, snapshot)) = updated {
-            self.commit(snapshot).await?;
+            self.commit(snapshot, save_guard).await?;
             Ok(Some(updated))
         } else {
             Ok(None)
@@ -142,7 +145,7 @@ impl NotificationStore {
 
     /// 标记已读（None 表示全部）
     pub async fn mark_read(&self, id: Option<&str>) -> Result<()> {
-        let _save_guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let snapshot = {
             let items = self.items.read().await;
             let mut snapshot = items.clone();
@@ -153,7 +156,7 @@ impl NotificationStore {
             }
             snapshot
         };
-        self.commit(snapshot).await?;
+        self.commit(snapshot, save_guard).await?;
         Ok(())
     }
 
@@ -162,7 +165,7 @@ impl NotificationStore {
     }
 
     pub async fn compact_to(&self, retain: usize) -> Result<usize> {
-        let _guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let mut snapshot = self.items.read().await.clone();
         let before = snapshot.len();
         if snapshot.len() > retain {
@@ -171,24 +174,25 @@ impl NotificationStore {
         }
         // commit 会消费 snapshot，因此先算好返回值。
         let removed = before.saturating_sub(snapshot.len());
-        self.commit(snapshot).await?;
+        self.commit(snapshot, save_guard).await?;
         Ok(removed)
     }
 
     pub async fn compact(&self) -> Result<usize> {
-        let _guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let mut snapshot = self.items.read().await.clone();
         let before = snapshot.len();
         truncate_notifications(&mut snapshot);
-        self.commit(snapshot).await?;
-        Ok(before.saturating_sub(self.items.read().await.len()))
+        let removed = before.saturating_sub(snapshot.len());
+        self.commit(snapshot, save_guard).await?;
+        Ok(removed)
     }
 
     /// 清空所有通知
     pub async fn clear(&self) -> Result<()> {
-        let _save_guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let snapshot = Vec::new();
-        self.commit(snapshot).await?;
+        self.commit(snapshot, save_guard).await?;
         Ok(())
     }
 
@@ -220,7 +224,7 @@ impl NotificationStore {
     }
 
     pub async fn take_digest_pending(&self) -> Result<Vec<Notification>> {
-        let _guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let (taken, snapshot) = {
             let items = self.items.read().await;
             let mut snapshot = items.clone();
@@ -244,7 +248,7 @@ impl NotificationStore {
             (taken, snapshot)
         };
         if !taken.is_empty() {
-            self.commit(snapshot).await?;
+            self.commit(snapshot, save_guard).await?;
         }
         Ok(taken)
     }
@@ -255,7 +259,7 @@ impl NotificationStore {
         if ids.is_empty() {
             return Ok(());
         }
-        let _guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let (restored, snapshot) = {
             let items = self.items.read().await;
             let mut snapshot = items.clone();
@@ -271,7 +275,7 @@ impl NotificationStore {
             (restored, snapshot)
         };
         if restored > 0 {
-            self.commit(snapshot).await?;
+            self.commit(snapshot, save_guard).await?;
         }
         Ok(())
     }
@@ -299,6 +303,7 @@ fn configured_notification_retention() -> usize {
 mod tests {
     use super::*;
     use crate::store::schema::migration_backup_path;
+    use crate::utils::write_gate::WriteGate;
     use std::collections::HashMap;
 
     fn temp_path(name: &str) -> PathBuf {
@@ -307,6 +312,30 @@ mod tests {
             name,
             uuid::Uuid::new_v4()
         ))
+    }
+
+    #[tokio::test]
+    async fn canceled_notification_commit_preserves_later_updates() {
+        let path = temp_path("notification-cancel");
+        let store = NotificationStore::new(&path);
+        let mut gate = WriteGate::arm(&path);
+        let writer = store.clone();
+        let first = tokio::spawn(async move { writer.add(make_notif("first", false)).await });
+        gate.wait().await;
+        first.abort();
+        assert!(first.await.unwrap_err().is_cancelled());
+        assert!(store.save_lock.try_lock().is_err());
+        let writer = store.clone();
+        let second = tokio::spawn(async move { writer.mark_read(Some("first")).await });
+        drop(gate);
+        second.await.unwrap().unwrap();
+        let reloaded = NotificationStore::new(&path);
+        reloaded.load().await.unwrap();
+        let items = reloaded.list(true).await;
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].id, "first");
+        assert!(items[0].read);
+        std::fs::remove_file(path).unwrap();
     }
 
     fn make_notif(id: &str, read: bool) -> Notification {
@@ -554,10 +583,10 @@ mod tests {
     #[tokio::test]
     async fn add_keeps_notifications_unchanged_when_save_fails() {
         let blocker = temp_path("notif-save-blocker");
-        std::fs::write(&blocker, b"not-a-directory").unwrap();
         let path = blocker.join("notifications.json");
         let store = NotificationStore::new(&path);
         store.load().await.unwrap();
+        std::fs::write(&blocker, b"not-a-directory").unwrap();
 
         let result = store.add(make_notif("should-not-stick", false)).await;
 

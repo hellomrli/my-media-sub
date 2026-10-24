@@ -419,7 +419,7 @@ async fn notify_quarantined_store_files(
     }
     quarantined.sort();
     tracing::error!(
-        "检测到 {} 个被隔离的损坏数据文件（对应 Store 正以空数据运行）: {}",
+        "检测到 {} 个历史损坏数据隔离文件，请核对恢复状态: {}",
         quarantined.len(),
         quarantined.join(", ")
     );
@@ -443,7 +443,7 @@ async fn notify_quarantined_store_files(
         "store_file_quarantined",
         "检测到损坏的数据文件已被隔离",
         format!(
-            "以下数据文件解析失败被隔离，对应数据当前为空：{}。请核对备份确认无数据丢失，处理后清理隔离文件。",
+            "以下数据文件曾因解析失败被隔离：{}。隔离副本可能来自此前已完成的恢复；请核对当前数据和备份，确认后再清理。",
             quarantined.join("、")
         ),
         meta,

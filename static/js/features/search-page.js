@@ -22,6 +22,8 @@
     searchSort: 'quality',
     searchResultFilter: 'all',
     searchHasRun: false,
+    searchPartial: false,
+    searchWarning: '',
     selectedSearchResult: null,
     showSearchResultPreview: false,
 
@@ -100,6 +102,8 @@
       this.searching = true;
       this.searchResults = [];
       this.searchHasRun = false;
+      this.searchPartial = false;
+      this.searchWarning = '';
       this.closeSearchResultPreview();
       this.setSearchProgress(8, '提交搜索请求', '正在连接资源搜索服务');
       this.startSearchProgressTimer();
@@ -137,8 +141,19 @@
         this.searchResults = (data.data || []).map(result => this.prepareSearchResult(result));
         this.searchHasRun = true;
         this.searchResultFilter = 'all';
+        this.searchPartial = data.partial === true || data.timed_out === true;
 
-        if (this.searchResults.length > 0) {
+        if (this.searchPartial) {
+          const reason = data.timed_out === true ? '资源探测超时' : '部分资源探测未完成';
+          const counts = Number.isInteger(data.probed_count) && Number.isInteger(data.total_count)
+            ? `，已探测 ${data.probed_count}/${data.total_count} 条` : '';
+          const retained = this.searchOptions.filterBad
+            ? '当前仅展示已确认有效的资源，未完成探测的资源暂未展示。'
+            : '已保留未完成探测的资源，其有效性未知。';
+          this.searchWarning = `${reason}${counts}。${retained}可重试，或关闭嗅探与失效过滤后搜索。`;
+          this.setSearchProgress(100, '探测未完成', this.searchWarning);
+          this.showNotification('warning', this.searchWarning);
+        } else if (this.searchResults.length > 0) {
           this.setSearchProgress(100, '搜索完成', `找到 ${this.searchResults.length} 个结果`);
           let suffix = '个结果';
           if (this.searchOptions.filterBad) {

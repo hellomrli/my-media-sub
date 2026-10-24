@@ -6,6 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::error::{AppError, Result};
 
 pub mod metrics;
+#[cfg(test)]
+pub(crate) mod write_gate;
 
 pub fn unix_now() -> i64 {
     SystemTime::now()
@@ -44,6 +46,8 @@ pub fn write_file_atomic(path: &Path, content: &[u8], mode: u32) -> Result<()> {
             .map_err(|e| AppError::Database(format!("同步临时文件失败: {}", e)))?;
         drop(file);
 
+        #[cfg(test)]
+        write_gate::before_rename(path)?;
         fs::rename(&tmp, path)
             .map_err(|e| AppError::Database(format!("重命名临时文件失败: {}", e)))?;
         sync_parent_dir(path)?;

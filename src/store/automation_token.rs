@@ -1,7 +1,10 @@
+use crate::store::commit::finish_commit;
+use crate::store::schema::ensure_store_can_initialize;
 use ring::digest::{digest, SHA256};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tokio::sync::{Mutex, RwLock};
+use std::sync::Arc;
+use tokio::sync::{Mutex, OwnedMutexGuard, RwLock};
 
 use crate::error::{AppError, Result};
 use crate::store::schema::{decode_store_json, write_versioned_json_atomic_async, StoreKind};
@@ -42,23 +45,31 @@ pub struct AutomationTokenStatus {
     pub revoked_at: Option<i64>,
 }
 
+#[derive(Clone)]
 pub struct AutomationTokenStore {
     path: PathBuf,
-    record: RwLock<Option<AutomationTokenRecord>>,
-    save_lock: Mutex<()>,
+    record: Arc<RwLock<Option<AutomationTokenRecord>>>,
+    save_lock: Arc<Mutex<()>>,
 }
 
 impl AutomationTokenStore {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
             path: path.into(),
-            record: RwLock::new(None),
-            save_lock: Mutex::new(()),
+            record: Arc::new(RwLock::new(None)),
+            save_lock: Arc::new(Mutex::new(())),
         }
     }
 
     pub async fn load(&self) -> Result<()> {
+        let guard = self.save_lock.clone().lock_owned().await;
+        let store = self.clone();
+        finish_commit(guard, async move { store.load_locked().await }).await
+    }
+
+    async fn load_locked(&self) -> Result<()> {
         if !self.path.exists() {
+            ensure_store_can_initialize(&self.path, StoreKind::AutomationToken)?;
             return Ok(());
         }
         let bytes = std::fs::read(&self.path)
@@ -74,7 +85,6 @@ impl AutomationTokenStore {
         let needs_write = decoded.needs_write;
         *self.record.write().await = Some(decoded.data);
         if needs_write {
-            let _guard = self.save_lock.lock().await;
             if let Some(record) = self.record.read().await.clone() {
                 self.save_locked(&record).await?;
             }
@@ -129,25 +139,24 @@ impl AutomationTokenStore {
         // 持锁覆盖「落盘 + 内存更新」整个区间，避免与 authenticate 的
         // 读-改-写交错：否则 authenticate 可能把旧记录（含 last_used_at）
         // 覆写回盘，新 token 在重启后凭空消失。
-        let _guard = self.save_lock.lock().await;
-        self.commit_locked(record).await?;
-        Ok((token, self.status().await))
+        let save_guard = self.save_lock.clone().lock_owned().await;
+        let status = self.commit_locked(record, save_guard).await?;
+        Ok((token, status))
     }
 
     pub async fn revoke(&self) -> Result<AutomationTokenStatus> {
-        let _guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let Some(mut record) = self.record.read().await.clone() else {
             return Err(AppError::NotFound("尚未配置自动化 Token".into()));
         };
         record.revoked_at = Some(unix_now());
-        self.commit_locked(record).await?;
-        Ok(self.status().await)
+        self.commit_locked(record, save_guard).await
     }
 
     pub async fn authenticate(&self, token: &str, required_scope: &str) -> bool {
         // 持锁覆盖整个读-改-写，与 rotate/revoke 串行化，避免写回旧记录
         // 覆盖新轮换的 token。
-        let _guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let Some(mut record) = self.record.read().await.clone() else {
             return false;
         };
@@ -164,31 +173,23 @@ impl AutomationTokenStore {
             .is_none_or(|last| now.saturating_sub(last) >= 60)
         {
             record.last_used_at = Some(now);
-            if self.save_locked(&record).await.is_ok() {
-                *self.record.write().await = Some(record);
-            }
+            let _ = self.commit_locked(record, save_guard).await;
         }
         true
     }
 
-    /// 在持有 save_lock 的前提下落盘（阻塞的 fsync/rename 放到 spawn_blocking）。
-    /// 提交参数记录：**先更新内存，再落盘**，失败时回滚内存。调用方须已持
-    /// `save_lock`。
-    ///
-    /// 理由同 `SubscriptionStore::commit`：落盘走 spawn_blocking 不可取消，
-    /// 「先落盘再改内存」在 future 被 abort（例如撤销请求被中断）时会留下
-    /// 「磁盘已撤销、内存仍有效」，而内存是鉴权时读取的来源，下一次
-    /// `authenticate` 的写回会把撤销状态覆盖掉——**撤销静默失效**。
-    async fn commit_locked(&self, record: AutomationTokenRecord) -> Result<()> {
-        let previous = self.record.read().await.clone();
-        *self.record.write().await = Some(record.clone());
-        match self.save_locked(&record).await {
-            Ok(()) => Ok(()),
-            Err(error) => {
-                *self.record.write().await = previous;
-                Err(error)
-            }
-        }
+    async fn commit_locked(
+        &self,
+        record: AutomationTokenRecord,
+        guard: OwnedMutexGuard<()>,
+    ) -> Result<AutomationTokenStatus> {
+        let store = self.clone();
+        finish_commit(guard, async move {
+            store.save_locked(&record).await?;
+            *store.record.write().await = Some(record);
+            Ok(store.status().await)
+        })
+        .await
     }
 
     async fn save_locked(&self, record: &AutomationTokenRecord) -> Result<()> {
@@ -222,6 +223,31 @@ fn scope_allows(scopes: &[String], required: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::write_gate::WriteGate;
+
+    #[tokio::test]
+    async fn canceled_revocation_cannot_be_undone_by_authentication() {
+        let path = std::env::temp_dir().join(format!("token-cancel-{}.json", uuid::Uuid::new_v4()));
+        let store = AutomationTokenStore::new(&path);
+        let (token, _) = store.rotate(vec!["read".into()], None).await.unwrap();
+        let mut gate = WriteGate::arm(&path);
+        let writer = store.clone();
+        let revoke = tokio::spawn(async move { writer.revoke().await });
+        gate.wait().await;
+        revoke.abort();
+        assert!(revoke.await.unwrap_err().is_cancelled());
+        assert!(store.save_lock.try_lock().is_err());
+        let reader = store.clone();
+        let credential = token.clone();
+        let auth = tokio::spawn(async move { reader.authenticate(&credential, "read").await });
+        drop(gate);
+        assert!(!auth.await.unwrap());
+        let reloaded = AutomationTokenStore::new(&path);
+        reloaded.load().await.unwrap();
+        assert!(!reloaded.authenticate(&token, "read").await);
+        assert!(reloaded.status().await.revoked_at.is_some());
+        std::fs::remove_file(path).unwrap();
+    }
 
     /// 回归测试：`read` 不得隐式满足任何 `*:read` scope。
     ///

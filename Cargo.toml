@@ -1,6 +1,6 @@
 [package]
 name = "my-media-sub"
-version = "2.7.5"
+version = "2.7.6"
 edition = "2021"
 # MSRV。取依赖图与本仓库 API 下限的较大者：
 #   - 依赖图：uuid 1.27 声明 1.89，ICU 2.3（经 idna → url → reqwest）声明 1.88；

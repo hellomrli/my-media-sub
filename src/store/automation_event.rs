@@ -1,7 +1,10 @@
+use crate::store::commit::finish_commit;
+use crate::store::schema::ensure_store_can_initialize;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, OwnedMutexGuard, RwLock};
 
 use crate::error::{AppError, Result};
 use crate::models::{AutomationEvent, AutomationStatus};
@@ -20,25 +23,33 @@ struct EventIndexes {
     jobs: HashMap<String, Vec<String>>,
 }
 
+#[derive(Clone)]
 pub struct AutomationEventStore {
     path: PathBuf,
-    items: RwLock<Vec<AutomationEvent>>,
-    indexes: RwLock<EventIndexes>,
-    save_lock: Mutex<()>,
+    items: Arc<RwLock<Vec<AutomationEvent>>>,
+    indexes: Arc<RwLock<EventIndexes>>,
+    save_lock: Arc<Mutex<()>>,
 }
 
 impl AutomationEventStore {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
             path: path.into(),
-            items: RwLock::new(Vec::new()),
-            indexes: RwLock::new(EventIndexes::default()),
-            save_lock: Mutex::new(()),
+            items: Arc::new(RwLock::new(Vec::new())),
+            indexes: Arc::new(RwLock::new(EventIndexes::default())),
+            save_lock: Arc::new(Mutex::new(())),
         }
     }
 
     pub async fn load(&self) -> Result<()> {
+        let guard = self.save_lock.clone().lock_owned().await;
+        let store = self.clone();
+        finish_commit(guard, async move { store.load_locked().await }).await
+    }
+
+    async fn load_locked(&self) -> Result<()> {
         if !self.path.exists() {
+            ensure_store_can_initialize(&self.path, StoreKind::AutomationEvents)?;
             self.replace_memory(Vec::new()).await;
             return Ok(());
         }
@@ -79,7 +90,7 @@ impl AutomationEventStore {
     }
 
     pub async fn add(&self, event: AutomationEvent) -> Result<AutomationEvent> {
-        let _guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let snapshot = {
             let items = self.items.read().await;
             if let Some(existing) = items.iter().find(|item| item.id == event.id) {
@@ -90,12 +101,12 @@ impl AutomationEventStore {
             prune_events(&mut snapshot, unix_now());
             snapshot
         };
-        self.commit(snapshot).await?;
+        self.commit(snapshot, save_guard).await?;
         Ok(event)
     }
 
     pub async fn upsert(&self, mut event: AutomationEvent) -> Result<AutomationEvent> {
-        let _guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let snapshot = {
             let items = self.items.read().await;
             let mut snapshot = items.clone();
@@ -125,7 +136,7 @@ impl AutomationEventStore {
             prune_events(&mut snapshot, unix_now());
             snapshot
         };
-        self.commit(snapshot).await?;
+        self.commit(snapshot, save_guard).await?;
         Ok(event)
     }
 
@@ -228,7 +239,7 @@ impl AutomationEventStore {
         failed_days: u64,
         max_events: usize,
     ) -> Result<usize> {
-        let _guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let mut snapshot = self.items.read().await.clone();
         let before = snapshot.len();
         prune_events_with_policy(
@@ -239,17 +250,17 @@ impl AutomationEventStore {
             max_events,
         );
         let removed = before.saturating_sub(snapshot.len());
-        self.commit(snapshot).await?;
+        self.commit(snapshot, save_guard).await?;
         Ok(removed)
     }
 
     pub async fn compact(&self) -> Result<usize> {
-        let _guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let mut snapshot = self.items.read().await.clone();
         let before = snapshot.len();
         prune_events(&mut snapshot, unix_now());
         let removed = before.saturating_sub(snapshot.len());
-        self.commit(snapshot).await?;
+        self.commit(snapshot, save_guard).await?;
         Ok(removed)
     }
 
@@ -261,22 +272,19 @@ impl AutomationEventStore {
         *current_indexes = indexes;
     }
 
-    /// 提交一份新快照：**先更新内存，再落盘**，失败时回滚内存。
-    ///
-    /// 理由同 `SubscriptionStore::commit`：落盘用的 `spawn_blocking` 不可取消，
-    /// 外层 future 被 abort 时「先落盘再改内存」会留下「磁盘新、内存旧」，
-    /// 下一次写盘整份覆盖已落盘的数据造成静默丢失。新顺序只会留下
-    /// 「内存比磁盘新」，下次写盘自然收敛；落盘失败时回滚内存保持一致。
-    async fn commit(&self, snapshot: Vec<AutomationEvent>) -> Result<()> {
-        let previous = self.items.read().await.clone();
-        self.replace_memory(snapshot.clone()).await;
-        match self.save(&snapshot).await {
-            Ok(()) => Ok(()),
-            Err(error) => {
-                self.replace_memory(previous).await;
-                Err(error)
-            }
-        }
+    /// Persist and publish a snapshot while retaining the lock through cancellation.
+    async fn commit(
+        &self,
+        snapshot: Vec<AutomationEvent>,
+        guard: OwnedMutexGuard<()>,
+    ) -> Result<()> {
+        let store = self.clone();
+        finish_commit(guard, async move {
+            store.save(&snapshot).await?;
+            store.replace_memory(snapshot).await;
+            Ok(())
+        })
+        .await
     }
 }
 
@@ -361,6 +369,42 @@ fn configured_u64(key: &str, default: u64, min: u64, max: u64) -> u64 {
 mod tests {
     use super::*;
     use crate::models::{AutomationStage, AutomationStatus};
+    use crate::utils::write_gate::WriteGate;
+
+    #[tokio::test]
+    async fn canceled_event_commit_preserves_indexes_and_next_update() {
+        let path =
+            std::env::temp_dir().join(format!("events-cancel-{}.json", uuid::Uuid::new_v4()));
+        let store = AutomationEventStore::new(&path);
+        let mut gate = WriteGate::arm(&path);
+        let writer = store.clone();
+        let first = tokio::spawn(async move {
+            writer
+                .add(event("first", AutomationStatus::Running, unix_now()))
+                .await
+        });
+        gate.wait().await;
+        first.abort();
+        assert!(first.await.unwrap_err().is_cancelled());
+        assert!(store.save_lock.try_lock().is_err());
+        let writer = store.clone();
+        let second = tokio::spawn(async move {
+            writer
+                .upsert(event("first", AutomationStatus::Succeeded, unix_now()))
+                .await
+        });
+        drop(gate);
+        second.await.unwrap().unwrap();
+        let reloaded = AutomationEventStore::new(&path);
+        reloaded.load().await.unwrap();
+        assert_eq!(
+            reloaded.get("first").await.unwrap().status,
+            AutomationStatus::Succeeded
+        );
+        assert_eq!(reloaded.list_by_subscription("sub", 10).await.len(), 1);
+        assert_eq!(reloaded.list_by_job("job", 10).await.len(), 1);
+        std::fs::remove_file(path).unwrap();
+    }
 
     fn event(id: &str, status: AutomationStatus, now: i64) -> AutomationEvent {
         let mut event =

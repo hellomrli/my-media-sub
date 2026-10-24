@@ -1,5 +1,6 @@
 pub mod automation_event;
 pub mod automation_token;
+pub(crate) mod commit;
 pub mod notification;
 pub mod schema;
 pub mod settings;

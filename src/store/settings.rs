@@ -1,5 +1,7 @@
 use crate::error::{AppError, Result};
 use crate::models::{settings::normalize_check_interval_minutes, Settings};
+use crate::store::commit::finish_commit;
+use crate::store::schema::ensure_store_can_initialize;
 use crate::store::schema::{
     backup_store_before_migration, decode_store_json, write_versioned_json_atomic_async, StoreKind,
     StoreSchemaError,
@@ -9,6 +11,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use p256::elliptic_curve::sec1::ToSec1Point;
 use p256::elliptic_curve::Generate;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 
 /// 受保护的密钥字段（public() 视图中会被脱敏）
@@ -38,10 +41,11 @@ pub const SECRET_KEYS: &[&str] = &[
 pub const SUPPORTED_CLOUD_TYPES: &[&str] = &["quark"];
 
 /// 设置存储（单个 JSON 对象，原子写入）
+#[derive(Clone)]
 pub struct SettingsStore {
     path: PathBuf,
-    settings: RwLock<Settings>,
-    save_lock: Mutex<()>,
+    settings: Arc<RwLock<Settings>>,
+    save_lock: Arc<Mutex<()>>,
 }
 
 fn ensure_telegram_webhook_secrets(settings: &mut Settings) -> bool {
@@ -78,15 +82,22 @@ impl SettingsStore {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
             path: path.into(),
-            settings: RwLock::new(Settings::default()),
-            save_lock: Mutex::new(()),
+            settings: Arc::new(RwLock::new(Settings::default())),
+            save_lock: Arc::new(Mutex::new(())),
         }
     }
 
     /// 从文件加载（不存在则写入默认值）
     pub async fn load(&self) -> Result<()> {
+        let guard = self.save_lock.clone().lock_owned().await;
+        let store = self.clone();
+        finish_commit(guard, async move { store.load_locked().await }).await
+    }
+
+    async fn load_locked(&self) -> Result<()> {
         let mut settings = self.settings.write().await;
         if !self.path.exists() {
+            ensure_store_can_initialize(&self.path, StoreKind::Settings)?;
             ensure_browser_push_keys(&mut settings)?;
             ensure_telegram_webhook_secrets(&mut settings);
             self.write_to_disk(&settings).await?;
@@ -105,10 +116,14 @@ impl SettingsStore {
             }
             Err(error) => {
                 tracing::error!("设置文件解析失败，已隔离损坏文件并停止启动: {}", error);
-                quarantine_corrupt_file(&self.path);
-                return Err(AppError::Database(
-                    "设置文件解析失败，已隔离损坏文件；请检查配置后重启".to_string(),
-                ));
+                let quarantined = quarantine_corrupt_file(&self.path);
+                let hint = quarantined
+                    .map(|path| format!("已隔离到 {}", path.display()))
+                    .unwrap_or_else(|| "隔离失败，原始文件未移走".into());
+                return Err(AppError::Database(format!(
+                    "设置文件解析失败，{hint}；请修复或恢复 {} 后重启。解析错误：{error}",
+                    self.path.display()
+                )));
             }
         };
         backup_store_before_migration(&self.path, &content, decoded.source_version)?;
@@ -127,9 +142,14 @@ impl SettingsStore {
     }
 
     pub async fn compact(&self) -> Result<()> {
-        let _guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let settings = self.settings.read().await.clone();
-        self.write_to_disk(&settings).await
+        let store = self.clone();
+        finish_commit(
+            save_guard,
+            async move { store.write_to_disk(&settings).await },
+        )
+        .await
     }
 
     /// 获取完整设置（含密钥，仅内部使用）
@@ -142,7 +162,7 @@ impl SettingsStore {
     where
         F: FnOnce(&mut Settings),
     {
-        let _save_guard = self.save_lock.lock().await;
+        let save_guard = self.save_lock.clone().lock_owned().await;
         let updated = {
             let settings = self.settings.read().await;
             let mut settings = settings.clone();
@@ -182,17 +202,13 @@ impl SettingsStore {
             }
             settings
         };
-        // 先更新内存再落盘：落盘走 spawn_blocking 不可取消，future 被 abort 时
-        // 「先落盘」会留下「磁盘新、内存旧」，下一次写盘整份覆盖已落盘的数据。
-        // 反过来只会留下「内存比磁盘新」，下次写盘自然收敛；失败时回滚内存。
-        // 见 `SubscriptionStore::commit` 的完整说明。
-        let previous = self.settings.read().await.clone();
-        *self.settings.write().await = updated.clone();
-        if let Err(error) = self.write_to_disk(&updated).await {
-            *self.settings.write().await = previous;
-            return Err(error);
-        }
-        Ok(updated)
+        let store = self.clone();
+        finish_commit(save_guard, async move {
+            store.write_to_disk(&updated).await?;
+            *store.settings.write().await = updated.clone();
+            Ok(updated)
+        })
+        .await
     }
 }
 
@@ -200,6 +216,7 @@ impl SettingsStore {
 mod tests {
     use super::*;
     use crate::store::schema::migration_backup_path;
+    use crate::utils::write_gate::WriteGate;
 
     fn temp_path(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
@@ -207,6 +224,37 @@ mod tests {
             name,
             uuid::Uuid::new_v4()
         ))
+    }
+
+    #[tokio::test]
+    async fn canceled_settings_write_finishes_before_next_update() {
+        let path = temp_path("cancel-settings");
+        let store = SettingsStore::new(&path);
+        store.load().await.unwrap();
+        let mut gate = WriteGate::arm(&path);
+        let writer = store.clone();
+        let first = tokio::spawn(async move {
+            writer
+                .update(|settings| settings.app_username = "first".into())
+                .await
+        });
+        gate.wait().await;
+        first.abort();
+        assert!(first.await.unwrap_err().is_cancelled());
+        assert!(store.save_lock.try_lock().is_err());
+        let writer = store.clone();
+        let second = tokio::spawn(async move {
+            writer
+                .update(|settings| settings.app_username = "second".into())
+                .await
+        });
+        drop(gate);
+        second.await.unwrap().unwrap();
+        let reloaded = SettingsStore::new(&path);
+        reloaded.load().await.unwrap();
+        assert_eq!(store.get().await.app_username, "second");
+        assert_eq!(reloaded.get().await.app_username, "second");
+        std::fs::remove_file(path).unwrap();
     }
 
     #[cfg(unix)]

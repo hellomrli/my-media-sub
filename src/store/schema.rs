@@ -5,7 +5,9 @@ use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
 use crate::error::{AppError, Result};
-use crate::utils::{set_file_mode, write_file_atomic, write_json_atomic_async};
+use crate::utils::{
+    ensure_quarantine_startup_allowed, set_file_mode, write_file_atomic, write_json_atomic_async,
+};
 
 /// 当前 Store 信封的 schema 版本。
 ///
@@ -166,6 +168,51 @@ pub fn migration_backup_path(path: &Path, source_version: u32) -> PathBuf {
         .and_then(|name| name.to_str())
         .unwrap_or("store.json");
     path.with_file_name(format!("{}.schema-v{}.bak", file_name, source_version))
+}
+
+/// A missing file with a quarantine sibling is not a fresh installation.
+/// Restoring a valid file resolves the block without deleting forensic copies.
+pub fn ensure_store_can_initialize(path: &Path, kind: StoreKind) -> Result<()> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let entries = match std::fs::read_dir(parent) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(AppError::Database(format!(
+                "Cannot inspect store quarantine: {error}"
+            )))
+        }
+    };
+    let Some(name) = path.file_name() else {
+        return Ok(());
+    };
+    let prefix = format!("{}.corrupt-", name.to_string_lossy());
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            AppError::Database(format!("Cannot inspect store quarantine: {error}"))
+        })?;
+        if entry.file_name().to_string_lossy().starts_with(&prefix) {
+            let quarantined = entry.path();
+            // Settings contain credentials and keys; never silently regenerate them.
+            if matches!(kind, StoreKind::Settings) {
+                return Err(AppError::Database(format!(
+                    "设置文件缺失，存在未恢复的隔离文件 {}；请修复或恢复 {} 后重启",
+                    quarantined.display(),
+                    path.display()
+                )));
+            }
+            return ensure_quarantine_startup_allowed(
+                &kind.to_string(),
+                path,
+                Some(&quarantined),
+                "原文件缺失，损坏文件尚未恢复",
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Preserve the exact pre-migration bytes once before rewriting a store.
