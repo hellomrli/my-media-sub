@@ -273,6 +273,13 @@ cargo build --release --locked
 
 ## 版本说明
 
+### 2.7.5
+
+- **修复资源搜索超时**：搜索结果探测改为最多 8 路并发，并增加 60 秒服务端总预算；达到预算时返回已经完成的部分结果，不再撞前端 120 秒超时。50 条结果的“嗅探文件 + 过滤失效”实测从 114.6 秒降到 15.9 秒。
+- **依赖安全**：修复 4 条 RustSec 公告——`tokio` 1.53.3（RUSTSEC-2026-0386）、`rustls-webpki` 0.103.16（0382）、`webpki-roots` 1.0.11（0381），并将 `p256` 升级到 0.14.0，带入 `crypto-bigint 0.7.6`（0387）；审计继续保持零例外。
+- **构建可复现**：Docker 构建阶段固定为 `rust:1.97.0-bookworm`，与 `rust-toolchain.toml` 的 1.97.0 对齐。
+- **升级说明**：不改变 API 或 JSON Store schema，可直接复用 v2.7.4 的 `data/`；前端资源与 PWA 缓存代次同步更新到 2.7.5。`p256` 迁移只涉及随机源与 SEC1 编码接口，RFC 8291 向量回归通过；真实浏览器推送建议升级后手工验证一次。
+
 ### 2.7.4
 
 - **依赖维护**：更新 `tokio` 至 1.53.2、`libc` 至 0.2.190、`uuid` 至 1.27.0、`base64` 至 0.23.1、`tower-http` 至 0.7.1、`tokio-cron-scheduler` 至 0.15.1，包含运行时同步与计时器、文件服务和时区处理修复；GitHub Actions 的 `actions/checkout` 更新至 v7。
@@ -305,7 +312,7 @@ cargo build --release --locked
 - 切换季度后按新季重算进度，不再沿用旧季完结记录；详情与日历按选中季度分别展示。
 - 季度探测按链接与密码标识在途请求，快速切换时旧结果不会覆盖当前编辑器。
 
-- 当前版本：[v2.7.4 升级指南](docs/upgrade-v2.7.4.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
+- 当前版本：[v2.7.5 升级指南](docs/upgrade-v2.7.5.md) · 完整变更见 [CHANGELOG.md](CHANGELOG.md)
 
 各版本升级步骤在 `docs/upgrade-v*.md`。
 

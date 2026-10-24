@@ -4,6 +4,26 @@ My Media Sub 的版本变更记录。新版本写在上方。
 
 升级步骤见对应的 [`docs/upgrade-v*.md`](docs/)；当前版本发布说明摘要也写在 [`README.md`](README.md) 的「版本说明」中。
 
+## 2.7.5
+
+### 修复
+
+- **资源搜索不再被探测拖到超时**：后端对搜索结果做有界并发探测（最多 8 路），保持原始顺序；增加 60 秒服务端总预算，到点后中止未完成任务并返回已经完成的部分结果。前端真实参数（50 条、嗅探文件 + 过滤失效）从 114.6 秒降到 15.9 秒；10/23 的一次搜索只有中间慢日志、没有完成记录，符合前端 120 秒超时的表现。
+- 补充单元测试：并发探测结果顺序不变、到点只返回已完成部分。
+
+### 依赖安全
+
+- `tokio` 1.53.2 → 1.53.3，修复 RUSTSEC-2026-0386（`AsyncFd` I/O safety）。
+- `rustls-webpki` 0.103.15 → 0.103.16，修复 RUSTSEC-2026-0382（distrusted intermediates）。
+- `webpki-roots` 1.0.9 → 1.0.11，修复 RUSTSEC-2026-0381（distrusted emSign roots）。
+- `p256` 0.13.2 → 0.14.0，`elliptic-curve 0.14` 带入 `crypto-bigint 0.7.6`，修复 RUSTSEC-2026-0387；迁移点为 `SecretKey::generate()` 与 `ToSec1Point::to_sec1_point`，RFC 8291 向量测试通过。
+- 审计例外仍为 0；`cargo deny check` 的 advisories / bans / licenses / sources 全部通过。
+
+### 构建与验证
+
+- Docker 构建阶段固定为 `rust:1.97.0-bookworm`，避免 CI 使用 1.97.0、镜像却跟随浮动 Rust 版本。
+- 555 项库测试 + 182 项集成/性能/兼容测试（合计 737 项）通过，另 2 项网络测试按设计忽略；11 项 Web Push 测试全部通过。Clippy `-D warnings`、格式、MSRV 1.89、`cargo build --release --locked` 与文档漂移检查通过。
+
 ## 2.7.4
 
 ### 依赖维护
