@@ -1,7 +1,9 @@
 # 多阶段构建 Dockerfile for Rust 版本
 # Stage 1: 构建阶段
 # 与运行阶段的 bookworm glibc 保持一致，避免构建出的二进制依赖更新的 glibc。
-FROM rust:1-bookworm AS builder
+# 版本与 rust-toolchain.toml 的 channel 保持一致；不要用浮动的 rust:1-bookworm，
+# 否则 CI 用 1.97.0、镜像用更新的 Rust，可能出现只在其中一边失败的构建。
+FROM rust:1.97.0-bookworm AS builder
 
 WORKDIR /app
 
