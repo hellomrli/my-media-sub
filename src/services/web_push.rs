@@ -33,7 +33,8 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use ece::crypto::{Cryptographer, EcKeyComponents, LocalKeyPair, RemotePublicKey};
 use ece::Error as EceError;
-use p256::elliptic_curve::sec1::ToEncodedPoint;
+use p256::elliptic_curve::sec1::ToSec1Point;
+use p256::elliptic_curve::Generate;
 use std::any::Any;
 use std::sync::Once;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -96,12 +97,8 @@ impl LocalKeyPair for P256KeyPair {
 
 impl Cryptographer for RustCryptographer {
     fn generate_ephemeral_keypair(&self) -> ece::Result<Box<dyn LocalKeyPair>> {
-        let secret = p256::SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
-        let public = secret
-            .public_key()
-            .to_encoded_point(false)
-            .as_bytes()
-            .to_vec();
+        let secret = p256::SecretKey::generate();
+        let public = secret.public_key().to_sec1_point(false).as_bytes().to_vec();
         Ok(Box::new(P256KeyPair { secret, public }))
     }
 
@@ -386,7 +383,7 @@ mod tests {
         let local = P256KeyPair {
             public: local_secret
                 .public_key()
-                .to_encoded_point(false)
+                .to_sec1_point(false)
                 .as_bytes()
                 .to_vec(),
             secret: local_secret,
@@ -411,7 +408,7 @@ mod tests {
         let ua = P256KeyPair {
             public: ua_secret
                 .public_key()
-                .to_encoded_point(false)
+                .to_sec1_point(false)
                 .as_bytes()
                 .to_vec(),
             secret: ua_secret,
@@ -626,8 +623,8 @@ mod tests {
         use p256::ecdsa::signature::Verifier;
 
         // 生成一对 VAPID 密钥，模拟设置页产生的内容
-        let secret = p256::SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
-        let public = secret.public_key().to_encoded_point(false);
+        let secret = p256::SecretKey::generate();
+        let public = secret.public_key().to_sec1_point(false);
         let private_b64 = URL_SAFE_NO_PAD.encode(secret.to_bytes());
         let public_b64 = URL_SAFE_NO_PAD.encode(public.as_bytes());
 
@@ -685,9 +682,9 @@ mod tests {
     /// 非法 VAPID 私钥/公钥必须被拒绝并给出可操作的错误。
     #[test]
     fn vapid_rejects_malformed_keys() {
-        let secret = p256::SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
+        let secret = p256::SecretKey::generate();
         let public_b64 =
-            URL_SAFE_NO_PAD.encode(secret.public_key().to_encoded_point(false).as_bytes());
+            URL_SAFE_NO_PAD.encode(secret.public_key().to_sec1_point(false).as_bytes());
 
         assert!(vapid_authorization("!!!", &public_b64, "https://a.com/x", "a@b.c").is_err());
         // 私钥长度错误（全零不是合法标量）

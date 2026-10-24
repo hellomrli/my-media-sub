@@ -6,7 +6,8 @@ use crate::store::schema::{
 };
 use crate::utils::{quarantine_corrupt_file, set_file_mode};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use p256::elliptic_curve::sec1::ToEncodedPoint;
+use p256::elliptic_curve::sec1::ToSec1Point;
+use p256::elliptic_curve::Generate;
 use std::path::PathBuf;
 use tokio::sync::{Mutex, RwLock};
 
@@ -66,8 +67,8 @@ fn ensure_browser_push_keys(settings: &mut Settings) -> Result<bool> {
     {
         return Ok(false);
     }
-    let secret = p256::SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
-    let public = secret.public_key().to_encoded_point(false);
+    let secret = p256::SecretKey::generate();
+    let public = secret.public_key().to_sec1_point(false);
     settings.browser_push_vapid_private_key = URL_SAFE_NO_PAD.encode(secret.to_bytes());
     settings.browser_push_vapid_public_key = URL_SAFE_NO_PAD.encode(public.as_bytes());
     Ok(true)
@@ -409,7 +410,7 @@ mod tests {
     async fn generated_vapid_key_pairs_with_its_public_key() {
         use base64::engine::general_purpose::URL_SAFE_NO_PAD;
         use base64::Engine;
-        use p256::elliptic_curve::sec1::ToEncodedPoint;
+        use p256::elliptic_curve::sec1::ToSec1Point;
 
         let path = temp_path("vapid-key");
         let store = SettingsStore::new(&path);
@@ -423,7 +424,7 @@ mod tests {
         // 私钥可解析成合法标量，且其公钥与存储的公钥逐字节一致。
         let private_bytes = URL_SAFE_NO_PAD.decode(&private).unwrap();
         let secret = p256::SecretKey::from_slice(&private_bytes).unwrap();
-        let derived = secret.public_key().to_encoded_point(false);
+        let derived = secret.public_key().to_sec1_point(false);
         assert_eq!(
             URL_SAFE_NO_PAD.encode(derived.as_bytes()),
             public,

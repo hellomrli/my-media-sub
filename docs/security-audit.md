@@ -54,13 +54,22 @@ AES-128-GCM 密文，以及完整请求体的 86 字节头布局。另有端到�
 
 | 公告 | crate | 状态 |
 |---|---|---|
-| `RUSTSEC-2026-0285` | `rustls`（TLS 1.3 握手消息跨加密层接受） | 已修：`rustls >= 0.23.45`，当前 `0.23.45`，经 `reqwest` → `hyper-rustls` / `tokio-rustls` |
-| `RUSTSEC-2026-0221` | `event-listener`（`StackSlot` 的 `Send`/`Sync` 不健全） | 已修：`>= 5.4.2`，当前 `5.4.2` |
+| `RUSTSEC-2026-0387` | `crypto-bigint`（`p256` 的传递依赖） | 已修：`>= 0.7.6`，当前 `0.7.6`；通过将 `p256` 从 0.13.2 升级到 0.14.0（`elliptic-curve 0.14`）获得 |
+| `RUSTSEC-2026-0386` | `tokio`（`AsyncFd` I/O safety） | 已修：`>= 1.53.3`，当前 `1.53.3` |
+| `RUSTSEC-2026-0382` | `rustls-webpki`（distrusted intermediates） | 已修：`>= 0.103.16`，当前 `0.103.16` |
+| `RUSTSEC-2026-0381` | `webpki-roots`（distrusted emSign roots） | 已修：`>= 1.0.10`，当前 `1.0.11` |
+| `RUSTSEC-2026-0285` | `rustls`（TLS 1.3 握手消息跨加密层接受） | 已修：`rustls >= 0.23.45`，当前 `0.23.46`，经 `reqwest` → `hyper-rustls` / `tokio-rustls` |
+| `RUSTSEC-2026-0221` | `event-listener`（`StackSlot` 的 `Send`/`Sync` 不健全） | 已修：`>= 5.4.2`；当前锁文件已无该 crate |
 | `RUSTSEC-2026-0185` | `quinn-proto` | 已收敛到 `0.11.18`。**注意**：`quinn`/`quinn-proto` 只作为 `reqwest` 的*可选* HTTP/3 特性出现在 `Cargo.lock`，本项目启用的是 `json, rustls-tls, stream`，因此 `cargo tree -i quinn-proto` 对所有 target 都输出 "nothing to print"——**这些 crate 不在构建图里**。该收敛属于锁文件层面的预防性维护，不是对一个随二进制发布的漏洞的修复，这里如实记录以免高估 |
 
 ## 锁文件新鲜度
 
-2026-09-21 执行 `cargo update`，收敛了 132 个 crate 到最新的 semver 兼容版本
-（tokio 1.53.1、hyper 1.11.1、rustls-pki-types 1.15.1、webpki-roots 1.0.9、
-uuid 1.26.1、regex 1.13.1 等）。`cargo update --dry-run` 现为 0。
-Dependabot（`.github/dependabot.yml`）以每周分组的 PR 维持这一状态。
+2026-10-24 定点更新了四条新公告涉及的依赖：`tokio 1.53.3`、`rustls-webpki 0.103.16`、
+`webpki-roots 1.0.11`，并将 `p256` 从 0.13.2 升级到 0.14.0
+（`elliptic-curve 0.14` → `crypto-bigint 0.7.6`）。`cargo deny check` 的公告、
+许可证、来源与重复依赖规则全部通过，例外仍为 0。
+
+`cargo update --dry-run` 仍显示约 50 个 semver 兼容更新（`tokio 1.54.1`、
+`uuid 1.29.0`、`serde_json 1.0.154`、`hyper 1.12.0` 等）；这些不与本次安全修复
+混合，留给下一轮依赖维护 PR。Dependabot（`.github/dependabot.yml`）以每周分组的
+PR 维持这一状态。
