@@ -55,9 +55,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Read and validate pinned Rust toolchain
+        id: toolchain
+        run: |
+          VERSION="$(python3 scripts/check-rust-toolchain.py)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ steps.toolchain.outputs.version }}
           components: rustfmt, clippy
 
       - name: Cache Rust dependencies
@@ -211,3 +218,49 @@ jobs:
             my-media-sub-v1.3.0-linux-x86_64/my-media-sub \
             my-media-sub-v1.3.0-linux-x86_64/static \
             target/release/my-media-sub static
+
+  docker:
+    name: Docker build and smoke
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_BUILD_RECORD_UPLOAD: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Check Rust toolchain consistency
+        run: python3 scripts/check-rust-toolchain.py
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build test image without publishing
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          push: false
+          tags: my-media-sub-ci:local
+          cache-from: type=gha,scope=ci-docker
+          cache-to: type=gha,scope=ci-docker,mode=max
+
+      - name: Smoke test image startup and authenticated API
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint /opt/my-media-sub/my-media-sub my-media-sub-ci:local --version
+          docker run -d --name media-sub-smoke -p 127.0.0.1::56001 \
+            -e SERVER_USERNAME=ci-admin -e SERVER_PASSWORD=ci-smoke-temporary-password \
+            my-media-sub-ci:local
+          trap 'docker logs media-sub-smoke; docker rm -fv media-sub-smoke' EXIT
+          PORT="$(docker port media-sub-smoke 56001/tcp | head -1 | cut -d: -f2)"
+          BASE="http://127.0.0.1:$PORT"
+          for _ in $(seq 1 60); do
+            if curl -fsS "$BASE/health"; then break; fi
+            sleep 1
+          done
+          curl -fsS "$BASE/health"
+          curl -fsS -u ci-admin:ci-smoke-temporary-password "$BASE/api/diagnostics" \
+            | python3 -c 'import json,sys; assert json.load(sys.stdin)["ok"] is True'
+          curl -fsS -u ci-admin:ci-smoke-temporary-password "$BASE/" > /tmp/media-sub-shell.html
+          test -s /tmp/media-sub-shell.html
