@@ -11,13 +11,13 @@ test('remote images recover after transient load failures', () => {
   assert.equal(html.includes("@error=\"$el.style.display = 'none'\""), false);
   assert.equal(html.includes("@error=\"$el.style.display='none'\""), false);
   assert.equal(html.includes('@error="$el.hidden = true"'), false);
-  const recoverableImages = html.match(/@error="handleRemoteImageError\(\$event\)" @load="handleRemoteImageLoad\(\$event\)"/g) || [];
+  const recoverableImages = html.match(/@error="(?:handleRemoteImageError\(\$event\)|handleSearchResultImageError\(\$event, (?:result|selectedSearchResult)\))" @load="handleRemoteImageLoad\(\$event\)"/g) || [];
   // 工作台海报墙在 v2.2.18 换成了密度更高的订阅看板，可恢复图片相应少了一处。
   assert.ok(recoverableImages.length >= 11, `可恢复远程图片只剩 ${recoverableImages.length} 处`);
   assert.match(subscriptionsSource, /this\.subscriptions = data\.data \|\| \[\];[\s\S]*recoverRemoteImagesAfterDataRefresh\(\)/);
   assert.equal(html.includes(':src="item.thumbnail_url"'), false);
   assert.equal(html.includes(':src="item.poster_url"'), false);
-  assert.ok((html.match(/remoteImageUrl\(/g) || []).length >= 8);
+  assert.ok((html.match(/(?:remoteImageUrl|searchResultPoster)\(/g) || []).length >= 8);
 });
 
 test('critical browser assets carry the current application version', () => {
@@ -25,7 +25,17 @@ test('critical browser assets carry the current application version', () => {
   const references = [...html.matchAll(/(?:src|href)="((?:js\/|vendor\/|styles\.css|app\.js)[^"]+)"/g)]
     .map(match => match[1]);
   assert.ok(references.length >= 25);
-  assert.ok(references.every(reference => reference.endsWith(`?v=${version}`)));
+  assert.ok(references.every(reference => new URL(reference, 'https://media.example/').searchParams.get('v') === version));
+});
+
+test('search hotfix assets invalidate both HTTP and service worker caches', () => {
+  const worker = fs.readFileSync(path.join(__dirname, '../static/service-worker.js'), 'utf8');
+  const revision = worker.match(/ASSET_REVISION = '([^']+)'/)[1];
+  for (const asset of ['styles.css', 'js/core/api.js', 'js/core/shell.js', 'js/features/search-page.js', 'js/features/search-results.js']) {
+    const reference = [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map(match => match[1]).find(url => url.startsWith(`${asset}?`));
+    assert.equal(new URL(reference, 'https://media.example/').searchParams.get('rev'), revision, asset);
+    assert.ok(worker.includes(`'/${asset}'`), `${asset} must be precached`);
+  }
 });
 
 test('rapidly refreshed Alpine lists use collision-resistant render keys', () => {

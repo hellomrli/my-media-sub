@@ -72,7 +72,13 @@
   }
 
   function resultPoster(result) {
-    return asArray(result && result.images).find(value => typeof value === 'string' && value.trim()) || '';
+    return resultPosters(result)[0] || '';
+  }
+
+  function resultPosters(result) {
+    return [...new Set(asArray(result && result.images)
+      .filter(value => typeof value === 'string')
+      .map(value => value.trim()).filter(Boolean))];
   }
 
   function resultHost(result) {
@@ -289,6 +295,7 @@
     isVideoFile,
     parseTimestamp,
     resultFiles,
+    resultPosters,
     resultTitle,
     resultValidity
   });

@@ -2,10 +2,15 @@
 importScripts('/js/pwa-policy.js?v=2.7.6');
 
 const ASSET_VERSION = '2.7.6';
-const CACHE_VERSION = 'v2.7.6-store-search-fix-5';
+const ASSET_REVISION = 'search-images-1';
+const CACHE_VERSION = 'v2.7.6-search-image-reliability-1';
 const SHELL_CACHE = `media-sub-shell-${CACHE_VERSION}`;
 const STATIC_CACHE = `media-sub-static-${CACHE_VERSION}`;
 const CACHE_PREFIX = 'media-sub-';
+const REVISED_ASSETS = new Set([
+  '/styles.css', '/js/core/api.js', '/js/core/shell.js',
+  '/js/features/search-page.js', '/js/features/search-results.js'
+]);
 const PRECACHE_ASSETS = [
   '/',
   '/manifest.webmanifest',
@@ -43,7 +48,11 @@ const PRECACHE_ASSETS = [
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/icons/icon-maskable-512.png',
-].map(asset => /\.(?:css|js)$/i.test(asset) ? `${asset}?v=${ASSET_VERSION}` : asset);
+].map(asset => {
+  if (!/\.(?:css|js)$/i.test(asset)) return asset;
+  const revision = REVISED_ASSETS.has(asset) ? `&rev=${ASSET_REVISION}` : '';
+  return `${asset}?v=${ASSET_VERSION}${revision}`;
+});
 
 function sanitizedRequest(request) {
   return new Request(MediaSubPwaPolicy.cacheKey(request, self.location.origin), {

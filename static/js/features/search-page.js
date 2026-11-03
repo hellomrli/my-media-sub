@@ -10,6 +10,8 @@
   const searchResultTools = root.MediaSubSearchResults || {};
 
   function createStore() {
+    let activeSearch = null;
+    let searchGeneration = 0;
     return {
     searchQuery: '',
     searching: false,
@@ -76,11 +78,11 @@
       return `width: ${this.searchProgress.value || 0}%`;
     },
 
-    startSearchProgressTimer() {
+    startSearchProgressTimer(options = this.searchOptions) {
       this.stopSearchProgressTimer();
       this.searchProgressTimer = this.startPolling('search-progress', () => {
         if (!this.searching) return;
-        const limit = this.searchOptions.probeFiles ? 88 : (this.searchOptions.filterBad ? 82 : 72);
+        const limit = options.probeFiles ? 88 : (options.filterBad ? 82 : 72);
         if ((this.searchProgress.value || 0) < limit) {
           this.setSearchProgress(
             (this.searchProgress.value || 0) + 3,
@@ -98,7 +100,27 @@
 
     // ===== 搜索 =====
     async search() {
-      if (!this.searchQuery.trim()) return;
+      const keyword = this.searchQuery.trim();
+      if (!keyword) return;
+      const options = {...this.searchOptions};
+      const key = JSON.stringify([keyword, options.probeFiles, options.filterBad]);
+      if (activeSearch && activeSearch.key === key) return;
+      const previous = activeSearch;
+      const request = {key, generation: ++searchGeneration, controller: new AbortController()};
+      activeSearch = request;
+      if (previous) previous.controller.abort();
+      this.stopPolling('search-progress-reset');
+      if (this.ownLifecycle) {
+        this.ownLifecycle('search-request', request, pending => {
+          pending.controller.abort();
+          if (activeSearch === pending) {
+            activeSearch = null;
+            searchGeneration += 1;
+            this.searching = false;
+            this.stopSearchProgressTimer();
+          }
+        });
+      }
       this.searching = true;
       this.searchResults = [];
       this.searchHasRun = false;
@@ -106,17 +128,17 @@
       this.searchWarning = '';
       this.closeSearchResultPreview();
       this.setSearchProgress(8, '提交搜索请求', '正在连接资源搜索服务');
-      this.startSearchProgressTimer();
+      this.startSearchProgressTimer(options);
       try {
         // 保存搜索历史
-        this.addSearchHistory(this.searchQuery.trim());
+        this.addSearchHistory(keyword);
 
         // 根据用户选择显示不同提示
         let statusMsg = '搜索中';
-        if (this.searchOptions.probeFiles) {
+        if (options.probeFiles) {
           statusMsg = '搜索中，正在嗅探文件列表...';
           this.setSearchProgress(18, '搜索资源并嗅探文件', '会检测链接并读取可用文件列表');
-        } else if (this.searchOptions.filterBad) {
+        } else if (options.filterBad) {
           statusMsg = '搜索中，正在检测链接有效性...';
           this.setSearchProgress(18, '搜索资源并检测链接', '会过滤失效链接');
         } else {
@@ -126,18 +148,22 @@
 
         const response = await apiFetch('/api/search', {
           method: 'POST',
+          signal: request.controller.signal,
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
-            keyword: this.searchQuery,
+            keyword,
             limit: 50,
-            check_links: this.searchOptions.filterBad,
-            probe_files: this.searchOptions.probeFiles,
-            filter_bad: this.searchOptions.filterBad,
+            check_links: options.filterBad,
+            probe_files: options.probeFiles,
+            filter_bad: options.filterBad,
             max_files: 50
           })
         });
-        this.setSearchProgress(this.searchOptions.probeFiles ? 84 : 76, '整理搜索结果', '正在生成可操作的资源列表');
+        if (activeSearch !== request) return;
+        this.setSearchProgress(options.probeFiles ? 84 : 76, '整理搜索结果', '正在生成可操作的资源列表');
         const data = await response.json();
+        // Aborting fetch is best-effort; a late response body must not commit stale state.
+        if (activeSearch !== request) return;
         this.searchResults = (data.data || []).map(result => this.prepareSearchResult(result));
         this.searchHasRun = true;
         this.searchResultFilter = 'all';
@@ -147,7 +173,7 @@
           const reason = data.timed_out === true ? '资源探测超时' : '部分资源探测未完成';
           const counts = Number.isInteger(data.probed_count) && Number.isInteger(data.total_count)
             ? `，已探测 ${data.probed_count}/${data.total_count} 条` : '';
-          const retained = this.searchOptions.filterBad
+          const retained = options.filterBad
             ? '当前仅展示已确认有效的资源，未完成探测的资源暂未展示。'
             : '已保留未完成探测的资源，其有效性未知。';
           this.searchWarning = `${reason}${counts}。${retained}可重试，或关闭嗅探与失效过滤后搜索。`;
@@ -156,27 +182,33 @@
         } else if (this.searchResults.length > 0) {
           this.setSearchProgress(100, '搜索完成', `找到 ${this.searchResults.length} 个结果`);
           let suffix = '个结果';
-          if (this.searchOptions.filterBad) {
+          if (options.filterBad) {
             suffix = '个有效结果';
-          } else if (this.searchOptions.probeFiles) {
+          } else if (options.probeFiles) {
             suffix = '个结果（已嗅探）';
           }
           this.showNotification('success', `找到 ${this.searchResults.length} ${suffix}`);
         } else {
           this.setSearchProgress(100, '搜索完成', '没有匹配结果');
-          const msg = this.searchOptions.filterBad ? '未找到有效资源，请尝试其他关键词' : '未找到结果';
+          const msg = options.filterBad ? '未找到有效资源，请尝试其他关键词' : '未找到结果';
           this.showNotification('warning', msg);
         }
       } catch (error) {
+        if (activeSearch !== request) return;
         console.error('搜索失败:', error);
         this.setSearchProgress(100, '搜索失败', '请检查网络、PanSou 地址或稍后重试');
         this.showNotification('error', this.apiErrorMessage(error, '搜索失败'));
       } finally {
-        this.searching = false;
-        this.stopSearchProgressTimer();
-        setTimeout(() => {
-          if (!this.searching) this.resetSearchProgress();
-        }, 2400);
+        if (activeSearch === request) {
+          activeSearch = null;
+          this.searching = false;
+          this.stopSearchProgressTimer();
+          this.stopPolling('search-request');
+          const timer = setTimeout(() => {
+            if (searchGeneration === request.generation) this.resetSearchProgress();
+          }, 2400);
+          if (this.ownLifecycle) this.ownLifecycle('search-progress-reset', timer, clearTimeout);
+        }
       }
     },
 
@@ -223,7 +255,29 @@
     },
 
     prepareSearchResult(result) {
-      return {...result, _insights: searchResultTools.analyzeSearchResult(result)};
+      return {
+        ...result,
+        _insights: searchResultTools.analyzeSearchResult(result),
+        _posterCandidates: [...new Set(searchResultTools.resultPosters(result).map(source => this.remoteImageUrl(source)).filter(Boolean))],
+        _posterIndex: 0
+      };
+    },
+
+    searchResultPoster(result) {
+      if (!result) return '';
+      return (result._posterCandidates || [])[result._posterIndex || 0] || '';
+    },
+
+    handleSearchResultImageError(event, result) {
+      const element = event && event.currentTarget;
+      const poster = this.searchResultPoster(result);
+      if (!element || !poster) return;
+      const expected = this.imageRetrySource(poster);
+      if (this.imageRetrySource(element.currentSrc || element.src) !== expected) return;
+      this.handleRemoteImageError(event, failedSource => {
+        // Poster, list and preview can share a result; ignore another view's stale failure.
+        if (failedSource === this.imageRetrySource(this.searchResultPoster(result))) result._posterIndex += 1;
+      });
     },
 
     searchResultInsights(result) {

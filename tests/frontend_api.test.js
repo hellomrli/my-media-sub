@@ -177,3 +177,35 @@ test('apiFetch timeout=0 disables the timeout entirely', async () => {
   assert.equal(data, 1);
   assert.equal(observed, undefined);
 });
+
+test('timeouts remain distinguishable from cancellation with a caller signal', async () => {
+  const client = createApiClient((_input, init) => new Promise((_resolve, reject) => {
+    init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+  }));
+  await assert.rejects(
+    client.apiFetch('/api/search', {signal: new AbortController().signal, timeout: 20}),
+    error => error.isTimeout && /超时/.test(error.message)
+  );
+  const controller = new AbortController();
+  const pending = client.apiFetch('/api/search', {signal: controller.signal, timeout: 1000});
+  controller.abort();
+  await assert.rejects(pending, error => !error.isTimeout && /取消/.test(error.message));
+});
+
+test('caller cancellation remains connected after response headers arrive', async t => {
+  // Exercise the fallback used by browsers without AbortSignal.any as well.
+  const original = AbortSignal.any;
+  t.after(() => { AbortSignal.any = original; });
+  for (const fallback of [false, true]) {
+    if (fallback) AbortSignal.any = undefined;
+    const controller = new AbortController();
+    let signal;
+    const client = createApiClient(async (_input, init) => {
+      signal = init.signal;
+      return {ok: true, status: 200};
+    });
+    await client.apiFetch('/api/search', {signal: controller.signal});
+    controller.abort();
+    assert.equal(signal.aborted, true);
+  }
+});

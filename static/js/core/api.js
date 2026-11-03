@@ -171,17 +171,22 @@
     if (typeof AbortController !== 'function') return null;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), Math.max(1, Number(timeout)));
-    return {controller, timer, callerSignal};
-  }
-
-  function combinedSignal(handle) {
-    if (!handle) return undefined;
-    const {controller, callerSignal} = handle;
+    const cancel = () => controller.abort();
+    let signal = controller.signal;
     if (callerSignal && typeof AbortSignal === 'function' && typeof AbortSignal.any === 'function') {
-      return AbortSignal.any([callerSignal, controller.signal]);
+      signal = AbortSignal.any([callerSignal, controller.signal]);
+    } else if (callerSignal) {
+      if (callerSignal.aborted) cancel();
+      else callerSignal.addEventListener('abort', cancel, {once: true});
     }
-    if (callerSignal) return callerSignal;
-    return controller.signal;
+    return {
+      controller, callerSignal, signal,
+      cleanup(failed = false) {
+        clearTimeout(timer);
+        // After headers, caller cancellation must still reach response body reads.
+        if (failed && callerSignal) callerSignal.removeEventListener('abort', cancel);
+      }
+    };
   }
 
   function createApiClient(fetchImpl) {
@@ -200,8 +205,7 @@
       const headers = normalizeHeaders(requestOptions.headers, json);
       const timeoutHandle = createTimeoutController(timeout, requestOptions.signal || null);
       const init = {...requestOptions, headers};
-      const signal = combinedSignal(timeoutHandle);
-      if (signal !== undefined) init.signal = signal;
+      if (timeoutHandle) init.signal = timeoutHandle.signal;
 
       if (json !== undefined) {
         init.body = JSON.stringify(json);
@@ -211,10 +215,10 @@
       try {
         response = await fetchImpl(input, init);
       } catch (error) {
-        if (timeoutHandle) clearTimeout(timeoutHandle.timer);
+        if (timeoutHandle) timeoutHandle.cleanup(true);
         if (error instanceof ApiError) throw error;
         const aborted = error && error.name === 'AbortError';
-        const timedOut = aborted && timeoutHandle && !timeoutHandle.callerSignal;
+        const timedOut = aborted && timeoutHandle && timeoutHandle.controller.signal.aborted && !timeoutHandle.callerSignal?.aborted;
         throw new ApiError(
           errorMessage
             || (timedOut ? '请求超时，请检查网络后重试' : aborted ? '请求已取消' : '无法连接服务，请检查网络后重试'),
@@ -226,7 +230,7 @@
           }
         );
       }
-      if (timeoutHandle) clearTimeout(timeoutHandle.timer);
+      if (timeoutHandle) timeoutHandle.cleanup();
 
       if (!response.ok) {
         const payload = await readErrorPayload(response);

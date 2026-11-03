@@ -10,6 +10,14 @@ CI 对每次推送执行两套依赖审计：
 
 自 v2.7.2 起 **没有任何被忽略的公告**，两套审计都在零例外下通过。
 
+### 2026-11-03 复核
+
+- PR #11 更新 `tokio` 至 1.54.1、`serde_json` 至 1.0.154、`uuid` 至 1.28.0、`libc` 至 0.2.191。刷新公告数据库后，`cargo +1.99.1 deny --locked check` 的 advisories / bans / licenses / sources 全部通过，`ignore = []` 保持不变；重复传递依赖仍按既有策略告警。
+- 仓库的 GitHub Dependabot 漏洞告警已开启，未开启自动合并。告警扫描与 RustSec CI 互补，不以忽略公告的方式通过门禁。
+- Rust 工具链与 Docker builder 同步升级为 1.99.1，最低支持版本仍为 1.89。CI 和 Release 显式读取固定版本，并校验 Dockerfile；PR 新增真实 Docker 构建、启动与认证 API smoke，不再以仅宿主机编译的绿色 CI 代替镜像验证。
+- 搜索图片没有新增任意 URL 代理或放宽 `img-src`。外部 HTTP 图片升级到 HTTPS；源站不支持 HTTPS 或图片不可访问时，尝试后续候选，最终退回纯信息卡片。TMDB 图片仍使用原有固定域名、尺寸和文件名受限的同源代理。
+- 这些版本更新同时包含常规维护，不能笼统等同于修复一个新的 CVE；已知公告的具体修复下限见下表。本次依赖检查也不等同于宿主机、内核或容器基础系统的完整漏洞扫描。
+
 ### 曾经唯一的一条：`RUSTSEC-2023-0071`（已消除）
 
 `rsa` 0.9 的 Marvin 计时侧信道，上游一直没有修复版本。它曾经是本项目唯一的例外，
@@ -55,7 +63,7 @@ AES-128-GCM 密文，以及完整请求体的 86 字节头布局。另有端到�
 | 公告 | crate | 状态 |
 |---|---|---|
 | `RUSTSEC-2026-0387` | `crypto-bigint`（`p256` 的传递依赖） | 已修：`>= 0.7.6`，当前 `0.7.6`；通过将 `p256` 从 0.13.2 升级到 0.14.0（`elliptic-curve 0.14`）获得 |
-| `RUSTSEC-2026-0386` | `tokio`（`AsyncFd` I/O safety） | 已修：`>= 1.53.3`，当前 `1.53.3` |
+| `RUSTSEC-2026-0386` | `tokio`（`AsyncFd` I/O safety） | 已修：`>= 1.53.3`，当前 `1.54.1` |
 | `RUSTSEC-2026-0382` | `rustls-webpki`（distrusted intermediates） | 已修：`>= 0.103.16`，当前 `0.103.16` |
 | `RUSTSEC-2026-0381` | `webpki-roots`（distrusted emSign roots） | 已修：`>= 1.0.10`，当前 `1.0.11` |
 | `RUSTSEC-2026-0285` | `rustls`（TLS 1.3 握手消息跨加密层接受） | 已修：`rustls >= 0.23.45`，当前 `0.23.46`，经 `reqwest` → `hyper-rustls` / `tokio-rustls` |
@@ -69,7 +77,7 @@ AES-128-GCM 密文，以及完整请求体的 86 字节头布局。另有端到�
 （`elliptic-curve 0.14` → `crypto-bigint 0.7.6`）。`cargo deny check` 的公告、
 许可证、来源与重复依赖规则全部通过，例外仍为 0。
 
-`cargo update --dry-run` 仍显示约 50 个 semver 兼容更新（`tokio 1.54.1`、
+当时的 `cargo update --dry-run` 显示约 50 个 semver 兼容更新（`tokio 1.54.1`、
 `uuid 1.29.0`、`serde_json 1.0.154`、`hyper 1.12.0` 等）；这些不与本次安全修复
-混合，留给下一轮依赖维护 PR。Dependabot（`.github/dependabot.yml`）以每周分组的
-PR 维持这一状态。
+混合。2026-11-03 已吸纳其中四项更新，见本页复核记录。Dependabot
+（`.github/dependabot.yml`）继续以每周分组的 PR 维护锁文件。
