@@ -37,9 +37,16 @@ jobs:
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
+      - name: Read and validate pinned Rust toolchain
+        id: toolchain
+        run: |
+          VERSION="$(python3 scripts/check-rust-toolchain.py)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ steps.toolchain.outputs.version }}
           components: rustfmt, clippy
 
       - name: Cache Rust dependencies
