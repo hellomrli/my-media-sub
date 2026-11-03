@@ -200,6 +200,9 @@ jobs:
       - name: Real browser 390px and PWA shell smoke
         run: scripts/smoke-browser.sh target/release/my-media-sub
 
+      - name: Search image and concurrency browser regressions
+        run: node scripts/smoke-search-browser.mjs target/release/my-media-sub
+
       - name: Download v1.3.0 upgrade baseline
         shell: bash
         run: |

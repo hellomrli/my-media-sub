@@ -194,12 +194,14 @@
     },
 
     imageRetrySource(value) {
+      const source = String(value || '').trim();
+      if (!source) return '';
       try {
-        const url = new URL(String(value || ''), window.location.href);
+        const url = new URL(source, window.location.href);
         url.searchParams.delete('_media_sub_retry');
         return url.href;
       } catch (_) {
-        return String(value || '');
+        return source;
       }
     },
 
@@ -208,17 +210,21 @@
       if (!source) return '';
       try {
         const base = typeof window !== 'undefined' ? window.location.href : 'http://localhost/';
+        const origin = new URL(base).origin;
         const url = new URL(source, base);
+        if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) return '';
+        // Keep CSP strict and avoid an arbitrary-URL proxy: remote HTTP artwork must use TLS.
+        if (url.protocol === 'http:' && url.origin !== origin) url.protocol = 'https:';
         if (url.protocol === 'https:' && url.hostname.toLowerCase() === 'image.tmdb.org') {
           const match = url.pathname.match(/^\/t\/p\/(w(?:92|154|185|300|342|400|500|780|1280)|original)\/([A-Za-z0-9_-]+\.(?:jpe?g|png|webp|avif))$/i);
           if (match) {
             return `/api/images/tmdb/${encodeURIComponent(match[1].toLowerCase())}/${encodeURIComponent(match[2])}`;
           }
         }
+        return url.origin === origin && !/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(source) ? source : url.href;
       } catch (_) {
-        return source;
+        return '';
       }
-      return source;
     },
 
     handleRemoteImageLoad(event) {
@@ -233,10 +239,13 @@
       element.hidden = false;
     },
 
-    handleRemoteImageError(event) {
+    handleRemoteImageError(event, onFailure) {
       const element = event && event.currentTarget;
       if (!element || element._mediaSubRetryTimer) return;
-      const currentSource = this.imageRetrySource(element.currentSrc || element.src || '');
+      const rawSource = typeof element.getAttribute === 'function' ? element.getAttribute('src') : element.src;
+      const currentSource = this.imageRetrySource(rawSource);
+      if (!currentSource) return;
+      if (element.currentSrc && this.imageRetrySource(element.currentSrc) !== currentSource) return;
       const previousSource = element.dataset.imageRetrySource || '';
       let retryCount = Number(element.dataset.imageRetryCount || 0);
       if (previousSource !== currentSource) retryCount = 0;
@@ -246,6 +255,7 @@
       if (!/^https?:/i.test(currentSource) || retryCount >= 2) {
         element.classList.remove('remote-image-retrying');
         element.classList.add('remote-image-failed');
+        if (typeof onFailure === 'function') onFailure(currentSource);
         return;
       }
 
@@ -257,6 +267,8 @@
       element._mediaSubRetryTimer = setTimeout(() => {
         element._mediaSubRetryTimer = null;
         if (!element.isConnected) return;
+        const latestSource = typeof element.getAttribute === 'function' ? element.getAttribute('src') : element.src;
+        if (this.imageRetrySource(latestSource) !== currentSource) return;
         const retryUrl = new URL(currentSource);
         retryUrl.searchParams.set('_media_sub_retry', `${retryCount}-${Date.now()}`);
         element.src = retryUrl.href;
@@ -269,7 +281,8 @@
       let recovered = 0;
 
       [...scope.querySelectorAll('img[src]')].forEach((element, index) => {
-        const currentSource = this.imageRetrySource(element.currentSrc || element.src || '');
+        const rawSource = typeof element.getAttribute === 'function' ? element.getAttribute('src') : element.src;
+        const currentSource = this.imageRetrySource(rawSource);
         if (!/^https?:/i.test(currentSource)) return;
         const retryCount = Number(element.dataset.imageRetryCount || 0);
         const failed = element.classList.contains('remote-image-failed');

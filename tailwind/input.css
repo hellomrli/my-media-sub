@@ -1170,6 +1170,12 @@ body::before {
 .search-result-actions a:hover { color: var(--app-primary); border-color: rgb(var(--c-primary) / .38); }
 .search-result-actions svg { width: 15px; height: 15px; }
 
+.search-result-card.is-text-only { display: block; }
+.search-result-card.is-text-only .search-result-poster { display: flex; height: auto; min-height: 0; aspect-ratio: auto; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid rgb(var(--c-border) / .48); background: transparent; }
+.search-result-card.is-text-only .search-card-badges { position: static; flex: 1; }
+.search-result-card.is-text-only .search-result-updated { position: static; color: rgb(var(--c-muted) / .7); }
+.search-result-card.is-text-only .search-result-body { min-height: 0; }
+
 .search-result-list { overflow: hidden; border: 1px solid rgb(var(--c-border) / .52); border-radius: 12px; background: rgb(var(--c-bg) / .38); }
 .search-result-list-head, .search-result-list-row { display: grid; grid-template-columns: minmax(320px, 1.7fr) 135px 150px 155px 126px; align-items: center; gap: 12px; }
 .search-result-list-head { min-height: 34px; padding: 0 12px; color: rgb(var(--c-muted) / .54); background: rgb(var(--c-bg) / .66); border-bottom: 1px solid rgb(var(--c-border) / .48); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
@@ -1206,6 +1212,7 @@ body::before {
 .search-preview-header p { margin-top: 6px; overflow: hidden; color: rgb(var(--c-muted) / .58); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .search-preview-header .icon-button svg { width: 18px; height: 18px; }
 .search-preview-layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 20px; margin-top: 18px; }
+.search-preview-layout.is-text-only { grid-template-columns: minmax(0, 1fr); }
 .search-preview-visual { display: grid; align-content: start; gap: 10px; }
 .search-preview-poster { position: relative; aspect-ratio: 3 / 4; overflow: hidden; border: 1px solid rgb(var(--c-border) / .58); border-radius: 13px; background: rgb(var(--c-surface-2)); box-shadow: 0 16px 38px rgb(0 0 0 / .23); }
 .search-preview-poster > img { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; object-fit: cover; }
