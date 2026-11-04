@@ -20,7 +20,7 @@ docker compose up -d
 不使用 Docker 时可以直接跑发布二进制。当前发布产物只提供 **linux-x86_64**：
 
 ```bash
-VERSION=2.8.0
+VERSION=2.8.1
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/v$VERSION/my-media-sub-v$VERSION-linux-x86_64.tar.gz"
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/v$VERSION/my-media-sub-v$VERSION-linux-x86_64.tar.gz.sha256"
 sha256sum -c "my-media-sub-v$VERSION-linux-x86_64.tar.gz.sha256"
@@ -48,7 +48,7 @@ SERVER_HOST=127.0.0.1 DATA_DIR=./data SERVER_PORT=56001 ./my-media-sub
 
 ```bash
 curl http://127.0.0.1:56001/health
-# {"status":"ok","version":"2.8.0"}
+# {"status":"ok","version":"2.8.1"}
 ```
 
 

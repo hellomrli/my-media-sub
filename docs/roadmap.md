@@ -2,7 +2,7 @@
 
 > 本文件是项目后续工作的**唯一持久化计划入口**。每完成一个任务，必须同步更新复选框、证据和“当前执行指针”，以便跨会话、跨上下文继续。
 >
-> 最近更新：2026-11-04
+> 最近更新：2026-11-05
 
 ## 状态说明
 
@@ -13,11 +13,11 @@
 
 ## 当前执行指针
 
-- **当前阶段**：v2.8.0 界面、电影保存与画质选择发布验证
-- **当前任务**：功能实现与本地发布门禁已完成，获得发布授权；发布提交、tag、归档与镜像的实际状态见本轮 Actions / Release 链接
+- **当前阶段**：v2.8.1 前端界面活力化视觉重构与发布验证
+- **当前任务**：本地发布门禁已完成，沿用前次发布授权，按 main CI 全绿后再推送 v2.8.1 tag 的顺序发布；云端完成情况见本节待办与 Actions / Release 链接
 - **下一任务（建议）**：升级后使用实际夸克分享和 Aria2 验证多画质电影保存、剧集固定画质及换源；真实 TMDB / Web Push 核验继续保留
 - **后续阶段**：保持单实例安全模型与 JSON 单写；未经明确需求不启动多用户、SQLite 或第二 Provider
-- **当前发布基线**：v2.8.0（`Cargo.toml` / OpenAPI / PWA 缓存代次；云端发布状态以 Actions / Release 为准）
+- **当前发布基线**：v2.8.1（`Cargo.toml` / OpenAPI / PWA 缓存代次；云端发布状态以 Actions / Release 为准）
 - **工作树状态**：基于 `main`，以 `git status --short --branch` 为准；历史阶段交接记录保留在下方作审计
 
 > **本轮评审的完整清单与后续待办见
@@ -26,6 +26,18 @@
 > 「当前发布基线」已纳入 CI 门禁，见 `scripts/check-doc-drift.py`。
 
 历史评审留档：[2026-07-26 代码评审](code-review-2026-07-26.md) 与 [前端评审](frontend-design-review-2026-07-26.md)。其中旧问题以本台账后续修复记录为准。
+
+---
+
+## v2.8.1 前端界面活力化视觉重构（2026-11-04 至 2026-11-05）
+
+- [x] 暖米白浅色主题与午夜影院深色主题重构，引入翡翠绿、珊瑚橙、电光蓝、极光紫与琥珀黄多维色板及极光环境背景；证据：`tailwind/input.css`、`static/styles.css`、`static/manifest.webmanifest`。
+- [x] 桌面侧边栏与移动端标签栏多彩模块导航（`data-tab`）、四色侧边高光统计卡、渐变指挥台与悬停响应的 `1080P` / `4K` 票根、三色渐变进度条与立体海报墙悬停反馈；证据：`static/partials/nav.html`、`static/partials/shell-head.html`、`static/index.html`。
+- [x] 发布前复核修复手机模块配色未生效、浅色按钮白字对比度不足、海报入场动画覆盖悬停抬升和减少动态效果仍有错峰延迟的问题；新增浅深色主按钮普通/悬停、桌面/手机导航、海报悬停及减少动态效果浏览器断言。证据：`tailwind/input.css`、`scripts/smoke-search-browser.mjs`。
+- [x] 同步 `2.8.1` 版本面（`Cargo.toml`、`Cargo.lock`、`static/openapi.json`、`static/service-worker.js`、`README.md`、`CHANGELOG.md`、`docs/upgrade-v2.8.1.md`）；719 项 Rust / 195 项前端测试通过，另 2 项外网 Rust 测试忽略，格式、Clippy、Rust 1.89 MSRV、依赖审计、CSS、OpenAPI、文档及真实浏览器回归通过。
+- [x] Rust 1.99.1 正式构建、二进制与 Docker 入口脚本 smoke、10 秒 soak、1440px / 390px 浅深色浏览器回归通过；下载并核对云端 v1.3.0 / v2.8.0 归档 SHA-256 后完成升级 smoke。README 两张测试数据截图同步至本版界面，CSS 使用 Tailwind 3.4.17 逐字节复现。
+- [ ] 按先 main CI 后 tag 的顺序发布，核验云端归档 SHA-256、正式二进制及 GHCR 镜像。
+- 发布顺序与产物核验见 [发布流程](release-workflow.md)；以 [Actions](https://github.com/hellomrli/my-media-sub/actions) 与 [v2.8.1 Release](https://github.com/hellomrli/my-media-sub/releases/tag/v2.8.1) 的实际结果为准。
 
 ---
 

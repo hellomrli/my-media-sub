@@ -1,13 +1,13 @@
 /* global MediaSubPwaPolicy */
-importScripts('/js/pwa-policy.js?v=2.8.0');
+importScripts('/js/pwa-policy.js?v=2.8.1');
 
-const ASSET_VERSION = '2.8.0';
-const CACHE_VERSION = 'v2.8.0-media-save-1';
+const ASSET_VERSION = '2.8.1';
+const CACHE_VERSION = 'v2.8.1-vibrant-ui-1';
 const SHELL_CACHE = `media-sub-shell-${CACHE_VERSION}`;
 const STATIC_CACHE = `media-sub-static-${CACHE_VERSION}`;
 const CACHE_PREFIX = 'media-sub-';
 const ASSET_REVISIONS = {
-  '/styles.css': 'media-save-1',
+  '/styles.css': 'vibrant-ui-1',
   '/js/theme-init.js': 'media-save-1',
   '/js/core/api.js': 'search-images-1',
   '/js/core/shell.js': 'media-save-1',

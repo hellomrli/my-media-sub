@@ -38,6 +38,19 @@ let secureImageRequests = 0;
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const listen = server => new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
 
+function luminance(color) {
+  const channels = color.match(/[\d.]+/g).slice(0, 3).map(value => {
+    const channel = Number(value) / 255;
+    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  });
+  return channels.reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+}
+
+function contrast(foreground, background) {
+  const values = [luminance(foreground), luminance(background)].sort((a, b) => a - b);
+  return (values[1] + 0.05) / (values[0] + 0.05);
+}
+
 async function waitFor(check, label, timeout = 15000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
@@ -309,7 +322,12 @@ try {
     assert.match(await evaluate(`${dialog}.innerText`), /尝试剧名：星海旅人之远航篇 \/ 星海旅人/);
     if (width === 1440 && process.argv.includes('--metadata-screenshot')) {
       await waitFor(() => evaluate("document.querySelectorAll('#toastContainer .toast').length === 0"), 'toast expiry before screenshot');
-      await evaluate(`window.scrollTo(0, 0); ${dialog}.scrollTop = 0; document.fonts.ready`);
+      await evaluate('window.scrollTo(0, 0); document.fonts.ready');
+      await evaluate(`document.querySelector('[x-show="metadataSearchAvailable()"]').scrollIntoView({block: 'center', behavior: 'instant'})`);
+      assert.equal(await evaluate(`(() => {
+        const notice = document.querySelector('[x-text="metadataSearchMessage"]').getBoundingClientRect();
+        return notice.top >= ${dialog}.getBoundingClientRect().top && notice.bottom <= document.querySelector('.media-dialog-actions').getBoundingClientRect().top;
+      })()`), true, 'metadata screenshot must show the actual title fallback result');
       const screenshot = await cdp('Page.captureScreenshot', {format: 'png'});
       const asset = join(root, 'docs/assets/metadata-match.png');
       await mkdir(dirname(asset), {recursive: true});
@@ -337,6 +355,52 @@ try {
     const screenshot = await cdp('Page.captureScreenshot', {format: 'png'});
     await writeFile(join(screenshotDir, name + '.png'), Buffer.from(screenshot.data, 'base64'));
   }
+  async function hoverVisible(selector) {
+    const point = await evaluate(`(() => {
+      const element = Array.from(document.querySelectorAll(${JSON.stringify(selector)})).find(item => item.checkVisibility() && !item.disabled);
+      element.scrollIntoView({block: 'nearest', inline: 'nearest', behavior: 'instant'});
+      const rect = element.getBoundingClientRect();
+      return {x: rect.left + rect.width / 2, y: rect.top + Math.min(20, rect.height / 2)};
+    })()`);
+    await cdp('Input.dispatchMouseEvent', {type: 'mouseMoved', ...point});
+    await waitFor(() => evaluate(`Array.from(document.querySelectorAll(${JSON.stringify(selector)})).some(element => element.checkVisibility() && element.matches(':hover'))`), selector + ' is hovered');
+  }
+  async function assertPrimaryContrast(label) {
+    const controls = await evaluate(`Array.from(document.querySelectorAll('.btn-primary, .segmented-control > button.is-active'))
+      .filter(element => element.checkVisibility() && !element.disabled)
+      .map(element => {
+        const style = getComputedStyle(element);
+        return {text: element.innerText, color: style.color, background: style.backgroundImage};
+      })`);
+    assert.ok(controls.length > 0, label + ' must exercise visible primary controls');
+    for (const control of controls) {
+      const stops = control.background.match(/rgba?\([^)]+\)/g) || [];
+      assert.ok(stops.length >= 2, label + ' must retain the primary gradient');
+      for (const stop of stops) {
+        assert.ok(contrast(control.color, stop) >= 4.5, `${label}: ${control.text} must have at least 4.5:1 contrast at ${stop}`);
+      }
+    }
+  }
+  async function assertNavigationColors(selector) {
+    const icons = await evaluate(`Array.from(document.querySelectorAll(${JSON.stringify(selector + ' .nav-button[data-tab]')}))
+      .filter(button => button.checkVisibility())
+      .map(button => {
+        const icon = button.querySelector('.nav-icon');
+        if (!icon) return null;
+        const style = getComputedStyle(icon);
+        return {color: style.color, background: style.backgroundImage, active: button.classList.contains('is-active')};
+      })`);
+    assert.equal(icons.length, 8, selector + ' must expose all navigation modules');
+    assert.ok(icons.every(Boolean), selector + ' must render dedicated module icons');
+    assert.ok(new Set(icons.map(icon => icon.color)).size >= 7, selector + ' must use distinct module colors');
+    const active = icons.filter(icon => icon.active);
+    assert.equal(active.length, 1, selector + ' must have one active module');
+    const stops = active[0].background.match(/rgba?\([^)]+\)/g) || [];
+    assert.ok(stops.length >= 2, selector + ' must retain the active icon gradient');
+    for (const stop of stops) {
+      assert.ok(contrast(active[0].color, stop) >= 3, selector + ' active icon must remain legible');
+    }
+  }
   await cdp('Emulation.setDeviceMetricsOverride', {width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false});
   await onStore(`
     store.showSubscriptionDialog = false;
@@ -357,13 +421,35 @@ try {
   `);
   await waitFor(() => evaluate("document.querySelectorAll('.library-poster-card').length === 4"), 'poster wall');
   assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+  await assertNavigationColors('.app-sidebar');
+  await assertPrimaryContrast('light theme');
+  await hoverVisible('.btn-primary');
+  await assertPrimaryContrast('light theme hover');
+  await cdp('Input.dispatchMouseEvent', {type: 'mouseMoved', x: 0, y: 0});
   await mediaScreenshot('library-desktop');
+  await waitFor(() => evaluate("document.querySelector('.library-poster-card').getAnimations().every(animation => animation.playState === 'finished')"), 'poster arrival completes');
+  await hoverVisible('.library-poster-card');
+  await waitFor(() => evaluate("new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.library-poster-card')).transform).m42 < -3.5"), 'poster hover lifts after arrival');
+  await cdp('Emulation.setEmulatedMedia', {features: [{name: 'prefers-reduced-motion', value: 'reduce'}]});
+  const motion = await evaluate(`Array.from(document.querySelectorAll('.library-poster-card')).map(card => {
+    const style = getComputedStyle(card);
+    return {delay: style.animationDelay, duration: style.animationDuration};
+  })`);
+  assert.ok(motion.every(style => parseFloat(style.delay) === 0 && parseFloat(style.duration) <= 0.001), 'reduced motion must remove staggered arrival delays');
+  await cdp('Emulation.setEmulatedMedia', {features: []});
+  await cdp('Input.dispatchMouseEvent', {type: 'mouseMoved', x: 0, y: 0});
   await onStore("store.applyTheme('dark', {persist: false});");
   assert.equal(await evaluate("document.documentElement.getAttribute('data-theme')"), 'dark');
+  await assertPrimaryContrast('dark theme');
+  await hoverVisible('.btn-primary');
+  await assertPrimaryContrast('dark theme hover');
+  await cdp('Input.dispatchMouseEvent', {type: 'mouseMoved', x: 0, y: 0});
   await mediaScreenshot('library-desktop-dark');
   await onStore("store.applyTheme('light', {persist: false});");
   await cdp('Emulation.setDeviceMetricsOverride', {width: 390, height: 844, deviceScaleFactor: 1, mobile: true});
   assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true, 'mobile poster wall must not overflow');
+  await assertNavigationColors('.mobile-tab-grid');
+  await assertPrimaryContrast('mobile light theme');
   await mediaScreenshot('library-mobile');
 
   await onStore(`
@@ -440,9 +526,21 @@ try {
   `);
   await waitFor(() => evaluate(`Array.from(document.querySelectorAll('[aria-label="换源候选"] button')).some(button => button.innerText === '画质不匹配' && button.disabled)`), 'quality mismatch blocks source application');
   assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true, 'source quality warning must not overflow');
+  await onStore("store.showSourceSwitchDialog = false; store.selectTab('dashboard');");
+  await waitFor(() => evaluate("document.querySelector('.dash-command').checkVisibility()"), 'dashboard visible');
+  for (const width of [1440, 390]) {
+    await cdp('Emulation.setDeviceMetricsOverride', {width, height: width === 390 ? 844 : 1100, deviceScaleFactor: 1, mobile: width < 500});
+    for (const theme of ['light', 'dark']) {
+      await onStore(`store.applyTheme('${theme}', {persist: false});`);
+      assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true, `${width}px ${theme} dashboard must not overflow`);
+      await assertNavigationColors(width === 390 ? '.mobile-tab-grid' : '.app-sidebar');
+      await assertPrimaryContrast(`${width}px ${theme} dashboard`);
+      await mediaScreenshot(`dashboard-${width}-${theme}`);
+    }
+  }
   assert.deepEqual(exceptions, [], 'media selectors must not raise Alpine runtime exceptions');
   if (screenshotDir) console.log('UI screenshots:', screenshotDir);
-  console.log('search browser smoke passed: images, concurrent searches, metadata, light/dark poster wall, movie file/quality/download/save, series quality, source quality gate, 1440px and 390px views');
+  console.log('search browser smoke passed: images, concurrent searches, metadata, light/dark controls and navigation, poster hover and reduced motion, movie file/quality/download/save, series quality, source quality gate, 1440px and 390px views');
 } catch (error) {
   console.error(serverLog, chromeLog);
   throw error;

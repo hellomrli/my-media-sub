@@ -1,6 +1,6 @@
 [package]
 name = "my-media-sub"
-version = "2.8.0"
+version = "2.8.1"
 edition = "2021"
 # MSRV 仅为最低源码兼容版本，不是发布构建版本。取依赖图与本仓库 API 下限的较大者：
 #   - 依赖图：uuid 1.29 声明 1.89，ICU 2.4（经 idna → url → reqwest）声明 1.88；
