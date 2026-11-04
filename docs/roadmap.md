@@ -13,8 +13,8 @@
 
 ## 当前执行指针
 
-- **当前阶段**：v2.8.1 前端界面活力化视觉重构与发布验证
-- **当前任务**：本地发布门禁已完成，沿用前次发布授权，按 main CI 全绿后再推送 v2.8.1 tag 的顺序发布；云端完成情况见本节待办与 Actions / Release 链接
+- **当前阶段**：v2.8.1 已发布，转入部署后实网验证
+- **当前任务**：发布与产物核验已完成；`89d7d5f` 的 CI、Release、Docker Image 全部成功，云端归档、二进制及版本镜像均已核对，证据见本节
 - **下一任务（建议）**：升级后使用实际夸克分享和 Aria2 验证多画质电影保存、剧集固定画质及换源；真实 TMDB / Web Push 核验继续保留
 - **后续阶段**：保持单实例安全模型与 JSON 单写；未经明确需求不启动多用户、SQLite 或第二 Provider
 - **当前发布基线**：v2.8.1（`Cargo.toml` / OpenAPI / PWA 缓存代次；云端发布状态以 Actions / Release 为准）
@@ -36,7 +36,13 @@
 - [x] 发布前复核修复手机模块配色未生效、浅色按钮白字对比度不足、海报入场动画覆盖悬停抬升和减少动态效果仍有错峰延迟的问题；新增浅深色主按钮普通/悬停、桌面/手机导航、海报悬停及减少动态效果浏览器断言。证据：`tailwind/input.css`、`scripts/smoke-search-browser.mjs`。
 - [x] 同步 `2.8.1` 版本面（`Cargo.toml`、`Cargo.lock`、`static/openapi.json`、`static/service-worker.js`、`README.md`、`CHANGELOG.md`、`docs/upgrade-v2.8.1.md`）；719 项 Rust / 195 项前端测试通过，另 2 项外网 Rust 测试忽略，格式、Clippy、Rust 1.89 MSRV、依赖审计、CSS、OpenAPI、文档及真实浏览器回归通过。
 - [x] Rust 1.99.1 正式构建、二进制与 Docker 入口脚本 smoke、10 秒 soak、1440px / 390px 浅深色浏览器回归通过；下载并核对云端 v1.3.0 / v2.8.0 归档 SHA-256 后完成升级 smoke。README 两张测试数据截图同步至本版界面，CSS 使用 Tailwind 3.4.17 逐字节复现。
-- [ ] 按先 main CI 后 tag 的顺序发布，核验云端归档 SHA-256、正式二进制及 GHCR 镜像。
+- [x] 发布提交 `89d7d5f` 已推送 main，[CI](https://github.com/hellomrli/my-media-sub/actions/runs/41867150955) 的 Rust、MSRV 与真实 Docker build / upgrade smoke 全部成功后推送 `v2.8.1` tag，tag 指向同一提交。
+- [x] [Release](https://github.com/hellomrli/my-media-sub/actions/runs/41868935258)、[版本 Docker Image](https://github.com/hellomrli/my-media-sub/actions/runs/41868934945) 与 [main Docker Image](https://github.com/hellomrli/my-media-sub/actions/runs/41868675232) 全部成功；版本镜像的真实数据 / runtime 卷升级 smoke 通过。
+- [x] 下载实际发布的 `my-media-sub-v2.8.1-linux-x86_64.tar.gz`，核对同名校验文件与 GitHub 资产摘要，SHA-256 为 `10267e7aa539dbdbc3375e199ff721b882d1956f3d12932e622f19e1624d9f76`；随包 100 个静态资源、文档与 README / CHANGELOG 文件逐一匹配发布提交，发布说明链接也与预期一致。
+- [x] 云端正式二进制确认版本 `2.8.1`、编译器 Rust 1.99.1；使用随包静态资源通过二进制 smoke、Docker 入口脚本 smoke，以及真实 v1.3.0 / v2.8.0 旧发布二进制的数据升级 smoke。
+- [x] GHCR 的 `2.8.1` 与 `v2.8.1` 镜像别名一致，Linux amd64 配置的版本与源码提交分别为 `2.8.1`、`89d7d5f21690f50e7065742ee3bc89fc64f73289`；镜像摘要为 `sha256:16d92f7019d2efec2297cc6a845c59d0cc1ab6e4170363242cfac1a9287fd7fe`。
+- [!] 真实夸克分享 / Aria2 联调与 TMDB / Web Push 外网验证仍需实际部署账号；自动测试使用夹具，不替代这些实网核验。本轮未修改真实业务数据或配置。
+- 签名状态：发布工作流未配置 `MINISIGN_SECRET_KEY`，本次没有 `.minisig`；SHA-256 校验不等同于发布方签名，配置了 `SELF_UPDATE_PUBLIC_KEY` 的在线更新客户端会拒绝无签名归档。
 - 发布顺序与产物核验见 [发布流程](release-workflow.md)；以 [Actions](https://github.com/hellomrli/my-media-sub/actions) 与 [v2.8.1 Release](https://github.com/hellomrli/my-media-sub/releases/tag/v2.8.1) 的实际结果为准。
 
 ---
