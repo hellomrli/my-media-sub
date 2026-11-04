@@ -1,5 +1,5 @@
 use super::ensure_upstream_status;
-use crate::clients::http_pool::ObservedRequestBuilder;
+use crate::clients::http_pool::{client_builder, ObservedRequestBuilder};
 use crate::error::{AppError, Result};
 use reqwest::header::{HeaderValue, SET_COOKIE};
 use reqwest::{Client, Url};
@@ -111,26 +111,20 @@ impl QuarkSaveClient {
             }
         }
 
-        let client = Client::builder()
+        let client = client_builder()
             .default_headers(headers)
             .timeout(Duration::from_secs(20))
             .build()
-            .unwrap_or_else(|error| {
-                tracing::warn!("创建夸克转存 HTTP 客户端失败，使用默认客户端: {}", error);
-                Client::new()
-            });
+            .expect("创建夸克转存 HTTP 客户端失败");
 
         let mut mobile_headers = reqwest::header::HeaderMap::new();
         mobile_headers.insert("User-Agent", HeaderValue::from_static(QUARK_USER_AGENT));
         mobile_headers.insert("content-type", HeaderValue::from_static("application/json"));
-        let mobile_client = Client::builder()
+        let mobile_client = client_builder()
             .default_headers(mobile_headers)
             .timeout(Duration::from_secs(20))
             .build()
-            .unwrap_or_else(|error| {
-                tracing::warn!("创建夸克移动端 HTTP 客户端失败，使用默认客户端: {}", error);
-                Client::new()
-            });
+            .expect("创建夸克移动端 HTTP 客户端失败");
 
         Self {
             client,

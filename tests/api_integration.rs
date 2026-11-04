@@ -417,12 +417,12 @@ async fn aria2_single_task_route_queries_only_the_disappeared_gid() {
 async fn job_events_remain_an_sse_response() {
     let (ctx, dir) = test_context().await;
     let app = create_app(ctx);
+    let mut request = auth_get("/api/jobs/events");
+    request
+        .headers_mut()
+        .insert(header::ACCEPT_ENCODING, "br, gzip".parse().unwrap());
 
-    let response = app
-        .clone()
-        .oneshot(auth_get("/api/jobs/events"))
-        .await
-        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
     assert!(response
@@ -430,6 +430,7 @@ async fn job_events_remain_an_sse_response() {
         .get(header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| value.starts_with("text/event-stream")));
+    assert!(!response.headers().contains_key(header::CONTENT_ENCODING));
 
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -452,6 +453,90 @@ async fn static_javascript_is_not_wrapped_as_an_api_response() {
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| value.starts_with("text/javascript")));
 
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn static_assets_negotiate_brotli_gzip_and_identity() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+    let expected = include_bytes!("../static/js/core/api.js");
+
+    for (accepted, encoding) in [
+        (Some("br"), Some("br")),
+        (Some("gzip"), Some("gzip")),
+        (Some("gzip;q=1, br;q=0.5"), Some("gzip")),
+        (Some("gzip;q=0.5, br;q=1"), Some("br")),
+        (Some("br;q=0, gzip;q=0"), None),
+        (None, None),
+    ] {
+        let mut request = auth_get("/js/core/api.js");
+        if let Some(accepted) = accepted {
+            request
+                .headers_mut()
+                .insert(header::ACCEPT_ENCODING, accepted.parse().unwrap());
+        }
+
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let headers = response.headers();
+        assert_eq!(
+            headers
+                .get(header::CONTENT_ENCODING)
+                .map(|value| value.to_str().unwrap()),
+            encoding,
+            "unexpected encoding for Accept-Encoding: {accepted:?}"
+        );
+        if encoding.is_some() {
+            assert!(!headers.contains_key(header::CONTENT_LENGTH));
+            assert!(headers.get_all(header::VARY).iter().any(|value| value
+                .to_str()
+                .unwrap()
+                .split(',')
+                .any(|name| name.trim().eq_ignore_ascii_case("accept-encoding"))));
+        }
+
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        if encoding.is_some() {
+            assert!(!bytes.is_empty());
+            assert!(bytes.len() < expected.len());
+            if encoding == Some("gzip") {
+                assert!(bytes.starts_with(&[0x1f, 0x8b]));
+            }
+        } else {
+            assert_eq!(bytes.as_ref(), expected);
+        }
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn static_range_is_not_compressed_when_encoding_is_accepted() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+    let expected = include_bytes!("../static/js/core/api.js");
+    let mut request = auth_get("/js/core/api.js");
+    request
+        .headers_mut()
+        .insert(header::RANGE, "bytes=0-511".parse().unwrap());
+    request
+        .headers_mut()
+        .insert(header::ACCEPT_ENCODING, "br, gzip".parse().unwrap());
+
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(
+        response.headers()[header::CONTENT_RANGE],
+        format!("bytes 0-511/{}", expected.len())
+    );
+    assert_eq!(response.headers()[header::CONTENT_LENGTH], "512");
+    assert!(!response.headers().contains_key(header::CONTENT_ENCODING));
+    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    assert_eq!(bytes.as_ref(), &expected[..512]);
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -2403,6 +2488,38 @@ async fn update_restart_without_a_pending_plan_is_rejected() {
 }
 
 // ─── TMDB 测试 ────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn metadata_search_keeps_array_envelope_and_reports_title_attempts() {
+    let (ctx, dir) = test_context().await;
+    ctx.settings_store
+        .update(|settings| settings.metadata_provider = "none".into())
+        .await
+        .unwrap();
+    let app = create_app(ctx);
+    let (status, headers, body) = json_response(
+        &app,
+        auth_get("/api/metadata/search?query=Show&source_title=Show%20%2F%20Alias&year=2024"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_json_content_type(&headers);
+    assert_eq!(body["ok"], true);
+    assert_eq!(body["data"], serde_json::json!([]));
+    assert_eq!(body["attempted_queries"], serde_json::json!([]));
+    assert!(body["matched_query"].is_null());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn metadata_search_rejects_empty_titles_before_fallback() {
+    let (ctx, dir) = test_context().await;
+    let app = create_app(ctx);
+    let (status, _, body) = json_response(&app, auth_get("/api/metadata/search?query=%20")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"], "validation_error");
+    let _ = std::fs::remove_dir_all(dir);
+}
 
 #[tokio::test]
 async fn metadata_test_reports_missing_tmdb_key_without_network() {

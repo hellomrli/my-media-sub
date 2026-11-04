@@ -2,7 +2,7 @@
 
 > 本文件是项目后续工作的**唯一持久化计划入口**。每完成一个任务，必须同步更新复选框、证据和“当前执行指针”，以便跨会话、跨上下文继续。
 >
-> 最近更新：2026-10-24
+> 最近更新：2026-11-04
 
 ## 状态说明
 
@@ -13,17 +13,60 @@
 
 ## 当前执行指针
 
-- **当前阶段**：v2.7.6 Store 恢复与搜索可靠性修复
-- **当前任务**：发布提交已完成本地回归验证；GitHub Release 与镜像构建状态见 Actions
-- **下一任务（建议）**：单独评估剩余约 50 个 semver 兼容依赖更新；升级后补一次真实浏览器推送验证
+- **当前阶段**：v2.7.7 安全更新、剧名匹配与发布验证
+- **当前任务**：v2.7.7 剧名增强、依赖迁移与本地回归已完成；本地证据见本轮记录，提交、tag、Release 和镜像状态以 Actions / Release 为准
+- **下一任务（建议）**：升级后在部署环境用目标剧名核验真实 TMDB 数据，并确认真实 Web Push 设备送达
 - **后续阶段**：保持单实例安全模型与 JSON 单写；未经明确需求不启动多用户、SQLite 或第二 Provider
-- **当前发布基线**：v2.7.6（`Cargo.toml` / OpenAPI / PWA 缓存代次）
-- **工作树状态**：见 `main` 最新提交；历史 v1.x 交接记录保留在下方作审计
+- **当前发布基线**：v2.7.7（`Cargo.toml` / OpenAPI / PWA 缓存代次）
+- **工作树状态**：基于 `main`，以 `git status --short --branch` 为准；历史阶段交接记录保留在下方作审计
 
 > **本轮评审的完整清单与后续待办见
 > [docs/code-review-2026-09-21.md](code-review-2026-09-21.md)。**
 > 该文档逐条说明了哪些条目已修复、哪些仍待处理，是 `P23+` 的实际计划入口。
 > 「当前发布基线」已纳入 CI 门禁，见 `scripts/check-doc-drift.py`。
+
+历史评审留档：[2026-07-26 代码评审](code-review-2026-07-26.md) 与 [前端评审](frontend-design-review-2026-07-26.md)。其中旧问题以本台账后续修复记录为准。
+
+---
+
+## v2.7.7 安全更新与发布（2026-11-04）
+
+- [x] 核实官方最新稳定版仍为 Rust 1.99.1；保留 1.89 MSRV 并在 README / 开发 / 安全文档中明确两者区别。
+- [x] reqwest 升至 0.13.5，统一客户端构建，保留 ring 与 Mozilla 信任根、超时和更新下载白名单；初始化失败关闭、隐式重试关闭。新增 6 项本地 TLS / HTTP 回归，HTTP pool 的 9 项测试全部通过。
+- [x] Alpine 升至 3.17.5，官方包 SHA-512 校验通过，保留许可证与来源。npm 官方对实际捆绑的 Alpine / Vue 版本返回空公告；RustSec 刷新后 `cargo deny --locked check` 四项通过，零公告例外。
+- [x] 兼容范围内 dry-run 无待更新项；`matchit 0.8.4` 受 axum 精确约束保留，不绕过上游路由约束。迁移后锁文件 259 个包，不含 quinn 链。
+- [x] Docker 构建拉取新基础镜像、不缓存运行层并更新系统软件包；Release 加入依赖审计，适配精简 README 的版本提取与链接。同步 2.7.7 的应用、OpenAPI、静态资源、升级文档和下载示例。
+- [x] 最终 773 项 Rust / 181 项前端测试通过，另 2 项 Rust 网络测试忽略；Clippy、MSRV 1.89、格式、ESLint、HTML/CSS/OpenAPI/文档/工具链门禁通过，README lint 为 0 错误 / 0 警告。
+- [x] 正式构建与二进制、Docker 入口、10 秒 soak、390px / 1440px 浏览器和搜索/剧名回退 smoke 通过；用真实云端旧包验证 v1.3.0 与 v2.7.6 数据升级，校验和均已核对。正式二进制只读 GitHub HTTPS 更新检查通过，编译器标记确认为 Rust 1.99.1。
+- 发布顺序与核验步骤见 [发布流程](release-workflow.md)；云端以 [Actions](https://github.com/hellomrli/my-media-sub/actions) 和 [v2.7.7 Release](https://github.com/hellomrli/my-media-sub/releases/tag/v2.7.7) 为准，不能用本地编译替代云端镜像结果。
+
+---
+
+## 剧名匹配与 README（2026-11-04，开发阶段记录）
+
+- [x] TMDB 空结果后调整剧名，最多 6 次、标题查询共用 30 秒预算，命中或上游错误立即停止；API 与后台刮削共用服务。证据：`src/services/title_normalize/search_queries.rs`、`src/services/metadata/title_search.rs`、`src/api/metadata.rs`、`src/jobs/worker/metadata_scrape.rs`。
+- [x] 展示实际尝试的标题，保留年份与手工季度；失败不应用试探词，迟到响应不覆盖新输入或已选元数据。同步 HTML 与 PWA 缓存修订。证据：`static/js/stores/subscriptions.js`、`tests/frontend_subscriptions.test.js`。
+- [x] 参考用户提供的 `readme-author` 重写 README，将详细使用、开发与版本内容迁入 `docs/usage.md`、`docs/development.md`、`docs/version-history.md`，补充 `docs/title-matching.md` 与 API 契约。不安装全局 skill，不修改真实业务数据。
+- [x] 767 项 Rust 测试通过、2 项网络测试按设计忽略，181 项前端测试通过；Clippy、Rust 1.89.0 MSRV、格式、ESLint、HTML/CSS/OpenAPI/文档/工具链门禁通过。证据：`cargo test --all --locked`、`node --test tests/frontend_*.test.js`、`cargo clippy --all-targets --all-features --locked -- -D warnings`。
+- [x] 正式构建与二进制 smoke 通过；Chrome 1440px / 390px 覆盖资源搜索和剧名回退成功/空结果，确认无脚本异常或横向溢出。证据：`scripts/smoke-release.sh`、`scripts/smoke-search-browser.mjs`；真实 WebUI 的测试数据截图为 `docs/assets/metadata-match.png`，可用 `--metadata-screenshot` 重建。
+- [x] 参考 skill 的 `readme_lint.py README.md` 返回 0 错误、0 警告；本轮文档的本地文件链接与 Markdown 锚点均可解析。详细内容迁移后仍可从 README 到达，文档明确区分发布基线与未发布增强。
+- [!] 本地元数据页面使用 fixture，未用真实 Key 调用 TMDB；本机无 Docker，Compose 启动步骤已静态核对，但真实镜像构建/启动仍待 CI 或部署环境验证。
+- 该阶段沿用 v2.7.6 基线，未创建提交、tag 或 Release；后续获得用户发布授权，成果纳入 v2.7.7，见本页当前记录。
+
+---
+
+## 兼容依赖维护（2026-11-04，reqwest 迁移前记录）
+
+- [x] 承接已合入的搜索图片候选回退、过期请求取消与状态隔离、390px / 1440px 搜索浏览器 smoke，以及 Rust 1.99.1 工具链与合并前 Docker 验证；证据：`7b5d321`、`199bf89`。
+- [x] 按现有依赖约束与 Rust 1.89 下限更新 52 个锁定依赖，新增 1 个传递依赖 `utf_types`；不改直接依赖版本范围、API 或 JSON Store schema。证据：`Cargo.lock`、`cargo update --config 'resolver.incompatible-rust-versions="fallback"'`。
+- [x] 刷新公告并通过 `cargo deny --locked check`：advisories / bans / licenses / sources 全部通过；`deny.toml` 不增加例外。压缩链的 Brotli 9 由上游适配，Web Push 仍使用 `p256` / `ring`，不引入第二套 TLS 实现。
+- [x] 补齐 Brotli / gzip / identity 与质量权重协商、大于压缩阈值的 Range 响应、SSE 不压缩回归；证据：`tests/api_integration.rs`。
+- [x] 753 项 Rust 测试通过、2 项网络测试按设计忽略，168 项前端测试通过；Rust 1.89.0 locked / all-targets / all-features 检查、Clippy、格式、ESLint、HTML/CSS/OpenAPI/工具链/文档门禁通过。Web Push 11 项协议与密码学测试全部通过。
+- [x] Release 构建、二进制和 Docker 入口脚本 smoke、10 秒 soak（1,516 请求 / 3 份保留备份）、390px / 1440px 浏览器和搜索图片/并发回归全部通过；证据：`cargo build --release --locked`、`scripts/smoke-{release,docker-entrypoint,soak,browser}.sh`、`scripts/smoke-search-browser.mjs`。
+- [x] 对正式二进制分别使用 Brotli / gzip 获取 HTML、JS、CSS、OpenAPI，经 curl 独立解压后与源文件逐字节一致；PNG 保持未压缩。更新后 dry-run 复核为 0 个约束内待更新依赖，`reqwest 0.13` 不在本轮范围。
+- [!] 本机未安装 Docker，真实镜像构建与容器启动待 CI 复核；入口脚本 smoke 不等同于 Docker 构建验证。
+- [!] 真实 Web Push 设备送达仍需已有浏览器订阅与设备确认；协议向量和浏览器页面 smoke 不能替代该验证。
+- 该阶段保持 v2.7.6 基线且不发布；后续根据用户授权继续升级 reqwest 与 Alpine，并纳入 v2.7.7。
 
 ---
 

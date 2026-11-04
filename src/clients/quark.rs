@@ -1,5 +1,5 @@
 use super::ensure_upstream_status;
-use crate::clients::http_pool::ObservedRequestBuilder;
+use crate::clients::http_pool::{client_builder, ObservedRequestBuilder};
 use crate::error::{AppError, Result};
 use regex::Regex;
 use reqwest::header::HeaderValue;
@@ -160,14 +160,11 @@ impl QuarkShareProbe {
             }
         }
 
-        let client = Client::builder()
+        let client = client_builder()
             .default_headers(headers)
             .timeout(Duration::from_secs(20))
             .build()
-            .unwrap_or_else(|error| {
-                tracing::warn!("创建夸克探测 HTTP 客户端失败，使用默认客户端: {}", error);
-                Client::new()
-            });
+            .expect("创建夸克探测 HTTP 客户端失败");
 
         Self { client }
     }

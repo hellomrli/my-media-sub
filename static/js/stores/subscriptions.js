@@ -114,6 +114,8 @@
   }
 
   function createStore() {
+    let activeMetadataSearch = null;
+    let magicTitleGeneration = 0;
     return {
     subscriptions: [],
     /// 请求序号：SSE 联动、手动检查、顶栏刷新并发触发时丢弃过期响应。
@@ -177,6 +179,8 @@
     currentSearchResult: null,  // 当前操作的搜索结果
     metadataSearching: false,
     metadataResults: [],
+    metadataSearchMessage: '',
+    metadataSearchQueries: [],
     showManualMetadataDialog: false,
     manualMetadataSubscriptionId: '',
     manualMetadataSubscriptionTitle: '',
@@ -272,6 +276,11 @@
 
     // 打开/重置订阅对话框时共用的状态复位
     prepareSubscriptionDialog({mode = 'continuous', editingId = null, searchResult = null} = {}) {
+      magicTitleGeneration += 1;
+      this.cancelMetadataSearch();
+      this.metadataResults = [];
+      this.metadataSearchMessage = '';
+      this.metadataSearchQueries = [];
       this.subscriptionEditingId = editingId;
       this.subscriptionMode = mode;
       this.subscriptionDialogTab = 'content';
@@ -461,7 +470,8 @@
     ///   `《庆余年》第二季` 这样的分享不该再让用户手填一次 2。
     applyTitleHints(result) {
       if (!result || !this.newSubscription) return;
-      this.newSubscription.metadata_year_hint = result.year || null;
+      // Re-normalizing an already cleaned title must not erase its original year.
+      if (result.year) this.newSubscription.metadata_year_hint = result.year;
       const season = result.season;
       if (!season) return;
       const current = String(this.newSubscription.season_input == null ? '' : this.newSubscription.season_input).trim();
@@ -480,10 +490,15 @@
 
     async applyMagicTitleMatch(options = {}) {
       const silent = !!options.silent;
-      const raw = String(this.newSubscription.title || '').trim();
+      const form = this.newSubscription;
+      const generation = ++magicTitleGeneration;
+      const dialogWasOpen = this.showSubscriptionDialog;
+      const raw = String(form.title || '').trim();
       if (!raw || /^https?:\/\//i.test(raw)) return raw;
-      if (!this.newSubscription.source_title) this.newSubscription.source_title = raw;
+      if (!form.source_title) form.source_title = raw;
       const result = await this.normalizeTitleRemote(raw);
+      if (generation !== magicTitleGeneration || this.newSubscription !== form || form.title.trim() !== raw
+        || (dialogWasOpen && !this.showSubscriptionDialog)) return raw;
       const cleaned = result.normalized || raw;
       this.applyTitleHints(result);
       if (cleaned && cleaned !== raw) {
@@ -498,7 +513,7 @@
         && typeof this.searchMetadataForSubscription === 'function') {
         await this.searchMetadataForSubscription(true);
       }
-      return cleaned || raw;
+      return form.title || cleaned || raw;
     },
 
     // 打开订阅对话框（支持立即转存或连续订阅）
@@ -531,19 +546,18 @@
       this.detectSubscriptionSeasons();
       // 即使搜索结果带 display_title 也再次走权威清洗；上游旧缓存可能仍
       // 保留「4K 高码率」等后缀，直接使用会降低 TMDB 命中率。
-      const initialTitle = this.newSubscription.title;
+      const form = this.newSubscription;
+      const generation = magicTitleGeneration;
+      const initialTitle = form.title;
       this.normalizeTitleRemote(sourceTitle || rawTitle).then(normalized => {
         if (!normalized || !normalized.normalized) return;
-        if (this.newSubscription.url === result.url) {
+        if (generation !== magicTitleGeneration || this.newSubscription !== form || !this.showSubscriptionDialog) return;
+        // Do not apply the old title's hints to later manual input.
+        if (form.title === initialTitle) {
           this.applyTitleHints(normalized);
-          // 用户可能在异步清洗完成前手动改过标题；此时保留手工输入，
-          // 但仍按当前输入触发一次元数据搜索。
-          if (this.newSubscription.title === initialTitle) {
-            this.newSubscription.title = normalized.normalized;
-          }
-          this.newSubscription.source_title = rawTitle;
-          return this.searchMetadataForSubscription(true);
+          form.title = normalized.normalized;
         }
+        return this.searchMetadataForSubscription(true);
       }).catch(() => {});
       if (this.newSubscription.preview_samples) this.previewSubscriptionRename(true);
     },
@@ -1408,34 +1422,73 @@
       return this.settings.metadata_provider === 'tmdb' && (this.settings.tmdb_api_key || this.settings.tmdb_api_key_configured);
     },
 
+    cancelMetadataSearch() {
+      const previous = activeMetadataSearch;
+      activeMetadataSearch = null;
+      if (previous) previous.controller.abort();
+      this.metadataSearching = false;
+    },
+
     async searchMetadataForSubscription(silent = false) {
-      if (!this.metadataSearchAvailable() || !this.newSubscription.title.trim()) return;
-      this.metadataSearching = true;
-      try {
-        const params = new URLSearchParams({
-          query: this.newSubscription.title.trim(),
-          media_type: this.newSubscription.media_type || 'series'
-        });
-        // 年份提示来自原始分享标题（`射雕英雄传 (2017)`），是区分同名翻拍的唯一线索。
-        const yearHint = Number(this.newSubscription.metadata_year_hint || 0);
-        if (yearHint > 1900) params.set('year', String(yearHint));
-        const response = await apiFetch(`/api/metadata/search?${params.toString()}`);
-        const data = await response.json();
-        if (response.ok) {
-          this.metadataResults = data.data || [];
-          if (this.metadataResults.length > 0 && !this.newSubscription.metadata) {
-            this.applyMetadata(this.metadataResults[0], true);
-          } else if (!silent && this.metadataResults.length === 0) {
-            this.showNotification('warning', '未匹配到媒体元数据');
-          }
-        } else if (!silent) {
-          this.showNotification('error', data.message || '元数据匹配失败');
-        }
-      } catch (error) {
-        if (!silent) this.showNotification('error', this.apiErrorMessage(error, '元数据匹配失败'));
-      } finally {
-        this.metadataSearching = false;
+      const form = this.newSubscription;
+      const query = form.title.trim();
+      if (!this.metadataSearchAvailable() || !query) {
+        this.cancelMetadataSearch();
+        return;
       }
+      const mediaType = form.media_type || 'series';
+      const sourceTitle = form.source_title || '';
+      const yearHint = Number(form.metadata_year_hint || 0);
+      const key = JSON.stringify([query, mediaType, sourceTitle, yearHint]);
+      if (activeMetadataSearch && activeMetadataSearch.form === form && activeMetadataSearch.key === key) {
+        return activeMetadataSearch.promise;
+      }
+      this.cancelMetadataSearch();
+      const request = {form, key, controller: new AbortController(), promise: null};
+      activeMetadataSearch = request;
+      this.metadataSearching = true;
+      this.metadataResults = [];
+      this.metadataSearchMessage = '';
+      this.metadataSearchQueries = [];
+      const dialogWasOpen = this.showSubscriptionDialog;
+      const isCurrent = () => activeMetadataSearch === request && this.newSubscription === form
+        && form.title.trim() === query && (form.media_type || 'series') === mediaType
+        && (form.source_title || '') === sourceTitle && Number(form.metadata_year_hint || 0) === yearHint
+        && (!dialogWasOpen || this.showSubscriptionDialog);
+      request.promise = (async () => {
+        try {
+          const params = new URLSearchParams({query, media_type: mediaType});
+          if (sourceTitle) params.set('source_title', sourceTitle);
+          if (yearHint >= 1900) params.set('year', String(yearHint));
+          const response = await apiFetch(`/api/metadata/search?${params.toString()}`, {signal: request.controller.signal});
+          const data = await response.json();
+          if (!isCurrent()) return;
+          if (response.ok) {
+            this.metadataResults = Array.isArray(data.data) ? data.data : [];
+            this.metadataSearchQueries = Array.isArray(data.attempted_queries) ? data.attempted_queries.filter(value => typeof value === 'string') : [];
+            this.metadataSearchMessage = data.message || (this.metadataResults.length ? '' : '未匹配到媒体元数据，可手动调整剧名后重试');
+            if (this.metadataResults.length > 0 && !form.metadata) this.applyMetadata(this.metadataResults[0], true);
+            if (!silent && this.metadataResults.length === 0) {
+              this.showNotification('warning', this.metadataSearchMessage);
+            } else if (!silent && this.metadataSearchQueries.length > 1 && this.metadataSearchMessage) {
+              this.showNotification('success', this.metadataSearchMessage);
+            }
+          } else {
+            this.metadataSearchMessage = data.message || '元数据匹配失败';
+            if (!silent) this.showNotification('error', this.metadataSearchMessage);
+          }
+        } catch (error) {
+          if (!isCurrent()) return;
+          this.metadataSearchMessage = this.apiErrorMessage(error, '元数据匹配失败');
+          if (!silent) this.showNotification('error', this.metadataSearchMessage);
+        } finally {
+          if (activeMetadataSearch === request) {
+            activeMetadataSearch = null;
+            this.metadataSearching = false;
+          }
+        }
+      })();
+      return request.promise;
     },
 
     applyMetadata(item, silent = false) {

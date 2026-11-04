@@ -11,8 +11,9 @@ WORKDIR /app
 #
 # v2.7.2 把 Web Push 换成自实现（src/services/web_push.rs），移除了 web-push 及
 # 其 isahc → curl-sys → libnghttp2-sys / libz-sys 链与 superboring（BoringSSL）。
-# 全项目现在只依赖 rustls 纯 Rust 实现，`cargo tree | grep -i openssl` 为空，
-# 因此构建阶段无需系统 OpenSSL 头文件与 pkg-config。
+# TLS 保持 rustls + ring，不链接 OpenSSL / libcurl / AWS-LC。
+# reqwest 0.13 的传递依赖 openssl-probe 仅查找证书路径，并非 OpenSSL 绑定；
+# 本项目仍显式使用 Mozilla 根证书，无需系统 OpenSSL 头文件与 pkg-config。
 
 # 复制 Cargo 文件
 COPY Cargo.toml Cargo.lock ./
@@ -25,7 +26,7 @@ RUN cargo build --release --locked \
     && awk -F '"' '/^version = / { print $2; exit }' Cargo.toml > target/release/VERSION
 
 # Stage 2: 运行阶段
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim AS runtime
 
 LABEL org.opencontainers.image.title="My Media Sub" \
       org.opencontainers.image.description="Media subscription and Quark drive automation service" \
@@ -34,9 +35,12 @@ LABEL org.opencontainers.image.title="My Media Sub" \
 
 WORKDIR /app
 
-# 运行依赖：libssl3 已不需要（无 openssl 链接）；ca-certificates 供 rustls 校验
-# 上游证书，curl 供 HEALTHCHECK，gosu 供入口脚本降权。
-RUN apt-get update && apt-get install -y \
+# 应用内置 Mozilla 信任根、不链接 OpenSSL；ca-certificates 供 curl 使用，
+# curl 供 HEALTHCHECK，gosu 供入口脚本降权。
+# CI 对 runtime 阶段禁用构建缓存，并拉取最新基础镜像，避免重用旧安全补丁层。
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     gosu \

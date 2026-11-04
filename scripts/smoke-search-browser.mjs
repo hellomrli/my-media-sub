@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import net from 'node:net';
 import {spawn} from 'node:child_process';
-import {mkdtemp, readFile, rm} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -19,6 +19,7 @@ const sockets = new Set();
 const imageRequests = [];
 const emptyImageRequests = [];
 const searches = [];
+const metadataSearches = [];
 const exceptions = [];
 let serverLog = '';
 let chromeLog = '';
@@ -73,6 +74,30 @@ try {
       let body = '';
       req.on('data', chunk => { body += chunk; });
       req.on('end', () => searches.push({body: JSON.parse(body), res}));
+      return;
+    }
+    if (req.url.startsWith('/api/metadata/search?') && req.method === 'GET') {
+      const params = new URL(req.url, 'http://localhost').searchParams;
+      metadataSearches.push(Object.fromEntries(params));
+      const query = params.get('query');
+      const matched = query === '星海旅人之远航篇';
+      const attempts = matched ? [query, '星海旅人'] : [query, '未收录剧集'];
+      setTimeout(() => {
+        if (res.destroyed) return;
+        res.writeHead(200, {'content-type': 'application/json', 'cache-control': 'no-store'});
+        res.end(JSON.stringify({
+          ok: true,
+          data: matched ? [{
+            provider: 'tmdb', provider_id: '900001', title: '星海旅人', media_type: 'anime',
+            release_date: '2024-01-01', number_of_episodes: 24,
+            overview: '本地演示数据：虚构剧集，用于展示篇章标题未命中后回退到系列主名的效果。'
+          }] : [],
+          attempted_queries: attempts,
+          matched_query: matched ? '星海旅人' : null,
+          message: matched ? '已调整搜索剧名为「星海旅人」并匹配到元数据（尝试 2 个名称）'
+            : '已尝试 2 个剧名，仍未匹配到元数据'
+        }));
+      }, 150);
       return;
     }
     // Chrome no longer supports embedded Basic credentials; inject them locally.
@@ -222,8 +247,56 @@ try {
   await delay(200);
   assert.equal(await onStore('return store.searchResults[0].note'), 'Newest result');
   assert.equal(await onStore('return store.uiError'), '');
+
+  // Normalization uses the actual local backend; only the TMDB response is a fixture.
+  await onStore(`
+    store.selectTab('subscriptions');
+    store.settings.metadata_provider = 'tmdb';
+    store.settings.tmdb_api_key_configured = true;
+    store.openBlankSubscriptionDialog();
+    store.newSubscription.title = '【本地演示】星海旅人之远航篇 (2024) 第2季 1080p';
+    store.newSubscription.media_type = 'anime';
+    store.newSubscription.season_input = '1,3';
+    store.newSubscription.season_list = [1, 3];
+    store.applyMagicTitleMatch({silent: true});
+  `);
+  await waitFor(() => onStore('return store.metadataSearching'), 'metadata loading state');
+  assert.equal(await evaluate(`document.querySelector('[x-show="metadataSearching"]').checkVisibility()`), true);
+  await waitFor(() => onStore("return !store.metadataSearching && store.newSubscription.metadata?.title === '星海旅人'"), 'adjusted title result');
+  assert.equal(metadataSearches.length, 1);
+  assert.equal(metadataSearches[0].query, '星海旅人之远航篇');
+  assert.equal(metadataSearches[0].year, '2024');
+  assert.match(metadataSearches[0].source_title, /1080p/);
+  assert.equal(await onStore('return store.newSubscription.title'), '星海旅人');
+  assert.equal(await onStore('return store.newSubscription.season_input'), '1,3');
+  assert.deepEqual(await onStore('return [...store.metadataSearchQueries]'), ['星海旅人之远航篇', '星海旅人']);
+  const dialog = `document.querySelector('[aria-label="订阅配置"]')`;
+  for (const width of [1440, 390]) {
+    await cdp('Emulation.setDeviceMetricsOverride', {width, height: 1100, deviceScaleFactor: 1, mobile: width < 500});
+    await waitFor(() => evaluate('innerWidth === ' + width), 'metadata viewport');
+    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true, `${width}px metadata page must not overflow`);
+    assert.equal(await evaluate(`${dialog}.scrollWidth <= ${dialog}.clientWidth`), true, `${width}px metadata dialog must not overflow`);
+    assert.match(await evaluate(`${dialog}.innerText`), /尝试剧名：星海旅人之远航篇 \/ 星海旅人/);
+    if (width === 1440 && process.argv.includes('--metadata-screenshot')) {
+      await waitFor(() => evaluate("document.querySelectorAll('#toastContainer .toast').length === 0"), 'toast expiry before screenshot');
+      await evaluate(`window.scrollTo(0, 0); ${dialog}.scrollTop = 0; document.fonts.ready`);
+      const screenshot = await cdp('Page.captureScreenshot', {format: 'png'});
+      const asset = join(root, 'docs/assets/metadata-match.png');
+      await mkdir(dirname(asset), {recursive: true});
+      await writeFile(asset, Buffer.from(screenshot.data, 'base64'));
+    }
+  }
+  await onStore(`
+    store.newSubscription.title = '未收录剧集之旅行篇';
+    store.newSubscription.metadata = null;
+    store.searchMetadataForSubscription(true);
+  `);
+  await waitFor(() => onStore('return !store.metadataSearching && store.metadataSearchQueries[0] === "未收录剧集之旅行篇"'), 'exhausted metadata attempts');
+  assert.equal(await onStore('return store.newSubscription.title'), '未收录剧集之旅行篇');
+  assert.equal(await onStore('return store.newSubscription.metadata'), null);
+  assert.match(await evaluate(`${dialog}.innerText`), /仍未匹配到元数据/);
   assert.deepEqual(exceptions, [], 'Alpine must not raise runtime exceptions');
-  console.log('search browser smoke passed: fallback/empty/HTTPS images, 1440px and 390px views, preview, concurrent searches');
+  console.log('search browser smoke passed: images, preview, concurrent searches, metadata fallback/empty results, 1440px and 390px views');
 } catch (error) {
   console.error(serverLog, chromeLog);
   throw error;

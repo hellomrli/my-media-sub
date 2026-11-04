@@ -61,6 +61,7 @@ wildcards = "deny"
 deny = [
     # 只允许一份 rustls / ring 实现，避免出现第二套 TLS 栈。
     { name = "ring", deny-multiple-versions = true },
+    { name = "rustls", deny-multiple-versions = true },
 ]
 
 [sources]

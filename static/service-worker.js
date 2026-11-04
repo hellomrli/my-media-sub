@@ -1,16 +1,19 @@
 /* global MediaSubPwaPolicy */
-importScripts('/js/pwa-policy.js?v=2.7.6');
+importScripts('/js/pwa-policy.js?v=2.7.7');
 
-const ASSET_VERSION = '2.7.6';
-const ASSET_REVISION = 'search-images-1';
-const CACHE_VERSION = 'v2.7.6-search-image-reliability-1';
+const ASSET_VERSION = '2.7.7';
+const CACHE_VERSION = 'v2.7.7-release-1';
 const SHELL_CACHE = `media-sub-shell-${CACHE_VERSION}`;
 const STATIC_CACHE = `media-sub-static-${CACHE_VERSION}`;
 const CACHE_PREFIX = 'media-sub-';
-const REVISED_ASSETS = new Set([
-  '/styles.css', '/js/core/api.js', '/js/core/shell.js',
-  '/js/features/search-page.js', '/js/features/search-results.js'
-]);
+const ASSET_REVISIONS = {
+  '/styles.css': 'search-images-1',
+  '/js/core/api.js': 'search-images-1',
+  '/js/core/shell.js': 'search-images-1',
+  '/js/features/search-page.js': 'search-images-1',
+  '/js/features/search-results.js': 'search-images-1',
+  '/js/stores/subscriptions.js': 'magic-title-1'
+};
 const PRECACHE_ASSETS = [
   '/',
   '/manifest.webmanifest',
@@ -50,7 +53,7 @@ const PRECACHE_ASSETS = [
   '/icons/icon-maskable-512.png',
 ].map(asset => {
   if (!/\.(?:css|js)$/i.test(asset)) return asset;
-  const revision = REVISED_ASSETS.has(asset) ? `&rev=${ASSET_REVISION}` : '';
+  const revision = ASSET_REVISIONS[asset] ? `&rev=${ASSET_REVISIONS[asset]}` : '';
   return `${asset}?v=${ASSET_VERSION}${revision}`;
 });
 

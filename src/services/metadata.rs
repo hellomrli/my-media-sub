@@ -9,6 +9,9 @@ use crate::error::{AppError, Result};
 use crate::models::{MediaMetadata, MediaMetadataEpisode, MediaMetadataSeason, MetadataProvider};
 use crate::store::SettingsStore;
 
+mod title_search;
+pub use title_search::MetadataSearchOutcome;
+
 pub struct MetadataService {
     client: Client,
     /// TV 详情缓存：(provider_id, language) → (写入时间, 数据)。
@@ -49,31 +52,10 @@ impl MetadataService {
         query: &str,
         media_type: Option<&str>,
     ) -> Result<Vec<MediaMetadata>> {
-        let query = query.trim();
-        if query.is_empty() {
-            return Err(AppError::Validation("搜索关键词不能为空".to_string()));
-        }
-
-        let settings = settings_store.get().await;
-        match settings.metadata_provider.as_str() {
-            "tmdb" => {
-                if settings.tmdb_api_key.trim().is_empty() {
-                    return Err(AppError::Config("未配置 TMDB API Key".to_string()));
-                }
-                self.search_tmdb(
-                    &settings.tmdb_api_key,
-                    &settings.tmdb_language,
-                    query,
-                    media_type,
-                )
-                .await
-            }
-            "douban" => Err(AppError::Config(
-                "豆瓣刮削适配器尚未启用，请先使用 TMDB".to_string(),
-            )),
-            "none" | "" => Ok(Vec::new()),
-            other => Err(AppError::Config(format!("不支持的元数据提供方: {}", other))),
-        }
+        Ok(self
+            .search_with_title_fallback(settings_store, query, None, media_type)
+            .await?
+            .results)
     }
 
     pub fn choose_best_match(
@@ -204,7 +186,7 @@ impl MetadataService {
         }
 
         let data: TmdbSearchResponse = response.json().await?;
-        let mut results: Vec<MediaMetadata> = data
+        let results: Vec<MediaMetadata> = data
             .results
             .into_iter()
             .filter_map(|item| {
@@ -217,7 +199,16 @@ impl MetadataService {
             .take(10)
             .collect();
 
-        for item in &mut results {
+        Ok(results)
+    }
+
+    async fn enrich_tmdb_results(
+        &self,
+        api_key: &str,
+        language: &str,
+        results: &mut [MediaMetadata],
+    ) {
+        for item in results {
             if item.media_type == "series" || item.media_type == "anime" {
                 if let Ok(Some(details)) = self
                     .fetch_tmdb_tv_details(api_key, language, &item.provider_id)
@@ -255,8 +246,6 @@ impl MetadataService {
                 }
             }
         }
-
-        Ok(results)
     }
 
     async fn fetch_tmdb_tv_details(

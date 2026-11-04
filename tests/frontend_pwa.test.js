@@ -72,6 +72,13 @@ test('shortcut parser only accepts declared actions', () => {
   assert.equal(pwa.SHORTCUTS.length, 6);
 });
 
+test('magic title matching module has the same cache revision in HTML and service worker', () => {
+  const worker = fs.readFileSync(path.join(root, 'static/service-worker.js'), 'utf8');
+  const scripts = fs.readFileSync(path.join(root, 'static/partials/scripts.html'), 'utf8');
+  const revision = worker.match(/'\/js\/stores\/subscriptions\.js': '([^']+)'/)[1];
+  assert.match(scripts, new RegExp(`js/stores/subscriptions\\.js\\?v=[^"&]+&rev=${revision}`));
+});
+
 test('PWA update unwraps Alpine native registrations and requests activation', async () => {
   const originalAlpine = global.Alpine;
   const originalWindow = global.window;

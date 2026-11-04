@@ -196,10 +196,10 @@ impl TelegramBotService {
             check_service: dependencies.check_service,
             signin_service: dependencies.signin_service,
             telegram_store: dependencies.telegram_store,
-            client: Client::builder()
+            client: crate::clients::http_pool::client_builder()
                 .timeout(Duration::from_secs(35))
                 .build()
-                .unwrap_or_else(|_| Client::new()),
+                .expect("创建 Telegram HTTP 客户端失败"),
             api_base: api_base.trim_end_matches('/').to_string(),
             diagnostics: Mutex::new(TelegramBotDiagnostics {
                 mode: "disabled".to_string(),

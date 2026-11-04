@@ -3,7 +3,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use super::response::ApiResponse as Response;
@@ -25,12 +25,22 @@ struct MetadataSearchQuery {
     /// 发行年份提示（可选）。未提供时从 `query` 里自动提取（`庆余年 (2024)`）。
     #[serde(default)]
     year: Option<i32>,
+    #[serde(default)]
+    source_title: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct MetadataSearchResponse {
+    #[serde(flatten)]
+    response: Response<Vec<MediaMetadata>>,
+    attempted_queries: Vec<String>,
+    matched_query: Option<String>,
 }
 
 async fn search_metadata(
     State(state): State<Arc<MetadataState>>,
     Query(query): Query<MetadataSearchQuery>,
-) -> Result<Json<Response<Vec<MediaMetadata>>>> {
+) -> Result<Json<MetadataSearchResponse>> {
     let detailed = crate::services::title_normalize::normalize_title_detailed(&query.query);
     let search_query = if detailed.normalized.is_empty() {
         query.query.as_str()
@@ -41,22 +51,43 @@ async fn search_metadata(
         .year
         .filter(|year| (1900..=2100).contains(year))
         .or(detailed.year);
-    let results = state
+    let outcome = state
         .metadata_service
-        .search(
+        .search_with_title_fallback(
             &state.settings_store,
-            search_query,
+            &query.query,
+            query.source_title.as_deref(),
             query.media_type.as_deref(),
         )
         .await?;
     let results = crate::services::metadata::MetadataService::rank_candidates(
-        search_query,
+        outcome.matched_query.as_deref().unwrap_or(search_query),
         query.media_type.as_deref(),
         year,
-        results,
+        outcome.results,
     );
 
-    Ok(Json(Response::ok(results)))
+    let response = if outcome.attempted_queries.len() > 1 {
+        let message = match &outcome.matched_query {
+            Some(matched) => format!(
+                "已调整搜索剧名为「{matched}」并匹配到元数据（尝试 {} 个名称）",
+                outcome.attempted_queries.len()
+            ),
+            None => format!(
+                "已尝试 {} 个剧名，仍未匹配到元数据：{}",
+                outcome.attempted_queries.len(),
+                outcome.attempted_queries.join(" / ")
+            ),
+        };
+        Response::with_message(results, message)
+    } else {
+        Response::ok(results)
+    };
+    Ok(Json(MetadataSearchResponse {
+        response,
+        attempted_queries: outcome.attempted_queries,
+        matched_query: outcome.matched_query,
+    }))
 }
 
 async fn test_tmdb(State(state): State<Arc<MetadataState>>) -> Json<Response<TmdbTestResult>> {

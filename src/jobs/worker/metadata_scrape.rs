@@ -116,11 +116,12 @@ impl JobWorker {
         &self,
         sub: &Subscription,
     ) -> Result<Option<MediaMetadata>> {
-        let candidates = self
+        let outcome = self
             .metadata_service
-            .search(
+            .search_with_title_fallback(
                 &self.settings_store,
                 &sub.title,
+                Some(&sub.source_title),
                 Some(sub.media_type.as_str()),
             )
             .await?;
@@ -132,10 +133,10 @@ impl JobWorker {
             crate::services::title_normalize::normalize_title_detailed(&sub.source_title).year
         };
         Ok(MetadataService::choose_best_match_with_year(
-            &sub.title,
+            outcome.matched_query.as_deref().unwrap_or(&sub.title),
             &sub.media_type,
             year,
-            &candidates,
+            &outcome.results,
         ))
     }
 

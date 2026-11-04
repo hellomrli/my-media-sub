@@ -4,7 +4,11 @@ const assert = require('node:assert/strict');
 // subscriptions.js 在模块作用域一次性解构 MediaSubApi，桩必须在 require 之前就位。
 // 默认桩返回空对象：未显式配置桩的用例里，偶发的后台请求保持无害。
 let apiDataStub = async () => ({});
-global.MediaSubApi = {apiData: (...args) => apiDataStub(...args)};
+let apiFetchStub = async () => ({ok: true, json: async () => ({data: []})});
+global.MediaSubApi = {
+  apiData: (...args) => apiDataStub(...args),
+  apiFetch: (...args) => apiFetchStub(...args)
+};
 global.MediaSubSubscriptionDetail = require('../static/js/features/subscription-detail.js');
 
 const subscriptions = require('../static/js/stores/subscriptions.js');
@@ -12,6 +16,34 @@ const subscriptions = require('../static/js/stores/subscriptions.js');
 function store() {
   return subscriptions.createStore();
 }
+
+function metadataStore(title = '凡人修仙传之星海飞驰篇') {
+  const state = store();
+  state.settings = {metadata_provider: 'tmdb', tmdb_api_key_configured: true};
+  state.newSubscription.title = title;
+  state.updateSubscriptionDefaults = () => {};
+  state.showNotification = () => {};
+  state.apiErrorMessage = (error, fallback) => error.message || fallback;
+  return state;
+}
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return {promise, resolve, reject};
+}
+
+function metadataResponse(title, queries = [title]) {
+  return {ok: true, json: async () => ({
+    data: title ? [{provider: 'tmdb', provider_id: title, title, media_type: 'series'}] : [],
+    attempted_queries: queries,
+    matched_query: title || null,
+    message: title ? `已调整搜索剧名为「${title}」并匹配到元数据` : '已尝试多个剧名，仍未匹配到元数据'
+  })};
+}
+
+test.afterEach(() => { apiFetchStub = async () => ({ok: true, json: async () => ({data: []})}); });
 
 test('persisted completion remains authoritative when display progress lags', () => {
   const state = store();
@@ -178,6 +210,208 @@ test('magic title matching waits for the cleaned title before TMDB lookup', asyn
   assert.equal(state.newSubscription.title, '凡人修仙传');
   assert.equal(searchedTitle, '凡人修仙传');
   assert.equal(searchFinished, true);
+});
+
+test('metadata fallback sends original title and year and applies the matched TMDB name', async () => {
+  const state = metadataStore();
+  state.newSubscription.source_title = '凡人修仙传之星海飞驰篇 (2024) 第2季 4K';
+  state.newSubscription.metadata_year_hint = 2024;
+  let requestUrl;
+  apiFetchStub = async url => {
+    requestUrl = new URL(url, 'http://localhost');
+    return metadataResponse('凡人修仙传', ['凡人修仙传之星海飞驰篇', '凡人修仙传']);
+  };
+  await state.searchMetadataForSubscription(true);
+  assert.equal(requestUrl.searchParams.get('source_title'), state.newSubscription.source_title);
+  assert.equal(requestUrl.searchParams.get('year'), '2024');
+  assert.equal(state.newSubscription.title, '凡人修仙传');
+  assert.equal(state.newSubscription.metadata.provider_id, '凡人修仙传');
+  assert.deepEqual(state.metadataSearchQueries, ['凡人修仙传之星海飞驰篇', '凡人修仙传']);
+  assert.match(state.metadataSearchMessage, /调整搜索剧名/);
+  assert.equal(state.metadataSearching, false);
+});
+
+test('unsuccessful adjusted titles never replace the form title or fabricate metadata', async () => {
+  const state = metadataStore();
+  apiFetchStub = async () => metadataResponse('', ['凡人修仙传之星海飞驰篇', '凡人修仙传']);
+  await state.searchMetadataForSubscription();
+  assert.equal(state.newSubscription.title, '凡人修仙传之星海飞驰篇');
+  assert.equal(state.newSubscription.metadata, null);
+  assert.deepEqual(state.metadataResults, []);
+  assert.match(state.metadataSearchMessage, /仍未匹配/);
+});
+
+test('metadata results do not overwrite a title edited while matching', async () => {
+  const state = metadataStore('旧剧名');
+  const pending = deferred();
+  apiFetchStub = () => pending.promise;
+  const task = state.searchMetadataForSubscription();
+  state.newSubscription.title = '手工新剧名';
+  pending.resolve(metadataResponse('旧剧名'));
+  await task;
+  assert.equal(state.newSubscription.title, '手工新剧名');
+  assert.equal(state.newSubscription.metadata, null);
+  assert.deepEqual(state.metadataResults, []);
+});
+
+test('new metadata lookup aborts the old request and ignores its late body', async () => {
+  const state = metadataStore('旧剧名');
+  const body = deferred();
+  let firstSignal;
+  apiFetchStub = async (_url, options) => {
+    firstSignal = options.signal;
+    return {ok: true, json: () => body.promise};
+  };
+  const old = state.searchMetadataForSubscription();
+  await Promise.resolve();
+  state.newSubscription.title = '新剧名';
+  apiFetchStub = async () => metadataResponse('新剧名');
+  await state.searchMetadataForSubscription();
+  assert.equal(firstSignal.aborted, true);
+  body.resolve({data: [{provider: 'tmdb', provider_id: 'old', title: '旧剧名'}]});
+  await old;
+  assert.equal(state.newSubscription.title, '新剧名');
+  assert.equal(state.newSubscription.metadata.provider_id, '新剧名');
+  assert.equal(state.metadataSearching, false);
+});
+
+test('duplicate metadata lookup shares the request and remains awaitable', async () => {
+  const state = metadataStore('同一剧名');
+  const pending = deferred();
+  let calls = 0;
+  apiFetchStub = () => { calls += 1; return pending.promise; };
+  const first = state.searchMetadataForSubscription(true);
+  const second = state.searchMetadataForSubscription(true);
+  assert.equal(calls, 1);
+  assert.equal(state.metadataSearching, true);
+  pending.resolve(metadataResponse('同一剧名'));
+  await Promise.all([first, second]);
+  assert.equal(state.newSubscription.metadata.title, '同一剧名');
+});
+
+test('resetting the subscription dialog cancels and clears metadata lookup state', async () => {
+  const state = metadataStore('旧剧名');
+  const pending = deferred();
+  let signal;
+  apiFetchStub = (_url, options) => { signal = options.signal; return pending.promise; };
+  const task = state.searchMetadataForSubscription();
+  state.resetSubscriptionForm();
+  assert.equal(signal.aborted, true);
+  pending.resolve(metadataResponse('旧剧名'));
+  await task;
+  assert.equal(state.newSubscription.title, '');
+  assert.equal(state.newSubscription.metadata, null);
+  assert.equal(state.metadataSearchMessage, '');
+  assert.deepEqual(state.metadataSearchQueries, []);
+});
+
+test('magic title normalization does not overwrite later manual input', async () => {
+  const state = metadataStore('原剧名 4K');
+  const pending = deferred();
+  state.normalizeTitleRemote = () => pending.promise;
+  const task = state.applyMagicTitleMatch({silent: true});
+  state.newSubscription.title = '新剧名';
+  pending.resolve({normalized: '原剧名', changed: true, season: 2});
+  await task;
+  assert.equal(state.newSubscription.title, '新剧名');
+  assert.equal(state.newSubscription.season_input, '1');
+  assert.equal(state.newSubscription.metadata, null);
+});
+
+test('closing the dialog discards late normalization and metadata responses', async () => {
+  const state = metadataStore('原剧名 4K');
+  state.showSubscriptionDialog = true;
+  const normalization = deferred();
+  state.normalizeTitleRemote = () => normalization.promise;
+  const normalizeTask = state.applyMagicTitleMatch({silent: true});
+  state.showSubscriptionDialog = false;
+  normalization.resolve({normalized: '原剧名', year: 2024, season: 2});
+  await normalizeTask;
+  assert.equal(state.newSubscription.title, '原剧名 4K');
+  assert.equal(state.newSubscription.metadata_year_hint, null);
+
+  state.showSubscriptionDialog = true;
+  const response = deferred();
+  apiFetchStub = () => response.promise;
+  const searchTask = state.searchMetadataForSubscription();
+  state.showSubscriptionDialog = false;
+  response.resolve(metadataResponse('原剧名'));
+  await searchTask;
+  assert.equal(state.newSubscription.title, '原剧名 4K');
+  assert.equal(state.newSubscription.metadata, null);
+  assert.equal(state.metadataSearching, false);
+});
+
+test('reopening the same share cannot apply the previous dialog normalization', async () => {
+  const state = metadataStore();
+  state.settings.quark_cookie_configured = true;
+  state.searchResultTitle = result => result.note;
+  state.resetSubscriptionSeasons = () => {};
+  state.detectSubscriptionSeasons = () => {};
+  let lookups = 0;
+  state.searchMetadataForSubscription = async () => { lookups += 1; };
+  const oldNormalization = deferred();
+  state.normalizeTitleRemote = () => oldNormalization.promise;
+  const url = 'https://pan.quark.cn/s/local-fixture';
+  state.openSubscriptionDialog({url, note: '旧剧名'});
+  state.showSubscriptionDialog = false;
+  state.normalizeTitleRemote = async () => ({normalized: '新剧名', year: 2024, season: 2});
+  state.openSubscriptionDialog({url, note: '新剧名'});
+  await Promise.resolve();
+  oldNormalization.resolve({normalized: '旧剧名', year: 1999, season: 3});
+  await Promise.resolve();
+  assert.equal(state.newSubscription.title, '新剧名');
+  assert.equal(state.newSubscription.source_title, '新剧名');
+  assert.equal(state.newSubscription.metadata_year_hint, 2024);
+  assert.equal(state.newSubscription.season_input, '2');
+  assert.equal(lookups, 1);
+});
+
+test('late metadata error cannot clear a newer lookup or show a stale notification', async () => {
+  const state = metadataStore('旧剧名');
+  const oldResponse = deferred();
+  const newResponse = deferred();
+  const notices = [];
+  state.showNotification = (...args) => notices.push(args);
+  apiFetchStub = () => oldResponse.promise;
+  const oldTask = state.searchMetadataForSubscription();
+  state.newSubscription.title = '新剧名';
+  apiFetchStub = () => newResponse.promise;
+  const newTask = state.searchMetadataForSubscription();
+  oldResponse.reject(new Error('late old error'));
+  await oldTask;
+  assert.equal(state.metadataSearching, true);
+  assert.equal(state.metadataSearchMessage, '');
+  assert.deepEqual(notices, []);
+  newResponse.resolve(metadataResponse('新剧名'));
+  await newTask;
+  assert.equal(state.newSubscription.metadata.title, '新剧名');
+});
+
+test('repeated magic matching preserves the original year and manual season selection', async () => {
+  const state = metadataStore('剧名');
+  state.newSubscription.metadata_year_hint = 2024;
+  state.newSubscription.season_input = '1,3';
+  state.newSubscription.season_list = [1, 3];
+  state.normalizeTitleRemote = async () => ({normalized: '剧名', year: null, season: null});
+  apiFetchStub = async url => {
+    assert.equal(new URL(url, 'http://localhost').searchParams.get('year'), '2024');
+    return metadataResponse('剧名');
+  };
+  await state.applyMagicTitleMatch({silent: true});
+  assert.equal(state.newSubscription.metadata_year_hint, 2024);
+  assert.equal(state.newSubscription.season_input, '1,3');
+  assert.deepEqual(state.newSubscription.season_list, [1, 3]);
+});
+
+test('metadata fallback preserves an existing manually selected record', async () => {
+  const state = metadataStore();
+  const selected = {provider: 'tmdb', provider_id: 'manual', title: '手工选择'};
+  state.newSubscription.metadata = selected;
+  apiFetchStub = async () => metadataResponse('另一个候选');
+  await state.searchMetadataForSubscription(true);
+  assert.equal(state.newSubscription.metadata, selected);
+  assert.equal(state.newSubscription.title, '凡人修仙传之星海飞驰篇');
 });
 
 test('title hints fill the season input and year hint without overriding manual edits', () => {

@@ -30,10 +30,11 @@ test('critical browser assets carry the current application version', () => {
 
 test('search hotfix assets invalidate both HTTP and service worker caches', () => {
   const worker = fs.readFileSync(path.join(__dirname, '../static/service-worker.js'), 'utf8');
-  const revision = worker.match(/ASSET_REVISION = '([^']+)'/)[1];
+  const revisions = Object.fromEntries([...worker.matchAll(/'(\/[^']+)': '([^']+)'/g)].map(match => [match[1], match[2]]));
   for (const asset of ['styles.css', 'js/core/api.js', 'js/core/shell.js', 'js/features/search-page.js', 'js/features/search-results.js']) {
     const reference = [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map(match => match[1]).find(url => url.startsWith(`${asset}?`));
-    assert.equal(new URL(reference, 'https://media.example/').searchParams.get('rev'), revision, asset);
+    assert.ok(revisions[`/${asset}`], `${asset} must have a revision`);
+    assert.equal(new URL(reference, 'https://media.example/').searchParams.get('rev'), revisions[`/${asset}`], asset);
     assert.ok(worker.includes(`'/${asset}'`), `${asset} must be precached`);
   }
 });

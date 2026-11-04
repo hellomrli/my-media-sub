@@ -57,7 +57,7 @@ async fn open_sse_connection_does_not_block_restart_shutdown() {
     });
 
     // 打开 SSE 长连接并读到首个 snapshot 事件，确保连接确实建立在服务端。
-    let client = reqwest::Client::new();
+    let client = my_media_sub::clients::http_pool::short_client();
     let mut sse = client
         .get(format!("http://{addr}/api/jobs/events"))
         .basic_auth("admin", Some(PASSWORD))

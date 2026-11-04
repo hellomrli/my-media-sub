@@ -23,6 +23,9 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
+mod search_queries;
+pub use search_queries::{metadata_search_queries, MAX_METADATA_TITLE_QUERIES};
+
 /// 噪声词条：**在 token 内部作为尾缀也安全**的词。
 ///
 /// 收录标准是「自带数字、CJK 字符，或是足够长的技术缩写」，因此不会误伤真实剧名：

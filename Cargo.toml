@@ -1,9 +1,9 @@
 [package]
 name = "my-media-sub"
-version = "2.7.6"
+version = "2.7.7"
 edition = "2021"
-# MSRV。取依赖图与本仓库 API 下限的较大者：
-#   - 依赖图：uuid 1.27 声明 1.89，ICU 2.3（经 idna → url → reqwest）声明 1.88；
+# MSRV 仅为最低源码兼容版本，不是发布构建版本。取依赖图与本仓库 API 下限的较大者：
+#   - 依赖图：uuid 1.29 声明 1.89，ICU 2.4（经 idna → url → reqwest）声明 1.88；
 #   - 本仓库自身用到的 API：`is_multiple_of` 稳定于 1.87。
 # 声明之后 clippy 的 `incompatible_msrv` 会在 CI（-D warnings）里持续守住这条线：
 # 一旦有人用了更新的 API，构建会直接失败而不是悄悄抬高实际下限。
@@ -22,8 +22,10 @@ tower-http = { version = "0.7", features = ["compression-br", "compression-gzip"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 
-# HTTP client
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+# HTTP client: keep ring and Mozilla roots when migrating to reqwest 0.13.
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls-no-provider", "stream"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -57,6 +59,8 @@ p256 = { version = "0.14", features = ["ecdh", "getrandom"] }
 [dev-dependencies]
 # 仅 tests/api_integration.rs 的 ServiceExt::oneshot 使用。
 tower = "0.5"
+# Local HTTPS fixtures exercise the same TLS stack without external services.
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 
 [profile.release]
 opt-level = 3

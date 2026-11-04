@@ -233,7 +233,7 @@
               <button type="button" @click="applyMagicTitleMatch()" class="text-xs text-primary hover:text-primary">智能识别剧名</button>
             </label>
             <input type="text" x-model="newSubscription.title" @input="updateSubscriptionDefaults()" @blur="applyMagicTitleMatch({silent: true})" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="分享标题会自动清理为干净剧名，便于刮削" / id="field-newsubscription-title">
-            <p class="text-xs text-muted/75 mt-1">会自动去掉字幕组、画质、季标等噪声，并尝试匹配 TMDB 元数据。</p>
+            <p class="text-xs text-muted/75 mt-1">先清理字幕组、画质和季标；TMDB 无结果时，再尝试原名、别名或去掉篇章后缀，最多尝试 6 个剧名。匹配成功后才应用 TMDB 标题。</p>
           </div>
 
           <div>
@@ -282,7 +282,9 @@
               </div>
               <button @click="searchMetadataForSubscription()" :disabled="metadataSearching" class="btn-secondary px-3 py-2 rounded text-xs transition-colors disabled:opacity-50">匹配</button>
             </div>
-            <div x-show="metadataSearching" class="text-xs text-muted/75">正在匹配 TMDB...</div>
+            <div x-show="metadataSearching" class="text-xs text-muted/75" role="status">正在匹配 TMDB，无结果时会自动调整剧名重试...</div>
+            <div x-show="!metadataSearching && metadataSearchMessage" class="text-xs text-muted/75 break-words" role="status" aria-live="polite" x-text="metadataSearchMessage"></div>
+            <div x-show="!metadataSearching && metadataSearchQueries.length > 1" class="text-xs text-muted/75 break-words" x-text="'尝试剧名：' + metadataSearchQueries.join(' / ')"></div>
             <div x-show="metadataResults.length > 0" class="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <template x-for="item in metadataResults" :key="item.provider + '-' + item.provider_id">
                 <button @click="applyMetadata(item)" :class="isSelectedMetadata(item) ? 'border-primary bg-primary/10' : 'border-border bg-app hover:border-border'" class="border rounded-lg p-2 text-left transition-colors min-h-20">

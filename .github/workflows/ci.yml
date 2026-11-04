@@ -238,6 +238,8 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
+          pull: true
+          no-cache-filters: runtime
           load: true
           push: false
           tags: my-media-sub-ci:local

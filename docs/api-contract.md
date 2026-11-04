@@ -32,6 +32,16 @@
 代表未知，不能当成无效）；`filter_bad=true` 仅展示已确认有效项，即使 `data` 为空也可能
 仍有未完成探测的资源。关闭探测时 `partial`/`timed_out` 均为 false，`probed_count` 为 0。
 
+### 元数据搜索的剧名回退
+
+`GET /api/metadata/search` 保持 `data` 为候选数组，新增顶层 `attempted_queries`
+（实际查询的去重标题数组，最多 6 条）与 `matched_query`（命中的查询词，无结果为 `null`）。
+多次尝试时通过可选 `message` 解释结果。可选参数 `source_title` 用于恢复与当前查询对应的原始标题别名。
+
+只有成功的空结果才触发下一次标题查询；命中、上游错误或 30 秒标题查询总预算到期时停止。
+TV/季度详情补充不包含在这 30 秒内。错误沿用错误信封；不得把错误包装为空 `data` 后继续重试。
+规则与完整示例见 [剧名匹配](title-matching.md)。
+
 ## 2. JSON 错误响应
 
 业务错误、中间件拒绝和 Axum 框架请求拒绝统一为：
