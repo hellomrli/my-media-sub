@@ -20,7 +20,7 @@ docker compose up -d
 不使用 Docker 时可以直接跑发布二进制。当前发布产物只提供 **linux-x86_64**：
 
 ```bash
-VERSION=2.7.7
+VERSION=2.8.0
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/v$VERSION/my-media-sub-v$VERSION-linux-x86_64.tar.gz"
 curl -LO "https://github.com/hellomrli/my-media-sub/releases/download/v$VERSION/my-media-sub-v$VERSION-linux-x86_64.tar.gz.sha256"
 sha256sum -c "my-media-sub-v$VERSION-linux-x86_64.tar.gz.sha256"
@@ -48,7 +48,7 @@ SERVER_HOST=127.0.0.1 DATA_DIR=./data SERVER_PORT=56001 ./my-media-sub
 
 ```bash
 curl http://127.0.0.1:56001/health
-# {"status":"ok","version":"2.7.7"}
+# {"status":"ok","version":"2.8.0"}
 ```
 
 
@@ -96,6 +96,8 @@ curl -H "Authorization: Bearer 替换为Token" http://127.0.0.1:56001/api/subscr
 
 
 ## 配置与集成
+
+电影使用一次性保存流程，剧集与动画可以固定 1080P / 4K 后持续追更。保存步骤、命名识别边界及 API 字段见 [电影保存与画质选择](media-save-quality.md)。
 
 配置有两个来源：进程环境变量，以及 WebUI 里写入 `settings.json` 的设置。环境变量在启动时覆盖设置文件，适合容器化部署。Compose 会读取 `.env`；独立二进制和 `cargo run` 不会自动加载 `.env`，需通过 shell 导出变量。完整清单见 [`.env.example`](../.env.example)。
 

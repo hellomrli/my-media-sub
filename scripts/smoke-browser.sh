@@ -78,7 +78,7 @@ SOURCE_CLOAK="$(grep -c 'x-cloak' "$TMP/page.html" || true)"
 timeout 40 "$CHROME" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --disable-background-networking --enable-logging=stderr --v=0 --user-data-dir="$TMP/chrome" \
   --window-size=390,844 --timeout=8000 --dump-dom "$PROXY_BASE/?tab=calendar" >"$TMP/dom.html" 2>"$TMP/chrome.log" || fail "chrome dump-dom exited with $?"
 [[ -s "$TMP/dom.html" ]] || fail "chrome dump-dom output was empty"
-for needle in '<title>媒体订阅管理系统' 'manifest.webmanifest' '日历项目' '统一危险操作确认' '复制诊断' '选择当前显示'; do
+for needle in '<title>MEDIA/SUB' 'manifest.webmanifest' '日历项目' '统一危险操作确认' '复制诊断' '选择当前显示'; do
   grep -F "$needle" "$TMP/dom.html" >/dev/null || fail "DOM missing expected marker: $needle"
 done
 # 只有执行了 JS 才可能出现的证据：Alpine 摘除 x-cloak、为 x-show 写入行内样式。

@@ -131,6 +131,8 @@ pub struct ManualTransferPayload {
     /// Telegram 发起的转存：完成后推送带「继续下载」按钮的通知。
     #[serde(default)]
     pub offer_download: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub save_options: Option<crate::models::MediaSaveOptions>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

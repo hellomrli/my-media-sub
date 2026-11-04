@@ -106,9 +106,14 @@ impl JobQueue {
     }
 
     pub async fn submit_manual_transfer(&self, payload: ManualTransferPayload) -> Result<Job> {
+        let title = if payload.save_options.is_some() {
+            "媒体下载保存"
+        } else {
+            "手动转存"
+        };
         self.submit_job(
             JobKind::ManualTransfer,
-            "手动转存",
+            title,
             serde_json::to_value(payload)?,
         )
         .await
@@ -196,6 +201,23 @@ impl JobQueue {
             .get(id)
             .await
             .ok_or_else(|| AppError::NotFound("任务不存在".to_string()))?;
+
+        if job.kind == JobKind::ManualTransfer
+            && job
+                .payload
+                .get("save_options")
+                .is_some_and(|options| !options.is_null())
+            && job
+                .result
+                .as_ref()
+                .and_then(|result| result.get("saved_count"))
+                .and_then(serde_json::Value::as_u64)
+                .is_some_and(|count| count > 0)
+        {
+            return Err(AppError::Validation(
+                "资源已保存到网盘，请在网盘页继续下载，不要重新转存".to_string(),
+            ));
+        }
 
         match job.status {
             JobStatus::Failed | JobStatus::Canceled => {

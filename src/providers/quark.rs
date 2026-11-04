@@ -185,6 +185,11 @@ impl CloudDriveProvider for QuarkCloudDriveProvider {
                 }
             }
             let fid_list: Vec<_> = files.iter().map(|file| file.fid.clone()).collect();
+            if !selected.is_empty() && fid_list.len() != selected.len() {
+                return Err(AppError::Validation(
+                    "所选分享文件已变化，未执行转存，请重新嗅探".to_string(),
+                ));
+            }
             let token_list: Vec<_> = files
                 .iter()
                 .map(|file| file.share_fid_token.clone())

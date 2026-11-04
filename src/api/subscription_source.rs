@@ -84,7 +84,7 @@ pub async fn preview_source_switch(
 #[derive(Debug, Deserialize)]
 pub struct ApplySourceSwitchRequest {
     candidate_id: String,
-    /// 手动强制应用：仅要求探测成功，可越过季度/进度等自动策略门槛
+    /// 手动强制应用：仍要求探测、画质与季度匹配，可越过进度等策略门槛。
     #[serde(default)]
     force: bool,
 }
@@ -134,6 +134,11 @@ pub async fn apply_source_switch(
             preview.warnings.join("；")
         )));
     }
+    if !preview.quality_matches {
+        return Err(AppError::Validation(
+            "候选不含已选画质，请重新选择来源或调整订阅画质".to_string(),
+        ));
+    }
     if !preview.season_matches {
         return Err(AppError::Validation(
             "候选季度与订阅不匹配，禁止换源（含强制）".to_string(),
@@ -146,7 +151,7 @@ pub async fn apply_source_switch(
             "候选与当前分享链接相同，无需换源".to_string(),
         ));
     }
-    // 强制仅可越过进度/分数/冷却等策略，不可越过探测与季度匹配。
+    // 强制仅可越过进度/分数/冷却等策略，不可越过探测、画质与季度匹配。
     if !req.force && !preview.can_apply {
         return Err(AppError::Validation(format!(
             "候选未通过安全检查：{}。若仍要换源，请确认风险后强制应用。",

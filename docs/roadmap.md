@@ -13,11 +13,11 @@
 
 ## 当前执行指针
 
-- **当前阶段**：v2.7.7 安全更新、剧名匹配与发布验证
-- **当前任务**：v2.7.7 剧名增强、依赖迁移与本地回归已完成；本地证据见本轮记录，提交、tag、Release 和镜像状态以 Actions / Release 为准
-- **下一任务（建议）**：升级后在部署环境用目标剧名核验真实 TMDB 数据，并确认真实 Web Push 设备送达
+- **当前阶段**：v2.8.0 界面、电影保存与画质选择发布验证
+- **当前任务**：功能实现与本地发布门禁已完成，获得发布授权；发布提交、tag、归档与镜像的实际状态见本轮 Actions / Release 链接
+- **下一任务（建议）**：升级后使用实际夸克分享和 Aria2 验证多画质电影保存、剧集固定画质及换源；真实 TMDB / Web Push 核验继续保留
 - **后续阶段**：保持单实例安全模型与 JSON 单写；未经明确需求不启动多用户、SQLite 或第二 Provider
-- **当前发布基线**：v2.7.7（`Cargo.toml` / OpenAPI / PWA 缓存代次）
+- **当前发布基线**：v2.8.0（`Cargo.toml` / OpenAPI / PWA 缓存代次；云端发布状态以 Actions / Release 为准）
 - **工作树状态**：基于 `main`，以 `git status --short --branch` 为准；历史阶段交接记录保留在下方作审计
 
 > **本轮评审的完整清单与后续待办见
@@ -26,6 +26,19 @@
 > 「当前发布基线」已纳入 CI 门禁，见 `scripts/check-doc-drift.py`。
 
 历史评审留档：[2026-07-26 代码评审](code-review-2026-07-26.md) 与 [前端评审](frontend-design-review-2026-07-26.md)。其中旧问题以本台账后续修复记录为准。
+
+---
+
+## v2.8.0 界面、电影保存与画质选择（2026-11-04）
+
+- [x] 青绿 / 杏橙视觉、浅色默认与海报墙、自托管字体、深色偏好兼容及手机弹窗布局；证据：`tailwind/input.css`、`static/partials/`、`static/js/theme-init.js`、`static/fonts/`。
+- [x] 电影一次保存与可选 Aria2 下载，精确选择正片文件，执行时重新核对选择；保存证据持久化后解析自己网盘的文件 ID 再下载，避免失败重试导致重复保存。证据：`src/services/media_save.rs`、`src/jobs/worker/media_save.rs`、`tests/media_save_api.rs`。
+- [x] 文件名与目录画质探测，固定画质贯穿剧集检查、转存、重命名、详情、日历和换源；旧订阅自动模式兼容，旧电影停止周期追更且保留手动操作。证据：`src/services/media_selection.rs`、`src/services/transfer_rule.rs`、`src/services/subscription_source_switch.rs`。
+- [x] 电影 / 剧集表单与换源的画质选择、迟到响应和重复提交保护，OpenAPI 与使用文档同步。证据：`tests/frontend_media_save.test.js`、`tests/frontend_source_switch.test.js`、`scripts/smoke-search-browser.mjs`、[电影保存与画质选择](media-save-quality.md)。
+- [x] 719 项 Rust / 195 项前端测试通过，另 2 项外网 Rust 测试忽略；格式、Clippy、Rust 1.89 MSRV、ESLint、HTML/CSS/OpenAPI/文档/工具链检查和 `cargo deny --locked check` 全部通过，不增加审计例外。证据：[本地发布门禁](release-workflow.md#本地发布门禁)。
+- [x] Rust 1.99.1 正式构建、二进制与 Docker 入口脚本 smoke、10 秒 soak、390px / 1440px 普通浏览器及电影 / 剧集 / 换源回归通过；校验云端 v1.3.0 / v2.7.7 归档后完成数据升级 smoke。海报墙测试数据截图为 `docs/assets/media-library.png`，可用 `--media-screenshots` 重建。
+- [!] 自动测试使用 Provider / 下载器夹具；真实夸克多画质分享与 Aria2 端到端验证需部署账号。本机无 Docker，真实镜像构建与容器升级验证由云端 CI / Docker Image 工作流完成。
+- 发布顺序与产物核验见 [发布流程](release-workflow.md)；以 [Actions](https://github.com/hellomrli/my-media-sub/actions) 与 [v2.8.0 Release](https://github.com/hellomrli/my-media-sub/releases/tag/v2.8.0) 的实际结果为准。
 
 ---
 

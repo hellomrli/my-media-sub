@@ -19,6 +19,10 @@ pub struct TransferRules {
     #[serde(default = "default_duplicate_episode_strategy")]
     pub duplicate_episode_strategy: String,
 
+    /// 固定画质：空字符串沿用自动择优；显式选择时不回退到其他画质。
+    #[serde(default)]
+    pub preferred_resolution: String,
+
     /// 包含关键词
     #[serde(default)]
     pub include_keywords: Vec<String>,
@@ -126,6 +130,7 @@ impl Default for TransferRules {
             auto_create_target_dir: true,
             skip_existing_transferred: true,
             duplicate_episode_strategy: default_duplicate_episode_strategy(),
+            preferred_resolution: String::new(),
             include_keywords: vec![],
             exclude_keywords: default_excludes(),
             match_regex: String::new(),

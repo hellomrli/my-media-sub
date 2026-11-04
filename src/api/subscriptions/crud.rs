@@ -39,7 +39,9 @@ pub(super) async fn create_subscription(
     Json(req): Json<CreateSubscriptionRequest>,
 ) -> Result<impl IntoResponse> {
     let settings = state.settings_store.get().await;
-    let rules = create_rules(&req, &settings);
+    let mut rules = create_rules(&req, &settings);
+    rules.preferred_resolution =
+        crate::services::media_selection::normalize_resolution(&rules.preferred_resolution)?;
     let rule_preset_id = req.rule_preset_id.trim().to_string();
     let rule_summary = summarize_rules(Some(&rules));
     let id = crate::utils::stable_id(format!("{}:{}", req.url, req.title));
@@ -149,8 +151,12 @@ pub(super) async fn create_subscription(
 pub(super) async fn update_subscription(
     State(state): State<Arc<SubscriptionState>>,
     Path(id): Path<String>,
-    Json(req): Json<UpdateSubscriptionRequest>,
+    Json(mut req): Json<UpdateSubscriptionRequest>,
 ) -> Result<impl IntoResponse> {
+    if let Some(rules) = req.rules.as_mut() {
+        rules.preferred_resolution =
+            crate::services::media_selection::normalize_resolution(&rules.preferred_resolution)?;
+    }
     let has_explicit_total_episode_number = req.total_episode_number.is_some();
     let keep_progress_on_source_change = req.keep_progress_on_source_change.unwrap_or(true);
     let continue_from_current_episode =
@@ -162,9 +168,16 @@ pub(super) async fn update_subscription(
         .map(str::trim)
         .filter(|id| !id.is_empty())
         .map(ToString::to_string);
-    let requested_preset_rules = requested_rule_preset_id
+    let mut requested_preset_rules = requested_rule_preset_id
         .as_deref()
         .and_then(|id| preset_rules(&settings, id));
+    if req.rules.is_none() {
+        if let Some(rules) = requested_preset_rules.as_mut() {
+            rules.preferred_resolution = crate::services::media_selection::normalize_resolution(
+                &rules.preferred_resolution,
+            )?;
+        }
+    }
     let requested_cloud_type = req
         .cloud_type
         .as_deref()

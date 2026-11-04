@@ -1,6 +1,6 @@
 # My Media Sub
 
-为家庭自托管用户提供夸克网盘自动追更：从分享链接订阅剧集，定时检查、转存、重命名，并按需下载到本地。
+为家庭自托管用户提供电影保存与剧集自动追更：从分享链接选择画质，电影一次保存、按需下载，剧集定时检查、转存与重命名。
 
 [![CI](https://github.com/hellomrli/my-media-sub/actions/workflows/ci.yml/badge.svg)](https://github.com/hellomrli/my-media-sub/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/hellomrli/my-media-sub?display_name=tag)](https://github.com/hellomrli/my-media-sub/releases)
@@ -8,7 +8,7 @@
 
 [快速开始](#快速开始) · [剧名匹配](#剧名查不到时会怎样) · [使用文档](docs/usage.md) · [下载发布版](https://github.com/hellomrli/my-media-sub/releases)
 
-![My Media Sub 订阅编辑器展示剧名调整、匹配结果和季度设置](docs/assets/metadata-match.png)
+![MEDIA/SUB 浅色海报墙展示剧集与电影入口](docs/assets/media-library.png)
 
 *实际 WebUI 的本地演示，使用测试数据，不含真实账号或网盘资源。*
 
@@ -41,9 +41,18 @@ curl --fail http://127.0.0.1:56001/health
 ## 订阅第一部剧
 
 1. 登录系统设置，填写夸克 Cookie；这是探测分享和执行转存的必要凭据。
-2. 新建订阅，粘贴分享链接，确认识别后的剧名及季度。支持单季、连续多季和 `1,3` 这样的跳季选择。
+2. 添加媒体，粘贴分享链接，确认识别后的剧名、季度与画质。支持单季、连续多季和 `1,3` 这样的跳季选择。
 3. 选择目标目录和是否自动转存，保存后执行一次“立即检查”。
 4. 在任务和活动记录中查看结果；成功转存的文件出现在自己的夸克网盘中。
+
+## 保存电影与选择画质
+
+- **电影不追更**：选择“电影”后进入“选择片源 → 下载保存”，不创建订阅。先选 1080P / 4K，再选择具体正片；同画质的不同剪辑版本也可以单独选择。
+- **按需下载**：已配置 Aria2 时默认同时下载到本地，也可只保存到网盘；未配置下载器时仍可保存。只转存所选正片，不会整包保存其他画质、预告和花絮。
+- **剧集固定画质**：选择的画质会持久化到订阅规则，后续检查、转存及换源都会遵守。当前没有该画质时等待更新，不会偷偷回退到其他版本；也可以保留原有的自动择优策略。
+- **兼容分文件夹的资源**：同时识别文件名和上层目录中的画质标记；未标注的资源明确显示为未知，不猜测实际分辨率。
+
+电影保存进度在后台任务、网盘与下载管理中查看。旧电影订阅保留数据和手动操作，但不再参与定时追更。修改剧集画质只影响后续更新，不清空已有进度。详细流程与 API 见 [电影保存与画质选择](docs/media-save-quality.md)。
 
 不需要先配置搜索、刮削或下载器才能添加分享链接。按需启用这些集成：
 
@@ -108,6 +117,7 @@ curl --fail http://127.0.0.1:56001/health
 | 查看追更日期与执行过程 | [媒体日历](docs/media-calendar.md) · [自动化事件](docs/automation-events.md) |
 | 配置通知和手机入口 | [Telegram Bot](docs/telegram-bot.md) · [PWA](docs/pwa.md) |
 | 调整资源评分和换源 | [资源质量与换源](docs/source-quality.md) |
+| 保存电影、选择剧集画质 | [电影保存与画质选择](docs/media-save-quality.md) |
 | 配置反代、更新与存储 | [HTTPS](docs/https-reverse-proxy.md) · [Docker 在线更新](docs/docker-online-update.md) · [存储扩展](docs/storage-scaling.md) |
 | 了解项目计划与评审结果 | [路线图](docs/roadmap.md) · [代码评审](docs/code-review-2026-09-21.md) |
 | 维护与发布 | [依赖审计](docs/security-audit.md) · [发布流程](docs/release-workflow.md) |
@@ -116,11 +126,15 @@ curl --fail http://127.0.0.1:56001/health
 
 ## 版本说明
 
-### 2.7.7
+### 2.8.0
 
-TMDB 查不到时自动调整剧名并展示尝试过程；修复搜索图片回退与过期请求覆盖。更新兼容依赖，将 HTTP 客户端迁移至 reqwest 0.13.5、WebUI 升级至 Alpine 3.17.5，并让容器构建重新获取系统安全补丁。实际构建工具链为 Rust 1.99.1。
+- **更轻快的界面**：青绿与杏橙配色、自托管字体、海报墙和响应式弹窗；保留已有深色主题与表格偏好。
+- **电影一次保存**：选择“电影”后直接进入下载保存，不再创建追更订阅；按画质选择具体正片，可只保存网盘或同时提交 Aria2 下载。
+- **剧集自选画质**：嗅探文件名与画质文件夹中的 1080P / 4K 等版本；固定画质贯穿检查、转存、重命名和换源，不静默降级。旧订阅默认沿用自动择优。
+- **保存更可核验**：执行时重新核对所选文件，下载前解析自己网盘的文件 ID；下载失败保留已保存结果，避免重新转存。
 
-- 当前版本：[v2.7.7 升级指南](docs/upgrade-v2.7.7.md)
+- 当前版本：[v2.8.0 升级指南](docs/upgrade-v2.8.0.md)
+- 使用说明：[电影保存与画质选择](docs/media-save-quality.md)
 - 全部改动：[CHANGELOG](CHANGELOG.md) · [历史版本摘要](docs/version-history.md) · [GitHub Releases](https://github.com/hellomrli/my-media-sub/releases)
 
 ## 许可证

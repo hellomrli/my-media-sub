@@ -21,6 +21,7 @@ pub struct SourceSwitchPreview {
     pub current_quality: SourceQuality,
     pub score_delta: i32,
     pub probe_ok: bool,
+    pub quality_matches: bool,
     pub season_matches: bool,
     pub covers_progress: bool,
     pub candidate_episodes: Vec<i32>,
@@ -256,6 +257,7 @@ impl SubscriptionSourceSwitchService {
         let current_quality = quality_for_current_source(subscription, now * 1000);
         let score_delta = i32::from(candidate.quality.score) - i32::from(current_quality.score);
         let probe_ok = candidate.probe_info.as_ref().is_some_and(|probe| probe.ok);
+        let quality_matches = candidate_matches_quality(subscription, &candidate);
         let season_matches = candidate_matches_season(subscription, &candidate);
         let covers_progress = candidate_covers_progress(subscription, &candidate);
         let mut candidate_episodes = candidate
@@ -266,6 +268,18 @@ impl SubscriptionSourceSwitchService {
                     .files
                     .iter()
                     .filter(|file| !file.is_dir && is_video_name(&file.name))
+                    .filter(|file| {
+                        crate::services::media_selection::matches_resolution(
+                            &subscription.rules.preferred_resolution,
+                            &file.name,
+                            &file.parent_path,
+                        ) && (subscription.rules.preferred_resolution.is_empty()
+                            || crate::services::episode::subscription_file_matches_season(
+                                subscription,
+                                &file.name,
+                                &file.parent_path,
+                            ))
+                    })
                     .flat_map(|file| {
                         crate::services::episode::detect_episode_explained(&file.name).episodes
                     })
@@ -299,8 +313,12 @@ impl SubscriptionSourceSwitchService {
             >= settings.source_switch_failure_threshold.max(1) as u32;
         let score_ok = i32::from(candidate.quality.score) >= settings.source_switch_min_score;
         let delta_ok = score_delta >= settings.source_switch_min_score_delta;
-        let can_apply =
-            probe_ok && season_matches && covers_progress && !historical_link && !recent_failure;
+        let can_apply = probe_ok
+            && quality_matches
+            && season_matches
+            && covers_progress
+            && !historical_link
+            && !recent_failure;
         let auto_eligible =
             can_apply && score_ok && delta_ok && !cooldown_active && failure_threshold_met;
 
@@ -320,6 +338,14 @@ impl SubscriptionSourceSwitchService {
         let mut warnings = Vec::new();
         if !probe_ok {
             warnings.push("候选尚未探测成功".to_string());
+        }
+        if !quality_matches {
+            warnings.push(format!(
+                "候选不含所选画质：{}",
+                crate::services::media_selection::resolution_label(
+                    &subscription.rules.preferred_resolution
+                )
+            ));
         }
         if !season_matches {
             warnings.push("候选季度与订阅不匹配".to_string());
@@ -361,6 +387,7 @@ impl SubscriptionSourceSwitchService {
             current_quality,
             score_delta,
             probe_ok,
+            quality_matches,
             season_matches,
             covers_progress,
             candidate_episodes,
@@ -413,6 +440,12 @@ impl SubscriptionSourceSwitchService {
             .find(|candidate| candidate.id == candidate_id)
             .cloned()
             .ok_or_else(|| AppError::NotFound("候选项不存在".to_string()))?;
+
+        if !candidate_matches_quality(subscription, &candidate) {
+            return Err(AppError::Validation(
+                "候选在订阅季度内不含所选画质，禁止换源".to_string(),
+            ));
+        }
 
         info!(
             "应用换源: {} -> {}",
@@ -648,7 +681,61 @@ fn candidate_matches_season(subscription: &Subscription, candidate: &SourceCandi
     })
 }
 
+fn candidate_matches_quality(subscription: &Subscription, candidate: &SourceCandidate) -> bool {
+    subscription.rules.preferred_resolution.is_empty()
+        || candidate.probe_info.as_ref().is_some_and(|probe| {
+            probe.ok
+                && probe.files.iter().any(|file| {
+                    !file.is_dir
+                        && is_video_name(&file.name)
+                        && crate::services::media_selection::matches_resolution(
+                            &subscription.rules.preferred_resolution,
+                            &file.name,
+                            &file.parent_path,
+                        )
+                        && (subscription.media_type == "movie"
+                            || crate::services::episode::subscription_file_matches_season(
+                                subscription,
+                                &file.name,
+                                &file.parent_path,
+                            ))
+                })
+        })
+}
+
 fn candidate_covers_progress(subscription: &Subscription, candidate: &SourceCandidate) -> bool {
+    if !subscription.rules.preferred_resolution.is_empty() {
+        let Some(probe) = candidate.probe_info.as_ref().filter(|probe| probe.ok) else {
+            return false;
+        };
+        let matching = probe.files.iter().filter(|file| {
+            !file.is_dir
+                && is_video_name(&file.name)
+                && crate::services::media_selection::matches_resolution(
+                    &subscription.rules.preferred_resolution,
+                    &file.name,
+                    &file.parent_path,
+                )
+        });
+        if subscription.media_type == "movie" {
+            return matching.count() > 0;
+        }
+        let required_episode = subscription
+            .start_episode_number
+            .unwrap_or(subscription.current_episode_number.saturating_add(1).max(1));
+        return matching
+            .filter(|file| {
+                crate::services::episode::subscription_file_matches_season(
+                    subscription,
+                    &file.name,
+                    &file.parent_path,
+                )
+            })
+            .flat_map(|file| {
+                crate::services::episode::detect_episode_explained(&file.name).episodes
+            })
+            .any(|episode| episode >= required_episode);
+    }
     if subscription.media_type == "movie" {
         return candidate.quality.video_count > 0;
     }
@@ -751,6 +838,59 @@ fn chinese_season_number(season: i32) -> Option<&'static str> {
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn source_switch_requires_selected_quality_to_cover_progress() {
+        let mut sub = test_subscription();
+        sub.season = 1;
+        sub.current_episode_number = 3;
+        sub.rules.preferred_resolution = "1080p".to_string();
+        let candidate: SourceCandidate = serde_json::from_value(serde_json::json!({
+            "id": "quality-source", "source": "test", "url": "https://pan.quark.cn/s/new-quality-source",
+            "password": "", "note": "mixed versions", "discovered_at": 1,
+            "quality": {"episode_end": 10, "video_count": 2},
+            "probe_info": {"ok": true, "files": [
+                {"name": "Show.S01E02.mkv", "parent_path": "1080P"},
+                {"name": "Show.S01E10.mkv", "parent_path": "4K"}
+            ]}
+        })).unwrap();
+        let service =
+            SubscriptionSourceSwitchService::new(Arc::new(QuarkShareProbe::new("test-cookie")));
+        let preview = service.preview_candidate(&sub, candidate, &Settings::default(), 100);
+        assert!(preview.quality_matches);
+        assert!(!preview.covers_progress);
+        assert!(!preview.can_apply);
+        assert_eq!(preview.candidate_episodes, vec![2]);
+    }
+
+    #[test]
+    fn source_switch_cannot_use_quality_from_an_unsubscribed_season() {
+        let mut sub = test_subscription();
+        sub.season = 1;
+        sub.rules.preferred_resolution = "1080p".to_string();
+        let candidate: SourceCandidate = serde_json::from_value(serde_json::json!({
+            "id": "wrong-season-quality", "url": "https://pan.quark.cn/s/mixed-seasons",
+            "source": "test", "password": "", "note": "mixed seasons", "discovered_at": 1,
+            "probe_info": {"ok": true, "files": [
+                {"name": "Show.S01E01.mkv", "parent_path": "4K"},
+                {"name": "Show.S02E01.mkv", "parent_path": "1080P"}
+            ]}
+        }))
+        .unwrap();
+        let service =
+            SubscriptionSourceSwitchService::new(Arc::new(QuarkShareProbe::new("test-cookie")));
+        let preview = service.preview_candidate(&sub, candidate.clone(), &Settings::default(), 100);
+        assert!(preview.season_matches);
+        assert!(!preview.quality_matches);
+        assert!(!preview.can_apply);
+        assert!(preview.candidate_episodes.is_empty());
+        sub.source_candidates.push(candidate);
+        let original_url = sub.url.clone();
+        assert!(service
+            .apply_source_switch(&mut sub, "wrong-season-quality")
+            .is_err());
+        assert_eq!(sub.url, original_url);
+    }
 
     fn test_subscription() -> Subscription {
         Subscription {

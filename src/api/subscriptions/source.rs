@@ -92,7 +92,14 @@ pub(super) fn apply_manual_completion(sub: &mut Subscription, completed: bool) {
     sub.status = if completed { "completed" } else { "active" }.to_string();
     sub.invalid_since = None;
     sub.last_error.clear();
-    sub.last_check_summary = if completed {
+    sub.last_check_summary = if sub.media_type == "movie" {
+        if completed {
+            "已手动标记保存完成"
+        } else {
+            "已恢复待保存状态，请手动执行保存"
+        }
+        .to_string()
+    } else if completed {
         "已手动标记完结".to_string()
     } else {
         "已手动恢复追更，等待下次检查".to_string()

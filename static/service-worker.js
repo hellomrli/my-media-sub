@@ -1,23 +1,26 @@
 /* global MediaSubPwaPolicy */
-importScripts('/js/pwa-policy.js?v=2.7.7');
+importScripts('/js/pwa-policy.js?v=2.8.0');
 
-const ASSET_VERSION = '2.7.7';
-const CACHE_VERSION = 'v2.7.7-release-1';
+const ASSET_VERSION = '2.8.0';
+const CACHE_VERSION = 'v2.8.0-media-save-1';
 const SHELL_CACHE = `media-sub-shell-${CACHE_VERSION}`;
 const STATIC_CACHE = `media-sub-static-${CACHE_VERSION}`;
 const CACHE_PREFIX = 'media-sub-';
 const ASSET_REVISIONS = {
-  '/styles.css': 'search-images-1',
+  '/styles.css': 'media-save-1',
+  '/js/theme-init.js': 'media-save-1',
   '/js/core/api.js': 'search-images-1',
-  '/js/core/shell.js': 'search-images-1',
+  '/js/core/shell.js': 'media-save-1',
+  '/js/features/source-switch.js': 'media-save-1',
   '/js/features/search-page.js': 'search-images-1',
   '/js/features/search-results.js': 'search-images-1',
-  '/js/stores/subscriptions.js': 'magic-title-1'
+  '/js/stores/subscriptions.js': 'media-save-1'
 };
 const PRECACHE_ASSETS = [
   '/',
   '/manifest.webmanifest',
   '/styles.css',
+  '/fonts/space-grotesk-latin.woff2',
   '/vendor/alpine.min.js',
   '/js/theme-init.js',
   '/js/pwa-policy.js',

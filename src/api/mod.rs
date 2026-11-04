@@ -725,7 +725,10 @@ pub fn create_app(context: Arc<AppContext>) -> Router {
             context.notification_store.clone(),
         ))
         .merge(telegram::routes(context.telegram_bot.clone()))
-        .merge(transfer::routes(context.job_queue.clone()))
+        .merge(transfer::routes(
+            context.job_queue.clone(),
+            context.settings_store.clone(),
+        ))
         .merge(update::routes())
         .merge(push::routes(
             settings_store,

@@ -420,6 +420,15 @@ pub fn build_transfer_plan(
             };
         } else if name.is_empty() {
             item.skip_reason = "文件名为空".to_string();
+        } else if !crate::services::media_selection::matches_resolution(
+            &rules.preferred_resolution,
+            name,
+            &raw.parent_path,
+        ) {
+            item.skip_reason = format!(
+                "非所选画质：{}",
+                crate::services::media_selection::resolution_label(&rules.preferred_resolution)
+            );
         } else if subscription.media_type != "movie" && !is_video_name(name) {
             item.skip_reason = "剧集订阅仅处理视频文件".to_string();
         } else if subscription.media_type != "movie" && episode.is_none() {
@@ -578,6 +587,7 @@ pub fn build_transfer_plan(
                 && i.skip_reason != "剧集订阅仅处理视频文件"
                 && i.skip_reason != "未识别到有效集数"
                 && !i.skip_reason.starts_with("集数超过订阅总集数")
+                && !i.skip_reason.starts_with("非所选画质")
         })
         .collect();
     let episodes: Vec<i32> = normalized_matched
@@ -640,6 +650,12 @@ pub fn summarize_rules(rules: Option<&TransferRules>) -> String {
 
     if !rules.target_dir.is_empty() {
         parts.push(format!("目录 {}", rules.target_dir));
+    }
+    if !rules.preferred_resolution.is_empty() {
+        parts.push(format!(
+            "画质 {}",
+            crate::services::media_selection::resolution_label(&rules.preferred_resolution)
+        ));
     }
     if !rules.match_regex.is_empty() {
         parts.push(format!("正则 {}", rules.match_regex));

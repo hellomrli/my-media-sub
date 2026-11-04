@@ -1,6 +1,9 @@
 use super::*;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
 
 /// Deterministic in-memory provider for service tests.
 pub struct MockCloudDriveProvider {
@@ -9,6 +12,7 @@ pub struct MockCloudDriveProvider {
     items: Mutex<HashMap<String, Vec<DriveItem>>>,
     failures: Mutex<HashMap<&'static str, String>>,
     transfers: Mutex<Vec<TransferRequest>>,
+    populate_saved_files: AtomicBool,
 }
 
 impl Default for MockCloudDriveProvider {
@@ -24,6 +28,7 @@ impl Default for MockCloudDriveProvider {
             items: Mutex::new(HashMap::new()),
             failures: Mutex::new(HashMap::new()),
             transfers: Mutex::new(vec![]),
+            populate_saved_files: AtomicBool::new(false),
         }
     }
 }
@@ -49,6 +54,9 @@ impl MockCloudDriveProvider {
     }
     pub fn transfer_requests(&self) -> Vec<TransferRequest> {
         self.transfers.lock().expect("mock transfers lock").clone()
+    }
+    pub fn populate_saved_files(&self) {
+        self.populate_saved_files.store(true, Ordering::Relaxed);
     }
     fn error(&self, operation: &'static str) -> Result<()> {
         match self
@@ -120,7 +128,7 @@ impl CloudDriveProvider for MockCloudDriveProvider {
                 .expect("mock transfers lock")
                 .push(request.clone());
             let selected: std::collections::HashSet<_> = request.file_ids.iter().collect();
-            let files = self
+            let files: Vec<ProviderFile> = self
                 .probe_result
                 .lock()
                 .expect("mock probe lock")
@@ -129,6 +137,21 @@ impl CloudDriveProvider for MockCloudDriveProvider {
                 .filter(|file| !file.is_dir && (selected.is_empty() || selected.contains(&file.id)))
                 .cloned()
                 .collect();
+            if self.populate_saved_files.load(Ordering::Relaxed) {
+                self.items
+                    .lock()
+                    .expect("mock items lock")
+                    .entry(request.target_id.clone())
+                    .or_default()
+                    .extend(files.iter().map(|file| DriveItem {
+                        id: format!("saved:{}", file.id),
+                        parent_id: request.target_id.clone(),
+                        name: file.name.clone(),
+                        size: file.size,
+                        is_dir: false,
+                        updated_at: String::new(),
+                    }));
+            }
             Ok(TransferOutcome {
                 transferred_files: files,
             })

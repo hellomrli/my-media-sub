@@ -4,8 +4,8 @@
           <div class="app-panel p-4 space-y-3">
             <div class="toolbar-panel">
               <div>
-                <h3 class="section-title">订阅列表</h3>
-                <p class="text-sm text-muted/75 mt-1">按状态、进度和最近检查时间快速扫描。</p>
+                <h3 class="section-title">我的追剧片单</h3>
+                <p class="text-sm text-muted/75 mt-1">喜欢的画质，每一集都记得。电影则一次保存，不用等更新。</p>
               </div>
               <div class="control-row">
                 <button @click="checkAllSubscriptions()" :disabled="checkingAllSubscriptions" class="btn-secondary px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
@@ -20,7 +20,7 @@
                 </button>
                 <button @click="openBlankSubscriptionDialog()" class="btn-primary px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2">
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-                  添加订阅
+                  添加媒体
                 </button>
               </div>
             </div>
@@ -71,7 +71,7 @@
                       </div>
                       <div class="min-w-0">
                         <div class="truncate text-sm font-medium text-text" x-text="subscriptionDisplayTitle(sub)"></div>
-                        <div class="truncate text-xs text-muted/75" x-text="subscriptionSubtitle(sub)"></div>
+                        <div class="truncate text-xs text-muted/75"><span x-text="subscriptionSubtitle(sub)"></span><span x-show="sub.rules && sub.rules.preferred_resolution" class="text-primary" x-text="' · ' + subscriptionQualityLabel(sub.rules && sub.rules.preferred_resolution)"></span></div>
                       </div>
                     </div>
                     <div><span class="badge badge-primary" x-text="mediaTypeLabel(sub.media_type)"></span></div>
@@ -103,12 +103,12 @@
           <template x-if="subscriptionViewMode === 'poster'">
           <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
             <template x-for="(sub, subIndex) in visibleFilteredSubscriptions" :key="'subscription-' + (sub.id || 'missing') + '-' + subIndex">
-              <div class="app-panel relative overflow-hidden hover:border-primary transition-colors">
+              <div class="app-panel library-poster-card relative overflow-hidden hover:border-primary transition-colors" :style="'--card-index:' + (subIndex % 8)">
                 <input type="checkbox" :checked="selectedSubscriptionIds.includes(sub.id)" @change="toggleSubscriptionSelection(sub.id)" :aria-label="'选择订阅 ' + subscriptionDisplayTitle(sub)" class="absolute left-2 top-2 z-10 h-5 w-5" />
                 <button @click="openSubscriptionDetail(sub)" class="block w-full text-left">
-                  <div class="aspect-[2/3] bg-app grid place-items-center overflow-hidden border-b border-border">
+                  <div class="library-poster-visual aspect-[2/3] bg-app grid place-items-center overflow-hidden border-b border-border">
                     <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" class="h-full w-full object-cover" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
-                    <div x-show="!subscriptionPoster(sub)" class="px-3 text-center text-xs text-muted/75">暂无海报</div>
+                    <div x-show="!subscriptionPoster(sub)" class="library-poster-placeholder" :style="'--poster-hue:' + (145 + (subIndex % 5) * 27)"><small>MEDIA / SUB</small><strong x-text="subscriptionDisplayTitle(sub)"></strong><span x-text="mediaTypeLabel(sub.media_type) + ' / ' + (sub.media_type === 'movie' ? '一次保存' : subscriptionSeasonLabel(sub))"></span></div>
                   </div>
                 </button>
                 <div class="p-3 space-y-2">
@@ -123,6 +123,7 @@
                     <span class="badge badge-primary" x-text="mediaTypeLabel(sub.media_type)"></span>
                     <span class="badge badge-muted" x-text="subscriptionRatingLabel(sub)"></span>
                     <span x-show="sub.media_type !== 'movie'" class="badge badge-muted" x-text="subscriptionSeasonLabel(sub)"></span>
+                    <span x-show="sub.rules && sub.rules.preferred_resolution" class="badge badge-primary" x-text="subscriptionQualityLabel(sub.rules && sub.rules.preferred_resolution)"></span>
                   </div>
                   <div x-show="sub.media_type !== 'movie'" class="space-y-1">
                     <div class="progress-inline"><span :style="'width:' + subscriptionProgressPercent(sub) + '%'"></span></div>

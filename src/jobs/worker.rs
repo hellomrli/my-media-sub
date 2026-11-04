@@ -33,6 +33,7 @@ use super::scheduler::{FairScheduler, JobConcurrencyLimits, RunningJobs};
 use super::store::JobStore;
 
 mod manual_transfer;
+mod media_save;
 mod metadata_scrape;
 mod push_dispatch;
 mod subscription_transfer;
@@ -997,6 +998,189 @@ mod tests {
             notifications_path,
             jobs_path,
         )
+    }
+
+    async fn media_save_worker() -> (
+        JobWorker,
+        Arc<crate::providers::MockCloudDriveProvider>,
+        crate::providers::ProviderProbeResult,
+        Vec<std::path::PathBuf>,
+    ) {
+        let subscriptions = Arc::new(SubscriptionStore::from_snapshot(vec![]));
+        let (worker, settings_path, notifications_path, jobs_path) = make_worker(subscriptions);
+        worker.store.load().await.unwrap();
+        worker
+            .store
+            .add(
+                serde_json::from_value(json!({
+                    "id": "movie-save", "kind": "manual_transfer", "status": "running",
+                    "progress": 15, "title": "Movie save", "message": "probe", "payload": {},
+                    "created_at": 1, "updated_at": 1
+                }))
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        let provider = Arc::new(crate::providers::MockCloudDriveProvider::new());
+        provider.populate_saved_files();
+        let probe = crate::providers::ProviderProbeResult {
+            ok: true,
+            state: "ok".to_string(),
+            message: String::new(),
+            files: [("hd", "1080P"), ("uhd", "4K")]
+                .into_iter()
+                .map(|(id, parent)| crate::providers::ProviderFile {
+                    id: id.to_string(),
+                    name: "Movie.mkv".to_string(),
+                    parent_path: parent.to_string(),
+                    size: 10,
+                    is_dir: false,
+                    updated_at: None,
+                })
+                .collect(),
+        };
+        provider.set_probe_result(probe.clone());
+        (
+            worker,
+            provider,
+            probe,
+            vec![settings_path, notifications_path, jobs_path],
+        )
+    }
+
+    #[tokio::test]
+    async fn movie_save_submits_only_the_chosen_own_drive_file_to_aria2() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let rpc_url = format!("http://{}/jsonrpc", listener.local_addr().unwrap());
+        let rpc = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut bytes = Vec::new();
+            let mut buffer = [0_u8; 4096];
+            let body = loop {
+                let count = socket.read(&mut buffer).await.unwrap();
+                assert!(count > 0);
+                bytes.extend_from_slice(&buffer[..count]);
+                if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+                    let headers = String::from_utf8_lossy(&bytes[..end]).to_ascii_lowercase();
+                    let length: usize = headers
+                        .lines()
+                        .find_map(|line| line.strip_prefix("content-length:"))
+                        .unwrap()
+                        .trim()
+                        .parse()
+                        .unwrap();
+                    if bytes.len() >= end + 4 + length {
+                        break serde_json::from_slice::<serde_json::Value>(
+                            &bytes[end + 4..end + 4 + length],
+                        )
+                        .unwrap();
+                    }
+                }
+            };
+            let response = r#"{"jsonrpc":"2.0","id":1,"result":"movie-gid"}"#;
+            socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}", response.len()).as_bytes()).await.unwrap();
+            body
+        });
+        let (worker, provider, probe, paths) = media_save_worker().await;
+        let settings = crate::models::Settings {
+            aria2_rpc_url: rpc_url,
+            ..Default::default()
+        };
+        let options = crate::models::MediaSaveOptions {
+            title: "Movie".to_string(),
+            media_type: "movie".to_string(),
+            preferred_resolution: "1080p".to_string(),
+            file_ids: vec!["hd".to_string()],
+            target_dir: "/Movies/Movie".to_string(),
+            sync_download_enabled: true,
+            sync_download_dir: "/downloads/movies/Movie".to_string(),
+        };
+        let req = ManualTransferPayload {
+            url: "mock://movie".to_string(),
+            passcode: String::new(),
+            target_fid: String::new(),
+            offer_download: false,
+            save_options: Some(options.clone()),
+        };
+        worker
+            .run_media_save(
+                "movie-save",
+                &req,
+                &options,
+                &settings,
+                provider.clone(),
+                probe,
+            )
+            .await
+            .unwrap();
+        let body = rpc.await.unwrap();
+        assert_eq!(body["params"][0][0], "mock://saved:hd");
+        assert_eq!(body["params"][1]["dir"], "/downloads/movies/Movie");
+        assert_eq!(body["params"][1]["out"], "Movie.mkv");
+        assert_eq!(provider.transfer_requests()[0].file_ids, vec!["hd"]);
+        assert!(worker.subscription_store.list().await.is_empty());
+        let job = worker.store.get("movie-save").await.unwrap();
+        assert_eq!(job.status, JobStatus::Succeeded);
+        let result = job.result.unwrap();
+        assert_eq!(result["files"][0]["fid"], "saved:hd");
+        assert_eq!(result["sync_downloads"][0]["gid"], "movie-gid");
+        assert!(result["download_errors"].as_array().unwrap().is_empty());
+        for path in paths {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    #[tokio::test]
+    async fn local_download_failure_keeps_successful_movie_save_without_retransferring() {
+        let (worker, provider, probe, paths) = media_save_worker().await;
+        provider.fail("download_info", "temporary download link failure");
+        let settings = crate::models::Settings {
+            aria2_rpc_url: "http://127.0.0.1:1/jsonrpc".to_string(),
+            ..Default::default()
+        };
+        let options = crate::models::MediaSaveOptions {
+            title: "Movie".to_string(),
+            media_type: "movie".to_string(),
+            preferred_resolution: "1080p".to_string(),
+            file_ids: vec!["hd".to_string()],
+            sync_download_enabled: true,
+            ..Default::default()
+        };
+        let req = ManualTransferPayload {
+            url: "mock://movie".to_string(),
+            passcode: String::new(),
+            target_fid: String::new(),
+            offer_download: false,
+            save_options: Some(options.clone()),
+        };
+        worker
+            .run_media_save(
+                "movie-save",
+                &req,
+                &options,
+                &settings,
+                provider.clone(),
+                probe,
+            )
+            .await
+            .unwrap();
+        let job = worker.store.get("movie-save").await.unwrap();
+        assert_eq!(job.status, JobStatus::Succeeded);
+        assert_eq!(job.result.as_ref().unwrap()["saved_count"], 1);
+        assert_eq!(
+            job.result.as_ref().unwrap()["download_errors"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(job.message.contains("不要重新转存"));
+        assert_eq!(provider.transfer_requests().len(), 1);
+        assert!(worker.subscription_store.list().await.is_empty());
+        for path in paths {
+            let _ = std::fs::remove_file(path);
+        }
     }
 
     #[tokio::test]

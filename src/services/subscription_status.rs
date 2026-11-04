@@ -205,9 +205,14 @@ pub fn subscription_for_season(original: &Subscription, season: i32) -> Subscrip
             .collect();
     }
     if let Some(probe) = &mut sub.last_probe {
-        probe
-            .files
-            .retain(|file| belongs(&file.name, &file.parent_path));
+        probe.files.retain(|file| {
+            belongs(&file.name, &file.parent_path)
+                && crate::services::media_selection::matches_resolution(
+                    &original.rules.preferred_resolution,
+                    &file.name,
+                    &file.parent_path,
+                )
+        });
         for file in &mut probe.files {
             file.name = file_reference(&file.name, &file.parent_path);
             file.parent_path.clear();
@@ -904,6 +909,30 @@ mod tests {
             "status": "active"
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn detail_and_calendar_progress_do_not_report_other_qualities_as_discovered() {
+        let mut sub = subscription();
+        sub.rules.preferred_resolution = "1080p".to_string();
+        sub.known_files.clear();
+        sub.known_episodes.clear();
+        sub.transferred_files.clear();
+        sub.transferred_file_keys.clear();
+        sub.current_episode_number = 0;
+        sub.last_new_episodes.clear();
+        sub.last_probe = Some(
+            serde_json::from_value(json!({"ok": true, "files": [
+                {"name": "Example.S01E01.mkv", "parent_path": "1080P", "file_key": "hd"},
+                {"name": "Example.S01E02.mkv", "parent_path": "4K", "file_key": "uhd"}
+            ]}))
+            .unwrap(),
+        );
+        let detail = build_subscription_detail(sub, &Settings::default(), &[], &[], &[]);
+        assert_eq!(detail.summary.discovered_count, 1);
+        assert_eq!(detail.summary.latest_discovered_episode, Some(1));
+        assert_eq!(detail.pending_transfer_episodes, vec![1]);
+        assert!(detail.missing_episodes.contains(&2));
     }
 
     fn notification(event: &str, meta: Value) -> Notification {

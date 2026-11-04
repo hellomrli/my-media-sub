@@ -11,7 +11,7 @@
 
   function createStore() {
     return {
-    theme: 'dark',
+    theme: 'light',
     uiError: '',
     showDangerConfirmDialog: false,
     dangerConfirmTitle: '', dangerConfirmMessage: '', dangerConfirmPhrase: '', dangerConfirmInput: '',
@@ -101,9 +101,9 @@
         const stored = localStorage.getItem('theme');
         if (stored === 'light' || stored === 'dark') return stored;
       } catch (_) {
-        // Ignore storage access failures and fall back to system preference.
+        // Theme switching remains usable when preference storage is unavailable.
       }
-      return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      return 'light';
     },
 
     applyTheme(theme, options = {}) {

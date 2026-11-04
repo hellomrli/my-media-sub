@@ -43,9 +43,13 @@ cargo build --locked
 node scripts/smoke-search-browser.mjs target/debug/my-media-sub
 ```
 
-该脚本使用临时数据目录、独立 Chrome 配置与本地测试响应，验证资源搜索、图片回退、并发请求，以及 1440px / 390px 的剧名匹配界面。标题清洗请求访问本地后端；元数据搜索响应由本地 fixture 提供，不访问真实 TMDB 或网盘。后端候选生成与重试控制另由 Rust 测试覆盖。
+该脚本使用临时数据目录、独立 Chrome 配置与本地测试响应，验证资源搜索、图片回退、并发请求、浅色/深色海报墙、电影画质与具体文件选择、下载保存选项、剧集固定画质及换源画质门槛，并检查 1440px / 390px 的界面与固定操作栏。标题清洗请求访问本地后端；元数据、资源探测与保存响应由本地 fixture 提供，不访问真实 TMDB 或网盘。后端画质过滤和保存到下载器的链路另由 Rust 测试覆盖。
 
-更新 README 截图时，显式加上 `--metadata-screenshot`：
+加 `--media-screenshots` 可把海报墙与桌面 / 手机电影选择截图保留在单独的临时目录中，脚本会打印目录路径，不改动文档图片。
+
+README 海报墙截图来自 `--media-screenshots` 输出目录中的 `library-desktop.png`，对应 `docs/assets/media-library.png`；只使用脚本提供的测试数据，不截取真实账号页面。
+
+重建剧名匹配演示图 `docs/assets/metadata-match.png` 时，显式加上 `--metadata-screenshot`：
 
 ```bash
 node scripts/smoke-search-browser.mjs target/debug/my-media-sub --metadata-screenshot

@@ -1,19 +1,20 @@
 <!DOCTYPE html>
-<html lang="zh-CN" class="dark">
+<html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>媒体订阅管理系统</title>
-  <meta name="theme-color" content="#4f46e5">
+  <title>MEDIA/SUB · 你的私人放映室</title>
+  <meta name="theme-color" content="#117766">
   <meta name="application-name" content="MEDIA/SUB">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%234f46e5%27/%3E%3Cpath d=%27M8 9h16v14H8zm4-4v22m8-22v22%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27/%3E%3C/svg%3E">
-  <script src="js/theme-init.js?v=2.7.7"></script>
-  <link rel="stylesheet" href="styles.css?v=2.7.7&rev=search-images-1">
-  <script defer src="vendor/alpine.min.js?v=2.7.7"></script>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%279%27 fill=%27%23117766%27/%3E%3Cpath d=%27M8 9h16v14H8zm4-4v22m8-22v22%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27/%3E%3C/svg%3E">
+  <link rel="preload" href="fonts/space-grotesk-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <script src="js/theme-init.js?v=2.8.0&rev=media-save-1"></script>
+  <link rel="stylesheet" href="styles.css?v=2.8.0&rev=media-save-1">
+  <script defer src="vendor/alpine.min.js?v=2.8.0"></script>
 </head>
 <body class="bg-app text-text/90 min-h-screen" x-data="app()" x-cloak>
 
@@ -34,7 +35,7 @@
           </span>
           <span class="min-w-0 text-left">
             <span class="brand-name">MEDIA<span>/SUB</span></span>
-            <span class="brand-caption">个人媒体自动化中心</span>
+            <span class="brand-caption">你的私人放映室</span>
           </span>
         </button>
         <div class="brand-status"><span class="status-pulse"></span><span>服务在线</span></div>
@@ -116,7 +117,7 @@
       <header class="app-header sticky top-0 z-30 px-4 sm:px-6 py-3">
         <div class="header-row">
           <div class="page-heading min-w-0">
-            <div class="eyebrow">单实例管理 <span>/</span> <span x-text="tabs.find(t => t.id === currentTab)?.name"></span></div>
+            <div class="eyebrow">MY MEDIA SPACE <span>/</span> <span x-text="tabs.find(t => t.id === currentTab)?.name"></span></div>
             <div class="flex items-end gap-3 min-w-0">
               <h2 class="page-title" x-text="tabs.find(t => t.id === currentTab)?.name"></h2>
               <span class="page-description hidden sm:block" x-text="tabs.find(t => t.id === currentTab)?.description"></span>
@@ -205,12 +206,15 @@
                   <div class="dash-command">
                     <div class="dash-command-copy">
                       <div class="hero-kicker"><span class="status-pulse"></span><span x-text="dashboardDateLabel()"></span></div>
+                      <h1><span>好故事，</span>随时开场。</h1>
                       <p x-text="dashboardStatusSummary()"></p>
                     </div>
+                    <div class="deck-art" aria-hidden="true"><div class="deck-ticket is-hd"><span class="deck-play"></span><strong>1080P</strong><small>YOUR CHOICE</small></div><div class="deck-ticket is-uhd"><span class="deck-play"></span><strong>4K</strong><small>YOUR CINEMA</small></div></div>
                     <div class="dash-command-actions">
-                      <button @click="checkAllSubscriptions()" :disabled="checkingAllSubscriptions" class="btn-primary">
+                      <button @click="openBlankSubscriptionDialog()" class="btn-primary"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-width="2" stroke-linecap="round"/></svg>添加媒体</button>
+                      <button @click="checkAllSubscriptions()" :disabled="checkingAllSubscriptions" class="btn-secondary">
                         <svg class="w-4 h-4" :class="checkingAllSubscriptions ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5m11 11v-5h-5M5.1 9A8 8 0 0119 6.3M18.9 15A8 8 0 015 17.7"/></svg>
-                        <span x-text="checkingAllSubscriptions ? '检查中' : '检查全部订阅'"></span>
+                        <span x-text="checkingAllSubscriptions ? '检查中' : '检查更新'"></span>
                       </button>
                       <button @click="selectTab('search')" class="btn-secondary">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5-5m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
@@ -378,8 +382,8 @@
           <section class="app-panel search-command-panel">
             <div class="search-command-copy">
               <span class="panel-eyebrow">DISCOVER</span>
-              <h3>查找下一部媒体</h3>
-              <p>输入片名、年份、季度或版本关键词；搜索后可先检查质量与文件，再决定立即转存或持续追更。</p>
+              <h3>下一部，想看什么？</h3>
+              <p>搜片名、年份或季度，选你喜欢的 1080P / 4K。电影下载保存，剧集自动追更，各有各的打开方式。</p>
             </div>
 
             <div class="search-command-row">
@@ -919,8 +923,8 @@
           <div class="app-panel p-4 space-y-3">
             <div class="toolbar-panel">
               <div>
-                <h3 class="section-title">订阅列表</h3>
-                <p class="text-sm text-muted/75 mt-1">按状态、进度和最近检查时间快速扫描。</p>
+                <h3 class="section-title">我的追剧片单</h3>
+                <p class="text-sm text-muted/75 mt-1">喜欢的画质，每一集都记得。电影则一次保存，不用等更新。</p>
               </div>
               <div class="control-row">
                 <button @click="checkAllSubscriptions()" :disabled="checkingAllSubscriptions" class="btn-secondary px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
@@ -935,7 +939,7 @@
                 </button>
                 <button @click="openBlankSubscriptionDialog()" class="btn-primary px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2">
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-                  添加订阅
+                  添加媒体
                 </button>
               </div>
             </div>
@@ -986,7 +990,7 @@
                       </div>
                       <div class="min-w-0">
                         <div class="truncate text-sm font-medium text-text" x-text="subscriptionDisplayTitle(sub)"></div>
-                        <div class="truncate text-xs text-muted/75" x-text="subscriptionSubtitle(sub)"></div>
+                        <div class="truncate text-xs text-muted/75"><span x-text="subscriptionSubtitle(sub)"></span><span x-show="sub.rules && sub.rules.preferred_resolution" class="text-primary" x-text="' · ' + subscriptionQualityLabel(sub.rules && sub.rules.preferred_resolution)"></span></div>
                       </div>
                     </div>
                     <div><span class="badge badge-primary" x-text="mediaTypeLabel(sub.media_type)"></span></div>
@@ -1018,12 +1022,12 @@
           <template x-if="subscriptionViewMode === 'poster'">
           <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
             <template x-for="(sub, subIndex) in visibleFilteredSubscriptions" :key="'subscription-' + (sub.id || 'missing') + '-' + subIndex">
-              <div class="app-panel relative overflow-hidden hover:border-primary transition-colors">
+              <div class="app-panel library-poster-card relative overflow-hidden hover:border-primary transition-colors" :style="'--card-index:' + (subIndex % 8)">
                 <input type="checkbox" :checked="selectedSubscriptionIds.includes(sub.id)" @change="toggleSubscriptionSelection(sub.id)" :aria-label="'选择订阅 ' + subscriptionDisplayTitle(sub)" class="absolute left-2 top-2 z-10 h-5 w-5" />
                 <button @click="openSubscriptionDetail(sub)" class="block w-full text-left">
-                  <div class="aspect-[2/3] bg-app grid place-items-center overflow-hidden border-b border-border">
+                  <div class="library-poster-visual aspect-[2/3] bg-app grid place-items-center overflow-hidden border-b border-border">
                     <img x-show="subscriptionPoster(sub)" :src="subscriptionPoster(sub)" alt="" class="h-full w-full object-cover" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
-                    <div x-show="!subscriptionPoster(sub)" class="px-3 text-center text-xs text-muted/75">暂无海报</div>
+                    <div x-show="!subscriptionPoster(sub)" class="library-poster-placeholder" :style="'--poster-hue:' + (145 + (subIndex % 5) * 27)"><small>MEDIA / SUB</small><strong x-text="subscriptionDisplayTitle(sub)"></strong><span x-text="mediaTypeLabel(sub.media_type) + ' / ' + (sub.media_type === 'movie' ? '一次保存' : subscriptionSeasonLabel(sub))"></span></div>
                   </div>
                 </button>
                 <div class="p-3 space-y-2">
@@ -1038,6 +1042,7 @@
                     <span class="badge badge-primary" x-text="mediaTypeLabel(sub.media_type)"></span>
                     <span class="badge badge-muted" x-text="subscriptionRatingLabel(sub)"></span>
                     <span x-show="sub.media_type !== 'movie'" class="badge badge-muted" x-text="subscriptionSeasonLabel(sub)"></span>
+                    <span x-show="sub.rules && sub.rules.preferred_resolution" class="badge badge-primary" x-text="subscriptionQualityLabel(sub.rules && sub.rules.preferred_resolution)"></span>
                   </div>
                   <div x-show="sub.media_type !== 'movie'" class="space-y-1">
                     <div class="progress-inline"><span :style="'width:' + subscriptionProgressPercent(sub) + '%'"></span></div>
@@ -1262,8 +1267,8 @@
                       <div class="text-xs text-muted/75 break-all" x-text="candidate.url"></div>
                       <div x-show="candidate.password" class="text-xs text-muted/75">提取码：<span x-text="candidate.password"></span></div>
                       <div class="flex flex-wrap gap-1"><template x-for="tag in sourceCandidateQuality(candidate).tags || []" :key="tag"><span class="badge badge-muted" x-text="tag"></span></template></div>
-                      <div x-show="(sourceCandidateQuality(candidate).risks || []).length" class="text-xs text-danger" x-text="'风险：' + sourceCandidateQuality(candidate).risks.join('、')"></div>
-                      <div x-show="(sourceCandidateQuality(candidate).recommendation_reasons || []).length" class="text-xs text-success" x-text="sourceCandidateQuality(candidate).recommendation_reasons.join(' · ')"></div>
+                      <div x-show="(sourceCandidateQuality(candidate).risks || []).length" class="text-xs text-danger" x-text="'风险：' + (sourceCandidateQuality(candidate).risks || []).join('、')"></div>
+                      <div x-show="(sourceCandidateQuality(candidate).recommendation_reasons || []).length" class="text-xs text-success" x-text="(sourceCandidateQuality(candidate).recommendation_reasons || []).join(' · ')"></div>
                     </div>
                     <div class="flex gap-2 sm:flex-col">
                       <a :href="safeExternalUrl(candidate.url)" target="_blank" rel="noopener noreferrer" class="btn-secondary px-3 py-2 rounded text-sm whitespace-nowrap text-center">打开链接</a>
@@ -1271,10 +1276,11 @@
                     </div>
                   </div>
                   <div x-show="sourceSwitchPreview && sourceSwitchPreview.candidate && sourceSwitchPreview.candidate.id === candidate.id" class="rounded border border-border bg-surface-2 p-3 space-y-2 text-xs">
-                    <div class="grid grid-cols-2 gap-2 sm:grid-cols-4"><span>当前 <strong x-text="sourceSwitchPreview && sourceSwitchPreview.current_quality ? sourceSwitchPreview.current_quality.score : 0"></strong> 分</span><span>候选 <strong x-text="sourceSwitchPreview && sourceSwitchPreview.candidate && sourceSwitchPreview.candidate.quality ? sourceSwitchPreview.candidate.quality.score : 0"></strong> 分</span><span>分差 <strong x-text="sourceSwitchPreview ? sourceSwitchPreview.score_delta : 0"></strong></span><span :class="sourceSwitchPreview && sourceSwitchPreview.can_apply ? 'text-success' : (sourceSwitchPreview && sourceSwitchPreview.probe_ok && sourceSwitchPreview.season_matches ? 'text-warning' : 'text-danger')" x-text="sourceSwitchPreview && sourceSwitchPreview.can_apply ? '可安全应用' : (sourceSwitchPreview && sourceSwitchPreview.probe_ok && sourceSwitchPreview.season_matches ? '可强制应用' : (sourceSwitchPreview && !sourceSwitchPreview.season_matches ? '季度不匹配' : '探测失败'))"></span></div>
-                    <div class="flex flex-wrap gap-1"><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.probe_ok ? 'badge-success' : 'badge-danger'">链接探测</span><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.season_matches ? 'badge-success' : 'badge-danger'">季度匹配（强制也不可越过）</span><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.covers_progress ? 'badge-success' : 'badge-danger'">进度覆盖</span><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.auto_eligible ? 'badge-success' : 'badge-muted'">自动策略</span></div>
+                    <div class="grid grid-cols-2 gap-2 sm:grid-cols-4"><span>当前 <strong x-text="sourceSwitchPreview && sourceSwitchPreview.current_quality ? sourceSwitchPreview.current_quality.score : 0"></strong> 分</span><span>候选 <strong x-text="sourceSwitchPreview && sourceSwitchPreview.candidate && sourceSwitchPreview.candidate.quality ? sourceSwitchPreview.candidate.quality.score : 0"></strong> 分</span><span>分差 <strong x-text="sourceSwitchPreview ? sourceSwitchPreview.score_delta : 0"></strong></span><span :class="sourceSwitchPreview && sourceSwitchPreview.can_apply ? 'text-success' : (sourceSwitchPreview && sourceSwitchPreview.probe_ok && sourceSwitchPreview.season_matches && sourceSwitchPreview.quality_matches !== false ? 'text-warning' : 'text-danger')" x-text="sourceSwitchPreview && sourceSwitchPreview.can_apply ? '可安全应用' : (sourceSwitchPreview && sourceSwitchPreview.quality_matches === false ? '画质不匹配' : (sourceSwitchPreview && sourceSwitchPreview.probe_ok && sourceSwitchPreview.season_matches ? '可强制应用' : (sourceSwitchPreview && !sourceSwitchPreview.season_matches ? '季度不匹配' : '探测失败')))"></span></div>
+                    <div class="flex flex-wrap gap-1"><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.probe_ok ? 'badge-success' : 'badge-danger'">链接探测</span><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.quality_matches !== false ? 'badge-success' : 'badge-danger'">所选画质匹配</span><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.season_matches ? 'badge-success' : 'badge-danger'">季度匹配（强制也不可越过）</span><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.covers_progress ? 'badge-success' : 'badge-danger'">进度覆盖</span><span class="badge" :class="sourceSwitchPreview && sourceSwitchPreview.auto_eligible ? 'badge-success' : 'badge-muted'">自动策略</span></div>
                     <div x-show="sourceSwitchPreview && sourceSwitchPreview.warnings && sourceSwitchPreview.warnings.length" class="rounded border border-warning/40 bg-warning/10 p-2 text-warning break-all" x-text="sourceSwitchPreview && sourceSwitchPreview.warnings ? sourceSwitchPreview.warnings.join('；') : ''"></div>
                     <div x-show="sourceSwitchPreview && sourceSwitchPreview.probe_ok && sourceSwitchPreview.season_matches === false" class="rounded border border-danger/40 bg-danger/10 p-2 text-danger">季度不匹配，无法应用（含强制）。</div>
+                    <div x-show="sourceSwitchPreview && sourceSwitchPreview.probe_ok && sourceSwitchPreview.quality_matches === false" class="rounded border border-danger/40 bg-danger/10 p-2 text-danger">候选没有订阅所选画质，无法应用（含强制）。</div>
                   </div>
                 </div>
               </template>
@@ -2412,11 +2418,14 @@
 
   <!-- 订阅配置对话框 -->
   <div x-show="showSubscriptionDialog" @click.self="showSubscriptionDialog = false" @keydown.escape.window="showSubscriptionDialog = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel dialog-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="订阅配置" tabindex="-1" x-effect="if (showSubscriptionDialog) $nextTick(() => $el.focus())">
-      <h3 class="text-xl font-bold text-text mb-6" x-text="subscriptionEditingId ? '编辑订阅' : '创建订阅'"></h3>
+    <div data-media-editor class="app-panel dialog-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" :aria-label="newSubscription.media_type === 'movie' ? '电影下载保存' : '订阅配置'" tabindex="-1" x-effect="if (showSubscriptionDialog) $nextTick(() => $el.focus())">
+      <div class="media-dialog-heading">
+        <div><span class="panel-eyebrow">YOUR NEXT WATCH</span><h3 x-text="subscriptionEditingId ? '编辑媒体' : (newSubscription.media_type === 'movie' ? '把电影收进片库' : '开启下一段追剧时光')"></h3></div>
+        <span class="chip" x-text="newSubscription.media_type === 'movie' ? '一次保存，不追更' : '选择你喜欢的画质'"></span>
+      </div>
 
       <!-- 步骤导航（唯一入口，不再重复 Tab） -->
-      <div class="mb-6 grid gap-2" :class="subscriptionWizardSteps.length > 1 ? 'grid-cols-3' : 'grid-cols-1'">
+      <div class="mb-6 grid gap-2" :class="subscriptionWizardSteps.length === 3 ? 'grid-cols-3' : (subscriptionWizardSteps.length === 2 ? 'grid-cols-2' : 'grid-cols-1')">
         <template x-for="(step, index) in subscriptionWizardSteps" :key="step.id">
           <button type="button" @click="subscriptionDialogTab = step.id; if (step.id === 'rename' && !renamePreview && newSubscription.preview_samples) previewSubscriptionRename(true)" class="border rounded-lg px-3 py-2 text-sm transition-colors" :class="subscriptionWizardStepClass(step, index)">
             <span class="font-semibold" x-text="index + 1"></span>
@@ -2426,7 +2435,7 @@
       </div>
 
       <!-- 订阅模式选择 -->
-      <div x-show="!subscriptionEditingId" class="mb-6">
+      <div x-show="!subscriptionEditingId && newSubscription.media_type !== 'movie'" class="mb-6">
         <div class="block text-sm font-medium text-text/80 mb-3" id="field-subscription-mode">订阅类型</div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" role="group" aria-labelledby="field-subscription-mode">
           <button type="button" @click="setSubscriptionMode('once')" :class="subscriptionMode === 'once' ? 'bg-primary/20 border-primary' : 'bg-surface-2 border-border hover:border-border'" class="p-4 rounded-lg border transition-all text-left">
@@ -2443,9 +2452,21 @@
       <div class="space-y-4 mb-6">
         <div x-show="subscriptionDialogTab === 'content'" class="space-y-4">
           <div>
+            <div class="block text-sm font-medium text-text/80 mb-2" id="field-media-type">这次想看什么？</div>
+            <div class="media-type-picker" role="group" aria-labelledby="field-media-type">
+              <button type="button" @click="setSubscriptionMediaType('movie')" :aria-pressed="newSubscription.media_type === 'movie'" :class="newSubscription.media_type === 'movie' ? 'is-selected' : ''"><span class="media-type-symbol" aria-hidden="true">01</span><span><strong>电影</strong><small>选好版本，下载保存</small></span></button>
+              <button type="button" @click="setSubscriptionMediaType('series')" :aria-pressed="newSubscription.media_type === 'series'" :class="newSubscription.media_type === 'series' ? 'is-selected' : ''"><span class="media-type-symbol" aria-hidden="true">02</span><span><strong>剧集</strong><small>固定画质，持续追更</small></span></button>
+              <button type="button" @click="setSubscriptionMediaType('anime')" :aria-pressed="newSubscription.media_type === 'anime'" :class="newSubscription.media_type === 'anime' ? 'is-selected' : ''"><span class="media-type-symbol" aria-hidden="true">03</span><span><strong>动画</strong><small>每一集都不错过</small></span></button>
+              <template x-for="category in settings.custom_categories" :key="category.id">
+                <button type="button" @click="setSubscriptionMediaType(customCategoryMediaType(category))" :aria-pressed="newSubscription.media_type === customCategoryMediaType(category)" :class="newSubscription.media_type === customCategoryMediaType(category) ? 'is-selected' : ''"><span><strong x-text="category.name || '自定义类别'"></strong><small>你的专属分类</small></span></button>
+              </template>
+            </div>
+          </div>
+          <div x-show="newSubscription.media_type === 'movie'" class="movie-save-note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 17v4h14v-4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><div><strong>电影只需保存，不用追更</strong><p>先挑画质和正片版本，再保存到自己的网盘；也可以同时用 Aria2 下载到本地。不会新增定时追更任务。</p></div></div>
+          <div>
             <label for="field-newsubscription-title" class="flex items-center justify-between gap-2 text-sm font-medium text-text/80 mb-2">
-              <span>订阅名称</span>
-              <button type="button" @click="applyMagicTitleMatch()" class="text-xs text-primary hover:text-primary">智能识别剧名</button>
+              <span x-text="newSubscription.media_type === 'movie' ? '电影名称' : '订阅名称'"></span>
+              <button type="button" @click="applyMagicTitleMatch()" class="text-xs text-primary hover:text-primary" x-text="newSubscription.media_type === 'movie' ? '智能识别片名' : '智能识别剧名'"></button>
             </label>
             <input type="text" x-model="newSubscription.title" @input="updateSubscriptionDefaults()" @blur="applyMagicTitleMatch({silent: true})" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="分享标题会自动清理为干净剧名，便于刮削" / id="field-newsubscription-title">
             <p class="text-xs text-muted/75 mt-1">先清理字幕组、画质和季标；TMDB 无结果时，再尝试原名、别名或去掉篇章后缀，最多尝试 6 个剧名。匹配成功后才应用 TMDB 标题。</p>
@@ -2460,6 +2481,33 @@
             <label class="block text-sm font-medium text-text/80 mb-2" for="field-newsubscription-password">提取码</label>
             <input type="text" x-model="newSubscription.password" @change="detectSubscriptionSeasons()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="没有可留空"  id="field-newsubscription-password"/>
           </div>
+
+          <section class="quality-picker" aria-labelledby="quality-picker-title">
+            <div class="quality-picker-heading"><div><span class="panel-eyebrow">PICTURE PERFECT</span><h4 id="quality-picker-title">画质由你决定</h4></div><button type="button" @click="detectSubscriptionSeasons()" :disabled="subscriptionSeasonsDetecting || !newSubscription.url" class="btn-secondary px-3 py-2 text-xs disabled:opacity-50" x-text="subscriptionSeasonsDetecting ? '嗅探中...' : '重新嗅探'"></button></div>
+            <p class="quality-picker-hint" x-text="newSubscription.media_type === 'movie' ? '识别分享中的不同画质，再精确选择要保存的电影文件。' : '选定后，后续追更只处理这个画质；已有的转存进度不会被清空。'"></p>
+            <div x-show="subscriptionSeasonsDetecting" class="quality-picker-status" role="status"><span class="loading-spinner"></span>正在读取文件与目录中的画质标记...</div>
+            <div x-show="!subscriptionSeasonsDetecting && subscriptionQualities.length" class="quality-option-grid" role="radiogroup" aria-label="选择资源画质">
+              <template x-for="quality in subscriptionQualities" :key="quality.resolution">
+                <button type="button" role="radio" :aria-checked="newSubscription.preferred_resolution === quality.resolution" @click="setSubscriptionQuality(quality.resolution)" class="quality-option" :class="newSubscription.preferred_resolution === quality.resolution ? 'is-selected' : ''" :title="quality.sample_files.join('\n')"><span class="quality-option-top"><strong x-text="quality.label"></strong><span class="quality-check" aria-hidden="true"></span></span><span class="quality-option-meta"><span x-text="quality.file_count + ' 个视频'"></span><span x-text="mediaQualitySize(quality.total_size)"></span></span></button>
+              </template>
+              <button x-show="newSubscription.media_type !== 'movie'" type="button" role="radio" :aria-checked="!newSubscription.preferred_resolution && subscriptionQualityConfirmed" @click="setSubscriptionQuality('')" class="quality-option is-auto" :class="!newSubscription.preferred_resolution && subscriptionQualityConfirmed ? 'is-selected' : ''"><span class="quality-option-top"><strong>按规则自动</strong><span class="quality-check" aria-hidden="true"></span></span><span class="quality-option-meta">不锁定画质，保留原有择优策略</span></button>
+            </div>
+            <p x-show="!subscriptionSeasonsDetecting && subscriptionQualities.length > 1 && !subscriptionQualityConfirmed" class="text-sm text-warning mt-3" role="status">发现多个画质方案，请选择一个再继续。</p>
+            <p x-show="!subscriptionSeasonsDetecting && subscriptionSeasonsError" class="text-sm text-danger mt-3" role="alert" x-text="subscriptionSeasonsError"></p>
+            <p x-show="!subscriptionSeasonsDetecting && !subscriptionQualities.length && !subscriptionSeasonsError" class="quality-picker-status">粘贴分享链接后自动嗅探。没有明确画质标记的文件会显示为“未标注画质”，不会猜测。</p>
+            <p x-show="subscriptionProbePartial" class="text-xs text-warning mt-3">分享文件较多或部分目录读取失败，结果可能不完整。电影可选择已找到的具体文件；剧集请检查资源范围。</p>
+            <p x-show="subscriptionSeasonsDetected && newSubscription.preferred_resolution && !subscriptionQualities.some(q => q.resolution === newSubscription.preferred_resolution)" class="text-xs text-warning mt-3">当前分享未找到已选画质。追更会等待该画质更新，不会改存其他版本。</p>
+            <p class="quality-picker-footnote">依据文件名和上层文件夹识别 1080P、4K 等标记，不代表对实际视频码流的检测。</p>
+          </section>
+
+          <section x-show="newSubscription.media_type === 'movie' && movieResourceCandidates.length" class="movie-resource-picker" aria-labelledby="movie-resource-title">
+            <div class="flex items-center justify-between gap-2"><h4 id="movie-resource-title" class="text-sm font-semibold">选择正片版本</h4><span class="text-xs text-muted" x-text="movieResourceCandidates.length === 1 ? '唯一版本已选中' : '同画质也可有不同剪辑或编码，请选一个'"></span></div>
+            <div class="movie-resource-list" role="radiogroup" aria-label="选择电影正片文件">
+              <template x-for="file in movieResourceCandidates" :key="file.file_key">
+                <label class="movie-resource-option" :class="newSubscription.movie_file_key === file.file_key ? 'is-selected' : ''"><input type="radio" name="movie-resource" :value="file.file_key" x-model="newSubscription.movie_file_key"/><span class="min-w-0"><strong x-text="file.name"></strong><small x-text="file.parent_path || '分享根目录'"></small></span><span class="movie-resource-size" x-text="mediaQualitySize(file.size)"></span></label>
+              </template>
+            </div>
+          </section>
 
           <div x-show="subscriptionEditingId && subscriptionSourceChanged()" class="app-panel-soft p-4 space-y-3">
             <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
@@ -2516,18 +2564,6 @@
             </div>
           </div>
 
-          <div>
-            <div class="block text-sm font-medium text-text/80 mb-2" id="field-media-type">媒体类型</div>
-            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2" role="group" aria-labelledby="field-media-type">
-              <button @click="setSubscriptionMediaType('movie')" :class="newSubscription.media_type === 'movie' ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors">电影</button>
-              <button @click="setSubscriptionMediaType('series')" :class="newSubscription.media_type === 'series' ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors">连续剧</button>
-              <button @click="setSubscriptionMediaType('anime')" :class="newSubscription.media_type === 'anime' ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors">动画</button>
-              <template x-for="category in settings.custom_categories" :key="category.id">
-                <button @click="setSubscriptionMediaType(customCategoryMediaType(category))" :class="newSubscription.media_type === customCategoryMediaType(category) ? 'btn-primary' : 'btn-secondary'" class="px-4 py-2 rounded-lg transition-colors truncate" x-text="category.name || '自定义类别'"></button>
-              </template>
-            </div>
-          </div>
-
           <div x-show="newSubscription.media_type !== 'movie'">
             <div class="flex items-center justify-between gap-2 mb-2">
               <div class="block text-sm font-medium text-text/80" id="field-season">季号</div>
@@ -2562,7 +2598,7 @@
               <p class="text-xs text-muted/75 mt-1">低于该集数的新增文件会记为已知，但不会通知或自动转存。</p>
             </div>
 
-            <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer">
+            <label x-show="newSubscription.media_type !== 'movie'" class="flex items-center gap-2 text-sm text-text/80 cursor-pointer">
               <input type="checkbox" x-model="newSubscription.notify_only" class="rounded" />
               <span>仅通知不自动转存（需要手动确认）</span>
             </label>
@@ -2761,35 +2797,46 @@
           </div>
         </div>
 
-        <div x-show="subscriptionDialogTab === 'download' && (subscriptionMode === 'continuous' || subscriptionEditingId)" class="space-y-4">
+        <div x-show="subscriptionDialogTab === 'download'" class="space-y-4">
+          <div x-show="newSubscription.media_type === 'movie'" class="space-y-4">
+            <div class="save-resource-summary"><span class="save-resource-mark" aria-hidden="true">PLAY</span><div class="min-w-0"><strong x-text="newSubscription.title || '我的电影'"></strong><small x-text="subscriptionQualityLabel() + (selectedMovieResource ? ' · ' + mediaQualitySize(selectedMovieResource.size) : '')"></small><p x-show="selectedMovieResource" x-text="selectedMovieResource ? previewFileDisplayPath(selectedMovieResource) : ''"></p></div><span class="chip">一次性保存</span></div>
+            <div class="quality-option-grid" role="radiogroup" aria-label="选择电影保存方式">
+              <button type="button" role="radio" :aria-checked="!newSubscription.sync_download_enabled" @click="newSubscription.sync_download_enabled = false" class="quality-option" :class="!newSubscription.sync_download_enabled ? 'is-selected' : ''"><span class="quality-option-top"><strong>保存到网盘</strong><span class="quality-check" aria-hidden="true"></span></span><span class="quality-option-meta">先收藏，随时观看或下载</span></button>
+              <button type="button" role="radio" :aria-checked="newSubscription.sync_download_enabled" @click="newSubscription.sync_download_enabled = true" :disabled="!settings.aria2_rpc_url" class="quality-option disabled:opacity-50" :class="newSubscription.sync_download_enabled ? 'is-selected' : ''"><span class="quality-option-top"><strong>同时下载到本地</strong><span class="quality-check" aria-hidden="true"></span></span><span class="quality-option-meta">保存后自动提交 Aria2 下载</span></button>
+            </div>
+            <p x-show="!settings.aria2_rpc_url" class="text-xs text-muted">还没有配置 Aria2，可先保存到网盘。需要本地下载时，在系统设置中连接下载器。</p>
+            <div class="app-panel-soft p-4 space-y-2"><label class="field-label" for="movie-save-target-dir">网盘保存目录</label><div class="flex gap-2"><input id="movie-save-target-dir" type="text" :value="newSubscription.custom_dir ? newSubscription.target_dir_name : getDefaultTargetDir()" @input="newSubscription.custom_dir = true; newSubscription.target_dir_name = $event.target.value" class="flex-1 min-w-0 px-4 py-2 bg-app border border-border rounded-lg text-text"/><button type="button" @click="browseTargetDir()" class="btn-secondary shrink-0 px-3 py-2 text-sm">浏览网盘</button></div><small class="field-help">只保存所选正片，不会把整份分享的其他画质、预告和花絮一起转存。</small></div>
+          </div>
           <div class="app-panel-soft p-4 space-y-3">
-            <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer">
+            <label x-show="newSubscription.media_type !== 'movie'" class="flex items-center gap-2 text-sm text-text/80 cursor-pointer">
               <input type="checkbox" x-model="newSubscription.sync_download_enabled" class="rounded" />
               <span>同步用Aria2下载</span>
             </label>
             <div x-show="newSubscription.sync_download_enabled" class="space-y-3">
               <div>
-                <label class="field-label" for="field-newsubscription-sync-download-dir">下载地址</label>
+                <label class="field-label" for="field-newsubscription-sync-download-dir">本地下载目录</label>
                 <div class="flex gap-2">
-                  <input type="text" x-model="newSubscription.sync_download_dir" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" :placeholder="aria2DirForMediaType() || '/downloads/剧集/Season 1'"  id="field-newsubscription-sync-download-dir"/>
-                  <button type="button" @click="openAria2DirBrowser()" class="btn-secondary px-4 py-2 rounded-lg text-sm whitespace-nowrap">浏览</button>
+                  <input type="text" x-model="newSubscription.sync_download_dir" class="flex-1 min-w-0 px-4 py-2 bg-app border border-border rounded-lg text-text" :placeholder="aria2DirForMediaType() || (newSubscription.media_type === 'movie' ? '留空使用 Aria2 默认目录' : '/downloads/剧集/Season 1')" id="field-newsubscription-sync-download-dir"/>
+                  <button type="button" @click="openAria2DirBrowser()" class="btn-secondary shrink-0 px-4 py-2 rounded-lg text-sm whitespace-nowrap">浏览</button>
                 </div>
                 <p class="text-xs text-muted/75 mt-1">预期下载目录：<span class="text-success break-all" x-text="resolvedSubscriptionAria2Dir() || '未配置（使用 Aria2 默认目录）'"></span></p>
               </div>
-              <p class="text-xs text-muted/75">填写到具体 Season 目录时按填写内容执行；未写 Season 时会根据识别到的文件季号自动创建 Season N。留空则按媒体类型和剧名生成目录；未配置时不指定目录，由 Aria2 自身决定。</p>
+              <p x-show="newSubscription.media_type !== 'movie'" class="text-xs text-muted/75">填写到具体 Season 目录时按填写内容执行；未写 Season 时会根据识别到的文件季号自动创建 Season N。留空则按媒体类型和剧名生成目录；未配置时不指定目录，由 Aria2 自身决定。</p>
+              <p x-show="newSubscription.media_type === 'movie'" class="text-xs text-muted/75">电影没有 Season 目录。留空时使用电影下载根目录与片名；下载在后台执行，进度可在“下载管理”查看。</p>
             </div>
+            <p x-show="newSubscription.media_type === 'movie' && !newSubscription.sync_download_enabled" class="text-sm text-muted">本次仅保存到网盘，不提交本地下载。</p>
           </div>
 
         </div>
       </div>
 
       <!-- 操作按钮 -->
-      <div class="flex flex-col sm:flex-row gap-3">
+      <div class="media-dialog-actions flex flex-col sm:flex-row gap-3">
         <button @click="showSubscriptionDialog = false" class="btn-secondary flex-1 px-4 py-2 rounded-lg transition-colors">取消</button>
         <button x-show="canGoPreviousSubscriptionStep()" @click="previousSubscriptionStep()" class="btn-secondary flex-1 px-4 py-2 rounded-lg transition-colors">上一步</button>
-        <button x-show="canGoNextSubscriptionStep()" @click="nextSubscriptionStep()" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors">下一步</button>
-        <button x-show="!canGoNextSubscriptionStep()" @click="confirmSubscription()" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors">
-          <span x-text="subscriptionEditingId ? '保存订阅' : (subscriptionMode === 'once' ? '立即转存' : '创建订阅')"></span>
+        <button x-show="canGoNextSubscriptionStep()" @click="nextSubscriptionStep()" :disabled="subscriptionSeasonsDetecting || subscriptionSaving" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors disabled:opacity-50">下一步</button>
+        <button x-show="!canGoNextSubscriptionStep()" @click="confirmSubscription()" :disabled="subscriptionSaving || subscriptionSeasonsDetecting" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
+          <span x-text="subscriptionSaving ? '正在提交...' : (subscriptionEditingId ? '保存设置' : (newSubscription.media_type === 'movie' ? (newSubscription.sync_download_enabled ? '保存并下载' : '保存电影') : (subscriptionMode === 'once' ? '立即转存' : '开始追更')))"></span>
         </button>
       </div>
     </div>
@@ -2797,7 +2844,7 @@
 
   <!-- 统一危险操作确认 -->
   <div x-show="showDangerConfirmDialog" @click.self="resolveDangerConfirmation(false)" class="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4" style="display:none">
-    <div class="app-panel dialog-panel w-full max-w-lg p-6" role="alertdialog" aria-modal="true" :aria-label="dangerConfirmTitle" tabindex="-1" @keydown.tab="trapDialogFocus($event)" x-effect="if (!canGoNextSubscriptionStep()) $nextTick(() => $el.focus())">
+    <div class="app-panel dialog-panel w-full max-w-lg p-6" role="alertdialog" aria-modal="true" :aria-label="dangerConfirmTitle" tabindex="-1" @keydown.tab="trapDialogFocus($event)" x-effect="if (showDangerConfirmDialog) $nextTick(() => $el.focus())">
       <h3 class="text-xl font-bold text-danger" x-text="dangerConfirmTitle"></h3><p class="mt-3 text-sm text-text/80" x-text="dangerConfirmMessage"></p>
       <div x-show="dangerConfirmPhrase" class="mt-4"><label class="field-label" x-text="'输入 ' + dangerConfirmPhrase + ' 以确认'" for="field-dangerconfirminput"></label><input x-ref="dangerConfirmInput" x-model="dangerConfirmInput" @keydown.enter.prevent="resolveDangerConfirmation(true)" class="app-input w-full"  id="field-dangerconfirminput"/></div>
       <div class="mt-5 flex justify-end gap-2"><button @click="resolveDangerConfirmation(false)" class="btn-secondary px-4 py-2">取消</button><button @click="resolveDangerConfirmation(true)" :disabled="!dangerConfirmationReady()" class="btn-danger px-4 py-2 disabled:opacity-40">确认执行</button></div>
@@ -2858,29 +2905,29 @@
     </div>
   </div>
   <!-- Alpine.js 应用逻辑 -->
-  <script src="js/core/api.js?v=2.7.7&rev=search-images-1"></script>
-  <script src="js/core/formatters.js?v=2.7.7"></script>
-  <script src="js/core/ux.js?v=2.7.7"></script>
-  <script src="js/features/search-results.js?v=2.7.7&rev=search-images-1"></script>
-  <script src="js/features/subscription-detail.js?v=2.7.7"></script>
-  <script src="js/features/calendar.js?v=2.7.7"></script>
-  <script src="js/features/source-switch.js?v=2.7.7"></script>
-  <script src="js/features/automation-events.js?v=2.7.7"></script>
-  <script src="js/core/polling.js?v=2.7.7"></script>
-  <script src="js/core/router.js?v=2.7.7"></script>
-  <script src="js/core/notifications.js?v=2.7.7"></script>
-  <script src="js/stores/downloads.js?v=2.7.7"></script>
-  <script src="js/stores/drive.js?v=2.7.7"></script>
-  <script src="js/stores/jobs.js?v=2.7.7"></script>
-  <script src="js/stores/subscriptions.js?v=2.7.7&rev=magic-title-1"></script>
-  <script src="js/features/updates.js?v=2.7.7"></script>
-  <script src="js/features/settings.js?v=2.7.7"></script>
-  <script src="js/features/diagnostics.js?v=2.7.7"></script>
-  <script src="js/features/pwa.js?v=2.7.7"></script>
-  <script src="js/features/dashboard.js?v=2.7.7"></script>
-  <script src="js/features/search-page.js?v=2.7.7&rev=search-images-1"></script>
-  <script src="js/features/calendar-page.js?v=2.7.7"></script>
-  <script src="js/core/shell.js?v=2.7.7&rev=search-images-1"></script>
-  <script src="app.js?v=2.7.7"></script>
+  <script src="js/core/api.js?v=2.8.0&rev=search-images-1"></script>
+  <script src="js/core/formatters.js?v=2.8.0"></script>
+  <script src="js/core/ux.js?v=2.8.0"></script>
+  <script src="js/features/search-results.js?v=2.8.0&rev=search-images-1"></script>
+  <script src="js/features/subscription-detail.js?v=2.8.0"></script>
+  <script src="js/features/calendar.js?v=2.8.0"></script>
+  <script src="js/features/source-switch.js?v=2.8.0&rev=media-save-1"></script>
+  <script src="js/features/automation-events.js?v=2.8.0"></script>
+  <script src="js/core/polling.js?v=2.8.0"></script>
+  <script src="js/core/router.js?v=2.8.0"></script>
+  <script src="js/core/notifications.js?v=2.8.0"></script>
+  <script src="js/stores/downloads.js?v=2.8.0"></script>
+  <script src="js/stores/drive.js?v=2.8.0"></script>
+  <script src="js/stores/jobs.js?v=2.8.0"></script>
+  <script src="js/stores/subscriptions.js?v=2.8.0&rev=media-save-1"></script>
+  <script src="js/features/updates.js?v=2.8.0"></script>
+  <script src="js/features/settings.js?v=2.8.0"></script>
+  <script src="js/features/diagnostics.js?v=2.8.0"></script>
+  <script src="js/features/pwa.js?v=2.8.0"></script>
+  <script src="js/features/dashboard.js?v=2.8.0"></script>
+  <script src="js/features/search-page.js?v=2.8.0&rev=search-images-1"></script>
+  <script src="js/features/calendar-page.js?v=2.8.0"></script>
+  <script src="js/core/shell.js?v=2.8.0&rev=media-save-1"></script>
+  <script src="app.js?v=2.8.0"></script>
 </body>
 </html>

@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 
 use crate::models::subscription::ProbeFile;
+use crate::services::media_selection::{analyze_qualities, DetectedMediaFile, DetectedQuality};
 
 /// 单个检测到的季度及其证据。
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -37,6 +38,10 @@ pub struct SeasonDetection {
     pub unspecified_file_count: usize,
     /// 视频文件总数
     pub total_file_count: usize,
+    pub qualities: Vec<DetectedQuality>,
+    pub media_files: Vec<DetectedMediaFile>,
+    pub partial: bool,
+    pub probe_message: String,
 }
 
 /// 把一个视频文件计入某季的统计条目（文件数、去重集数、最多 3 个样本）。
@@ -122,12 +127,17 @@ pub fn analyze_seasons(files: &[ProbeFile]) -> SeasonDetection {
     };
     seasons.shrink_to_fit();
 
+    let (qualities, media_files) = analyze_qualities(files);
     SeasonDetection {
         ok,
         message,
         seasons,
         unspecified_file_count: unspecified,
         total_file_count: total,
+        qualities,
+        media_files,
+        partial: false,
+        probe_message: String::new(),
     }
 }
 

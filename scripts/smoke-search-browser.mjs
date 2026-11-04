@@ -20,6 +20,16 @@ const imageRequests = [];
 const emptyImageRequests = [];
 const searches = [];
 const metadataSearches = [];
+const mediaSaves = [];
+const mediaFiles = [
+  {file_key: 'movie-hd', name: '午后奇遇.mkv', parent_path: '电影 / 1080P', size: 5 * 1024 ** 3, resolution: '1080p'},
+  {file_key: 'movie-uhd', name: '午后奇遇.mkv', parent_path: '电影 / 4K', size: 20 * 1024 ** 3, resolution: '2160p'},
+  {file_key: 'movie-cut', name: '午后奇遇.导演剪辑版.mkv', parent_path: '电影 / 4K', size: 24 * 1024 ** 3, resolution: '2160p'}
+];
+const mediaQualities = [
+  {resolution: '2160p', label: '4K / 2160P', file_count: 2, total_size: 44 * 1024 ** 3, sample_files: ['4K/午后奇遇.mkv']},
+  {resolution: '1080p', label: '1080P', file_count: 1, total_size: 5 * 1024 ** 3, sample_files: ['1080P/午后奇遇.mkv']}
+];
 const exceptions = [];
 let serverLog = '';
 let chromeLog = '';
@@ -74,6 +84,26 @@ try {
       let body = '';
       req.on('data', chunk => { body += chunk; });
       req.on('end', () => searches.push({body: JSON.parse(body), res}));
+      return;
+    }
+    if (req.url === '/api/subscriptions/seasons' && req.method === 'POST') {
+      req.resume();
+      res.writeHead(200, {'content-type': 'application/json', 'cache-control': 'no-store'});
+      res.end(JSON.stringify({ok: true, data: {
+        ok: true, message: '本地画质演示数据', qualities: mediaQualities, media_files: mediaFiles,
+        seasons: [{season: 1, file_count: 3, episodes: [], sample_files: [], inferred: true}],
+        total_file_count: 3, unspecified_file_count: 0, partial: false
+      }}));
+      return;
+    }
+    if (req.url === '/api/transfer' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        mediaSaves.push(JSON.parse(body));
+        res.writeHead(200, {'content-type': 'application/json', 'cache-control': 'no-store'});
+        res.end(JSON.stringify({ok: true, data: {success: true, job_id: 'local-movie-save', message: '本地保存流程演示'}}));
+      });
       return;
     }
     if (req.url.startsWith('/api/metadata/search?') && req.method === 'GET') {
@@ -270,7 +300,7 @@ try {
   assert.equal(await onStore('return store.newSubscription.title'), '星海旅人');
   assert.equal(await onStore('return store.newSubscription.season_input'), '1,3');
   assert.deepEqual(await onStore('return [...store.metadataSearchQueries]'), ['星海旅人之远航篇', '星海旅人']);
-  const dialog = `document.querySelector('[aria-label="订阅配置"]')`;
+  const dialog = `document.querySelector('[data-media-editor]')`;
   for (const width of [1440, 390]) {
     await cdp('Emulation.setDeviceMetricsOverride', {width, height: 1100, deviceScaleFactor: 1, mobile: width < 500});
     await waitFor(() => evaluate('innerWidth === ' + width), 'metadata viewport');
@@ -296,7 +326,123 @@ try {
   assert.equal(await onStore('return store.newSubscription.metadata'), null);
   assert.match(await evaluate(`${dialog}.innerText`), /仍未匹配到元数据/);
   assert.deepEqual(exceptions, [], 'Alpine must not raise runtime exceptions');
-  console.log('search browser smoke passed: images, preview, concurrent searches, metadata fallback/empty results, 1440px and 390px views');
+
+  const screenshotDir = process.argv.includes('--media-screenshots')
+    ? await mkdtemp(join(tmpdir(), 'media-sub-ui-shots-')) : null;
+  async function mediaScreenshot(name) {
+    if (!screenshotDir) return;
+    await waitFor(() => evaluate("document.querySelectorAll('#toastContainer .toast').length === 0"), 'toast expiry before media screenshot');
+    await evaluate('document.fonts.ready');
+    await delay(500);
+    const screenshot = await cdp('Page.captureScreenshot', {format: 'png'});
+    await writeFile(join(screenshotDir, name + '.png'), Buffer.from(screenshot.data, 'base64'));
+  }
+  await cdp('Emulation.setDeviceMetricsOverride', {width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false});
+  await onStore(`
+    store.showSubscriptionDialog = false;
+    store.settings.metadata_provider = 'none';
+    store.settings.quark_cookie_configured = true;
+    store.settings.aria2_rpc_url = 'http://local-aria2.fixture/jsonrpc';
+    store.settings.aria2_movie_dir = '/downloads/movies';
+    store.subscriptionViewMode = 'poster';
+    store.subscriptionsLastLoadedAt = Date.now();
+    store.subscriptions = ['星海旅人', '夏日来信', '城市慢游', '风的另一边'].map((title, index) => ({
+      id: 'local-show-' + index, title, media_type: index % 2 ? 'series' : 'anime', season: 1,
+      status: 'active', current_episode_number: index + 2, total_episode_number: 12,
+      last_checked_at: Math.floor(Date.now() / 1000),
+      rules: {target_dir: '/片库/' + title, preferred_resolution: index % 2 ? '1080p' : '2160p'},
+      metadata: {title, vote_average: 8.1 + index / 10}
+    }));
+    store.selectTab('subscriptions');
+  `);
+  await waitFor(() => evaluate("document.querySelectorAll('.library-poster-card').length === 4"), 'poster wall');
+  assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+  await mediaScreenshot('library-desktop');
+  await onStore("store.applyTheme('dark', {persist: false});");
+  assert.equal(await evaluate("document.documentElement.getAttribute('data-theme')"), 'dark');
+  await mediaScreenshot('library-desktop-dark');
+  await onStore("store.applyTheme('light', {persist: false});");
+  await cdp('Emulation.setDeviceMetricsOverride', {width: 390, height: 844, deviceScaleFactor: 1, mobile: true});
+  assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true, 'mobile poster wall must not overflow');
+  await mediaScreenshot('library-mobile');
+
+  await onStore(`
+    store.openBlankSubscriptionDialog();
+    store.setSubscriptionMediaType('movie');
+    store.newSubscription.title = '午后奇遇（本地演示）';
+    store.newSubscription.url = 'https://pan.quark.cn/s/local-movie-versions';
+    store.detectSubscriptionSeasons();
+  `);
+  await waitFor(() => onStore('return !store.subscriptionSeasonsDetecting && store.subscriptionQualities.length === 2'), 'quality choices');
+  assert.equal(await onStore('return store.subscriptionMode'), 'once');
+  assert.deepEqual(await onStore('return store.subscriptionWizardSteps.map(step => step.id)'), ['content', 'download']);
+  await evaluate(`Array.from(document.querySelectorAll('[aria-label="选择资源画质"] button')).find(button => button.innerText.includes('4K')).click()`);
+  await waitFor(() => evaluate("document.querySelectorAll('input[name=movie-resource]').length === 2"), '4K movie editions');
+  await evaluate("document.querySelector('input[name=movie-resource][value=movie-cut]').click()");
+  await waitFor(() => onStore("return store.newSubscription.movie_file_key === 'movie-cut'"), 'exact movie edition');
+  for (const width of [1440, 390]) {
+    await cdp('Emulation.setDeviceMetricsOverride', {width, height: width === 390 ? 844 : 1100, deviceScaleFactor: 1, mobile: width < 500});
+    await waitFor(() => evaluate('innerWidth === ' + width), 'movie viewport');
+    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true, `${width}px movie page must not overflow`);
+    assert.equal(await evaluate(`${dialog}.scrollWidth <= ${dialog}.clientWidth`), true, `${width}px movie editor must not overflow`);
+    assert.equal(await evaluate(`${dialog}.getAttribute('aria-label')`), '电影下载保存');
+    if (width === 390) await evaluate("document.querySelector('.quality-picker').scrollIntoView({block: 'center'})");
+    else await evaluate(`${dialog}.scrollTop = 0`);
+    await mediaScreenshot('movie-quality-' + width);
+    await evaluate("document.querySelector('.movie-resource-option.is-selected').scrollIntoView({block: 'center'})");
+    assert.equal(await evaluate(`(() => {
+      const option = document.querySelector('.movie-resource-option.is-selected').getBoundingClientRect();
+      const actions = document.querySelector('.media-dialog-actions').getBoundingClientRect();
+      return option.top >= ${dialog}.getBoundingClientRect().top && option.bottom <= actions.top;
+    })()`), true, `${width}px selected version must be scrollable above the sticky footer`);
+  }
+  await onStore('store.nextSubscriptionStep()');
+  await waitFor(() => onStore("return store.subscriptionDialogTab === 'download'"), 'movie save step');
+  await evaluate(`document.querySelectorAll('[aria-label="选择电影保存方式"] button')[1].click()`);
+  for (const width of [1440, 390]) {
+    await cdp('Emulation.setDeviceMetricsOverride', {width, height: width === 390 ? 844 : 1100, deviceScaleFactor: 1, mobile: width < 500});
+    await evaluate(`${dialog}.scrollTop = 0`);
+    assert.equal(await evaluate(`${dialog}.scrollWidth <= ${dialog}.clientWidth`), true, `${width}px movie download options must not overflow`);
+    if (width === 390) {
+      assert.equal(await evaluate("document.querySelector('.save-resource-summary > .min-w-0').getBoundingClientRect().width >= 180"), true, 'mobile movie title must not be squeezed by its badge');
+    }
+    assert.equal(await evaluate(`(() => {
+      const actions = document.querySelector('.media-dialog-actions').getBoundingClientRect();
+      return actions.bottom <= innerHeight && actions.top >= 0;
+    })()`), true, `${width}px save actions must remain in the viewport`);
+    await mediaScreenshot('movie-save-' + width);
+  }
+  await onStore('store.confirmSubscription()');
+  await waitFor(() => mediaSaves.length === 1, 'one-time movie save request');
+  assert.equal(mediaSaves[0].save_options.media_type, 'movie');
+  assert.equal(mediaSaves[0].save_options.preferred_resolution, '2160p');
+  assert.deepEqual(mediaSaves[0].save_options.file_ids, ['movie-cut']);
+  assert.equal(mediaSaves[0].save_options.sync_download_enabled, true);
+  assert.equal(mediaSaves[0].save_options.sync_download_dir.includes('Season'), false);
+  await waitFor(() => onStore('return !store.showSubscriptionDialog'), 'saved movie editor closes');
+  await onStore(`
+    store.openBlankSubscriptionDialog();
+    store.newSubscription.url = 'https://pan.quark.cn/s/local-series-versions';
+    store.detectSubscriptionSeasons();
+  `);
+  await waitFor(() => onStore('return !store.subscriptionSeasonsDetecting && store.subscriptionQualities.length === 2'), 'series quality choices');
+  await evaluate(`Array.from(document.querySelectorAll('[aria-label="选择资源画质"] button')).find(button => button.innerText.includes('1080P')).click()`);
+  assert.equal(await onStore('return store.buildSubscriptionRules().preferred_resolution'), '1080p');
+  assert.equal(await onStore('return store.subscriptionMode'), 'continuous');
+  await onStore(`
+    store.showSubscriptionDialog = false;
+    store.sourceSwitchSubscriptionId = 'local-show-0';
+    store.sourceSwitchSubscriptionTitle = '星海旅人';
+    const candidate = {id: 'wrong-quality-source', source: '本地演示', note: '只有其他画质', url: 'https://pan.quark.cn/s/wrong-quality', quality: {score: 84, grade: '良好'}, probe_info: {ok: true, files: []}};
+    store.sourceSwitchCandidates = [candidate];
+    store.sourceSwitchPreview = {candidate, current_quality: {score: 80}, score_delta: 4, probe_ok: true, quality_matches: false, season_matches: true, covers_progress: false, can_apply: false, auto_eligible: false, warnings: ['候选不含所选画质']};
+    store.showSourceSwitchDialog = true;
+  `);
+  await waitFor(() => evaluate(`Array.from(document.querySelectorAll('[aria-label="换源候选"] button')).some(button => button.innerText === '画质不匹配' && button.disabled)`), 'quality mismatch blocks source application');
+  assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true, 'source quality warning must not overflow');
+  assert.deepEqual(exceptions, [], 'media selectors must not raise Alpine runtime exceptions');
+  if (screenshotDir) console.log('UI screenshots:', screenshotDir);
+  console.log('search browser smoke passed: images, concurrent searches, metadata, light/dark poster wall, movie file/quality/download/save, series quality, source quality gate, 1440px and 390px views');
 } catch (error) {
   console.error(serverLog, chromeLog);
   throw error;

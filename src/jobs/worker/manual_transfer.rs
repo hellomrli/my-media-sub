@@ -17,6 +17,17 @@ impl JobWorker {
             return Ok(());
         }
 
+        if req
+            .save_options
+            .as_ref()
+            .is_some_and(|options| options.sync_download_enabled)
+            && settings.aria2_rpc_url.trim().is_empty()
+        {
+            return Err(AppError::Validation(
+                "未配置 Aria2，下载保存尚未执行".to_string(),
+            ));
+        }
+
         self.update_running(job_id, 15, "正在探测分享链接").await?;
         let provider =
             CloudDriveProviderRegistry::new().resolve_with_quark_cookie("quark", cookie)?;
@@ -50,6 +61,12 @@ impl JobWorker {
             )
             .await?;
             return Ok(());
+        }
+
+        if let Some(options) = req.save_options.clone() {
+            return self
+                .run_media_save(job_id, &req, &options, &settings, provider, share_info)
+                .await;
         }
 
         let target_fid = if req.target_fid.trim().is_empty() {

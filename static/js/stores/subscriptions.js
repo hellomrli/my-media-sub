@@ -70,6 +70,8 @@
       original_transferred_count: 0,
       original_start_episode_number: '',
       media_type: 'series',
+      preferred_resolution: '',
+      movie_file_key: '',
       season: 1,
       season_input: '1',
       season_end: null,
@@ -134,12 +136,18 @@
     subscriptionSeasonsInferred: false,
     subscriptionSeasonsRequestId: 0,
     subscriptionSeasonsRequestKey: '',
+    subscriptionResourcesKey: '',
+    subscriptionQualities: [],
+    subscriptionMediaFiles: [],
+    subscriptionProbePartial: false,
+    subscriptionQualityConfirmed: false,
+    subscriptionSaving: false,
     lastCheckResult: null,
     checkingAllSubscriptions: false,
     scrapingAllMetadata: false,
     showSubscriptionDialog: false,
     subscriptionStatusTab: 'active',
-    subscriptionViewMode: 'table',
+    subscriptionViewMode: 'poster',
     subscriptionVisibleLimit: 100,
     selectedSubscriptionIds: [],
     subscriptionBatchLoading: false,
@@ -161,6 +169,8 @@
       {id: 'completed', name: '已完结'}
     ],
     subscriptionMode: 'once',  // 'once' 或 'continuous'
+    subscriptionSeriesMode: 'continuous',
+    subscriptionSeriesSyncDownload: false,
     subscriptionDialogTab: 'content',
     subscriptionEditingId: null,
     showSourceSwitchDialog: false,
@@ -248,6 +258,9 @@
 
     // 设置
     get subscriptionWizardSteps() {
+      if (this.newSubscription.media_type === 'movie' && !this.subscriptionEditingId) {
+        return [{id: 'content', name: '选择片源'}, {id: 'download', name: '下载保存'}];
+      }
       const steps = [{id: 'content', name: '订阅内容'}];
       if (this.subscriptionMode === 'continuous' || this.subscriptionEditingId) {
         steps.push({id: 'rename', name: '高级规则'});
@@ -268,8 +281,8 @@
     },
 
     setSubscriptionMode(mode) {
-      this.subscriptionMode = mode;
-      if (mode === 'once') {
+      this.subscriptionMode = this.newSubscription.media_type === 'movie' ? 'once' : mode;
+      if (this.subscriptionMode === 'once') {
         this.subscriptionDialogTab = 'content';
       }
     },
@@ -283,6 +296,8 @@
       this.metadataSearchQueries = [];
       this.subscriptionEditingId = editingId;
       this.subscriptionMode = mode;
+      this.subscriptionSeriesMode = mode;
+      this.subscriptionSeriesSyncDownload = false;
       this.subscriptionDialogTab = 'content';
       this.currentSearchResult = searchResult;
       this.renamePreview = null;
@@ -528,6 +543,7 @@
       const rawTitle = result && (result.note || result.title || sourceTitle) || sourceTitle;
       this.newSubscription = {
         ...blankSubscriptionForm(),
+        media_type: ['movie', 'series', 'anime'].includes(result.media_type) ? result.media_type : 'series',
         title: this.inferSubscriptionTitle(sourceTitle),
         source_title: rawTitle,
         url: result.url,
@@ -542,6 +558,8 @@
       this.showSubscriptionDialog = true;
       this.metadataResults = [];
       this.resetSubscriptionSeasons();
+      if (this.newSubscription.media_type === 'movie') this.newSubscription.sync_download_enabled = !!this.settings.aria2_rpc_url;
+      this.updateSubscriptionDefaults();
       // 分享链接已就绪：自动探测有哪些季度，供用户勾选。
       this.detectSubscriptionSeasons();
       // 即使搜索结果带 display_title 也再次走权威清洗；上游旧缓存可能仍
@@ -579,6 +597,7 @@
         original_transferred_count: Array.isArray(sub.transferred_file_keys) ? sub.transferred_file_keys.length : (Array.isArray(sub.transferred_files) ? sub.transferred_files.length : 0),
         original_start_episode_number: sub.start_episode_number || '',
         media_type: sub.media_type || 'series',
+        preferred_resolution: rules.preferred_resolution || '',
         season: seasonStart,
         // 跳季集合优先显示为逗号语法（'1,3'）：仅回显区间会让一次普通
         // 保存把集合静默改回全区间。
@@ -630,6 +649,7 @@
       this.showSubscriptionDialog = true;
       this.metadataResults = [];
       this.resetSubscriptionSeasons();
+      this.subscriptionQualityConfirmed = true;
       // 已有分享链接：自动探测有哪些季度，供用户勾选。
       this.detectSubscriptionSeasons();
       this.previewSubscriptionRename(true);
@@ -746,6 +766,11 @@
       this.subscriptionSeasonsMessage = '';
       this.subscriptionSeasonsUnspecified = 0;
       this.subscriptionSeasonsInferred = false;
+      this.subscriptionResourcesKey = '';
+      this.subscriptionQualities = [];
+      this.subscriptionMediaFiles = [];
+      this.subscriptionProbePartial = false;
+      this.subscriptionQualityConfirmed = false;
     },
 
     /// 探测当前分享链接里有哪些季度（后端复用检查链路的探测与口径）。
@@ -762,6 +787,11 @@
       this.subscriptionSeasonsRequestKey = requestKey;
       this.subscriptionSeasonsDetecting = true;
       this.subscriptionSeasonsError = '';
+      if (this.subscriptionResourcesKey !== requestKey) {
+        this.subscriptionMediaFiles = [];
+        this.subscriptionQualities = [];
+        this.newSubscription.movie_file_key = '';
+      }
       const isCurrent = () => requestId === this.subscriptionSeasonsRequestId
         && url === String(this.newSubscription.url || '').trim()
         && password === String(this.newSubscription.password || '');
@@ -775,17 +805,25 @@
           })
         });
         if (!isCurrent()) return;
+        if (!data || data.ok === false) throw new Error(data && (data.probe_message || data.message) || '分享中没有可用视频资源');
         this.subscriptionSeasons = Array.isArray(data.seasons) ? data.seasons : [];
         this.subscriptionSeasonsDetected = true;
         this.subscriptionSeasonsMessage = String(data.message || '');
         this.subscriptionSeasonsUnspecified = Number(data.unspecified_file_count || 0);
         this.subscriptionSeasonsInferred = this.subscriptionSeasons.some(item => item && item.inferred);
+        this.subscriptionResourcesKey = requestKey;
+        this.subscriptionQualities = Array.isArray(data.qualities) ? data.qualities : [];
+        this.subscriptionMediaFiles = Array.isArray(data.media_files) ? data.media_files : [];
+        this.subscriptionProbePartial = !!data.partial;
+        this.applyDefaultQualitySelection();
         this.applyDefaultSeasonSelection();
       } catch (error) {
         if (!isCurrent()) return;
         this.subscriptionSeasons = [];
         this.subscriptionSeasonsDetected = false;
         this.subscriptionSeasonsInferred = false;
+        this.subscriptionQualities = [];
+        this.subscriptionMediaFiles = [];
         this.subscriptionSeasonsError = this.apiErrorMessage(error, '季度探测失败');
       } finally {
         if (requestId === this.subscriptionSeasonsRequestId) {
@@ -793,6 +831,63 @@
           this.subscriptionSeasonsRequestKey = '';
         }
       }
+    },
+
+    applyDefaultQualitySelection() {
+      if (!this.subscriptionQualityConfirmed && !this.newSubscription.preferred_resolution && this.subscriptionQualities.length === 1) {
+        this.newSubscription.preferred_resolution = this.subscriptionQualities[0].resolution;
+        this.subscriptionQualityConfirmed = true;
+      }
+      const candidates = this.movieResourceCandidates;
+      if (!candidates.some(file => file.file_key === this.newSubscription.movie_file_key)) {
+        this.newSubscription.movie_file_key = candidates.length === 1 ? candidates[0].file_key : '';
+      }
+    },
+
+    setSubscriptionQuality(resolution) {
+      this.newSubscription.preferred_resolution = String(resolution || '');
+      this.subscriptionQualityConfirmed = true;
+      this.applyDefaultQualitySelection();
+      this.renamePreview = null;
+    },
+
+    get movieResourceCandidates() {
+      const resolution = this.newSubscription.preferred_resolution;
+      return this.subscriptionMediaFiles.filter(file => file.file_key && (!resolution || file.resolution === resolution));
+    },
+
+    get selectedMovieResource() {
+      return this.movieResourceCandidates.find(file => file.file_key === this.newSubscription.movie_file_key) || null;
+    },
+
+    mediaQualitySize(value) {
+      return mediaFormatters.formatBytes ? mediaFormatters.formatBytes(value) : (Number(value) > 0 ? `${value} B` : '大小未知');
+    },
+
+    subscriptionQualityLabel(resolution = this.newSubscription.preferred_resolution) {
+      const labels = {'4320p': '8K', '2160p': '4K / 2160P', '1440p': '2K / 1440P', '1080p': '1080P', '720p': '720P', '480p': '标清', unknown: '未标注画质'};
+      return labels[resolution] || '按规则自动选择';
+    },
+
+    async validateSubscriptionResourceSelection() {
+      if (this.subscriptionSeasonsDetecting) {
+        this.showNotification('info', '正在嗅探资源，请稍等完成后再保存');
+        return false;
+      }
+      const movie = this.newSubscription.media_type === 'movie' && !this.subscriptionEditingId;
+      const key = JSON.stringify([String(this.newSubscription.url || '').trim(), String(this.newSubscription.password || '')]);
+      if (movie && this.subscriptionResourcesKey !== key) await this.detectSubscriptionSeasons();
+      if (this.subscriptionQualities.length > 1 && !this.subscriptionQualityConfirmed) {
+        this.subscriptionDialogTab = 'content';
+        this.showNotification('info', '发现多个画质方案，请先选择要保存或追更的画质');
+        return false;
+      }
+      if (movie && !this.selectedMovieResource) {
+        this.subscriptionDialogTab = 'content';
+        this.showNotification('error', this.subscriptionSeasonsError || '请先嗅探并选择一个电影正片版本');
+        return false;
+      }
+      return true;
     },
 
     /// 预勾选当前订阅覆盖的季度：编辑时已存跳季集合精确回填；
@@ -905,9 +1000,10 @@
       this.subscriptionDialogTab = this.subscriptionWizardSteps[index - 1].id;
     },
 
-    nextSubscriptionStep() {
+    async nextSubscriptionStep() {
       const index = this.subscriptionWizardStepIndex();
       if (index >= this.subscriptionWizardSteps.length - 1) return;
+      if (this.subscriptionDialogTab === 'content' && !await this.validateSubscriptionResourceSelection()) return;
       this.subscriptionDialogTab = this.subscriptionWizardSteps[index + 1].id;
       if (this.subscriptionDialogTab === 'rename' && !this.renamePreview && this.newSubscription.preview_samples) {
         this.previewSubscriptionRename(true);
@@ -1016,8 +1112,19 @@
     },
 
     setSubscriptionMediaType(type) {
+      const previous = this.newSubscription.media_type;
+      if (!this.subscriptionEditingId && previous !== 'movie' && type === 'movie') {
+        this.subscriptionSeriesMode = this.subscriptionMode;
+        this.subscriptionSeriesSyncDownload = !!this.newSubscription.sync_download_enabled;
+        this.newSubscription.sync_download_enabled = !!(this.settings && this.settings.aria2_rpc_url);
+      }
       this.newSubscription.media_type = type || 'series';
+      if (!this.subscriptionEditingId && previous === 'movie' && type !== 'movie') {
+        this.subscriptionMode = this.subscriptionSeriesMode;
+        this.newSubscription.sync_download_enabled = this.subscriptionSeriesSyncDownload;
+      }
       this.updateSubscriptionDefaults();
+      this.applyDefaultQualitySelection();
     },
 
     defaultRulePresets() {
@@ -1035,6 +1142,7 @@
         auto_create_target_dir: true,
         skip_existing_transferred: true,
         duplicate_episode_strategy: 'highest_quality',
+        preferred_resolution: '',
       conflict_strategy: 'skip',
         include_keywords: [],
         exclude_keywords: this.splitRuleWords(this.defaultExcludeKeywords()),
@@ -1090,7 +1198,7 @@
       this.newSubscription.rule_preset_id = preset.id;
       this.applyRulesToSubscription(preset.rules);
       if (preset.media_type) {
-        this.newSubscription.media_type = preset.media_type;
+        this.setSubscriptionMediaType(preset.media_type);
       }
       this.updateSubscriptionDefaults();
       this.previewSubscriptionRename(true);
@@ -1354,7 +1462,9 @@
       if (subOrStatus && typeof subOrStatus === 'object' && subOrStatus.status_label) {
         return subOrStatus.status_label;
       }
-      const labels = {active: '追更中', completed: '已完结', invalid: '已失效'};
+      const labels = subOrStatus && subOrStatus.media_type === 'movie'
+        ? {active: '待保存', completed: '已保存', invalid: '已失效'}
+        : {active: '追更中', completed: '已完结', invalid: '已失效'};
       return labels[this.subscriptionStatusKey(subOrStatus)] || '-';
     },
 
@@ -1409,6 +1519,11 @@
     updateSubscriptionDefaults() {
       if (this.newSubscription.media_type === 'movie') {
         this.newSubscription.start_episode_number = '';
+        if (!this.subscriptionEditingId) {
+          this.subscriptionMode = 'once';
+          this.newSubscription.notify_only = false;
+          if (this.subscriptionDialogTab === 'rename') this.subscriptionDialogTab = 'content';
+        }
       }
       if (!this.newSubscription.custom_dir) {
         this.newSubscription.target_dir_name = this.mediaFolderName();
@@ -1496,7 +1611,7 @@
       this.newSubscription.metadata = item;
       this.newSubscription.title = item.title || this.newSubscription.title;
       if (['movie', 'series', 'anime'].includes(item.media_type)) {
-        this.newSubscription.media_type = item.media_type;
+        this.setSubscriptionMediaType(item.media_type);
       }
       this.updateSubscriptionDefaults();
       if (!silent) this.showNotification('success', '已应用媒体元数据');
@@ -1567,7 +1682,10 @@
       const type = this.newSubscription.media_type;
       const rawCustom = String(this.newSubscription.sync_download_dir || '').trim();
       const custom = rawCustom === '/' ? '/' : rawCustom.replace(/\/+$/, '');
-      if (type === 'movie') return custom || this.aria2DirForMediaType(type);
+      if (type === 'movie') {
+        const root = String(this.aria2DirForMediaType(type) || '').trim();
+        return custom || (root ? this.appendPath(root, this.mediaFolderName()) : '');
+      }
       if (custom && this.hasSeasonSuffix(custom)) return custom;
       const base = custom || this.appendPath(this.aria2DirForMediaType(type), this.mediaFolderName());
       if (!base) return '';
@@ -1678,6 +1796,7 @@
         target_dir: this.resolveSubscriptionTargetDir(),
         auto_create_target_dir: !!this.newSubscription.auto_create_target_dir,
         skip_existing_transferred: !!this.newSubscription.skip_existing_transferred,
+        preferred_resolution: this.newSubscription.preferred_resolution || '',
         include_keywords: this.splitRuleWords(this.newSubscription.include_keywords_text),
         exclude_keywords: this.splitRuleWords(this.newSubscription.exclude_keywords_text),
         match_regex: this.newSubscription.match_regex.trim(),
@@ -1956,6 +2075,7 @@
 
     // 确认订阅
     async confirmSubscription() {
+      if (this.subscriptionSaving) return;
       if (!this.newSubscription.title.trim()) {
         this.showNotification('error', '请输入订阅名称');
         return;
@@ -1966,36 +2086,52 @@
         return;
       }
 
-      if (this.subscriptionEditingId) {
-        await this.updateSubscription();
-        return;
-      }
-
-      if (this.subscriptionMode === 'once') {
-        // 仅转存一次
-        await this.doOneTimeTransfer();
-      } else {
-        // 创建持续订阅
-        await this.createContinuousSubscription();
+      this.subscriptionSaving = true;
+      try {
+        const form = this.newSubscription;
+        if (!await this.validateSubscriptionResourceSelection()) return;
+        if (this.newSubscription !== form) return;
+        if (this.subscriptionEditingId) {
+          await this.updateSubscription();
+        } else if (this.newSubscription.media_type === 'movie' || this.subscriptionMode === 'once') {
+          await this.doOneTimeTransfer();
+        } else {
+          await this.createContinuousSubscription();
+        }
+      } finally {
+        this.subscriptionSaving = false;
       }
     },
 
     // 一次性转存
     async doOneTimeTransfer() {
       try {
+        const form = this.newSubscription;
+        const movie = this.newSubscription.media_type === 'movie';
+        const selectedSave = movie || !!this.newSubscription.preferred_resolution;
+        const saveOptions = selectedSave ? {
+          title: this.newSubscription.title,
+          media_type: this.newSubscription.media_type,
+          preferred_resolution: this.newSubscription.preferred_resolution || '',
+          file_ids: movie && this.selectedMovieResource ? [this.selectedMovieResource.file_key] : [],
+          target_dir: movie ? this.resolveSubscriptionTargetDir() : '',
+          sync_download_enabled: movie && !!this.newSubscription.sync_download_enabled,
+          sync_download_dir: movie ? this.resolvedSubscriptionAria2Dir() : ''
+        } : null;
         const data = await apiData('/api/transfer', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
             url: this.newSubscription.url,
             passcode: this.newSubscription.password || '',
-            target_fid: this.newSubscription.target_fid || '0'
+            target_fid: this.newSubscription.target_fid || '0',
+            ...(saveOptions ? {save_options: saveOptions} : {})
           })
         });
 
         if (data.success) {
           this.showNotification('success', data.message || '转存任务已创建');
-          this.showSubscriptionDialog = false;
+          if (this.newSubscription === form) this.showSubscriptionDialog = false;
           await this.loadJobs();
           await this.loadNotifications();
         } else {
@@ -2011,7 +2147,15 @@
     // 创建持续订阅
     async createContinuousSubscription() {
       try {
+        const form = this.newSubscription;
+        const wasOpen = this.showSubscriptionDialog;
         await this.applyMagicTitleMatch({silent: true});
+        if (this.newSubscription !== form || (wasOpen && !this.showSubscriptionDialog)) return;
+        // 元数据匹配也可能把媒体类型识别为电影，不能再进入追更分支。
+        if (this.newSubscription.media_type === 'movie') {
+          if (await this.validateSubscriptionResourceSelection()) await this.doOneTimeTransfer();
+          return;
+        }
         const rules = this.buildSubscriptionRules();
 
         const response = await apiFetch('/api/subscriptions', {
@@ -2041,7 +2185,7 @@
         if (response.ok && result.data) {
           // 订阅创建成功后立即检查；是否转存由自动化设置决定。
           this.showNotification('success', '订阅创建成功，正在检查更新...');
-          this.showSubscriptionDialog = false;
+          if (this.newSubscription === form) this.showSubscriptionDialog = false;
 
           const subId = result.data.id;
           // 立即触发检查
@@ -2058,6 +2202,8 @@
 
     async updateSubscription() {
       try {
+        const form = this.newSubscription;
+        const editingId = this.subscriptionEditingId;
         const rules = this.buildSubscriptionRules();
         const payload = {
           title: this.newSubscription.title,
@@ -2085,8 +2231,10 @@
         const result = await response.json().catch(() => ({}));
         if (response.ok && result.data) {
           this.showNotification('success', '订阅已保存');
-          this.showSubscriptionDialog = false;
-          this.subscriptionEditingId = null;
+          if (this.newSubscription === form && this.subscriptionEditingId === editingId) {
+            this.showSubscriptionDialog = false;
+            this.subscriptionEditingId = null;
+          }
           await this.loadSubscriptions();
         } else {
           this.showNotification('error', result.message || '保存订阅失败');
@@ -2719,6 +2867,11 @@
         this.showNotification('error', this.sourceSwitchError);
         return;
       }
+      if (preview.quality_matches === false) {
+        this.sourceSwitchError = '候选不含订阅所选画质，禁止换源（含强制）';
+        this.showNotification('error', this.sourceSwitchError);
+        return;
+      }
       if (preview.season_matches === false) {
         this.sourceSwitchError = '候选季度与订阅不匹配，禁止换源（含强制）';
         this.showNotification('error', this.sourceSwitchError);
@@ -2730,7 +2883,7 @@
         const ok = this.requestDangerConfirmation
           ? await this.requestDangerConfirmation({
             title: '强制换源',
-            message: `该候选存在风险：${warnings}\n\n注意：强制仅可越过进度/分数/冷却，不可越过季度匹配。仍要切换吗？`,
+            message: `该候选存在风险：${warnings}\n\n注意：强制仅可越过进度/分数/冷却，不可越过季度及所选画质匹配。仍要切换吗？`,
             phrase: 'FORCE'
           })
           : window.confirm(`该候选存在风险：${warnings}。仍要切换吗？`);
@@ -2820,6 +2973,7 @@
     // 表格与海报视图共用的"更多"菜单（label 用于表格，short 用于海报卡片）
     subscriptionMenuActions(sub) {
       const completed = this.subscriptionStatusKey(sub) === 'completed';
+      const movie = sub && sub.media_type === 'movie';
       return [
         {id: 'edit', label: '编辑订阅', short: '编辑'},
         {id: 'rename', label: '修复命名', short: '修复'},
@@ -2827,8 +2981,8 @@
         {id: 'manual-scrape', label: '手动刮削', short: '手动'},
         {id: 'source-switch', label: '换源', short: '换源'},
         completed
-          ? {id: 'reopen', label: '重新追更', short: '追更'}
-          : {id: 'complete', label: '标记完结', short: '完结'},
+          ? {id: 'reopen', label: movie ? '恢复待保存' : '重新追更', short: movie ? '待保存' : '追更'}
+          : {id: 'complete', label: movie ? '标记已保存' : '标记完结', short: movie ? '已保存' : '完结'},
         {id: 'delete', label: '删除', short: '删除', danger: true}
       ];
     },
@@ -2855,7 +3009,7 @@
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({completed})
         });
-        this.showNotification('success', completed ? '已标记为完结' : '已恢复追更');
+        this.showNotification('success', sub.media_type === 'movie' ? (completed ? '已标记为保存完成' : '已恢复待保存状态，电影不会定时追更') : (completed ? '已标记为完结' : '已恢复追更'));
         await this.loadSubscriptions();
         if (this.selectedSubscriptionId === sub.id) await this.loadSubscriptionDetail(sub.id);
       } catch (error) {
@@ -2905,7 +3059,7 @@
     loadSubscriptionPreferences() {
       if (!ux.readPreference) return;
       this.subscriptionStatusTab = ux.readPreference('subscriptions.status', 'active', ['active','invalid','completed']);
-      this.subscriptionViewMode = ux.readPreference('subscriptions.view', 'table', ['table','poster']);
+      this.subscriptionViewMode = ux.readPreference('subscriptions.view', 'poster', ['table','poster']);
     },
     toggleSubscriptionSelection(id) {
       this.selectedSubscriptionIds = this.selectedSubscriptionIds.includes(id) ? this.selectedSubscriptionIds.filter(value => value !== id) : [...this.selectedSubscriptionIds, id];

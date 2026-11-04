@@ -63,6 +63,14 @@ test('preview ownership is matched by candidate id', () => {
   assert.equal(previewMatches(null, 'a'), false);
 });
 
+test('a missing selected resolution blocks force apply without blocking other candidates', () => {
+  const preview = {candidate: {id: 'a'}, probe_ok: true, quality_matches: false, season_matches: true, can_apply: false};
+  assert.deepEqual(applyButtonState(preview, 'a', '', ''), {
+    disabled: true, label: '画质不匹配', force: false
+  });
+  assert.equal(applyButtonState(preview, 'b', '', '').disabled, false);
+});
+
 test('history labels distinguish automatic manual failure and rollback', () => {
   assert.equal(historyLabel({status: 'succeeded', automatic: true}), '自动换源');
   assert.equal(historyLabel({status: 'succeeded', automatic: false}), '手动换源');

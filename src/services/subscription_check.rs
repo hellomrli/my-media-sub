@@ -747,6 +747,7 @@ impl SubscriptionCheckService {
         let eligible_ids = subscriptions
             .iter()
             .filter(|sub| sub.enabled)
+            .filter(|sub| !due_only || sub.media_type != "movie")
             .filter(|sub| !sub.completed || should_reopen_completed_subscription(sub))
             .filter(|sub| {
                 !due_only || subscription_due_for_check(sub, global_interval, now, weekday)
@@ -878,6 +879,8 @@ impl SubscriptionCheckService {
         let probe = self.probe_share(&temp_sub, cookie).await?;
         let mut detection = analyze_seasons(&probe.files);
         detection.ok = probe.ok && detection.ok;
+        detection.partial = probe.state == "partial";
+        detection.probe_message = probe.message.clone();
         if !probe.ok {
             // 探测失败（链接失效/需要提取码等）把原因透出给编辑器展示。
             detection.message = probe.message;

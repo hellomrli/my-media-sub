@@ -648,6 +648,7 @@ impl TelegramBotService {
                 passcode: hit.password.clone(),
                 target_fid: String::new(),
                 offer_download: true,
+                save_options: None,
             })
             .await
             .map_err(|error| sanitize_error(&error.to_string()))?;

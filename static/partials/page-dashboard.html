@@ -35,12 +35,15 @@
                   <div class="dash-command">
                     <div class="dash-command-copy">
                       <div class="hero-kicker"><span class="status-pulse"></span><span x-text="dashboardDateLabel()"></span></div>
+                      <h1><span>好故事，</span>随时开场。</h1>
                       <p x-text="dashboardStatusSummary()"></p>
                     </div>
+                    <div class="deck-art" aria-hidden="true"><div class="deck-ticket is-hd"><span class="deck-play"></span><strong>1080P</strong><small>YOUR CHOICE</small></div><div class="deck-ticket is-uhd"><span class="deck-play"></span><strong>4K</strong><small>YOUR CINEMA</small></div></div>
                     <div class="dash-command-actions">
-                      <button @click="checkAllSubscriptions()" :disabled="checkingAllSubscriptions" class="btn-primary">
+                      <button @click="openBlankSubscriptionDialog()" class="btn-primary"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-width="2" stroke-linecap="round"/></svg>添加媒体</button>
+                      <button @click="checkAllSubscriptions()" :disabled="checkingAllSubscriptions" class="btn-secondary">
                         <svg class="w-4 h-4" :class="checkingAllSubscriptions ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5m11 11v-5h-5M5.1 9A8 8 0 0119 6.3M18.9 15A8 8 0 015 17.7"/></svg>
-                        <span x-text="checkingAllSubscriptions ? '检查中' : '检查全部订阅'"></span>
+                        <span x-text="checkingAllSubscriptions ? '检查中' : '检查更新'"></span>
                       </button>
                       <button @click="selectTab('search')" class="btn-secondary">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5-5m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>

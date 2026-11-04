@@ -541,7 +541,9 @@ impl Subscription {
     pub fn status_label(&self) -> &'static str {
         match self.status_key() {
             "invalid" => "已失效",
+            "completed" if self.media_type == "movie" => "已保存",
             "completed" => "已完结",
+            _ if self.media_type == "movie" => "待保存",
             _ => "追更中",
         }
     }

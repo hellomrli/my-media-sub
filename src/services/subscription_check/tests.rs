@@ -102,6 +102,26 @@ mod tests {
         }
     }
 
+    #[test]
+    fn chosen_quality_filters_discovery_known_evidence_and_retry_candidates() {
+        let (service, _, _) = make_service();
+        let mut sub = make_subscription();
+        sub.rules.preferred_resolution = "1080p".to_string();
+        let files = vec![
+            probe_file("Show.S01E01.mkv", "4K/Season 1", "uhd"),
+            probe_file("Show.S01E01.mkv", "1080P/Season 1", "hd"),
+            probe_file("Show.S01E02.mkv", "4K/Season 1", "uhd2"),
+        ];
+        assert_eq!(service.find_new_files(&sub, &files).iter().map(|file| file.file_key.as_str()).collect::<Vec<_>>(), vec!["hd"]);
+        assert!(!service.should_record_known_probe_file(&sub, &files[0]));
+        assert!(service.should_record_known_probe_file(&sub, &files[1]));
+        assert_eq!(service.transfer_candidate_file_names(&sub, &files), vec!["1080P/Season 1/Show.S01E01.mkv"]);
+        let details = service.build_check_details(&sub, &files);
+        assert_eq!(details.new_count, 1);
+        assert!(details.items[0].reason.starts_with("非所选画质"));
+        assert!(details.items[2].reason.starts_with("非所选画质"));
+    }
+
     fn probe_dir(name: &str, parent_path: &str, file_key: &str) -> ProbeFile {
         ProbeFile {
             name: name.to_string(),

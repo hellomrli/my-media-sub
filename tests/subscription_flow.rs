@@ -1,23 +1,5 @@
-#![allow(dead_code, unused_imports)]
-
-#[path = "../src/models/mod.rs"]
-mod models;
-
-#[path = "../src/services/episode.rs"]
-pub mod episode;
-
-mod services {
-    pub use crate::episode;
-}
-
-#[path = "../src/filename.rs"]
-pub mod filename;
-
-#[path = "../src/services/transfer_rule.rs"]
-mod transfer_rule;
-
-use models::{Subscription, TransferRules};
-use transfer_rule::{apply_rename, build_transfer_plan, ProbeFile};
+use my_media_sub::models::{Subscription, TransferRules};
+use my_media_sub::services::transfer_rule::{apply_rename, build_transfer_plan, ProbeFile};
 
 fn subscription_with_rules(rules: TransferRules) -> Subscription {
     let mut sub: Subscription = serde_json::from_value(serde_json::json!({
@@ -45,6 +27,53 @@ fn probe_file(name: &str, fid: &str, parent_path: &str, size: i64) -> ProbeFile 
         parent_path: parent_path.to_string(),
         updated_at: None,
     }
+}
+
+#[test]
+fn preferred_quality_filters_paths_before_duplicate_episode_selection() {
+    let sub = subscription_with_rules(TransferRules {
+        preferred_resolution: "1080p".to_string(),
+        duplicate_episode_strategy: "highest_quality".to_string(),
+        ..Default::default()
+    });
+    let files = vec![
+        probe_file("Show.S01E01.mkv", "uhd", "4K/Season 1", 20),
+        probe_file("Show.S01E01.mkv", "hd", "1080P/Season 1", 5),
+        probe_file("Show.S01E02.1080p.mkv", "hd2", "Season 1", 5),
+        probe_file("Show.S01E03.mkv", "unknown", "Season 1", 5),
+    ];
+    let plan = build_transfer_plan(&sub, Some(&files), None, None, None);
+    assert_eq!(plan.transfer_count, 2);
+    assert_eq!(
+        plan.transfers
+            .iter()
+            .map(|item| item.source_fid.as_str())
+            .collect::<Vec<_>>(),
+        vec!["hd", "hd2"]
+    );
+    assert_eq!(plan.matched_count, 2);
+    assert_eq!(plan.episodes, vec![1, 2]);
+    assert!(plan
+        .skipped
+        .iter()
+        .all(|item| item.skip_reason.starts_with("非所选画质")));
+}
+
+#[test]
+fn an_absent_preferred_quality_does_not_fall_back_to_4k() {
+    let sub = subscription_with_rules(TransferRules {
+        preferred_resolution: "1080p".to_string(),
+        ..Default::default()
+    });
+    let plan = build_transfer_plan(
+        &sub,
+        Some(&[probe_file("Show.S01E01.mkv", "uhd", "4K/Season 1", 20)]),
+        None,
+        None,
+        None,
+    );
+    assert_eq!(plan.transfer_count, 0);
+    assert_eq!(plan.matched_count, 0);
 }
 
 #[test]

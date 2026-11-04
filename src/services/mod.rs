@@ -4,6 +4,8 @@ pub mod download_monitor;
 pub mod episode;
 pub mod media_calendar;
 pub mod media_metadata_files;
+pub mod media_save;
+pub mod media_selection;
 pub mod metadata;
 pub mod notification;
 pub mod post_transfer;

@@ -1,5 +1,6 @@
 pub mod automation_event;
 pub mod calendar;
+pub mod media_save;
 pub mod metadata;
 pub mod notification;
 pub mod rules;
@@ -8,6 +9,7 @@ pub mod source_quality;
 pub mod subscription;
 
 // 重新导出常用类型
+pub use media_save::MediaSaveOptions;
 pub use subscription::{Subscription, SyncDownloadRecord};
 
 pub use automation_event::{AutomationEvent, AutomationStage, AutomationStatus};

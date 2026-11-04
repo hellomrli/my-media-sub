@@ -57,6 +57,12 @@ macro_rules! subscription_check_file_filter_methods {
             return Some("非视频文件".to_string());
         }
 
+        if !crate::services::media_selection::matches_resolution(
+            &sub.rules.preferred_resolution, &file.name, &file.parent_path,
+        ) {
+            return Some(format!("非所选画质：{}", crate::services::media_selection::resolution_label(&sub.rules.preferred_resolution)));
+        }
+
         let comparable = Self::rule_display_name(&file.name, sub.rules.ignore_extensions)
             .to_ascii_lowercase();
 
