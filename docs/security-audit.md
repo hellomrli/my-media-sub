@@ -1,5 +1,7 @@
 # Dependency audit policy
 
+[返回文档入口](index.md)
+
 CI 对每次推送执行两套依赖审计：
 
 - `rustsec/audit-check` 检查安全公告并上报到 GitHub Security 标签页；

@@ -1,5 +1,7 @@
 # 从源码构建与验证
 
+[返回文档入口](index.md)
+
 在仓库根目录执行以下命令。安装 rustup、Node.js 24 LTS、Python 3；OpenSSL CLI 用于生成示例管理员密码。
 
 rustup 自动读取 `rust-toolchain.toml` 固定的 **Rust 1.99.1**，开发、CI、Release 与 Docker 构建保持一致。`Cargo.toml` 的 `rust-version = "1.89"` 仅表示最低源码兼容版本（MSRV）；独立 MSRV job 会验证它，正式产物不用该旧编译器构建。前端不使用打包器，`static/index.html` 由模板与 partials 拼装生成，**不要手改**。

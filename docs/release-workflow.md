@@ -1,5 +1,7 @@
 # 发版工作流程
 
+[返回文档入口](index.md)
+
 发布需要明确授权。顺序是：**准备版本与文档 → 本地验证 → 推送 main → 等待该提交 CI 全绿 → 推送版本 tag → 核验 Release 与镜像**。不要先打 tag 再等待质量检查。
 
 ## 工具链与版本准备
@@ -10,7 +12,7 @@
 
 - `Cargo.toml` 与 `Cargo.lock` 中本项目的版本，以及 `static/openapi.json` 的 `info.version`。
 - README 的 `### X.Y.Z` 摘要和「当前版本」链接；详细记录放入 CHANGELOG 的 `## X.Y.Z`、`docs/upgrade-vX.Y.Z.md`，不要让 README 再积累完整版本历史。
-- `docs/roadmap.md` 的当前阶段与发布基线、`docs/usage.md` 的下载版本和健康检查示例。
+- `docs/roadmap.md` 的当前阶段与发布基线、`docs/deployment.md` 的下载版本和 README 的健康检查示例。
 - `static/partials/*.html` 的资源版本、`static/service-worker.js` 的导入版本、`ASSET_VERSION` 与 `CACHE_VERSION`；用 `node scripts/build-frontend.mjs` 重新生成 `static/index.html`。
 
 `scripts/bump-version.sh` 只是生成模板的辅助工具，不能代替上述逐项检查、填写变更说明与独立编译验证。它不会完成所有文档维护；不要只运行脚本就发布。修改 OpenAPI 时保留已有契约与紧凑格式，不要把接口回退为通用模板。

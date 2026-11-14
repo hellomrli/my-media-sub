@@ -19,7 +19,7 @@ curl --fail http://127.0.0.1:56001/health
 
 ## 独立二进制
 
-从 [v2.7.7 Release](https://github.com/hellomrli/my-media-sub/releases/tag/v2.7.7) 下载 Linux x86_64 归档及 SHA-256 文件，校验后停服替换程序和**完整 `static/` 目录**，保留原数据、配置与备份。详细命令见 [部署参考](usage.md#快速安装)。
+从 [v2.7.7 Release](https://github.com/hellomrli/my-media-sub/releases/tag/v2.7.7) 下载 Linux x86_64 归档及 SHA-256 文件，校验后停服替换程序和**完整 `static/` 目录**，保留原数据、配置与备份。详细命令见 [部署参考](deployment.md#使用-linux-x86_64-发布包)。
 
 不要只换二进制。页面资源 URL 与 Service Worker 缓存代次均更新为 2.7.7；若旧页面仍然打开，升级后重新加载。
 

@@ -1,5 +1,7 @@
 # 结构化自动化事件与流水线
 
+[返回文档入口](index.md)
+
 > 适用阶段：roadmap P3。Job、AutomationEvent、Notification 和 Metrics 各自承担独立职责。
 
 ## 1. 职责边界

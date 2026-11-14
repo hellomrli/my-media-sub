@@ -19,7 +19,7 @@ curl --fail http://127.0.0.1:56001/health
 
 ## 独立二进制与在线更新
 
-从 [v2.8.0 Release](https://github.com/hellomrli/my-media-sub/releases/tag/v2.8.0) 下载 Linux x86_64 归档和同名 SHA-256 文件，校验后停服替换程序与**完整 `static/` 目录**，保留数据、配置和备份。命令见 [部署参考](usage.md#快速安装)，在线更新的信任与签名要求见 [Docker 在线更新](docker-online-update.md)。
+从 [v2.8.0 Release](https://github.com/hellomrli/my-media-sub/releases/tag/v2.8.0) 下载 Linux x86_64 归档和同名 SHA-256 文件，校验后停服替换程序与**完整 `static/` 目录**，保留数据、配置和备份。命令见 [部署参考](deployment.md#使用-linux-x86_64-发布包)，在线更新的信任与签名要求见 [Docker 在线更新](docker-online-update.md)。
 
 不要只换二进制。字体、页面资源 URL 与 Service Worker 缓存代次同时更新为 2.8.0，升级后重新加载旧页面。已有深色主题和表格偏好继续保留；没有偏好时默认浅色与海报墙。
 

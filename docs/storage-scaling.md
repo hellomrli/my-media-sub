@@ -1,5 +1,7 @@
 # JSON Store 性能基线与 SQLite 决策
 
+[返回文档入口](index.md)
+
 ## 当前策略
 
 业务 Store 继续使用带 `schema_version` 的紧凑 JSON 信封、原子临时文件、`fsync` 和 rename。运行时记录每个 Store 的当前大小、读写次数与字节数、解析/写入累计耗时和失败数，并在系统诊断页展示。

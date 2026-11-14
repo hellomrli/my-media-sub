@@ -1,20 +1,20 @@
 # My Media Sub
 
-为家庭自托管用户提供电影保存与剧集自动追更：从分享链接选择画质，电影一次保存、按需下载，剧集定时检查、转存与重命名。
+My Media Sub 为家庭自托管用户提供电影一次保存和剧集自动追更，从夸克分享选择画质，按规则转存、重命名并按需下载。
 
 [![CI](https://github.com/hellomrli/my-media-sub/actions/workflows/ci.yml/badge.svg)](https://github.com/hellomrli/my-media-sub/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/hellomrli/my-media-sub?display_name=tag)](https://github.com/hellomrli/my-media-sub/releases)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-[快速开始](#快速开始) · [剧名匹配](#剧名查不到时会怎样) · [使用文档](docs/usage.md) · [下载发布版](https://github.com/hellomrli/my-media-sub/releases)
+[快速开始](#快速开始) · [文档入口](docs/index.md) · [下载发布版](https://github.com/hellomrli/my-media-sub/releases)
 
 ![MEDIA/SUB 浅色海报墙展示剧集与电影入口](docs/assets/media-library.png)
 
-*实际 WebUI 的本地演示，使用测试数据，不含真实账号或网盘资源。*
+*实际 WebUI 的本地演示，使用测试数据。*
 
 ## 快速开始
 
-推荐 Docker Compose。需要 Docker、Compose v2，以及终端中的 `curl` 和 `openssl`。以下命令在一个**新的安装目录**中执行，为管理员生成随机密码：
+准备 Docker、Compose v2、curl 和 OpenSSL。在一个新的安装目录运行：
 
 ```bash
 set -eu
@@ -25,117 +25,69 @@ curl -fsSLo compose.yaml https://raw.githubusercontent.com/hellomrli/my-media-su
 docker compose up -d
 ```
 
-在部署机器上打开 **http://127.0.0.1:56001**，用户名为 `admin`，密码保存在刚生成的 `.env` 中。可在本机用 `cat .env` 查看，勿上传或分享该文件。
+在部署机器打开 **http://127.0.0.1:56001**，用 `admin` 和 `.env` 中刚生成的密码登录。密码文件保持私有，不要在已有部署中重复生成。
 
 ```bash
 curl --fail http://127.0.0.1:56001/health
 ```
 
-启动完成后返回含 `"status":"ok"` 和当前版本的 JSON。首次拉取镜像期间可用 `docker compose logs --tail=50` 查看启动状态。
+启动完成后返回含 `"status":"ok"` 和当前版本的 JSON；首次拉取镜像时可用 `docker compose logs --tail=50` 查看状态。
 
 > [!IMPORTANT]
-> Compose 默认只监听本机，部署在 NAS 或远程服务器上时，不能直接用服务器 IP 访问。请通过 [HTTPS 反向代理](docs/https-reverse-proxy.md) 或 SSH 端口转发接入；不要把管理端口直接暴露到公网。
+> Compose 默认只向本机发布端口。远程 NAS 或服务器通过 [HTTPS 反代或 SSH 转发](docs/deployment.md#连接远程-nas-或服务器) 接入；保留 `data/` 和 `runtime/` 两个持久化目录。
 
-不使用容器？[部署与使用参考](docs/usage.md) 提供 Linux x86_64 发布二进制的下载、校验与启动步骤；其他平台需自行构建。Compose 的两个持久化目录分别是 `data/`（业务数据）和 `runtime/`（可在线更新的程序与 WebUI），升级时都要保留。
+不使用容器时，按 [Linux x86_64 发布包安装步骤](docs/deployment.md#使用-linux-x86_64-发布包) 下载、校验和启动；其他平台需自行构建。
 
-## 订阅第一部剧
+## 完成第一次保存或追更
 
-1. 登录系统设置，填写夸克 Cookie；这是探测分享和执行转存的必要凭据。
-2. 添加媒体，粘贴分享链接，确认识别后的剧名、季度与画质。支持单季、连续多季和 `1,3` 这样的跳季选择。
-3. 选择目标目录和是否自动转存，保存后执行一次“立即检查”。
-4. 在任务和活动记录中查看结果；成功转存的文件出现在自己的夸克网盘中。
+1. 在系统设置填写夸克 Cookie，测试连接。
+2. 添加媒体并粘贴分享链接：电影选择画质与一个正片；剧集选择季度、画质和目标目录。
+3. 电影执行“下载保存”；剧集保存订阅后执行一次“立即检查”。
+4. 在任务、活动记录和自己的夸克网盘查看结果。
 
-## 保存电影与选择画质
+搜索、TMDB 和下载器均可按需接入。已配置 Aria2 时可同步下载，未配置时仍可保存网盘。逐步操作与首次排错见 [首次使用](docs/usage.md)。
 
-- **电影不追更**：选择“电影”后进入“选择片源 → 下载保存”，不创建订阅。先选 1080P / 4K，再选择具体正片；同画质的不同剪辑版本也可以单独选择。
-- **按需下载**：已配置 Aria2 时默认同时下载到本地，也可只保存到网盘；未配置下载器时仍可保存。只转存所选正片，不会整包保存其他画质、预告和花絮。
-- **剧集固定画质**：选择的画质会持久化到订阅规则，后续检查、转存及换源都会遵守。当前没有该画质时等待更新，不会偷偷回退到其他版本；也可以保留原有的自动择优策略。
-- **兼容分文件夹的资源**：同时识别文件名和上层目录中的画质标记；未标注的资源明确显示为未知，不猜测实际分辨率。
+## 使用能力与边界
 
-电影保存进度在后台任务、网盘与下载管理中查看。旧电影订阅保留数据和手动操作，但不再参与定时追更。修改剧集画质只影响后续更新，不清空已有进度。详细流程与 API 见 [电影保存与画质选择](docs/media-save-quality.md)。
+- **电影一次保存**：按画质选择具体正片，不创建持续订阅；同画质的不同剪辑版本也可单独选择。
+- **剧集固定画质追更**：支持单季、连续多季和跳季，识别缺集与重复版本，按规则转存和重命名。固定画质缺失时等待，不回退到其他版本。
+- **换源与后台任务**：对比候选并保留进度，提供换源历史与回滚；自动换源默认关闭。持久化队列记录进度、失败、取消与重启恢复。
+- **家庭媒体库集成**：可选 Aria2 下载、Jellyfin/Emby/Plex 刷新和多渠道通知。
+- **手机入口**：响应式 WebUI、媒体日历、PWA 和受控 Telegram Bot。
 
-不需要先配置搜索、刮削或下载器才能添加分享链接。按需启用这些集成：
+当前面向单实例、单管理员和夸克网盘。画质通过文件名与目录标记识别，不读取视频码流；规则式剧名回退不调用大模型。匹配失败不把试探词写成正式订阅名，网络或凭据错误直接报告。
 
-| 想做什么 | 需要配置什么 |
-|---|---|
-| 聚合搜索资源 | PanSou 服务地址 |
-| 匹配标准剧名、海报、年份与集数 | TMDB API Key |
-| 将转存后的文件下载到本地 | Aria2 RPC、密钥与下载目录 |
-| 收到追更结果 | 至少一个通知渠道 |
-| 用聊天命令管理订阅 | Telegram Bot Token、用户白名单与授权 |
-
-## 自动完成哪些工作
-
-- **持续追更**：按订阅间隔检查分享，识别季集、缺集与重复版本，按规则转存和重命名。
-- **管理多季资源**：探测分享内季度，预览重命名结果，并按文件实际季号分目录。
-- **处理失效分享**：搜索并对比换源候选，保留进度，提供历史与回滚；自动换源默认关闭。
-- **跟踪后台任务**：持久化队列记录执行进度、失败和取消，支持安全重试与重启恢复。
-- **连接家庭媒体库**：可选 Aria2 下载、Jellyfin/Emby/Plex 刷新，以及 Telegram、Bark、Gotify、浏览器推送等通知。
-- **在手机上使用**：响应式 WebUI、更新日历、PWA 安装和 Telegram Bot，复用同一套订阅数据。
-
-项目采用 Rust / Axum / Tokio 后端与 Alpine.js WebUI，数据保存在版本化 JSON 中，不需要外部数据库。当前只面向**单实例、单管理员、夸克网盘**，不是多用户或多网盘平台。
-
-## 剧名查不到时会怎样
-
-“智能识别剧名”先沿用现有清洗规则，去掉字幕组、画质和季集标记。如果 TMDB 返回空结果，再尝试有依据的标题变体，而不是停在第一次失败：
-
-| 原搜索词或分享标题 | 可尝试的后续搜索词 |
-|---|---|
-| `凡人修仙传之星海飞驰篇` | `凡人修仙传` |
-| `未知译名 / Known English Title` | `Known English Title` |
-| `国漫：凡人修仙传` | `凡人修仙传` |
-| `庆 余 年` | `庆余年` |
-
-最多尝试 6 个去重后的剧名，标题查询阶段总预算 30 秒；命中后停止，表单显示尝试过的名称。只有匹配成功才应用 TMDB 返回的标准标题，失败不会把试探词写成订阅名。年份提示和手工季度选择继续保留。
-
-这是规则式回退，不调用大模型、不猜测任意译名。网络故障、限流或 Key 错误会直接报错，不继续改名重试。后台元数据刮削复用同一逻辑。边界与 API 字段见 [剧名匹配说明](docs/title-matching.md)。
-
-## 保存数据与升级
-
-- 保留 `data/` 和 `runtime/`。同一个数据目录只允许一个实例运行。
-- 升级前创建并核对备份。备份包含 Cookie、Token 等凭据，应限制访问并妥善保存。
-- Store 损坏后默认停止启动并保留隔离副本，不会静默用空数据覆盖原内容。
-- 在线更新同时切换程序和 WebUI；手工更新也必须替换整套静态资源。恢复备份在下一次重启时应用。
-
-详细操作见 [数据、备份与升级](docs/usage.md#数据备份与升级)、[Docker 在线更新](docs/docker-online-update.md) 和 [依赖审计](docs/security-audit.md)。环境变量见 [`.env.example`](.env.example)；Compose 会读取 `.env`，独立二进制和 `cargo run` 需要显式导出环境变量。
-
-## 接入 API 或参与开发
-
-登录后访问 `/api-docs.html` 查看交互式 API 文档；[`static/openapi.json`](static/openapi.json) 覆盖 94 个路径、106 个操作。自动化脚本可使用最小权限 Bearer Token，不必持有管理员密码；令牌不开放设置、备份恢复或在线更新等管理操作。
-
-- [API 契约与错误码](docs/api-contract.md) · [自动化 API](docs/automation-api.md)
-- [从源码构建与验证](docs/development.md) · [分层架构](docs/architecture.md)
-
-开发、CI、发布二进制和 Docker 构建均使用 **Rust 1.99.1**，由 `rust-toolchain.toml` 固定。`Cargo.toml` 中的 **1.89 只是最低源码兼容版本（MSRV）**，不是发布时使用的编译器。前端无需打包器，`static/index.html` 由模板生成，不要直接修改。
+Rust / Axum / Tokio 后端与 Alpine.js WebUI 使用版本化 JSON 保存业务数据，不需要外部数据库。
 
 ## 按任务查文档
 
 | 任务 | 文档 |
 |---|---|
-| 安装、配置、排查首次运行 | [部署与使用参考](docs/usage.md) |
-| 调整剧名匹配、理解重试边界 | [剧名匹配](docs/title-matching.md) |
-| 查看追更日期与执行过程 | [媒体日历](docs/media-calendar.md) · [自动化事件](docs/automation-events.md) |
-| 配置通知和手机入口 | [Telegram Bot](docs/telegram-bot.md) · [PWA](docs/pwa.md) |
-| 调整资源评分和换源 | [资源质量与换源](docs/source-quality.md) |
-| 保存电影、选择剧集画质 | [电影保存与画质选择](docs/media-save-quality.md) |
-| 配置反代、更新与存储 | [HTTPS](docs/https-reverse-proxy.md) · [Docker 在线更新](docs/docker-online-update.md) · [存储扩展](docs/storage-scaling.md) |
-| 了解项目计划与评审结果 | [路线图](docs/roadmap.md) · [代码评审](docs/code-review-2026-09-21.md) |
-| 维护与发布 | [依赖审计](docs/security-audit.md) · [发布流程](docs/release-workflow.md) |
+| 安装、远程访问和启动排错 | [部署指南](docs/deployment.md) |
+| 选择画质、正片和剧集季度 | [首次使用](docs/usage.md) · [电影保存与画质](docs/media-save-quality.md) |
+| 配置网盘、下载器、通知与手机入口 | [集成与设置](docs/integrations.md) · [Telegram](docs/telegram-bot.md) · [PWA](docs/pwa.md) |
+| 匹配剧名、查看排期和调整换源 | [剧名匹配](docs/title-matching.md) · [媒体日历](docs/media-calendar.md) · [资源质量](docs/source-quality.md) |
+| 备份、升级和恢复 | [数据维护](docs/data-maintenance.md) · [Docker 在线更新](docs/docker-online-update.md) |
+| API 自动化和参与开发 | [自动化 API](docs/automation-api.md) · [本地开发](docs/development.md) · [架构](docs/architecture.md) |
 
-问题和建议请提交 [Issue](https://github.com/hellomrli/my-media-sub/issues)，附上版本、部署方式、复现步骤和脱敏日志。不要公开 Cookie、Token、密码或完整备份。
+[完整文档索引](docs/index.md) 收录升级指南、存储规划、审计和历史评审。[路线图](docs/roadmap.md) 是持久化计划入口。
+
+## 接入 API 或参与开发
+
+登录后访问 `/api-docs.html` 查看交互式 API 文档；[`static/openapi.json`](static/openapi.json) 覆盖 94 个路径、106 个操作。自动化使用最小权限 Bearer Token；设置、备份恢复和在线更新等管理操作只接受管理员凭据。[API 契约](docs/api-contract.md) 说明响应、错误码与 SSE。
+
+开发和发布使用 `rust-toolchain.toml` 固定的 Rust 1.99.1；`Cargo.toml` 的 1.89 是最低源码兼容版本（MSRV）。前端无需打包器，`static/index.html` 由模板生成，编辑与验证步骤见 [开发指南](docs/development.md)。
+
+反馈请提交 [Issue](https://github.com/hellomrli/my-media-sub/issues)，附上版本、部署方式、复现步骤和脱敏日志。
 
 ## 版本说明
 
 ### 2.8.1
 
-- **活力视觉重构**：浅色采用暖米白底与纯白卡片，深色升级为午夜影院风；引入翡翠绿、珊瑚橙、电光蓝与极光紫多维色彩及环境极光背景，告别冷淡灰调。
-- **多彩分区导航**：桌面侧边栏与手机导航栏按模块赋予专属主题色与发光图标，状态脉动与快捷搜索入口更醒目。
-- **工作台与海报墙升级**：四色侧边高光统计卡、渐变指挥台与悬停响应的 `1080P` / `4K` 票根、三色渐变进度条及立体悬浮海报卡；改善按钮对比度并尊重减少动态效果偏好。
-- **无缝兼容升级**：保持 v2.8.0 全部电影一次保存、剧集画质选择与 API 契约不变，使用新镜像或替换二进制与完整静态资源即可升级。
+本版更新浅色与深色主题、分区导航、工作台和海报墙的视觉与交互，保留 v2.8.0 的电影一次保存、剧集画质选择及 API 契约。
 
 - 当前版本：[v2.8.1 升级指南](docs/upgrade-v2.8.1.md)
-- 使用说明：[电影保存与画质选择](docs/media-save-quality.md)
-- 全部改动：[CHANGELOG](CHANGELOG.md) · [历史版本摘要](docs/version-history.md) · [GitHub Releases](https://github.com/hellomrli/my-media-sub/releases)
+- 全部改动：[CHANGELOG](CHANGELOG.md) · [历史版本摘要](docs/version-history.md) · [Releases](https://github.com/hellomrli/my-media-sub/releases)
 
 ## 许可证
 
