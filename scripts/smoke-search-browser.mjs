@@ -7,6 +7,7 @@ import net from 'node:net';
 import {spawn} from 'node:child_process';
 import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
+import {inflateSync} from 'node:zlib';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -44,6 +45,59 @@ function luminance(color) {
     return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
   });
   return channels.reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+}
+
+// Chrome 截图是 8 位 RGB/RGBA 非隔行 PNG；只解这一种，免得为读几个像素引入依赖。
+function decodePng(buffer) {
+  assert.equal(buffer.subarray(1, 4).toString('latin1'), 'PNG', 'screenshot must be a PNG');
+  let width = 0;
+  let height = 0;
+  let channels = 0;
+  const chunks = [];
+  for (let offset = 8; offset < buffer.length;) {
+    const length = buffer.readUInt32BE(offset);
+    const type = buffer.subarray(offset + 4, offset + 8).toString('latin1');
+    const data = buffer.subarray(offset + 8, offset + 8 + length);
+    if (type === 'IHDR') {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      channels = {2: 3, 6: 4}[data[9]];
+      assert.ok(data[8] === 8 && channels && data[12] === 0, 'unsupported screenshot PNG layout');
+    } else if (type === 'IDAT') {
+      chunks.push(data);
+    }
+    offset += 12 + length;
+  }
+  const raw = inflateSync(Buffer.concat(chunks));
+  const stride = width * channels;
+  const pixels = Buffer.alloc(stride * height);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)];
+    for (let x = 0; x < stride; x++) {
+      const value = raw[y * (stride + 1) + 1 + x];
+      const left = x >= channels ? pixels[y * stride + x - channels] : 0;
+      const up = y > 0 ? pixels[(y - 1) * stride + x] : 0;
+      const upLeft = y > 0 && x >= channels ? pixels[(y - 1) * stride + x - channels] : 0;
+      let predicted = 0;
+      if (filter === 1) predicted = left;
+      else if (filter === 2) predicted = up;
+      else if (filter === 3) predicted = (left + up) >> 1;
+      else if (filter === 4) {
+        const estimate = left + up - upLeft;
+        const [byLeft, byUp, byUpLeft] = [Math.abs(estimate - left), Math.abs(estimate - up), Math.abs(estimate - upLeft)];
+        predicted = byLeft <= byUp && byLeft <= byUpLeft ? left : (byUp <= byUpLeft ? up : upLeft);
+      }
+      pixels[y * stride + x] = (value + predicted) & 255;
+    }
+  }
+  return {
+    width, height,
+    pixel(x, y) {
+      assert.ok(x >= 0 && y >= 0 && x < width && y < height, `pixel ${x},${y} is outside the ${width}x${height} screenshot`);
+      const index = y * stride + x * channels;
+      return `rgb(${pixels[index]}, ${pixels[index + 1]}, ${pixels[index + 2]})`;
+    }
+  };
 }
 
 function contrast(foreground, background) {
@@ -538,9 +592,460 @@ try {
       await mediaScreenshot(`dashboard-${width}-${theme}`);
     }
   }
+
+  async function pressTab(shift = false) {
+    const key = {key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, modifiers: shift ? 8 : 0};
+    await cdp('Input.dispatchKeyEvent', {type: 'keyDown', ...key});
+    await cdp('Input.dispatchKeyEvent', {type: 'keyUp', ...key});
+  }
+  await onStore('store.openBlankSubscriptionDialog();');
+  await waitFor(() => evaluate(`document.activeElement === ${dialog}`), 'media editor initial focus');
+  await pressTab(true);
+  assert.equal(await evaluate(`document.activeElement.closest('[data-media-editor]') !== null && document.activeElement.innerText === '下一步'`), true, 'Shift+Tab from the dialog must wrap to its last visible action');
+  await onStore('store.showSubscriptionDialog = false; store.requestDangerConfirmation({title: "本地键盘检查"});');
+  await waitFor(() => evaluate("document.activeElement.matches('[role=alertdialog]')"), 'confirmation initial focus');
+  await pressTab(true);
+  assert.equal(await evaluate('document.activeElement.innerText'), '确认执行');
+  await pressTab();
+  assert.equal(await evaluate('document.activeElement.innerText'), '取消', 'hidden phrase input must not break the focus loop');
+  await pressTab(true);
+  assert.equal(await evaluate('document.activeElement.innerText'), '确认执行');
+  await onStore('store.resolveDangerConfirmation(false);');
+  await evaluate(`document.querySelector('button[aria-label="刷新当前页面"]').focus()`);
+  await onStore('store.showNewFolderModal = true;');
+  await waitFor(() => evaluate(`document.activeElement.matches('[role=dialog][aria-label="新建文件夹"]')`), 'new folder receives focus');
+  await pressTab();
+  assert.equal(await evaluate('document.activeElement.id'), 'field-newfoldername');
+  await onStore('store.showNewFolderModal = false; store.selectTab("settings");');
+  async function activeMobileTabIsVisible() {
+    return evaluate(`(() => {
+      const navigation = document.querySelector('.mobile-tab-grid');
+      const active = navigation.querySelector('[aria-current="page"]');
+      if (!active || active.dataset.tab !== ${store}.currentTab) return false;
+      const viewport = navigation.getBoundingClientRect();
+      const item = active.getBoundingClientRect();
+      return item.left >= viewport.left - 1 && item.right <= viewport.right + 1;
+    })()`);
+  }
+  await waitFor(activeMobileTabIsVisible, 'settings stays visible in the mobile navigation');
+  await onStore('store.selectTab("dashboard");');
+  await waitFor(activeMobileTabIsVisible, 'navigation scrolls back to dashboard');
+  await evaluate('history.back()');
+  await waitFor(() => onStore('return store.currentTab === "settings"'), 'history restores settings');
+  await waitFor(activeMobileTabIsVisible, 'history restores the visible navigation item');
+  await cdp('Emulation.setDeviceMetricsOverride', {width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false});
+  await evaluate('document.querySelector(".mobile-tab-grid").scrollLeft = 0');
+  await cdp('Emulation.setDeviceMetricsOverride', {width: 390, height: 844, deviceScaleFactor: 1, mobile: true});
+  await waitFor(activeMobileTabIsVisible, 'resizing reveals the active navigation item');
+
+
+  // ---- 可用性二期：待处理入口、布局编辑、手机工具区、设置概览、连接状态 ----
+  const setViewport = width => cdp('Emulation.setDeviceMetricsOverride', {width, height: width === 390 ? 844 : 1100, deviceScaleFactor: 1, mobile: width < 500});
+  const noOverflow = async label => assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true, label + ' must not overflow');
+  const visible = selector => evaluate(`Array.from(document.querySelectorAll(${JSON.stringify(selector)})).some(item => item.checkVisibility())`);
+  // 轮询与事件流会用后端的空数据覆盖演示状态，因此「写入状态、等待渲染、
+  // 读取或点击」放在同一次求值里完成。
+  const withState = (setup, read) => evaluate(`(async () => {
+    const store = ${store};
+    // Alpine 可能把 x-show 推迟到下一帧，只等 nextTick 会读到尚未显示的元素。
+    const settle = async () => { await Alpine.nextTick(); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); };
+    ${setup}
+    await settle();
+    ${read}
+  })()`);
+  const attentionState = `
+    store.subscriptionsLastLoadedAt = Date.now();
+    store.subscriptions = store.subscriptions.map((sub, index) => ({...sub, status: index === 0 ? 'invalid' : 'active', last_error: index === 0 ? '分享链接已失效' : ''}));
+    store.jobs = [{id: 'local-failed-job', kind: 'subscription_transfer', status: 'failed', title: '转存失败', error: '本地演示'}, {id: 'local-push-job', kind: 'push_dispatch', status: 'failed', title: '推送派发'}];
+    store.notifications = [];
+    store.applyTheme('light', {persist: false});
+    if (store.currentTab !== 'dashboard') store.selectTab('dashboard');
+  `;
+  await setViewport(390);
+  const attention = await withState(attentionState, `
+    return Array.from(document.querySelectorAll('.dash-attention-item')).filter(item => item.checkVisibility()).map(item => ({
+      text: item.innerText.replace(/\\s+/g, ' ').trim(), height: item.getBoundingClientRect().height,
+      color: getComputedStyle(item).color
+    }));
+  `);
+  assert.deepEqual(attention.map(item => item.text), ['1 失效订阅 →', '1 失败任务 →'], 'only categories with pending items are offered');
+  assert.ok(attention.every(item => item.height >= 44), 'attention entries must be touch sized on phones');
+  for (const item of attention) {
+    assert.ok(contrast(item.color, 'rgb(255, 255, 255)') >= 4.5, `${item.text} must stay readable in the light theme`);
+  }
+  await noOverflow('390px dashboard attention entries');
+  await mediaScreenshot('attention-390-light');
+  assert.deepEqual(await withState(attentionState, `
+    document.querySelector('.dash-attention-item.is-danger').click();
+    return [store.currentTab, store.subscriptionStatusTab, store.filteredSubscriptions.map(sub => sub.id)];
+  `), ['subscriptions', 'invalid', ['local-show-0']], 'invalid entry opens the filtered subscription list');
+  assert.deepEqual(await withState(attentionState, `
+    store.activityQuery = '不相关的关键词';
+    document.querySelector('.dash-attention-item.is-warning').click();
+    // 切页会向后端重新拉取任务（本地后端没有任务），因此同步读取筛选结果。
+    return [store.currentTab, store.activityFilter, store.filteredActivityItems.map(item => item.id)];
+  `), ['notifications', 'failed', ['job:local-failed-job']], 'failed entry opens the activity centre filtered to the counted failures');
+
+  // 布局编辑：没有无法兑现的排序按钮，最后一张卡片不能隐藏。
+  await setViewport(1440);
+  assert.deepEqual(await withState(`store.selectTab('dashboard'); store.startDashboardEdit();`, `
+    const buttons = () => Array.from(document.querySelectorAll('.dash-card-edit-actions button')).filter(item => item.checkVisibility());
+    const initial = buttons().map(item => [item.getAttribute('aria-label'), item.disabled]);
+    buttons()[0].click();
+    await settle();
+    const afterHide = buttons().map(item => [item.getAttribute('aria-label'), item.disabled]);
+    buttons()[0].click();
+    await settle();
+    const result = {initial, afterHide, layout: [...store.dashboardLayout], hidden: store.dashboardHiddenCards().map(card => card.id)};
+    store.cancelDashboardEdit();
+    return result;
+  `), {
+    initial: [['隐藏概览与操作', false], ['隐藏更新日历', false]],
+    afterHide: [['隐藏更新日历', true]],
+    layout: ['calendar'], hidden: ['command']
+  }, 'the last visible dashboard card cannot be hidden');
+
+  // 手机订阅页：批量操作收进「更多」，片单进入首屏。
+  const subscriptionState = `
+    store.subscriptionsLastLoadedAt = Date.now();
+    store.subscriptions = store.subscriptions.map(sub => ({...sub, status: 'active', last_error: ''}));
+    store.setSubscriptionStatusTab('active');
+    store.subscriptionViewMode = 'poster';
+    store.selectedSubscriptionIds = [];
+    store.subscriptionToolsOpen = false;
+    if (store.currentTab !== 'subscriptions') store.selectTab('subscriptions');
+  `;
+  await setViewport(390);
+  const phoneLibrary = await withState(subscriptionState, `
+    const rect = selector => document.querySelector(selector).getBoundingClientRect();
+    return {
+      toolbar: rect('.subs-toolbar').height, firstCardTop: rect('.library-poster-card').top,
+      toggle: document.querySelector('.subs-tools-toggle').checkVisibility(),
+      tools: document.querySelector('.subs-tools').checkVisibility(),
+      expanded: document.querySelector('.subs-tools-toggle').getAttribute('aria-expanded'),
+      add: Array.from(document.querySelectorAll('.subs-toolbar button')).some(item => item.checkVisibility() && item.innerText.trim() === '添加媒体')
+    };
+  `);
+  assert.deepEqual([phoneLibrary.toggle, phoneLibrary.tools, phoneLibrary.expanded, phoneLibrary.add], [true, false, 'false', true], 'phone toolbar keeps only the primary action expanded');
+  assert.ok(phoneLibrary.toolbar <= 150, `phone subscription toolbar must stay compact, got ${phoneLibrary.toolbar}px`);
+  assert.ok(phoneLibrary.firstCardTop <= 844 * 0.45, `posters must start in the upper half of the first phone screen, got ${phoneLibrary.firstCardTop}px`);
+  await noOverflow('390px subscriptions');
+  await mediaScreenshot('subscriptions-390-collapsed');
+  const phoneTools = await withState(subscriptionState, `
+    document.querySelector('.subs-tools-toggle').click();
+    await settle();
+    const tools = document.querySelector('.subs-tools');
+    return {
+      expanded: document.querySelector('.subs-tools-toggle').getAttribute('aria-expanded'),
+      labels: Array.from(tools.querySelectorAll('button, label')).filter(item => item.checkVisibility()).map(item => item.innerText.trim()),
+      smallest: Math.min(...Array.from(tools.querySelectorAll('button')).filter(item => item.checkVisibility()).map(item => item.getBoundingClientRect().height)),
+      overflow: document.documentElement.scrollWidth > innerWidth
+    };
+  `);
+  assert.equal(phoneTools.expanded, 'true');
+  assert.deepEqual(phoneTools.labels, ['批量检查', '刷新元数据', '选择当前显示', '表格', '海报墙'], 'every batch tool stays reachable on phones');
+  assert.ok(phoneTools.smallest >= 44, 'expanded phone tools must be touch sized');
+  assert.equal(phoneTools.overflow, false, 'expanded phone tools must not overflow');
+  await mediaScreenshot('subscriptions-390-expanded');
+  await setViewport(1440);
+  assert.deepEqual(await withState(subscriptionState, `
+    return [document.querySelector('.subs-tools-toggle').checkVisibility(), document.querySelector('.subs-tools').checkVisibility(), document.querySelector('.subs-toolbar-desc').checkVisibility()];
+  `), [false, true, true], 'desktop keeps the full subscription toolbar');
+  await noOverflow('1440px subscriptions');
+  await mediaScreenshot('subscriptions-1440');
+
+  // 手机设置页：概览收起，只列未完成的必需项，表单进入首屏。
+  const settingsState = `
+    store.settings.app_password_configured = true;
+    store.settings.quark_cookie_configured = true;
+    store.settings.quark_cookie = '';
+    store.settings.quark_save_movie_dir = '';
+    store.settings.quark_save_series_dir = '';
+    store.settings.quark_save_anime_dir = '';
+    store.settings.custom_categories = [];
+    store.settings.subscription_scheduler_enabled = true;
+    store.settingsOverviewOpen = false;
+    if (store.currentTab !== 'settings') store.selectTab('settings');
+  `;
+  const overviewRead = `
+    const overview = document.querySelector('.settings-overview');
+    return {
+      height: overview.getBoundingClientRect().height,
+      navTop: document.querySelector('.settings-nav').getBoundingClientRect().top,
+      items: Array.from(overview.querySelectorAll('.settings-overview-item')).filter(item => item.checkVisibility()).map(item => item.querySelector('strong').innerText),
+      summary: overview.querySelector('.settings-overview-summary').innerText,
+      toggle: overview.querySelector('.settings-overview-toggle').checkVisibility(),
+      actions: overview.querySelector('.settings-overview-actions').checkVisibility(),
+      expanded: overview.querySelector('.settings-overview-toggle').getAttribute('aria-expanded')
+    };
+  `;
+  await setViewport(390);
+  const collapsed = await withState(settingsState, overviewRead);
+  assert.deepEqual([collapsed.items, collapsed.summary, collapsed.toggle, collapsed.actions, collapsed.expanded],
+    [['媒体目录'], '还有 1 项必需配置待完成', true, false, 'false'], 'collapsed overview lists only unfinished required items');
+  assert.ok(collapsed.navTop <= 844 * 0.5, `settings form must start in the upper half of the first phone screen, got ${collapsed.navTop}px`);
+  await noOverflow('390px settings');
+  await mediaScreenshot('settings-390-collapsed');
+  const expandedOverview = await withState(settingsState + `
+    await settle();
+    document.querySelector('.settings-overview-toggle').click();
+  `, overviewRead);
+  assert.equal(expandedOverview.items.length, 7, 'expanding restores every overview item');
+  assert.deepEqual([expandedOverview.actions, expandedOverview.expanded], [true, 'true']);
+  assert.ok(expandedOverview.height > collapsed.height);
+  const complete = await withState(settingsState + `store.settings.quark_save_series_dir = '/连续剧';`, overviewRead);
+  assert.deepEqual([complete.items, complete.summary], [[], '必需配置已全部完成'], 'a finished setup collapses to a single summary row');
+  assert.ok(complete.height <= 90, `finished overview must collapse to one row, got ${complete.height}px`);
+  await setViewport(1440);
+  const desktopOverview = await withState(settingsState, overviewRead);
+  assert.deepEqual([desktopOverview.items.length, desktopOverview.toggle, desktopOverview.actions], [7, false, true], 'desktop always shows the full overview');
+  await noOverflow('1440px settings');
+
+  // 连接状态：取自真实请求结果。拦截接口后必须显示未响应，恢复后回到在线。
+  const connection = () => evaluate(`(() => {
+    const store = ${store};
+    const status = document.querySelector('.brand-status');
+    return {
+      state: store.connectionState, label: status.innerText.trim(), tone: status.className,
+      header: document.querySelector('.header-health').innerText.trim(),
+      banner: Array.from(document.querySelectorAll('.pwa-status-banner')).filter(item => item.checkVisibility()).map(item => item.innerText.replace(/\\s+/g, ' ').trim())
+    };
+  })()`);
+  await onStore('return store.loadNotifications()');
+  let status = await connection();
+  assert.deepEqual([status.state, status.label, status.banner], ['online', '服务在线', []]);
+  assert.ok(await onStore('return store.serverLastOkAt > 0'), 'a successful response records when the service last answered');
+  await cdp('Network.setBlockedURLs', {urls: ['*/api/notifications*']});
+  // 失败请求返回后同步读取，避免事件流的下一条消息先把状态改回在线。
+  assert.equal(await onStore('return store.loadNotifications().then(() => store.connectionState)'), 'unreachable', 'a failed request must be reflected in the status');
+  await cdp('Network.setBlockedURLs', {urls: []});
+  assert.deepEqual(await withState(`store.markServerReachable(false);`, `
+    const status = document.querySelector('.brand-status');
+    return [status.innerText.trim(), status.classList.contains('is-unreachable'), document.querySelector('.header-health').innerText.trim(),
+      Array.from(document.querySelectorAll('.pwa-status-banner')).filter(item => item.checkVisibility()).map(item => item.innerText.replace(/\\s+/g, ' ').trim())];
+  `), ['服务未响应', true, '服务未响应', ['无法连接服务，当前显示的可能是旧数据 重试']], 'an unreachable service is shown in the sidebar, header and banner');
+  if (screenshotDir) {
+    await onStore('store.markServerReachable(false)');
+    const screenshot = await cdp('Page.captureScreenshot', {format: 'png'});
+    await writeFile(join(screenshotDir, 'connection-unreachable-1440.png'), Buffer.from(screenshot.data, 'base64'));
+  }
+  await evaluate(`Array.from(document.querySelectorAll('.pwa-status-banner button')).find(item => item.checkVisibility() && item.innerText.trim() === '重试')?.click()`);
+  await onStore('return store.loadNotifications()');
+  await waitFor(async () => (await connection()).state === 'online', 'a successful request restores the online status');
+  // Alpine 在下一帧才收起 x-show 元素；等界面跟上状态再断言，但横幅必须真的消失。
+  await waitFor(async () => (await connection()).banner.length === 0, 'the unreachable banner to disappear once the service answers again', 3000);
+  status = await connection();
+  assert.deepEqual([status.label, status.banner], ['服务在线', []]);
+  assert.deepEqual(await withState(`store.jobEventsReconnecting = true;`, `
+    const status = document.querySelector('.brand-status');
+    const result = [status.innerText.trim(), status.classList.contains('is-reconnecting')];
+    store.jobEventsReconnecting = false;
+    return result;
+  `), ['正在重连', true], 'a dropped event stream is shown as reconnecting');
+
+  // 强调色只做装饰：承载文字的组件必须用可读的文字色，浅色和深色主题都要达到 4.5:1。
+  // 渐变、半透明叠层、海报和祖先 opacity 都会改变实际底色，所以不按样式推算，而是
+  // 截两张图逐像素比较：一张隐藏全部文字（真实底色），一张把元素铺满它的文字色。
+  await evaluate(`(() => {
+    const style = document.createElement('style');
+    style.id = 'contrast-probe';
+    style.textContent = '*, *::before, *::after { transition: none !important; }'
+      + 'html.contrast-hide-text *, html.contrast-hide-text *::before, html.contrast-hide-text *::after'
+      + ' { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; }'
+      // 海报可以是任意图片：把它换成纯黑或纯白，量出叠在上面的徽标的最差情况。
+      + 'html[data-poster-probe="black"] .search-result-poster { background: #000 !important; }'
+      + 'html[data-poster-probe="white"] .search-result-poster { background: #fff !important; }'
+      + 'html[data-poster-probe="black"] .search-result-poster > :is(img, .search-result-poster-fallback),'
+      + 'html[data-poster-probe="white"] .search-result-poster > :is(img, .search-result-poster-fallback) { visibility: hidden !important; }';
+    document.head.appendChild(style);
+  })()`);
+  const probe = (id, body) => evaluate(`(async () => {
+    const item = document.querySelector('[data-contrast-id="${id}"]');
+    const frames = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const box = () => { const rect = item.getBoundingClientRect(); return [rect.left, rect.top, rect.width, rect.height].map(value => Math.round(value * 10) / 10).join(','); };
+    if (!item || !item.checkVisibility()) return null;
+    ${body}
+  })()`);
+  async function measureContrast(id) {
+    const hidden = await probe(id, `
+      item.scrollIntoView({block: 'center', inline: 'center'});
+      const color = getComputedStyle(item).color;
+      item.dataset.contrastStyle = item.getAttribute('style') || '';
+      item.style.setProperty('pointer-events', 'auto', 'important');
+      document.documentElement.classList.add('contrast-hide-text');
+      await frames();
+      const rect = item.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(item);
+      const points = [];
+      // 只取文字所在、且确实由该元素绘制的像素：被裁剪、被遮挡或落在圆角外的不算。
+      for (const line of range.getClientRects()) {
+        const right = Math.min(line.right, rect.right) - 1;
+        const bottom = Math.min(line.bottom, rect.bottom) - 1;
+        for (let y = Math.ceil(Math.max(line.top, rect.top) + 1); y < bottom; y += 2) {
+          for (let x = Math.ceil(Math.max(line.left, rect.left) + 1); x < right; x += 2) {
+            const hit = document.elementFromPoint(x + 0.5, y + 0.5);
+            if (hit && item.contains(hit)) points.push([x, y]);
+          }
+        }
+      }
+      const step = Math.ceil(points.length / 400) || 1;
+      return {color, box: box(), points: points.filter((_, index) => index % step === 0),
+        clip: {x: Math.floor(rect.left + scrollX), y: Math.floor(rect.top + scrollY), width: Math.ceil(rect.width) + 1, height: Math.ceil(rect.height) + 1, scale: 1},
+        origin: [Math.floor(rect.left), Math.floor(rect.top)]};
+    `);
+    if (!hidden) return {stale: 'element is no longer visible'};
+    const backdrop = decodePng(Buffer.from((await cdp('Page.captureScreenshot', {format: 'png', clip: hidden.clip})).data, 'base64'));
+    const inked = await probe(id, `
+      item.style.setProperty('box-shadow', 'inset 0 0 0 999px ${hidden.color}', 'important');
+      await frames();
+      return box();
+    `);
+    const ink = inked === hidden.box
+      ? decodePng(Buffer.from((await cdp('Page.captureScreenshot', {format: 'png', clip: hidden.clip})).data, 'base64'))
+      : null;
+    const restored = await evaluate(`(() => {
+      document.documentElement.classList.remove('contrast-hide-text');
+      const item = document.querySelector('[data-contrast-id="${id}"]');
+      if (!item) return null;
+      if (item.dataset.contrastStyle) item.setAttribute('style', item.dataset.contrastStyle); else item.removeAttribute('style');
+      delete item.dataset.contrastStyle;
+      return item.checkVisibility();
+    })()`);
+    // 轮询或事件流在两次截图之间改了界面：这次测量作废，由调用方重试。
+    if (!ink || !restored) return {stale: !restored ? 'element disappeared during the measurement' : `element moved from ${hidden.box} to ${inked}`};
+    if (!hidden.points.length) return {stale: 'no text pixels are painted by the element'};
+    let worst = Infinity;
+    let pair = '';
+    for (const [x, y] of hidden.points) {
+      const background = backdrop.pixel(x - hidden.origin[0], y - hidden.origin[1]);
+      const foreground = ink.pixel(x - hidden.origin[0], y - hidden.origin[1]);
+      const ratio = contrast(foreground, background);
+      if (ratio < worst) { worst = ratio; pair = `${foreground} on ${background}`; }
+    }
+    return {worst, pair, samples: hidden.points.length};
+  }
+  async function accentText(setup, selectors) {
+    for (let attempt = 0; ; attempt++) {
+      const items = await withState(setup, `
+        const selectors = ${JSON.stringify(selectors)};
+        const shown = selector => Array.from(document.querySelectorAll(selector)).filter(item => item.checkVisibility() && item.innerText.trim());
+        // x-if 模板要多等几帧才挂载。
+        for (let wait = 0; wait < 40 && !selectors.every(selector => shown(selector).length); wait++) await new Promise(resolve => setTimeout(resolve, 50));
+        // 入场动画从透明开始：等有限时长的动画播完再量，循环动画（状态圆点等）不等。
+        await Promise.all(document.getAnimations().filter(animation => Number.isFinite(animation.effect?.getComputedTiming().endTime)).map(animation => animation.finished.catch(() => {})));
+        document.querySelectorAll('[data-contrast-id]').forEach(item => item.removeAttribute('data-contrast-id'));
+        let next = 0;
+        return selectors.map(selector => {
+          // 同一种外观只量一次：按状态类、文字色和所在卡片（有无海报）去重。
+          const seen = new Set();
+          const picked = [];
+          for (const item of shown(selector)) {
+            const state = item.closest('[class*="is-"]');
+            const card = item.closest('.search-result-card');
+            const signature = [state && state.className, card && card.className, getComputedStyle(item).color].join('|');
+            if (seen.has(signature)) continue;
+            seen.add(signature);
+            // 同一元素可能被多个选择器选中，沿用已分配的编号。
+            if (!item.hasAttribute('data-contrast-id')) item.setAttribute('data-contrast-id', String(++next));
+            picked.push({id: item.getAttribute('data-contrast-id'), label: item.innerText.trim().replace(/\\s+/g, ' ').slice(0, 20) + (state ? ' [' + state.className + ']' : '')});
+          }
+          return {selector, items: picked.slice(0, 10)};
+        });
+      `);
+      const results = [];
+      let stale = '';
+      for (const entry of items) {
+        const measured = [];
+        for (const item of entry.items) {
+          const result = await measureContrast(item.id);
+          if (result.stale) { stale = `${entry.selector} "${item.label}": ${result.stale}`; break; }
+          measured.push({...item, ...result});
+        }
+        if (stale) break;
+        results.push({selector: entry.selector, measured});
+      }
+      if (!stale) return results;
+      assert.ok(attempt < 4, 'contrast measurement kept failing: ' + stale);
+    }
+  }
+  // 覆盖各档画质徽标：有海报与无海报各一组，分数由真实的前端评分逻辑算出。
+  const gradedFixtures = [
+    {id: 'excellent', note: '本地演示 2160p HDR H.265 蓝光 Atmos', is_valid: true},
+    {id: 'good', note: '本地演示 1080p HDR H.265 蓝光', is_valid: true},
+    {id: 'fair', note: '本地演示 1080p', is_valid: true},
+    {id: 'muted', note: '本地演示 1080p', is_valid: null},
+    {id: 'danger', note: '本地演示 1080p 广告 加群', is_valid: false}
+  ].flatMap(item => [[], ['/smoke-images/good.png']].map((images, index) => ({
+    unique_id: item.id + '-' + index, note: item.note, images, is_valid: item.is_valid,
+    url: 'https://pan.quark.cn/s/' + item.id + index, cloud_type: 'quark'
+  })));
+  const gradedState = `store.searchResults = ${JSON.stringify(gradedFixtures)}.map(item => store.prepareSearchResult(item)); store.searchHasRun = true; store.searchViewMode = 'poster'; store.searchResultFilter = 'all'; if (store.currentTab !== 'search') store.selectTab('search');`;
+  const accentTextCases = [
+    {setup: `store.searchResults = ${JSON.stringify(fixtures)}.map(item => store.prepareSearchResult(item)); store.searchHasRun = true; store.searchViewMode = 'poster'; store.searchResultFilter = 'all'; store.selectTab('search');`,
+      selectors: ['.search-result-tags > span', '.search-quality-pill']},
+    {setup: gradedState,
+      selectors: ['.search-quality-pill.is-excellent', '.search-quality-pill.is-good', '.search-quality-pill.is-fair', '.search-quality-pill.is-danger', '.search-quality-pill.is-muted',
+        '.search-card-badges .badge-success', '.search-card-badges .badge-danger', '.search-card-badges .badge-muted', '.search-result-risk p']},
+    // 同一组徽标压在纯黑、纯白的海报上各量一遍：可读性不能取决于图片内容。
+    ...['black', 'white'].map(poster => ({poster, setup: gradedState,
+      selectors: ['.search-result-card:not(.is-text-only) .search-card-badges > span']})),
+    {setup: `${settingsState} store.settings.quark_cookie_configured = false; store.settingsOverviewOpen = true; store.markServerReachable(false);`,
+      selectors: ['.settings-overview-score strong', '.settings-overview-item.is-ready .settings-overview-state', '.settings-overview-item.is-required .settings-overview-state', '.settings-overview-item.is-optional strong', '.settings-overview-item.is-optional small', '.settings-overview-item strong', '.settings-overview-item small', '.pwa-status-banner.is-offline > span']},
+    {setup: `store.markServerReachable(true); store.selectTab('dashboard'); store.startDashboardEdit(); store.toggleDashboardCard('calendar');`,
+      selectors: ['.dashboard-chip']}
+  ];
+  const contrastFloor = {};
+  for (const theme of ['light', 'dark']) {
+    contrastFloor[theme] = {worst: Infinity, count: 0};
+    for (const [index, {setup, selectors, poster = ''}] of accentTextCases.entries()) {
+      const results = await accentText(`document.documentElement.dataset.posterProbe = '${poster}'; store.applyTheme('${theme}', {persist: false}); ${setup}`, selectors);
+      await mediaScreenshot(`accent-text-${index + 1}-${theme}`);
+      const backdropNote = poster ? ` over a ${poster} poster` : '';
+      for (const result of results) {
+        assert.ok(result.measured.length > 0, `${theme} ${result.selector} must be rendered for the contrast check`);
+        if (poster) assert.ok(result.measured.length >= 8, `${theme} ${result.selector} must cover every validity badge and quality pill, got ${result.measured.length}`);
+        for (const item of result.measured) {
+          assert.ok(item.worst >= 4.5, `${theme} ${result.selector} "${item.label}"${backdropNote} needs 4.5:1 text contrast, got ${item.worst.toFixed(2)}:1 (${item.pair})`);
+          contrastFloor[theme].worst = Math.min(contrastFloor[theme].worst, item.worst);
+          contrastFloor[theme].count += 1;
+        }
+      }
+    }
+  }
+  await evaluate("document.getElementById('contrast-probe').remove(); delete document.documentElement.dataset.posterProbe; document.querySelectorAll('[data-contrast-id]').forEach(item => item.removeAttribute('data-contrast-id'));");
+  console.log('accent text contrast: ' + Object.entries(contrastFloor).map(([theme, floor]) => `${theme} ${floor.count} elements, lowest ${floor.worst.toFixed(2)}:1`).join('; '));
+  await onStore("store.cancelDashboardEdit(); store.applyTheme('light', {persist: false});");
+
+  // 按钮文字不能贴着边框：只写 class="btn-primary" 而不带 px-* 的按钮也要有内边距。
+  const flushButtons = setup => withState(setup, `
+    return Array.from(document.querySelectorAll('.btn-primary, .btn-secondary, .btn-danger')).filter(button => button.checkVisibility() && button.innerText.trim()).map(button => {
+      const range = document.createRange();
+      range.selectNodeContents(button);
+      const text = range.getBoundingClientRect();
+      const box = button.getBoundingClientRect();
+      return {label: button.innerText.trim().replace(/\\s+/g, ' ').slice(0, 16), gap: Math.min(text.left - box.left, box.right - text.right)};
+    }).filter(item => item.gap < 6).map(item => item.label + ' (' + item.gap.toFixed(1) + 'px)');
+  `);
+  let paddedButtonPages = 0;
+  for (const width of [1440, 390]) {
+    await setViewport(width);
+    for (const tab of ['dashboard', 'search', 'subscriptions', 'drive', 'downloads', 'notifications', 'diagnostics', 'settings']) {
+      const flush = await flushButtons(`
+        if (store.currentTab !== '${tab}') store.selectTab('${tab}');
+        ${tab === 'diagnostics' ? 'await store.loadDiagnostics();' : ''}
+        ${tab === 'dashboard' ? "store.calendarLoading = false; store.calendarError = ''; store.calendarItems = [];" : ''}
+      `);
+      assert.deepEqual(flush, [], `${width}px ${tab}: button text must keep clear of the border`);
+      paddedButtonPages += 1;
+    }
+  }
+  assert.equal(paddedButtonPages, 16);
+  await setViewport(1440);
+
   assert.deepEqual(exceptions, [], 'media selectors must not raise Alpine runtime exceptions');
   if (screenshotDir) console.log('UI screenshots:', screenshotDir);
-  console.log('search browser smoke passed: images, concurrent searches, metadata, light/dark controls and navigation, poster hover and reduced motion, movie file/quality/download/save, series quality, source quality gate, 1440px and 390px views');
+  console.log('search browser smoke passed: images, concurrent searches, metadata, light/dark controls and navigation, poster hover and reduced motion, movie file/quality/download/save, series quality, source quality gate, dialog keyboard focus, mobile navigation and history, dashboard attention entries and layout editing, compact phone toolbars, connection status, accent text contrast, button padding, 1440px and 390px views');
 } catch (error) {
   console.error(serverLog, chromeLog);
   throw error;

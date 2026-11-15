@@ -128,7 +128,7 @@
                     <template x-for="(event, eventIndex) in subscriptionAutomationTimeline.slice().reverse().slice(0, 30)" :key="'subscription-event-' + (event.id || 'missing') + '-' + eventIndex">
                       <div class="subscription-activity-item" :class="'is-' + automationStatusTone(event.status)">
                         <span class="subscription-activity-dot"></span>
-                        <div class="min-w-0"><div><span x-text="automationStageLabel(event.stage) + (event.episode ? ' · E' + event.episode : '')"></span><strong x-text="automationStatusLabel(event.status)"></strong></div><p x-text="event.error || event.message || '无附加消息'"></p><small class="text-muted/75" x-text="'尝试 ' + event.attempt + ' · ' + automationEventDuration(event) + (event.job_id ? ' · Job ' + event.job_id.slice(0, 8) : '')"></small></div>
+                        <div class="min-w-0"><div><span x-text="automationStageLabel(event.stage) + (event.episode ? ' · E' + event.episode : '')"></span><strong x-text="automationStatusLabel(event.status)"></strong></div><p x-text="event.error || event.message || '无附加消息'"></p><small class="text-muted" x-text="'尝试 ' + event.attempt + ' · ' + automationEventDuration(event) + (event.job_id ? ' · Job ' + event.job_id.slice(0, 8) : '')"></small></div>
                         <div class="flex flex-col items-end gap-2"><time x-text="formatTime(event.updated_at)"></time><button x-show="automationCanRetry(event)" @click="retryAutomationEvent(event)" :disabled="automationRetryingId === event.id" class="btn-secondary px-2 py-1 rounded text-xs disabled:opacity-50">重试</button></div>
                       </div>
                     </template>

@@ -401,5 +401,5 @@
     };
   }
 
-  return {TOAST_ICONS, normalizeNotificationType, toastIcon, activityTimestamp, mergeActivityItems, createStore};
+  return {TOAST_ICONS, normalizeNotificationType, toastIcon, activityTimestamp, isNoisyActivityJob, mergeActivityItems, createStore};
 });

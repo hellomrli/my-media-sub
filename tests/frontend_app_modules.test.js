@@ -78,6 +78,30 @@ test('page navigation stops page-bound pollers before applying the next page eff
   store.destroy();
 });
 
+test('dashboard refresh reloads the visible calendar and clears its previous error', async () => {
+  const store = app();
+  store.calendarError = '上次请求失败';
+  store.calendarCursor = '2026-11-12';
+  for (const method of ['loadSubscriptions', 'loadNotifications', 'loadJobs', 'loadDownloads']) {
+    store[method] = async () => {};
+  }
+  const calendar = {items: [{id: 'new-episode'}], summary: {total: 1, by_status: {today: 1}}};
+  const originalFetch = global.fetch;
+  global.fetch = async url => {
+    assert.match(url, /^\/api\/calendar\?/);
+    return {ok: true, status: 200, json: async () => ({data: calendar})};
+  };
+  try {
+    await store.refresh();
+    assert.deepEqual(store.calendarItems, calendar.items);
+    assert.equal(store.calendarSummary.total, 1);
+    assert.equal(store.calendarError, '');
+    assert.equal(store.calendarLoading, false);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('remote image failures retry with a cache-busting URL before falling back', () => {
   const store = app();
   const originalWindow = global.window;
@@ -266,4 +290,89 @@ test('testTmdb surfaces the backend failure message', async () => {
   } finally {
     global.fetch = originalFetch;
   }
+});
+
+test('connection status reflects request results and the job event stream', () => {
+  const store = app();
+  store.formatTime = () => '刚刚';
+  assert.equal(store.connectionState, 'online');
+  assert.equal(store.connectionLabel(), '服务在线');
+  assert.match(store.connectionDetail(), /尚未收到服务响应/);
+
+  store.jobEventsReconnecting = true;
+  assert.equal(store.connectionState, 'reconnecting', '事件流断开但请求正常时只是重连中');
+  assert.equal(store.headerHealthLabel(), '正在重连');
+
+  store.markServerReachable(false);
+  assert.equal(store.connectionState, 'unreachable');
+  assert.equal(store.connectionLabel(), '服务未响应');
+  assert.equal(store.serverLastOkAt, 0, '失败不能刷新最近成功时间');
+
+  store.pwaOffline = true;
+  assert.equal(store.connectionState, 'offline', '设备离线优先于服务状态');
+  assert.equal(store.connectionLabel(), '网络离线');
+
+  store.pwaOffline = false;
+  store.jobEventsReconnecting = false;
+  store.markServerReachable(true);
+  assert.equal(store.connectionState, 'online');
+  assert.ok(store.serverLastOkAt > 0);
+  assert.match(store.connectionDetail(), /最近成功响应：刚刚/);
+  assert.equal(store.headerHealthLabel(), '系统空闲');
+
+  store.jobs = [{status: 'running'}, {status: 'queued'}];
+  assert.equal(store.headerHealthLabel(), '2 项运行中');
+});
+
+test('job event stream marks the server reachable and clears the reconnecting state', () => {
+  const store = app();
+  const listeners = {};
+  const previous = globalThis.EventSource;
+  globalThis.EventSource = function EventSource() {
+    this.addEventListener = (name, handler) => { listeners[name] = handler; };
+    this.close = () => {};
+  };
+  try {
+    store.ownLifecycle = (_name, resource) => resource;
+    store.setupJobEvents();
+    assert.equal(store.jobEventsReconnecting, false, '首次连接尚未收到快照不算故障');
+
+    store.jobEvents.onerror();
+    store.markServerReachable(false);
+    assert.equal(store.jobEventsReconnecting, true);
+    assert.equal(store.connectionState, 'unreachable');
+
+    listeners.snapshot({data: '[]'});
+    assert.equal(store.jobEventsHealthy, true);
+    assert.equal(store.jobEventsReconnecting, false);
+    assert.equal(store.connectionState, 'online', '收到快照即说明服务已恢复，不必等下一次请求');
+
+    store.jobEvents.onerror();
+    store.closeJobEventsForBfcache();
+    assert.equal(store.jobEventsReconnecting, false, '主动关闭连接后不能停留在重连中');
+  } finally {
+    globalThis.EventSource = previous;
+  }
+});
+
+test('settings overview summarises pending required items for the collapsed mobile view', () => {
+  const store = app();
+  store.quarkHealth = {message: ''};
+  store.settings = {};
+  const pending = store.settingsPendingRequiredItems.map(item => item.id);
+  assert.deepEqual(pending, ['auth', 'quark', 'storage', 'automation'], '可选项不计入待完成');
+  assert.equal(store.settingsOverviewSummary(), '还有 4 项必需配置待完成');
+  assert.ok(store.settingsPendingRequiredItems.every(item => store.settingsCompletionItemClass(item) === 'is-required'),
+    '收起态靠 is-required 类筛出这些条目');
+
+  store.settings = {
+    app_password_configured: true, quark_cookie_configured: true,
+    quark_save_series_dir: '/连续剧', subscription_scheduler_enabled: true
+  };
+  assert.deepEqual(store.settingsPendingRequiredItems, []);
+  assert.equal(store.settingsOverviewSummary(), '必需配置已全部完成');
+
+  assert.equal(store.settingsOverviewOpen, false);
+  store.toggleSettingsOverview();
+  assert.equal(store.settingsOverviewOpen, true);
 });

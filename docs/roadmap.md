@@ -2,7 +2,7 @@
 
 > 本文件是项目后续工作的**唯一持久化计划入口**。每完成一个任务，必须同步更新复选框、证据和“当前执行指针”，以便跨会话、跨上下文继续。
 >
-> 最近更新：2026-11-05
+> 最近更新：2026-11-15
 
 ## 状态说明
 
@@ -14,11 +14,11 @@
 ## 当前执行指针
 
 - **当前阶段**：v2.8.1 已发布，转入部署后实网验证
-- **当前任务**：发布与产物核验已完成；`89d7d5f` 的 CI、Release、Docker Image 全部成功，云端归档、二进制及版本镜像均已核对，证据见本节
-- **下一任务（建议）**：升级后使用实际夸克分享和 Aria2 验证多画质电影保存、剧集固定画质及换源；真实 TMDB / Web Push 核验继续保留
+- **当前任务**：界面可用性复核的两轮修复（四类问题 + 四项后续建议）已在本地完成，尚未提交和发布，见 [2026-11-12 前端评审](frontend-design-review-2026-11-12.md)；v2.8.1 已发布产物的核验证据保留在下方
+- **下一任务（建议）**：复核并提交 `fix/ui-review-usability`，决定是否作为补丁版本发布；实际夸克 / Aria2 / TMDB / Web Push 的部署验证继续保留
 - **后续阶段**：保持单实例安全模型与 JSON 单写；未经明确需求不启动多用户、SQLite 或第二 Provider
 - **当前发布基线**：v2.8.1（`Cargo.toml` / OpenAPI / PWA 缓存代次；云端发布状态以 Actions / Release 为准）
-- **工作树状态**：基于 `main`，以 `git status --short --branch` 为准；历史阶段交接记录保留在下方作审计
+- **工作树状态**：本轮使用 `fix/ui-review-usability`，以 `git status --short --branch` 为准；历史阶段交接记录保留在下方作审计
 
 > **本轮评审的完整清单与后续待办见
 > [docs/code-review-2026-09-21.md](code-review-2026-09-21.md)。**
@@ -26,6 +26,18 @@
 > 「当前发布基线」已纳入 CI 门禁，见 `scripts/check-doc-drift.py`。
 
 历史评审留档：[2026-07-26 代码评审](code-review-2026-07-26.md) 与 [前端评审](frontend-design-review-2026-07-26.md)。其中旧问题以本台账后续修复记录为准。
+
+---
+
+## 界面可用性复核（2026-11-12 至 2026-11-15，本地完成，未发布）
+
+- [x] 工作台刷新同步更新日历；证据：`static/js/core/shell.js`、`tests/frontend_app_modules.test.js`。
+- [x] 统一弹窗显示后的自动聚焦与 Tab 循环，修正新建文件夹的条件；手机当前导航随切页、历史返回和缩放保持可见。证据：`static/partials/`、`static/js/core/router.js`、`scripts/smoke-search-browser.mjs`。
+- [x] 分离状态文字和装饰色，改善浅色徽标与订阅辅助文字；重建 HTML/CSS，同步 HTTP 和 PWA 缓存版本。
+- [x] 手机订阅工具区收进“更多”，设置概览在手机上默认收起；工作台异常按类别计数并直达对应筛选；“服务在线”取自真实请求结果。证据：`static/js/features/dashboard.js`、`static/js/core/shell.js`、`static/js/core/api.js`、`tests/frontend_dashboard.test.js`、`tests/frontend_app_modules.test.js`。
+- [x] 工作台布局编辑至少保留一张卡片，移除无效的排序按钮。
+- [x] 合并 `.btn-primary` / `.btn-secondary` / `.app-content` / `.settings-pane` 的重复定义，合并前后逐元素比较计算样式；强调色文字改用文字色令牌，修正海报徽标与设置概览可选项的对比度；补上无 `px-*` 按钮缺失的内边距（诊断页、设置保存条等）。证据：`tailwind/input.css`、`scripts/smoke-search-browser.mjs` 的像素级对比度与按钮内边距检查。
+- [x] 207 项前端测试、ESLint、HTML/CSS 生成一致性与真实浏览器回归通过。细节和未覆盖范围见 [前端评审](frontend-design-review-2026-11-12.md)。
 
 ---
 

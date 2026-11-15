@@ -7,9 +7,12 @@
 
   const api = root.MediaSubApi || {};
   const {apiData, apiFetch} = api;
+  const ux = root.MediaSubUx || {};
 
   function createStore() {
     return {
+    /// 手机上配置概览是否展开（桌面端始终完整显示）。
+    settingsOverviewOpen: false,
     checkIntervalPresets: [15, 30, 60, 120, 360, 720],
     pushChannels: [
       {id: 'wecom', name: '企业微信'},
@@ -98,6 +101,21 @@
         {id: 'automation', label: '订阅调度', description: s.subscription_scheduler_enabled ? '自动检查已启用' : '自动检查未启用', configured: !!s.subscription_scheduler_enabled, tab: 'automation'},
         {id: 'notification', label: '消息通知', description: this.configuredPushChannelCount ? `${this.configuredPushChannelCount} 个渠道可用` : '可选：尚未配置渠道', configured: this.configuredPushChannelCount > 0, optional: true, tab: 'notifications'}
       ];
+    },
+
+    /// 必需但尚未完成的配置项；手机上概览收起时只显示这些。
+    get settingsPendingRequiredItems() {
+      return this.settingsCompletionItems.filter(item => !item.configured && !item.optional);
+    },
+
+    settingsOverviewSummary() {
+      const pending = this.settingsPendingRequiredItems.length;
+      return pending ? `还有 ${pending} 项必需配置待完成` : '必需配置已全部完成';
+    },
+
+    toggleSettingsOverview() {
+      this.settingsOverviewOpen = !this.settingsOverviewOpen;
+      if (ux.writePreference) ux.writePreference('settings.overview', this.settingsOverviewOpen ? 'open' : 'closed');
     },
 
     get settingsCompletionPercent() {

@@ -209,3 +209,50 @@ test('caller cancellation remains connected after response headers arrive', asyn
     assert.equal(signal.aborted, true);
   }
 });
+
+test('api client reports reachability from real request outcomes', async () => {
+  const signals = [];
+  const outcomes = [
+    () => new Response('{}', {status: 200}),
+    () => new Response('{"message":"坏了"}', {status: 500}),
+    () => { throw new TypeError('Failed to fetch'); }
+  ];
+  const client = createApiClient(async () => outcomes.shift()(), {
+    onConnectivity: reachable => signals.push(reachable)
+  });
+
+  await client.apiFetch('/api/a');
+  await assert.rejects(client.apiFetch('/api/b'), error => error.status === 500);
+  await assert.rejects(client.apiFetch('/api/c'), error => error.isNetworkError);
+  assert.deepEqual(signals, [true, true, false], '服务端返回 5xx 仍然说明连接是通的');
+});
+
+test('caller cancellation is not reported as a connectivity change, a timeout is', async () => {
+  const signals = [];
+  const hang = (_input, init) => new Promise((_resolve, reject) => {
+    init.signal.addEventListener('abort', () => {
+      const error = new Error('aborted');
+      error.name = 'AbortError';
+      reject(error);
+    });
+  });
+  const client = createApiClient(hang, {onConnectivity: reachable => signals.push(reachable)});
+
+  const controller = new AbortController();
+  const canceled = client.apiFetch('/api/slow', {signal: controller.signal});
+  controller.abort();
+  await assert.rejects(canceled, error => !error.isNetworkError && !error.isTimeout);
+  assert.deepEqual(signals, [], '用户取消请求不代表服务不可达');
+
+  await assert.rejects(client.apiFetch('/api/slow', {timeout: 5}), error => error.isTimeout);
+  assert.deepEqual(signals, [false]);
+});
+
+test('connectivity subscribers can unsubscribe and cannot break requests', () => {
+  const {subscribeConnectivity} = require('../static/js/core/api.js');
+  assert.equal(typeof subscribeConnectivity, 'function');
+  const unsubscribe = subscribeConnectivity(() => { throw new Error('listener bug'); });
+  assert.equal(unsubscribe(), true);
+  assert.equal(unsubscribe(), false, '重复取消订阅是安全的');
+  assert.equal(typeof subscribeConnectivity(null), 'function');
+});

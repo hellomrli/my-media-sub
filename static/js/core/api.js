@@ -189,10 +189,34 @@
     };
   }
 
-  function createApiClient(fetchImpl) {
+  // 连接状态订阅：界面上的「服务在线」取自真实请求结果，而不是固定文字。
+  // 只要服务端返回了响应（包括 4xx/5xx）就算可达；网络错误与超时算不可达；
+  // 调用方主动取消不代表任何一种，不上报。
+  const connectivityListeners = new Set();
+
+  function subscribeConnectivity(listener) {
+    if (typeof listener !== 'function') return () => {};
+    connectivityListeners.add(listener);
+    return () => connectivityListeners.delete(listener);
+  }
+
+  function notifyConnectivity(reachable) {
+    for (const listener of [...connectivityListeners]) {
+      try {
+        listener(!!reachable);
+      } catch (_) {
+        // 状态展示出错不能影响请求本身的结果。
+      }
+    }
+  }
+
+  function createApiClient(fetchImpl, clientOptions = {}) {
     if (typeof fetchImpl !== 'function') {
       throw new TypeError('createApiClient requires a fetch implementation');
     }
+    const reportConnectivity = typeof clientOptions.onConnectivity === 'function'
+      ? clientOptions.onConnectivity
+      : null;
 
     async function apiFetch(input, options = {}) {
       const {
@@ -219,6 +243,7 @@
         if (error instanceof ApiError) throw error;
         const aborted = error && error.name === 'AbortError';
         const timedOut = aborted && timeoutHandle && timeoutHandle.controller.signal.aborted && !timeoutHandle.callerSignal?.aborted;
+        if (reportConnectivity && (timedOut || !aborted)) reportConnectivity(false);
         throw new ApiError(
           errorMessage
             || (timedOut ? '请求超时，请检查网络后重试' : aborted ? '请求已取消' : '无法连接服务，请检查网络后重试'),
@@ -231,6 +256,7 @@
         );
       }
       if (timeoutHandle) timeoutHandle.cleanup();
+      if (reportConnectivity) reportConnectivity(true);
 
       if (!response.ok) {
         const payload = await readErrorPayload(response);
@@ -281,7 +307,7 @@
       return Promise.reject(new TypeError('Fetch API is unavailable'));
     }
     return root.fetch(...args);
-  });
+  }, {onConnectivity: notifyConnectivity});
 
   function getApiErrorMessage(error, fallback = '请求失败') {
     if (error instanceof ApiError && error.message) return error.message;
@@ -296,6 +322,7 @@
     apiJson: client.apiJson,
     createApiClient,
     getApiErrorMessage,
+    subscribeConnectivity,
     unwrapApiData
   });
 });

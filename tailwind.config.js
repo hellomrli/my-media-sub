@@ -20,6 +20,13 @@ module.exports = {
         cyan: 'rgb(var(--c-cyan) / <alpha-value>)',
         violet: 'rgb(var(--c-violet) / <alpha-value>)',
       },
+      textColor: {
+        primary: 'rgb(var(--c-primary-text) / <alpha-value>)',
+        success: 'rgb(var(--c-success-text) / <alpha-value>)',
+        warning: 'rgb(var(--c-warning-text) / <alpha-value>)',
+        danger: 'rgb(var(--c-danger-text) / <alpha-value>)',
+        cyan: 'rgb(var(--c-cyan-text) / <alpha-value>)',
+      },
     },
   },
   plugins: [],

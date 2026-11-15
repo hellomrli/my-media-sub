@@ -1,10 +1,10 @@
   <!-- 模态框：在线升级进度 -->
   <div x-show="showUpdateProgressDialog" @click.self="closeUpdateProgressDialog()" @keydown.escape.window="closeUpdateProgressDialog()" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel dialog-panel p-6 max-w-lg w-full" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="在线升级" tabindex="-1" x-effect="if (showUpdateProgressDialog) $nextTick(() => $el.focus())">
+    <div class="app-panel dialog-panel p-6 max-w-lg w-full" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="在线升级" tabindex="-1" x-effect="if (showUpdateProgressDialog) focusDialog($el)">
       <div class="flex items-start justify-between gap-4">
         <div>
           <h3 class="text-xl font-bold text-text" x-text="updateDialogTitle()"></h3>
-          <p class="text-sm text-muted/75 mt-1">升级过程中请保持当前页面打开。</p>
+          <p class="text-sm text-muted mt-1">升级过程中请保持当前页面打开。</p>
         </div>
         <button x-show="updateDialogCanClose()" @click="closeUpdateProgressDialog()" class="btn-secondary px-3 py-2 rounded-lg text-sm">关闭</button>
       </div>
@@ -20,20 +20,20 @@
           </div>
         </div>
 
-        <div x-show="updateProgress && updateProgress.total_bytes" x-cloak class="text-xs text-muted/75">
+        <div x-show="updateProgress && updateProgress.total_bytes" x-cloak class="text-xs text-muted">
           <span x-text="formatSize(updateProgress ? updateProgress.downloaded_bytes : 0)"></span>
           <span> / </span>
           <span x-text="formatSize(updateProgress ? updateProgress.total_bytes : 0)"></span>
         </div>
 
-        <div x-show="updateRestartRequired()" x-cloak class="rounded-lg border border-success/30 bg-success/10 p-3 text-sm text-success/85">
+        <div x-show="updateRestartRequired()" x-cloak class="rounded-lg border border-success/30 bg-success/10 p-3 text-sm text-success">
           新版本已替换完成，点击下方按钮后服务会重启，恢复后自动刷新当前页面。
         </div>
-        <div x-show="updateRestarting" x-cloak class="rounded-lg border border-primary/30 bg-primary/10 p-3 text-sm text-primary/85">
+        <div x-show="updateRestarting" x-cloak class="rounded-lg border border-primary/30 bg-primary/10 p-3 text-sm text-primary">
           服务正在重启，页面会在服务恢复后自动刷新。
         </div>
-        <div x-show="updateRestartError" x-cloak class="rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger/85 break-words" x-text="updateRestartError"></div>
-        <div x-show="updateProgress && updateProgress.error && !updateRestartError" x-cloak class="rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger/85 break-words" x-text="updateProgress ? updateProgress.error : ''"></div>
+        <div x-show="updateRestartError" x-cloak class="rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger break-words" x-text="updateRestartError"></div>
+        <div x-show="updateProgress && updateProgress.error && !updateRestartError" x-cloak class="rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger break-words" x-text="updateProgress ? updateProgress.error : ''"></div>
       </div>
 
       <div class="mt-6 flex flex-col sm:flex-row gap-3 sm:justify-end">
@@ -48,9 +48,9 @@
 
   <!-- 模态框：新建文件夹 -->
   <div x-show="showNewFolderModal" @click.self="showNewFolderModal = false" @keydown.escape.window="showNewFolderModal = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel dialog-panel p-6 max-w-md w-full" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="新建文件夹" tabindex="-1" x-effect="if (updateDialogCanClose()) $nextTick(() => $el.focus())">
+    <div class="app-panel dialog-panel p-6 max-w-md w-full" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="新建文件夹" tabindex="-1" x-effect="if (showNewFolderModal) focusDialog($el)">
       <h3 class="text-xl font-bold text-text mb-4">新建文件夹</h3>
-      <div><label class="field-label" for="field-newfoldername">文件夹名称</label><input type="text" x-model="newFolderName" placeholder="输入名称" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text placeholder:text-muted/70"  id="field-newfoldername"/></div>
+      <div><label class="field-label" for="field-newfoldername">文件夹名称</label><input type="text" x-model="newFolderName" placeholder="输入名称" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text placeholder:text-muted"  id="field-newfoldername"/></div>
       <div class="flex gap-3 mt-6">
         <button @click="showNewFolderModal = false" class="btn-secondary flex-1 px-4 py-2 rounded-lg transition-colors">取消</button>
         <button @click="createFolder()" class="btn-primary flex-1 px-4 py-2 rounded-lg transition-colors">创建</button>
@@ -60,7 +60,7 @@
 
   <!-- 模态框：选择转存目录 -->
   <div x-show="showTransferModal" @click.self="showTransferModal = false" @keydown.escape.window="showTransferModal = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel dialog-panel p-6 max-w-2xl w-full" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="选择转存目录" tabindex="-1" x-effect="if (showTransferModal) $nextTick(() => $el.focus())">
+    <div class="app-panel dialog-panel p-6 max-w-2xl w-full" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="选择转存目录" tabindex="-1" x-effect="if (showTransferModal) focusDialog($el)">
       <h3 class="text-xl font-bold text-text mb-4">选择转存目录</h3>
 
       <!-- 快速选择 -->
@@ -86,14 +86,14 @@
 
       <!-- 目录列表 -->
       <div class="max-h-80 overflow-y-auto mb-4 border border-border rounded-lg">
-        <div x-show="transferBrowseItems.filter(i => !i.file).length === 0" class="p-8 text-center text-muted/75">
+        <div x-show="transferBrowseItems.filter(i => !i.file).length === 0" class="p-8 text-center text-muted">
           当前目录下没有文件夹
         </div>
         <template x-for="item in transferBrowseItems.filter(i => !i.file)" :key="item.fid">
           <button @click="transferBrowseEnter(item)" class="w-full flex items-center gap-3 p-3 hover:bg-surface-2 transition-colors text-left border-b border-border last:border-b-0">
             <svg class="w-5 h-5 text-primary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
             <span class="text-text flex-1" x-text="item.file_name"></span>
-            <svg class="w-4 h-4 text-muted/75" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            <svg class="w-4 h-4 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
           </button>
         </template>
       </div>
@@ -108,11 +108,11 @@
 
   <!-- 手动元数据刮削对话框 -->
   <div x-show="showManualMetadataDialog" @click.self="closeManualMetadataDialog()" @keydown.escape.window="closeManualMetadataDialog()" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel dialog-panel p-6 max-w-3xl w-full max-h-[88vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="手动刮削元数据" tabindex="-1" x-effect="if (showManualMetadataDialog) $nextTick(() => $el.focus())">
+    <div class="app-panel dialog-panel p-6 max-w-3xl w-full max-h-[88vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="手动刮削元数据" tabindex="-1" x-effect="if (showManualMetadataDialog) focusDialog($el)">
           <div class="flex flex-col sm:flex-row gap-3 sm:items-start sm:justify-between mb-5">
             <div>
               <h3 class="text-xl font-bold text-text">手动刮削元数据</h3>
-              <p class="text-sm text-muted/75 mt-1" x-text="manualMetadataSubscriptionTitle"></p>
+              <p class="text-sm text-muted mt-1" x-text="manualMetadataSubscriptionTitle"></p>
             </div>
             <button @click="closeManualMetadataDialog()" class="btn-secondary px-3 py-2 rounded text-sm">关闭</button>
           </div>
@@ -146,7 +146,7 @@
                   <img x-show="item.poster_url" :src="remoteImageUrl(item.poster_url)" class="w-14 h-20 object-cover rounded border border-border shrink-0" alt="" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
                   <div class="min-w-0 flex-1">
                     <div class="text-sm text-text font-medium break-words" x-text="item.title"></div>
-                    <div class="text-xs text-muted/75 mt-1" x-text="metadataSubtitle(item)"></div>
+                    <div class="text-xs text-muted mt-1" x-text="metadataSubtitle(item)"></div>
                     <div class="text-xs text-muted mt-2 line-clamp-3" x-text="item.overview || '暂无简介'"></div>
                   </div>
                 </div>
@@ -159,11 +159,11 @@
 
   <!-- Aria2 下载目录选择对话框 -->
   <div x-show="showAria2DirDialog" @click.self="showAria2DirDialog = false" @keydown.escape.window="showAria2DirDialog = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-[60]" style="display: none;">
-    <div class="app-panel dialog-panel p-6 max-w-2xl w-full max-h-[88vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="选择 Aria2 下载目录" tabindex="-1" x-effect="if (showAria2DirDialog) $nextTick(() => $el.focus())">
+    <div class="app-panel dialog-panel p-6 max-w-2xl w-full max-h-[88vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="选择 Aria2 下载目录" tabindex="-1" x-effect="if (showAria2DirDialog) focusDialog($el)">
       <div class="flex flex-col sm:flex-row gap-3 sm:items-start sm:justify-between mb-4">
         <div>
           <h3 class="text-xl font-bold text-text">选择 Aria2 下载目录</h3>
-          <p class="text-sm text-muted/75 mt-1" x-text="aria2DirRoot ? '浏览根目录 ' + aria2DirRoot : '从当前媒体类型的 Aria2 下载目录开始浏览'"></p>
+          <p class="text-sm text-muted mt-1" x-text="aria2DirRoot ? '浏览根目录 ' + aria2DirRoot : '从当前媒体类型的 Aria2 下载目录开始浏览'"></p>
         </div>
         <button @click="showAria2DirDialog = false" class="btn-secondary px-3 py-2 rounded text-sm">关闭</button>
       </div>
@@ -178,12 +178,12 @@
       <div x-show="aria2DirError" class="mb-4 text-sm text-danger break-all" x-text="aria2DirError"></div>
       <div x-show="aria2DirLoading" class="empty-state app-panel-soft mb-4">正在读取目录...</div>
       <div x-show="!aria2DirLoading" class="max-h-80 overflow-y-auto mb-4 border border-border rounded-lg">
-        <div x-show="aria2DirItems.length === 0" class="p-8 text-center text-muted/75">当前目录下没有文件夹</div>
+        <div x-show="aria2DirItems.length === 0" class="p-8 text-center text-muted">当前目录下没有文件夹</div>
         <template x-for="item in aria2DirItems" :key="item.path">
           <button @click="aria2DirEnter(item)" class="w-full flex items-center gap-3 p-3 hover:bg-surface-2 transition-colors text-left border-b border-border last:border-b-0">
             <svg class="w-5 h-5 text-primary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
             <span class="text-text flex-1 break-all" x-text="item.name"></span>
-            <svg class="w-4 h-4 text-muted/75" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            <svg class="w-4 h-4 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
           </button>
         </template>
       </div>
@@ -197,7 +197,7 @@
 
   <!-- 订阅配置对话框 -->
   <div x-show="showSubscriptionDialog" @click.self="showSubscriptionDialog = false" @keydown.escape.window="showSubscriptionDialog = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
-    <div data-media-editor class="app-panel dialog-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" :aria-label="newSubscription.media_type === 'movie' ? '电影下载保存' : '订阅配置'" tabindex="-1" x-effect="if (showSubscriptionDialog) $nextTick(() => $el.focus())">
+    <div data-media-editor class="app-panel dialog-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" :aria-label="newSubscription.media_type === 'movie' ? '电影下载保存' : '订阅配置'" tabindex="-1" x-effect="if (showSubscriptionDialog) focusDialog($el)">
       <div class="media-dialog-heading">
         <div><span class="panel-eyebrow">YOUR NEXT WATCH</span><h3 x-text="subscriptionEditingId ? '编辑媒体' : (newSubscription.media_type === 'movie' ? '把电影收进片库' : '开启下一段追剧时光')"></h3></div>
         <span class="chip" x-text="newSubscription.media_type === 'movie' ? '一次保存，不追更' : '选择你喜欢的画质'"></span>
@@ -248,7 +248,7 @@
               <button type="button" @click="applyMagicTitleMatch()" class="text-xs text-primary hover:text-primary" x-text="newSubscription.media_type === 'movie' ? '智能识别片名' : '智能识别剧名'"></button>
             </label>
             <input type="text" x-model="newSubscription.title" @input="updateSubscriptionDefaults()" @blur="applyMagicTitleMatch({silent: true})" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="分享标题会自动清理为干净剧名，便于刮削" / id="field-newsubscription-title">
-            <p class="text-xs text-muted/75 mt-1">先清理字幕组、画质和季标；TMDB 无结果时，再尝试原名、别名或去掉篇章后缀，最多尝试 6 个剧名。匹配成功后才应用 TMDB 标题。</p>
+            <p class="text-xs text-muted mt-1">先清理字幕组、画质和季标；TMDB 无结果时，再尝试原名、别名或去掉篇章后缀，最多尝试 6 个剧名。匹配成功后才应用 TMDB 标题。</p>
           </div>
 
           <div>
@@ -292,7 +292,7 @@
             <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
               <div>
                 <div class="text-sm font-medium text-text/80">更换资源处理</div>
-                <div class="text-xs text-muted/75" x-text="sourceChangeSummary()"></div>
+                <div class="text-xs text-muted" x-text="sourceChangeSummary()"></div>
               </div>
               <span class="chip">换源</span>
             </div>
@@ -309,7 +309,7 @@
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <template x-for="item in sourceChangeStats()" :key="item.label">
                 <div class="stat-tile p-3 min-h-0">
-                  <div class="text-xs text-muted/75" x-text="item.label"></div>
+                  <div class="text-xs text-muted" x-text="item.label"></div>
                   <div class="mt-1 text-sm font-semibold text-text" x-text="item.value"></div>
                 </div>
               </template>
@@ -320,13 +320,13 @@
             <div class="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
               <div>
                 <div class="text-sm font-medium text-text/80">媒体元数据</div>
-                <div class="text-xs text-muted/75" x-text="selectedMetadataLabel()"></div>
+                <div class="text-xs text-muted" x-text="selectedMetadataLabel()"></div>
               </div>
               <button @click="searchMetadataForSubscription()" :disabled="metadataSearching" class="btn-secondary px-3 py-2 rounded text-xs transition-colors disabled:opacity-50">匹配</button>
             </div>
-            <div x-show="metadataSearching" class="text-xs text-muted/75" role="status">正在匹配 TMDB，无结果时会自动调整剧名重试...</div>
-            <div x-show="!metadataSearching && metadataSearchMessage" class="text-xs text-muted/75 break-words" role="status" aria-live="polite" x-text="metadataSearchMessage"></div>
-            <div x-show="!metadataSearching && metadataSearchQueries.length > 1" class="text-xs text-muted/75 break-words" x-text="'尝试剧名：' + metadataSearchQueries.join(' / ')"></div>
+            <div x-show="metadataSearching" class="text-xs text-muted" role="status">正在匹配 TMDB，无结果时会自动调整剧名重试...</div>
+            <div x-show="!metadataSearching && metadataSearchMessage" class="text-xs text-muted break-words" role="status" aria-live="polite" x-text="metadataSearchMessage"></div>
+            <div x-show="!metadataSearching && metadataSearchQueries.length > 1" class="text-xs text-muted break-words" x-text="'尝试剧名：' + metadataSearchQueries.join(' / ')"></div>
             <div x-show="metadataResults.length > 0" class="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <template x-for="item in metadataResults" :key="item.provider + '-' + item.provider_id">
                 <button @click="applyMetadata(item)" :class="isSelectedMetadata(item) ? 'border-primary bg-primary/10' : 'border-border bg-app hover:border-border'" class="border rounded-lg p-2 text-left transition-colors min-h-20">
@@ -334,7 +334,7 @@
                     <img x-show="item.poster_url" :src="remoteImageUrl(item.poster_url)" class="w-10 h-14 object-cover rounded border border-border" alt="" @error="handleRemoteImageError($event)" @load="handleRemoteImageLoad($event)" />
                     <div class="min-w-0">
                       <div class="text-sm text-text font-medium truncate" x-text="item.title"></div>
-                      <div class="text-xs text-muted/75 mt-1" x-text="metadataSubtitle(item)"></div>
+                      <div class="text-xs text-muted mt-1" x-text="metadataSubtitle(item)"></div>
                       <div class="text-xs text-muted mt-1 line-clamp-2" x-text="item.overview || '暂无简介'"></div>
                     </div>
                   </div>
@@ -363,18 +363,18 @@
             </div>
             <p x-show="subscriptionSeasonsDetected && subscriptionSeasons.length === 1 && !subscriptionSeasonsInferred" class="text-xs text-success mb-2" x-text="(subscriptionSeasonsMessage || '') + '，唯一季已自动选择，无需勾选'"></p>
             <p x-show="subscriptionSeasonsDetected && subscriptionSeasonsInferred" class="text-xs text-warning mb-2">未检测到季度标记，已按第一季处理并选中；如果这个资源其实不是第一季，请手动填写季号。</p>
-            <p x-show="subscriptionSeasonsDetected && subscriptionSeasons.length > 1" class="text-xs text-muted/75 mb-2" x-text="subscriptionSeasonsMessage + '，点击勾选要订阅的季度（可跳季，如只选 S1 和 S3）' + (subscriptionSeasonsUnspecified > 0 ? '；另有 ' + subscriptionSeasonsUnspecified + ' 个未带季度标记的文件' : '')"></p>
+            <p x-show="subscriptionSeasonsDetected && subscriptionSeasons.length > 1" class="text-xs text-muted mb-2" x-text="subscriptionSeasonsMessage + '，点击勾选要订阅的季度（可跳季，如只选 S1 和 S3）' + (subscriptionSeasonsUnspecified > 0 ? '；另有 ' + subscriptionSeasonsUnspecified + ' 个未带季度标记的文件' : '')"></p>
             <p x-show="subscriptionSeasonsDetected && !subscriptionSeasons.length" class="text-xs text-warning mb-2" x-text="subscriptionSeasonsMessage"></p>
             <p x-show="subscriptionSeasonsError" class="text-xs text-danger mb-2" x-text="subscriptionSeasonsError"></p>
             <input type="text" x-model="newSubscription.season_input" aria-label="季号，支持 1、1-4、1,3 等写法" @change="syncSeasonInputFromRemote()" @blur="syncSeasonInputFromRemote()" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="1 或 1-4（检测不到季度时手动填写）" />
-            <p class="text-xs text-muted/75 mt-1">勾选检测到的季度会自动覆盖手填值，支持跳季（只勾 S1、S3 时 S2 不会转存）；也可以手动填 <code class="text-text/80">1</code>、<code class="text-text/80">1-4</code> 或 <code class="text-text/80">1,3</code>。多季时目标目录只写剧名，转存按文件自动进入 Season N。</p>
+            <p class="text-xs text-muted mt-1">勾选检测到的季度会自动覆盖手填值，支持跳季（只勾 S1、S3 时 S2 不会转存）；也可以手动填 <code class="text-text/80">1</code>、<code class="text-text/80">1-4</code> 或 <code class="text-text/80">1,3</code>。多季时目标目录只写剧名，转存按文件自动进入 Season N。</p>
           </div>
 
           <div x-show="subscriptionMode === 'continuous' || subscriptionEditingId" class="space-y-4">
             <div x-show="newSubscription.media_type !== 'movie'">
               <label class="block text-sm font-medium text-text/80 mb-2" for="field-newsubscription-start-episode-number">从第几集开始转存</label>
               <input type="number" min="1" x-model="newSubscription.start_episode_number" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="留空不限制，例如：13"  id="field-newsubscription-start-episode-number"/>
-              <p class="text-xs text-muted/75 mt-1">低于该集数的新增文件会记为已知，但不会通知或自动转存。</p>
+              <p class="text-xs text-muted mt-1">低于该集数的新增文件会记为已知，但不会通知或自动转存。</p>
             </div>
 
             <label x-show="newSubscription.media_type !== 'movie'" class="flex items-center gap-2 text-sm text-text/80 cursor-pointer">
@@ -390,17 +390,17 @@
             <div class="flex flex-col sm:flex-row gap-3 sm:items-start sm:justify-between">
               <div class="min-w-0">
                 <div class="text-sm font-medium text-text/80">当前生效规则</div>
-                <div class="text-xs text-muted/75 mt-1">未自定义时跟随规则中心；下方可选用预设或展开覆盖。</div>
+                <div class="text-xs text-muted mt-1">未自定义时跟随规则中心；下方可选用预设或展开覆盖。</div>
               </div>
               <button type="button" @click="showSubscriptionDialog = false; selectTab('settings'); selectSettingsTab('naming')" class="btn-secondary px-3 py-2 rounded text-xs shrink-0">规则中心</button>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
               <div class="rounded-lg border border-border bg-app px-3 py-2">
-                <span class="block text-xs text-muted/75">模板</span>
+                <span class="block text-xs text-muted">模板</span>
                 <span class="text-success break-all" x-text="getDefaultRenameTemplate()"></span>
               </div>
               <div class="rounded-lg border border-border bg-app px-3 py-2">
-                <span class="block text-xs text-muted/75">目录</span>
+                <span class="block text-xs text-muted">目录</span>
                 <span class="text-success break-all" x-text="getDefaultTargetDir()"></span>
               </div>
             </div>
@@ -415,7 +415,7 @@
                 </select>
               </div>
             </div>
-            <div x-show="newSubscription.rule_preset_id" class="text-xs text-muted/75" x-text="rulePresetById(newSubscription.rule_preset_id)?.description || ruleSummary(rulePresetById(newSubscription.rule_preset_id)?.rules)"></div>
+            <div x-show="newSubscription.rule_preset_id" class="text-xs text-muted" x-text="rulePresetById(newSubscription.rule_preset_id)?.description || ruleSummary(rulePresetById(newSubscription.rule_preset_id)?.rules)"></div>
           </div>
 
           <details class="app-panel-soft p-4">
@@ -437,7 +437,7 @@
                     <input type="text" x-model="newSubscription.target_dir_name" aria-label="自定义转存目录名" class="flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="目录名称或完整路径，例如：庆余年 (2024)" />
                     <button type="button" @click="browseTargetDir()" class="btn-secondary px-3 py-2 rounded-lg text-sm whitespace-nowrap">浏览网盘</button>
                   </div>
-                  <p class="text-xs text-muted/75">单季落到 Season N；多季只写剧名，转存时自动创建 Season 文件夹。</p>
+                  <p class="text-xs text-muted">单季落到 Season N；多季只写剧名，转存时自动创建 Season 文件夹。</p>
                 </div>
               </div>
               <div>
@@ -453,13 +453,13 @@
                 </div>
                 <div x-show="newSubscription.custom_rename" class="space-y-2">
                   <input type="text" x-model="newSubscription.rename_template" aria-label="自定义重命名模板" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text" placeholder="例如：{title}.S{season}E{episode}.{ext}" />
-                  <p class="text-xs text-muted/75">支持 <code class="text-text/80">{title}</code>、<code class="text-text/80">{season}</code>、<code class="text-text/80">{episode}</code>、<code class="text-text/80">{ext}</code>。</p>
+                  <p class="text-xs text-muted">支持 <code class="text-text/80">{title}</code>、<code class="text-text/80">{season}</code>、<code class="text-text/80">{episode}</code>、<code class="text-text/80">{ext}</code>。</p>
                 </div>
               </div>
             </div>
 
             <div class="mt-4 space-y-3">
-              <div class="text-xs font-medium text-muted/80">过滤与识别</div>
+              <div class="text-xs font-medium text-muted">过滤与识别</div>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div><label class="field-label" for="field-newsubscription-include-keywords-text">包含关键词</label><input type="text" x-model="newSubscription.include_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="多个用逗号或换行分隔"  id="field-newsubscription-include-keywords-text"/></div>
                 <div><label class="field-label" for="field-newsubscription-exclude-keywords-text">排除关键词</label><input type="text" x-model="newSubscription.exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="预告, 花絮, trailer"  id="field-newsubscription-exclude-keywords-text"/></div>
@@ -473,7 +473,7 @@
             </div>
 
             <div class="mt-4 space-y-3">
-              <div class="text-xs font-medium text-muted/80">换源与进度</div>
+              <div class="text-xs font-medium text-muted">换源与进度</div>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div><label class="field-label" for="field-newsubscription-source-search-keywords-text">换源搜索关键词</label><input type="text" x-model="newSubscription.source_search_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text" placeholder="多个关键词用逗号分隔"  id="field-newsubscription-source-search-keywords-text"/></div>
                 <div><label class="field-label" for="field-newsubscription-source-exclude-keywords-text">候选排除词</label><input type="text" x-model="newSubscription.source_exclude_keywords_text" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text"  id="field-newsubscription-source-exclude-keywords-text"/></div>
@@ -519,7 +519,7 @@
             <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
               <div class="min-w-0">
                 <div class="text-sm font-medium text-text/80">重命名预览</div>
-                <div class="text-xs text-muted/75 mt-0.5" x-text="renamePreview ? renamePreview.summary : '按季度折叠显示转存与重命名结果'"></div>
+                <div class="text-xs text-muted mt-0.5" x-text="renamePreview ? renamePreview.summary : '按季度折叠显示转存与重命名结果'"></div>
               </div>
               <div class="flex flex-wrap items-center gap-2 shrink-0">
                 <div class="segmented-control">
@@ -546,12 +546,12 @@
                     <div class="min-w-0 flex items-center gap-2">
                       <svg class="w-4 h-4 text-muted shrink-0 transition-transform" :class="isRenamePreviewSeasonCollapsed(group.key) ? '' : 'rotate-90'" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                       <span class="text-sm font-medium text-text" x-text="group.label"></span>
-                      <span class="text-xs text-muted/75" x-text="group.transferCount + ' 转存 · ' + group.items.length + ' 项'"></span>
+                      <span class="text-xs text-muted" x-text="group.transferCount + ' 转存 · ' + group.items.length + ' 项'"></span>
                     </div>
-                    <span class="text-xs text-muted/70 shrink-0" x-text="isRenamePreviewSeasonCollapsed(group.key) ? '展开' : '收起'"></span>
+                    <span class="text-xs text-muted shrink-0" x-text="isRenamePreviewSeasonCollapsed(group.key) ? '展开' : '收起'"></span>
                   </button>
                   <div x-show="!isRenamePreviewSeasonCollapsed(group.key)" class="border-t border-border">
-                    <div class="hidden md:grid grid-cols-12 gap-2 px-3 py-2 bg-surface-2 text-xs text-muted/75">
+                    <div class="hidden md:grid grid-cols-12 gap-2 px-3 py-2 bg-surface-2 text-xs text-muted">
                       <div class="col-span-4">原文件名</div>
                       <div class="col-span-4">目标文件名</div>
                       <div class="col-span-2">集数</div>
@@ -561,7 +561,7 @@
                       <div class="grid gap-2 px-3 py-3 border-t border-border text-xs md:grid-cols-12">
                         <div class="text-text/80 break-all md:col-span-4" x-text="renamePreviewSourceLabel(item)"></div>
                         <div class="text-success break-all md:col-span-4" x-text="item.target_name"></div>
-                        <div class="text-muted md:col-span-2"><span class="text-muted/75 md:hidden">集数 </span><span x-text="item.episode ? '第 ' + item.episode + ' 集' : '-'"></span></div>
+                        <div class="text-muted md:col-span-2"><span class="text-muted md:hidden">集数 </span><span x-text="item.episode ? '第 ' + item.episode + ' 集' : '-'"></span></div>
                         <div class="md:col-span-2">
                           <span :class="item.action === 'transfer' ? 'text-success' : 'text-warning'" x-text="item.action === 'transfer' ? '会转存' : (item.skip_reason || '跳过')"></span>
                         </div>
@@ -571,8 +571,8 @@
                 </div>
               </template>
             </div>
-            <div x-show="!renamePreview" class="rounded-lg border border-dashed border-border p-4 text-sm text-muted/75">进入本页会自动预览；也可点「刷新预览」。</div>
-            <div x-show="renamePreview && groupedRenamePreviewSeasons().length === 0" class="rounded-lg border border-border p-4 text-sm text-muted/75">当前筛选下没有可显示的文件。</div>
+            <div x-show="!renamePreview" class="rounded-lg border border-dashed border-border p-4 text-sm text-muted">进入本页会自动预览；也可点「刷新预览」。</div>
+            <div x-show="renamePreview && groupedRenamePreviewSeasons().length === 0" class="rounded-lg border border-border p-4 text-sm text-muted">当前筛选下没有可显示的文件。</div>
           </div>
         </div>
 
@@ -598,10 +598,10 @@
                   <input type="text" x-model="newSubscription.sync_download_dir" class="flex-1 min-w-0 px-4 py-2 bg-app border border-border rounded-lg text-text" :placeholder="aria2DirForMediaType() || (newSubscription.media_type === 'movie' ? '留空使用 Aria2 默认目录' : '/downloads/剧集/Season 1')" id="field-newsubscription-sync-download-dir"/>
                   <button type="button" @click="openAria2DirBrowser()" class="btn-secondary shrink-0 px-4 py-2 rounded-lg text-sm whitespace-nowrap">浏览</button>
                 </div>
-                <p class="text-xs text-muted/75 mt-1">预期下载目录：<span class="text-success break-all" x-text="resolvedSubscriptionAria2Dir() || '未配置（使用 Aria2 默认目录）'"></span></p>
+                <p class="text-xs text-muted mt-1">预期下载目录：<span class="text-success break-all" x-text="resolvedSubscriptionAria2Dir() || '未配置（使用 Aria2 默认目录）'"></span></p>
               </div>
-              <p x-show="newSubscription.media_type !== 'movie'" class="text-xs text-muted/75">填写到具体 Season 目录时按填写内容执行；未写 Season 时会根据识别到的文件季号自动创建 Season N。留空则按媒体类型和剧名生成目录；未配置时不指定目录，由 Aria2 自身决定。</p>
-              <p x-show="newSubscription.media_type === 'movie'" class="text-xs text-muted/75">电影没有 Season 目录。留空时使用电影下载根目录与片名；下载在后台执行，进度可在“下载管理”查看。</p>
+              <p x-show="newSubscription.media_type !== 'movie'" class="text-xs text-muted">填写到具体 Season 目录时按填写内容执行；未写 Season 时会根据识别到的文件季号自动创建 Season N。留空则按媒体类型和剧名生成目录；未配置时不指定目录，由 Aria2 自身决定。</p>
+              <p x-show="newSubscription.media_type === 'movie'" class="text-xs text-muted">电影没有 Season 目录。留空时使用电影下载根目录与片名；下载在后台执行，进度可在“下载管理”查看。</p>
             </div>
             <p x-show="newSubscription.media_type === 'movie' && !newSubscription.sync_download_enabled" class="text-sm text-muted">本次仅保存到网盘，不提交本地下载。</p>
           </div>
@@ -623,7 +623,7 @@
 
   <!-- 统一危险操作确认 -->
   <div x-show="showDangerConfirmDialog" @click.self="resolveDangerConfirmation(false)" class="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4" style="display:none">
-    <div class="app-panel dialog-panel w-full max-w-lg p-6" role="alertdialog" aria-modal="true" :aria-label="dangerConfirmTitle" tabindex="-1" @keydown.tab="trapDialogFocus($event)" x-effect="if (showDangerConfirmDialog) $nextTick(() => $el.focus())">
+    <div class="app-panel dialog-panel w-full max-w-lg p-6" role="alertdialog" aria-modal="true" :aria-label="dangerConfirmTitle" tabindex="-1" @keydown.tab="trapDialogFocus($event)" x-effect="if (showDangerConfirmDialog) focusDialog($el, dangerConfirmPhrase ? $refs.dangerConfirmInput : null)">
       <h3 class="text-xl font-bold text-danger" x-text="dangerConfirmTitle"></h3><p class="mt-3 text-sm text-text/80" x-text="dangerConfirmMessage"></p>
       <div x-show="dangerConfirmPhrase" class="mt-4"><label class="field-label" x-text="'输入 ' + dangerConfirmPhrase + ' 以确认'" for="field-dangerconfirminput"></label><input x-ref="dangerConfirmInput" x-model="dangerConfirmInput" @keydown.enter.prevent="resolveDangerConfirmation(true)" class="app-input w-full"  id="field-dangerconfirminput"/></div>
       <div class="mt-5 flex justify-end gap-2"><button @click="resolveDangerConfirmation(false)" class="btn-secondary px-4 py-2">取消</button><button @click="resolveDangerConfirmation(true)" :disabled="!dangerConfirmationReady()" class="btn-danger px-4 py-2 disabled:opacity-40">确认执行</button></div>
@@ -632,11 +632,11 @@
 
   <!-- 后台任务详情 -->
   <div x-show="showJobDetailDialog" @click.self="showJobDetailDialog = false" @keydown.escape.window="showJobDetailDialog = false" class="fixed inset-0 bg-black/65 flex items-center justify-center p-4 z-50" style="display: none;">
-    <div class="app-panel dialog-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="后台任务详情" tabindex="-1" x-effect="if (showJobDetailDialog) $nextTick(() => $el.focus())">
+    <div class="app-panel dialog-panel p-6 max-w-4xl w-full max-h-[92vh] overflow-y-auto" @click.stop @keydown.tab="trapDialogFocus($event)" role="dialog" aria-modal="true" aria-label="后台任务详情" tabindex="-1" x-effect="if (showJobDetailDialog) focusDialog($el)">
       <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
         <div class="min-w-0">
           <h3 class="text-xl font-bold text-text break-all" x-text="selectedJob ? selectedJob.title : '任务详情'"></h3>
-          <p class="text-sm text-muted/75 mt-1" x-text="selectedJob ? selectedJob.id : ''"></p>
+          <p class="text-sm text-muted mt-1" x-text="selectedJob ? selectedJob.id : ''"></p>
         </div>
         <div class="flex gap-2">
           <button @click="copySelectedJobDetail()" class="btn-secondary px-3 py-2 rounded text-sm">复制详情</button>
@@ -647,23 +647,23 @@
       <template x-if="selectedJob">
         <div class="space-y-4">
           <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
-            <div class="stat-tile p-3"><div class="text-xs text-muted/75">类型</div><div class="mt-1 text-sm font-semibold text-text" x-text="jobKindLabel(selectedJob.kind)"></div></div>
-            <div class="stat-tile p-3"><div class="text-xs text-muted/75">优先级</div><div class="mt-1 text-sm font-semibold text-text" x-text="jobPriorityLabel(selectedJob.priority)"></div></div>
-            <div class="stat-tile p-3"><div class="text-xs text-muted/75">执行 / 错误分类</div><div class="mt-1 text-sm font-semibold text-text" x-text="'第 ' + (selectedJob.attempt || 1) + ' 次 · ' + jobErrorClassLabel(selectedJob.error_class)"></div></div>
-            <div class="stat-tile p-3"><div class="text-xs text-muted/75">状态</div><div class="mt-1 text-sm font-semibold" :class="jobStatusClass(selectedJob.status)" x-text="jobStatusLabel(selectedJob.status)"></div></div>
-            <div class="stat-tile p-3"><div class="text-xs text-muted/75">进度</div><div class="mt-1 text-sm font-semibold text-primary" x-text="(selectedJob.progress || 0) + '%'"></div></div>
-            <div class="stat-tile p-3"><div class="text-xs text-muted/75">耗时</div><div class="mt-1 text-sm font-semibold text-text" x-text="jobDurationLabel(selectedJob)"></div></div>
+            <div class="stat-tile p-3"><div class="text-xs text-muted">类型</div><div class="mt-1 text-sm font-semibold text-text" x-text="jobKindLabel(selectedJob.kind)"></div></div>
+            <div class="stat-tile p-3"><div class="text-xs text-muted">优先级</div><div class="mt-1 text-sm font-semibold text-text" x-text="jobPriorityLabel(selectedJob.priority)"></div></div>
+            <div class="stat-tile p-3"><div class="text-xs text-muted">执行 / 错误分类</div><div class="mt-1 text-sm font-semibold text-text" x-text="'第 ' + (selectedJob.attempt || 1) + ' 次 · ' + jobErrorClassLabel(selectedJob.error_class)"></div></div>
+            <div class="stat-tile p-3"><div class="text-xs text-muted">状态</div><div class="mt-1 text-sm font-semibold" :class="jobStatusClass(selectedJob.status)" x-text="jobStatusLabel(selectedJob.status)"></div></div>
+            <div class="stat-tile p-3"><div class="text-xs text-muted">进度</div><div class="mt-1 text-sm font-semibold text-primary" x-text="(selectedJob.progress || 0) + '%'"></div></div>
+            <div class="stat-tile p-3"><div class="text-xs text-muted">耗时</div><div class="mt-1 text-sm font-semibold text-text" x-text="jobDurationLabel(selectedJob)"></div></div>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
             <div class="app-panel-soft p-3">
-              <div class="text-xs text-muted/75 mb-1">创建 / 开始 / 结束</div>
+              <div class="text-xs text-muted mb-1">创建 / 开始 / 结束</div>
               <div class="text-text/80" x-text="'创建：' + formatTime(selectedJob.created_at)"></div>
               <div class="text-text/80" x-text="'开始：' + formatTime(selectedJob.started_at)"></div>
               <div class="text-text/80" x-text="'结束：' + formatTime(selectedJob.finished_at)"></div>
             </div>
             <div class="app-panel-soft p-3">
-              <div class="text-xs text-muted/75 mb-1">消息</div>
+              <div class="text-xs text-muted mb-1">消息</div>
               <div class="text-text/80 break-all" x-text="selectedJob.message || '-'"></div>
               <div x-show="selectedJob.error" class="text-danger break-all mt-2" x-text="selectedJob.error"></div>
             </div>

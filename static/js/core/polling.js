@@ -137,6 +137,9 @@
           this.jobEvents.close();
         }
         this.jobEvents = null;
+        // 主动关闭后不会再收到 error/snapshot，状态要一并复位。
+        this.jobEventsHealthy = false;
+        this.jobEventsReconnecting = false;
       },
 
       destroy() {

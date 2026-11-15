@@ -28,7 +28,8 @@
       pwaInstallAvailable: false,
       pwaInstalled: false,
       pwaUpdateReady: false,
-      pwaOffline: typeof navigator !== 'undefined' ? !navigator.onLine : false,
+      // 只有明确的 false 才算离线：不提供 onLine 的环境不能被当成断网。
+      pwaOffline: typeof navigator !== 'undefined' && navigator.onLine === false,
       pwaRegistration: null,
       pwaApplyingUpdate: false,
       pwaUpdateReloadTimer: null,

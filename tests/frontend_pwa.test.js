@@ -79,6 +79,24 @@ test('magic title matching module has the same cache revision in HTML and servic
   assert.match(scripts, new RegExp(`js/stores/subscriptions\\.js\\?v=[^"&]+&rev=${revision}`));
 });
 
+test('every revisioned asset has the same cache revision in HTML and service worker', () => {
+  // 两边不一致时，浏览器请求的 URL 不在预缓存里：离线时取不到，在线时旧文件可能继续生效。
+  const worker = fs.readFileSync(path.join(root, 'static/service-worker.js'), 'utf8');
+  const table = worker.match(/const ASSET_REVISIONS = \{([\s\S]*?)\};/)[1];
+  const workerRevisions = Object.fromEntries(
+    [...table.matchAll(/'([^']+)': '([^']+)'/g)].map(match => [match[1], match[2]])
+  );
+  const markup = ['scripts.html', 'shell-head.html']
+    .map(name => fs.readFileSync(path.join(root, 'static/partials', name), 'utf8')).join('\n');
+  const htmlRevisions = Object.fromEntries(
+    [...markup.matchAll(/(?:src|href)="([\w./-]+\.(?:js|css))\?v=[^"&]+(?:&rev=([\w-]+))?"/g)]
+      .filter(match => match[2])
+      .map(match => ['/' + match[1], match[2]])
+  );
+  assert.ok(Object.keys(workerRevisions).length > 0);
+  assert.deepEqual(htmlRevisions, workerRevisions);
+});
+
 test('PWA update unwraps Alpine native registrations and requests activation', async () => {
   const originalAlpine = global.Alpine;
   const originalWindow = global.window;

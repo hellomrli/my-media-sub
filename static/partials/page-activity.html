@@ -2,27 +2,27 @@
         <div x-show="currentTab === 'notifications'" class="page-stack">
           <div class="metric-grid">
             <div class="stat-tile p-4">
-              <div class="text-xs text-muted/75">全部活动</div>
+              <div class="text-xs text-muted">全部活动</div>
               <div class="mt-2 text-2xl font-semibold text-text" x-text="activityStats.total"></div>
             </div>
             <div class="stat-tile p-4">
-              <div class="text-xs text-muted/75">运行中任务</div>
+              <div class="text-xs text-muted">运行中任务</div>
               <div class="mt-2 text-2xl font-semibold text-warning" x-text="activityStats.running"></div>
             </div>
             <div class="stat-tile p-4">
-              <div class="text-xs text-muted/75">失败项</div>
+              <div class="text-xs text-muted">失败项</div>
               <div class="mt-2 text-2xl font-semibold text-danger" x-text="activityStats.failed"></div>
             </div>
             <div class="stat-tile p-4">
-              <div class="text-xs text-muted/75">未读通知</div>
+              <div class="text-xs text-muted">未读通知</div>
               <div class="mt-2 text-2xl font-semibold text-primary" x-text="activityStats.unread"></div>
             </div>
             <div class="stat-tile p-4">
-              <div class="text-xs text-muted/75">后台任务</div>
+              <div class="text-xs text-muted">后台任务</div>
               <div class="mt-2 text-2xl font-semibold text-primary" x-text="activityStats.jobs"></div>
             </div>
             <div class="stat-tile p-4">
-              <div class="text-xs text-muted/75">系统通知</div>
+              <div class="text-xs text-muted">系统通知</div>
               <div class="mt-2 text-2xl font-semibold text-secondary" x-text="activityStats.notifications"></div>
             </div>
           </div>
@@ -31,18 +31,18 @@
             <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
               <div>
                 <h3 class="section-title">最近检查结果</h3>
-                <p class="text-sm text-muted/75 mt-1" x-text="lastCheckResult ? lastCheckResult.summary : ''"></p>
+                <p class="text-sm text-muted mt-1" x-text="lastCheckResult ? lastCheckResult.summary : ''"></p>
               </div>
               <button @click="lastCheckResult = null" class="btn-secondary px-3 py-2 rounded text-sm">关闭</button>
             </div>
             <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
-              <div class="stat-tile p-3"><div class="text-xs text-muted/75">扫描文件</div><div class="mt-1 text-xl font-semibold text-text" x-text="lastCheckMetric('scanned_count')"></div></div>
-              <div class="stat-tile p-3"><div class="text-xs text-muted/75">新增</div><div class="mt-1 text-xl font-semibold text-success" x-text="lastCheckMetric('new_count')"></div></div>
-              <div class="stat-tile p-3"><div class="text-xs text-muted/75">已知</div><div class="mt-1 text-xl font-semibold text-primary" x-text="lastCheckMetric('known_count')"></div></div>
-              <div class="stat-tile p-3"><div class="text-xs text-muted/75">目录跳过</div><div class="mt-1 text-xl font-semibold text-text/80" x-text="lastCheckMetric('skipped_directory_count')"></div></div>
-              <div class="stat-tile p-3"><div class="text-xs text-muted/75">季度外暂不转存</div><div class="mt-1 text-xl font-semibold text-secondary" x-text="lastCheckMetric('skipped_other_season_count')"></div></div>
-              <div class="stat-tile p-3"><div class="text-xs text-muted/75">起始集跳过</div><div class="mt-1 text-xl font-semibold text-warning" x-text="lastCheckMetric('skipped_before_start_count')"></div></div>
-              <div class="stat-tile p-3"><div class="text-xs text-muted/75">同集跳过</div><div class="mt-1 text-xl font-semibold text-secondary" x-text="lastCheckMetric('skipped_duplicate_episode_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-muted">扫描文件</div><div class="mt-1 text-xl font-semibold text-text" x-text="lastCheckMetric('scanned_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-muted">新增</div><div class="mt-1 text-xl font-semibold text-success" x-text="lastCheckMetric('new_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-muted">已知</div><div class="mt-1 text-xl font-semibold text-primary" x-text="lastCheckMetric('known_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-muted">目录跳过</div><div class="mt-1 text-xl font-semibold text-text/80" x-text="lastCheckMetric('skipped_directory_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-muted">季度外暂不转存</div><div class="mt-1 text-xl font-semibold text-secondary" x-text="lastCheckMetric('skipped_other_season_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-muted">起始集跳过</div><div class="mt-1 text-xl font-semibold text-warning" x-text="lastCheckMetric('skipped_before_start_count')"></div></div>
+              <div class="stat-tile p-3"><div class="text-xs text-muted">同集跳过</div><div class="mt-1 text-xl font-semibold text-secondary" x-text="lastCheckMetric('skipped_duplicate_episode_count')"></div></div>
             </div>
             <div x-show="checkDetailItems().length > 0" class="data-table data-table--stack">
               <div class="data-table-scroll">
@@ -51,10 +51,10 @@
                 </div>
                 <template x-for="(item, itemIndex) in checkDetailItems()" :key="'check-detail-' + (item.file_key || item.name || 'missing') + '-' + itemIndex">
                   <div class="data-table-row grid-cols-[minmax(320px,1fr)_90px_90px_minmax(240px,0.8fr)] px-3">
-                    <div class="min-w-0"><div class="truncate text-text/85" x-text="item.name"></div><div x-show="item.parent_path" class="truncate text-xs text-muted/75" x-text="item.parent_path"></div></div>
-                    <div class="text-xs text-muted/80" x-text="item.episode ? '第 ' + item.episode + ' 集' : '-' "></div>
+                    <div class="min-w-0"><div class="truncate text-text/85" x-text="item.name"></div><div x-show="item.parent_path" class="truncate text-xs text-muted" x-text="item.parent_path"></div></div>
+                    <div class="text-xs text-muted" x-text="item.episode ? '第 ' + item.episode + ' 集' : '-' "></div>
                     <div><span class="badge" :class="item.action === 'new' ? 'badge-success' : (item.action === 'skip' ? 'badge-warning' : 'badge-primary')" x-text="checkActionLabel(item.action)"></span></div>
-                    <div class="truncate text-xs text-muted/80"><span class="lg:hidden">原因 </span><span x-text="item.reason || '-' "></span></div>
+                    <div class="truncate text-xs text-muted"><span class="lg:hidden">原因 </span><span x-text="item.reason || '-' "></span></div>
                   </div>
                 </template>
               </div>
@@ -65,7 +65,7 @@
             <div class="p-4 border-b border-border toolbar-panel">
               <div>
                 <h3 class="section-title">活动中心</h3>
-                <p class="text-sm text-muted/75 mt-1">后台任务和系统通知按时间合并展示；推送派发任务不在此列出。失败任务可直接重试，通知仍可单独标记已读。</p>
+                <p class="text-sm text-muted mt-1">后台任务和系统通知按时间合并展示；推送派发任务不在此列出。失败任务可直接重试，通知仍可单独标记已读。</p>
               </div>
               <div class="control-row">
                 <button @click="markAllRead()" class="btn-secondary px-3 py-2 rounded-lg transition-colors text-sm">全部已读</button>
@@ -98,10 +98,10 @@
                       <div><span class="badge badge-muted" x-text="activityEventLabel(item)"></span></div>
                       <div class="min-w-0">
                         <div class="truncate text-sm font-medium text-text" x-text="item.title"></div>
-                        <div class="truncate text-xs text-muted/75" x-text="item.message || activityTimeLabel(item)"></div>
-                        <div x-show="item.source === 'job' && ((item.raw.attempt || 1) > 1 || item.raw.error_class)" class="truncate text-[10px] text-warning/80" x-text="'第 ' + (item.raw.attempt || 1) + ' 次 · ' + jobErrorClassLabel(item.raw.error_class)"></div>
+                        <div class="truncate text-xs text-muted" x-text="item.message || activityTimeLabel(item)"></div>
+                        <div x-show="item.source === 'job' && ((item.raw.attempt || 1) > 1 || item.raw.error_class)" class="truncate text-[10px] text-warning" x-text="'第 ' + (item.raw.attempt || 1) + ' 次 · ' + jobErrorClassLabel(item.raw.error_class)"></div>
                       </div>
-                      <div class="text-xs text-muted/75"><span class="lg:hidden">时间 </span><span x-text="activityTimeLabel(item)"></span></div>
+                      <div class="text-xs text-muted"><span class="lg:hidden">时间 </span><span x-text="activityTimeLabel(item)"></span></div>
                       <div class="flex flex-wrap justify-end gap-1">
                         <button x-show="item.source === 'job'" @click="openActivityItem(item)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors">详情</button>
                         <select x-show="item.source === 'job' && item.raw.status === 'queued'" :value="item.raw.priority || 'normal'" @change="setJobPriority(item.raw, $event.target.value)" class="app-select px-1 py-1 text-xs" aria-label="任务优先级">
@@ -117,10 +117,10 @@
                       <details><summary class="cursor-pointer text-muted hover:text-text">推送详情</summary>
                         <div class="mt-2 flex flex-wrap gap-2">
                           <template x-for="(channel, channelIndex) in notificationPushChannelStatuses(item.raw)" :key="'activity-push-' + (channel.channel || 'missing') + '-' + channelIndex">
-                            <span class="inline-flex items-center gap-1.5 rounded border px-2 py-1" :class="channel.success ? 'border-success/30 bg-success/10 text-success/85' : 'border-danger/30 bg-danger/10 text-danger/85'"><span x-text="channel.success ? '✓' : '!'"></span><span x-text="channel.name"></span><span x-show="channel.attempts > 1" class="text-muted" x-text="'x' + channel.attempts"></span></span>
+                            <span class="inline-flex items-center gap-1.5 rounded border px-2 py-1" :class="channel.success ? 'border-success/30 bg-success/10 text-success' : 'border-danger/30 bg-danger/10 text-danger'"><span x-text="channel.success ? '✓' : '!'"></span><span x-text="channel.name"></span><span x-show="channel.attempts > 1" class="text-muted" x-text="'x' + channel.attempts"></span></span>
                           </template>
                         </div>
-                        <div x-show="notificationPushErrors(item.raw).length > 0" class="mt-2 space-y-1 text-danger/85"><template x-for="(error, errorIndex) in notificationPushErrors(item.raw)" :key="'activity-push-error-' + error.channel + '-' + errorIndex"><div><span x-text="pushChannelName(error.channel)"></span>: <span x-text="error.error"></span></div></template></div>
+                        <div x-show="notificationPushErrors(item.raw).length > 0" class="mt-2 space-y-1 text-danger"><template x-for="(error, errorIndex) in notificationPushErrors(item.raw)" :key="'activity-push-error-' + error.channel + '-' + errorIndex"><div><span x-text="pushChannelName(error.channel)"></span>: <span x-text="error.error"></span></div></template></div>
                       </details>
                     </div>
                   </div>

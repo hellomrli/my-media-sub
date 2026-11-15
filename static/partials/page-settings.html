@@ -1,12 +1,15 @@
         <!-- 设置页面 -->
         <div x-show="currentTab === 'settings'" class="page-stack">
 
-          <section class="settings-overview">
+          <section class="settings-overview" :class="{'is-open': settingsOverviewOpen, 'is-complete': settingsPendingRequiredItems.length === 0}">
             <div class="settings-overview-score" :style="'--completion:' + settingsCompletionPercent">
               <div><strong x-text="settingsCompletionPercent + '%'"></strong><span>配置完成度</span></div>
-              <p>按连接、自动化、命名规则、通知和维护任务组织配置。</p>
+              <p class="settings-overview-intro">按连接、自动化、命名规则、通知和维护任务组织配置。</p>
+              <!-- 手机上概览默认收起：只留完成度、未完成的必需项和展开按钮，让表单先出现 -->
+              <p class="settings-overview-summary" x-text="settingsOverviewSummary()"></p>
+              <button type="button" @click="toggleSettingsOverview()" :aria-expanded="settingsOverviewOpen ? 'true' : 'false'" aria-controls="settings-overview-details" class="settings-overview-toggle btn-secondary" x-text="settingsOverviewOpen ? '收起' : '展开'">展开</button>
             </div>
-            <div class="settings-overview-items">
+            <div class="settings-overview-items" id="settings-overview-details">
               <template x-for="item in settingsCompletionItems" :key="item.id">
                 <button @click="selectSettingsTab(item.tab)" class="settings-overview-item" :class="settingsCompletionItemClass(item)">
                   <span class="settings-overview-state" x-text="item.configured ? '✓' : (item.optional ? '○' : '!')"></span>
@@ -92,7 +95,7 @@
                 </label>
               </div>
 
-              <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
+              <div class="settings-actions flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="testAria2()" class="btn-secondary px-4 py-2 rounded-lg">测试 Aria2</button>
               </div>
             </div>
@@ -123,31 +126,31 @@
                 </div>
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div class="stat-tile p-4">
-                    <div class="text-xs text-muted/75">连接状态</div>
+                    <div class="text-xs text-muted">连接状态</div>
                     <div class="mt-2 text-xl font-semibold" :class="quarkHealthStatusClass()" x-text="quarkHealthStatusLabel()"></div>
                   </div>
                   <div class="stat-tile p-4">
-                    <div class="text-xs text-muted/75">自动转存</div>
+                    <div class="text-xs text-muted">自动转存</div>
                     <div class="mt-2 text-xl font-semibold" :class="settings.quark_save_enabled ? 'text-success' : 'text-text/80'" x-text="settings.quark_save_enabled ? '已启用' : '未启用'"></div>
                   </div>
                   <div class="stat-tile p-4">
-                    <div class="text-xs text-muted/75">连签进度</div>
+                    <div class="text-xs text-muted">连签进度</div>
                     <div class="mt-2 text-xl font-semibold text-primary" x-text="quarkSigninProgressLabel()"></div>
                   </div>
                   <div class="stat-tile p-4">
-                    <div class="text-xs text-muted/75">容量</div>
+                    <div class="text-xs text-muted">容量</div>
                     <div class="mt-2 text-xl font-semibold text-text" x-text="quarkCapacityLabel()"></div>
                   </div>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
 	                  <div class="app-panel-soft p-3">
-	                    <div class="text-xs text-muted/75 mb-1">检测结果</div>
+	                    <div class="text-xs text-muted mb-1">检测结果</div>
 	                    <div class="text-text/80 break-all" x-text="quarkHealth.message"></div>
 	                    <div class="text-xs mt-1" :class="(quarkHealth.issues || []).length ? 'text-warning' : 'text-success'" x-text="quarkHealthIssueText()"></div>
-	                    <div class="text-xs text-muted/75 mt-1" x-text="quarkHealth.checkedAt ? '检测时间 ' + formatTime(quarkHealth.checkedAt) : '尚未检测'"></div>
+	                    <div class="text-xs text-muted mt-1" x-text="quarkHealth.checkedAt ? '检测时间 ' + formatTime(quarkHealth.checkedAt) : '尚未检测'"></div>
 	                  </div>
                   <div class="app-panel-soft p-3">
-                    <div class="text-xs text-muted/75 mb-1">签到结果</div>
+                    <div class="text-xs text-muted mb-1">签到结果</div>
                     <div class="text-text/80 break-all" x-text="quarkHealth.signinMessage || '尚未签到'"></div>
                   </div>
                 </div>
@@ -168,7 +171,7 @@
                       <input type="text" x-model="settings.quark_signin_cookie" @focus="prepareSecretInput('quark_signin_cookie')" placeholder="粘贴移动端 Cookie 或 reward 请求 URL，留空使用上方夸克 Cookie" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-quark-signin-cookie"/>
                       <button type="button" @click="toggleSettingSecret('quark_signin_cookie')" :disabled="secretToggleDisabled('quark_signin_cookie')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('quark_signin_cookie')"></button>
                     </div>
-                    <p class="text-xs text-muted/75 mt-2">可粘贴 <code class="text-text/80">kps=...; sign=...; vcode=...</code>，也可直接粘贴手机端抓包到的 <code class="text-text/80">drive-m.quark.cn/.../act/growth/reward</code> 整段 URL。</p>
+                    <p class="text-xs text-muted mt-2">可粘贴 <code class="text-text/80">kps=...; sign=...; vcode=...</code>，也可直接粘贴手机端抓包到的 <code class="text-text/80">drive-m.quark.cn/.../act/growth/reward</code> 整段 URL。</p>
                   </div>
                   <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.quark_signin_enabled" class="rounded" />启用每日自动签到</label>
                   <div>
@@ -179,13 +182,13 @@
                     </div>
                   </div>
                 </div>
-                <p class="text-xs text-muted/75">签到依赖移动端参数 kps、sign、vcode；签到 Cookie 留空时使用上方夸克 Cookie。</p>
+                <p class="text-xs text-muted">签到依赖移动端参数 kps、sign、vcode；签到 Cookie 留空时使用上方夸克 Cookie。</p>
               </div>
 
               <div class="app-panel-soft p-4 space-y-4">
                 <div class="flex items-center justify-between gap-3">
                   <h3 class="section-title">目录配置</h3>
-                  <button type="button" @click="addCustomCategory()" class="btn-secondary w-9 h-9 rounded-lg grid place-items-center transition-colors" aria-label="添加自定义类别" title="添加自定义类别">
+                  <button type="button" @click="addCustomCategory()" class="btn-secondary w-9 h-9 p-0 rounded-lg grid place-items-center transition-colors" aria-label="添加自定义类别" title="添加自定义类别">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
                   </button>
                 </div>
@@ -213,7 +216,7 @@
                 </div>
               </div>
 
-              <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
+              <div class="settings-actions flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="testQuark()" class="btn-secondary px-4 py-2 rounded-lg">测试连接</button>
               </div>
             </div>
@@ -370,7 +373,7 @@
                 </div>
               </div>
 
-              <div class="settings-actions is-wide flex justify-end gap-3 pt-4 border-t border-border">
+              <div class="settings-actions flex justify-end gap-3 pt-4 border-t border-border">
                 <button @click="testPush()" class="btn-secondary px-4 py-2 rounded-lg">测试推送</button>
               </div>
             </div>
@@ -382,7 +385,7 @@
                 <div class="space-y-3">
                   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                     <div class="field-label mb-0">检查周期</div>
-                    <span class="text-xs text-muted/75" x-text="'当前每 ' + checkIntervalLabel(settings.subscription_check_interval_minutes) + ' 检查一次'"></span>
+                    <span class="text-xs text-muted" x-text="'当前每 ' + checkIntervalLabel(settings.subscription_check_interval_minutes) + ' 检查一次'"></span>
                   </div>
                   <div class="flex flex-wrap gap-2">
                     <template x-for="minutes in checkIntervalPresets" :key="minutes">
@@ -392,7 +395,7 @@
                   <div>
                     <label class="field-label" for="field-settings-subscription-check-interval-minutes">自定义分钟数</label>
                     <input type="number" x-model.number="settings.subscription_check_interval_minutes" min="5" step="5" class="w-full px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-subscription-check-interval-minutes"/>
-                    <p class="text-xs text-muted/75 mt-2">最小 5 分钟，保存后调度器会按新的周期重新加载。</p>
+                    <p class="text-xs text-muted mt-2">最小 5 分钟，保存后调度器会按新的周期重新加载。</p>
                   </div>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -403,7 +406,7 @@
                 <div>
                   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-3">
                     <div class="field-label mb-0">后台任务分层并发</div>
-                    <span class="text-xs text-muted/75">类别上限同时受全局上限约束；同一订阅始终串行</span>
+                    <span class="text-xs text-muted">类别上限同时受全局上限约束；同一订阅始终串行</span>
                   </div>
                   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                     <div><label class="field-label" for="field-settings-job-max-concurrency">全局</label><input type="number" min="1" max="32" x-model.number="settings.job_max_concurrency" class="w-full px-4 py-2 bg-app border border-border rounded-lg"  id="field-settings-job-max-concurrency"/></div>
@@ -415,13 +418,13 @@
                 </div>
                 <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.subscription_scheduler_enabled" class="rounded" />启用自动检查</label>
                 <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.auto_download_new_subscription_items" class="rounded" />自动转存新订阅项</label>
-                <p class="text-xs text-muted/75 -mt-1">开启「启用自动转存」后，定时/手动检查发现新文件会自动转存；本项可额外显式开启。订阅内「同步用 Aria2 下载」会在转存成功后提交本地下载。</p>
+                <p class="text-xs text-muted -mt-1">开启「启用自动转存」后，定时/手动检查发现新文件会自动转存；本项可额外显式开启。订阅内「同步用 Aria2 下载」会在转存成功后提交本地下载。</p>
               </div>
 
               <div class="app-panel-soft p-4 space-y-4">
                 <div>
                   <h3 class="section-title">安全自动换源</h3>
-                  <p class="text-sm text-muted/75 mt-1">默认仅搜索候选；只有候选探测、季度、进度覆盖、分数和冷却全部满足时才允许自动应用。</p>
+                  <p class="text-sm text-muted mt-1">默认仅搜索候选；只有候选探测、季度、进度覆盖、分数和冷却全部满足时才允许自动应用。</p>
                 </div>
                 <label class="flex items-center gap-2 text-sm text-text/80 cursor-pointer"><input type="checkbox" x-model="settings.auto_source_switch_enabled" class="rounded" />允许系统自动应用候选来源</label>
                 <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -431,19 +434,19 @@
                   <div><label class="field-label" for="field-settings-source-switch-failure-threshold">连续失效次数</label><input type="number" min="1" max="20" x-model.number="settings.source_switch_failure_threshold" class="app-input w-full"  id="field-settings-source-switch-failure-threshold"/></div>
                   <div><label class="field-label" for="field-settings-source-switch-cooldown-hours">冷却时间（小时）</label><input type="number" min="1" max="720" x-model.number="settings.source_switch_cooldown_hours" class="app-input w-full"  id="field-settings-source-switch-cooldown-hours"/></div>
                 </div>
-                <div class="rounded border border-warning/30 bg-warning/5 p-3 text-xs text-muted/80">即使选择“自动应用”，总开关关闭时仍只搜索；失败候选和历史失效链接不会在冷却期内重复应用。</div>
+                <div class="rounded border border-warning/30 bg-warning/5 p-3 text-xs text-muted">即使选择“自动应用”，总开关关闭时仍只搜索；失败候选和历史失效链接不会在冷却期内重复应用。</div>
               </div>
 
               <div class="app-panel-soft p-4 space-y-4">
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <h3 class="section-title">命名规则</h3>
-                    <p class="text-sm text-muted/75 mt-1">默认重命名模板和规则预览统一在规则中心维护。</p>
+                    <p class="text-sm text-muted mt-1">默认重命名模板和规则预览统一在规则中心维护。</p>
                   </div>
                   <button type="button" @click="openRuleCenter()" class="btn-secondary px-4 py-2 rounded-lg text-sm">打开规则中心</button>
                 </div>
                 <div class="border-t border-border pt-3 text-sm">
-                  <div class="text-xs text-muted/75 mb-1">当前默认模板</div>
+                  <div class="text-xs text-muted mb-1">当前默认模板</div>
                   <div class="text-text/80 break-all" x-text="defaultRenameTemplateLabel()"></div>
                 </div>
               </div>
@@ -456,7 +459,7 @@
                 <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div>
                     <h3 class="section-title">命名规则中心</h3>
-                    <p class="text-sm text-muted/75 mt-1">集中调试追剧命名模板、过滤规则和样例文件，确认后可写入默认模板或在订阅弹窗中套用。</p>
+                    <p class="text-sm text-muted mt-1">集中调试追剧命名模板、过滤规则和样例文件，确认后可写入默认模板或在订阅弹窗中套用。</p>
                   </div>
                   <div class="flex flex-col sm:flex-row gap-2">
                     <button @click="saveRuleCenterPreset()" class="btn-secondary px-4 py-2 rounded-lg text-sm">保存预设</button>
@@ -472,11 +475,11 @@
                     <div class="btn-secondary p-3 rounded-lg text-left min-h-20">
                       <button @click="applyRulePresetToRuleCenter(preset.id)" class="w-full text-left">
                         <span class="block text-sm text-text font-medium" x-text="preset.name"></span>
-                        <span class="block text-xs text-muted/75 mt-1" x-text="preset.description || ruleSummary(preset.rules)"></span>
+                        <span class="block text-xs text-muted mt-1" x-text="preset.description || ruleSummary(preset.rules)"></span>
                       </button>
                       <div class="mt-3 flex items-center justify-between gap-2 text-xs">
-                        <span class="text-muted/75" x-text="mediaTypeLabel(preset.media_type || 'series')"></span>
-                        <button @click.stop="deleteRulePreset(preset.id)" class="text-danger hover:text-danger/80">删除</button>
+                        <span class="text-muted" x-text="mediaTypeLabel(preset.media_type || 'series')"></span>
+                        <button @click.stop="deleteRulePreset(preset.id)" class="text-danger hover:text-danger">删除</button>
                       </div>
                     </div>
                   </template>
@@ -545,14 +548,14 @@
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h3 class="section-title">样例预览</h3>
-                    <p class="text-sm text-muted/75 mt-1">每行一个文件名，用于验证集数识别、过滤和目标文件名。</p>
+                    <p class="text-sm text-muted mt-1">每行一个文件名，用于验证集数识别、过滤和目标文件名。</p>
                   </div>
                   <button @click="copyText(ruleCenter.rename_template)" class="btn-secondary px-3 py-2 rounded text-sm">复制模板</button>
                 </div>
                 <textarea x-model="ruleCenter.samples" aria-label="规则测试样本文件名" rows="5" class="w-full px-4 py-2 bg-app border border-border rounded-lg text-text"></textarea>
                 <div x-show="ruleCenterPreviewError" class="text-sm text-danger" x-text="ruleCenterPreviewError"></div>
                 <div x-show="ruleCenterPreview && ruleCenterPreview.items && ruleCenterPreview.items.length > 0" class="border border-border rounded-lg overflow-hidden">
-                  <div class="hidden md:grid grid-cols-12 gap-2 px-3 py-2 bg-app text-xs text-muted/75">
+                  <div class="hidden md:grid grid-cols-12 gap-2 px-3 py-2 bg-app text-xs text-muted">
                     <div class="col-span-4">原文件名</div>
                     <div class="col-span-4">目标文件名</div>
                     <div class="col-span-2">集数</div>
@@ -562,7 +565,7 @@
                     <div class="grid gap-2 px-3 py-3 border-t border-border text-xs md:grid-cols-12">
                       <div class="text-text/80 break-all md:col-span-4" x-text="item.source_name"></div>
                       <div class="text-success break-all md:col-span-4" x-text="item.target_name"></div>
-                      <div class="text-muted md:col-span-2"><span class="text-muted/75 md:hidden">集数 </span><span x-text="item.episode ? '第 ' + item.episode + ' 集' : '-'"></span></div>
+                      <div class="text-muted md:col-span-2"><span class="text-muted md:hidden">集数 </span><span x-text="item.episode ? '第 ' + item.episode + ' 集' : '-'"></span></div>
                       <div class="md:col-span-2">
                         <span :class="item.action === 'transfer' ? 'text-success' : 'text-warning'" x-text="item.action === 'transfer' ? '会转存' : (item.skip_reason || '跳过')"></span>
                       </div>
@@ -602,13 +605,13 @@
                   </div>
                   <div class="flex items-center justify-between gap-3">
                     <label class="field-label" for="field-settings-pansou-api-url">PanSou API URL</label>
-                    <span class="text-xs text-muted/75" x-text="settings.pansou_api_url_configured ? '已配置' : '未配置'"></span>
+                    <span class="text-xs text-muted" x-text="settings.pansou_api_url_configured ? '已配置' : '未配置'"></span>
                   </div>
                   <div class="setting-input-action">
                     <input type="text" x-model="settings.pansou_api_url" @focus="prepareSecretInput('pansou_api_url')" :placeholder="settings.pansou_api_url_configured ? '已配置，留空不修改' : '留空使用内置服务，或粘贴自建 API URL'" class="min-w-0 flex-1 px-4 py-2 bg-app border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-text"  id="field-settings-pansou-api-url"/>
                     <button type="button" @click="toggleSettingSecret('pansou_api_url')" :disabled="secretToggleDisabled('pansou_api_url')" class="btn-secondary px-3 py-2 rounded-lg text-sm disabled:opacity-50" x-text="secretButtonLabel('pansou_api_url')"></button>
                   </div>
-                  <p class="text-xs text-muted/75 mt-2">保存后新的资源搜索会使用该地址；留空时使用内置默认服务。</p>
+                  <p class="text-xs text-muted mt-2">保存后新的资源搜索会使用该地址；留空时使用内置默认服务。</p>
                 </div>
               </div>
 
@@ -618,19 +621,19 @@
             <div x-show="currentSettingsTab === 'update'" class="settings-pane p-4 sm:p-5">
               <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <div class="stat-tile p-4">
-                  <div class="text-xs text-muted/75">当前版本</div>
+                  <div class="text-xs text-muted">当前版本</div>
                   <div class="mt-2 text-lg font-semibold text-text" x-text="updateInfo ? updateInfo.current_version : '-'"></div>
                 </div>
                 <div class="stat-tile p-4">
-                  <div class="text-xs text-muted/75">最新版本</div>
+                  <div class="text-xs text-muted">最新版本</div>
                   <div class="mt-2 text-lg font-semibold text-text" x-text="updateInfo ? updateInfo.latest_tag : '-'"></div>
                 </div>
                 <div class="stat-tile p-4">
-                  <div class="text-xs text-muted/75">状态</div>
+                  <div class="text-xs text-muted">状态</div>
                   <div class="mt-2 text-lg font-semibold" :class="updateStatusClass()" x-text="updateStatusLabel()"></div>
                 </div>
                 <div class="stat-tile p-4">
-                  <div class="text-xs text-muted/75">运行方式</div>
+                  <div class="text-xs text-muted">运行方式</div>
                   <div class="mt-2 text-lg font-semibold text-text" x-text="updateRuntimeLabel()"></div>
                 </div>
               </div>
@@ -639,7 +642,7 @@
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h3 class="section-title">版本检查</h3>
-                    <p class="text-sm text-muted/75 mt-1" x-text="updateInfo ? '检查时间 ' + formatUpdateTime(updateInfo.checked_at) : '尚未检查'"></p>
+                    <p class="text-sm text-muted mt-1" x-text="updateInfo ? '检查时间 ' + formatUpdateTime(updateInfo.checked_at) : '尚未检查'"></p>
                   </div>
                   <div class="flex flex-col sm:flex-row gap-2">
                     <button @click="checkUpdate()" :disabled="updateLoading || updateApplying" class="btn-secondary px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
@@ -659,7 +662,7 @@
                   <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <h3 class="section-title">指定版本切换</h3>
-                      <p class="text-sm text-muted/75 mt-1">可升级到新版本，也可回退到历史 Release。</p>
+                      <p class="text-sm text-muted mt-1">可升级到新版本，也可回退到历史 Release。</p>
                     </div>
                     <button @click="loadUpdateReleases()" :disabled="updateReleasesLoading || updateApplying" class="btn-secondary px-3 py-2 rounded text-xs disabled:opacity-50">
                       <span x-show="!updateReleasesLoading">刷新版本</span>
@@ -675,8 +678,8 @@
                           <option :value="item.tag" x-text="item.tag + (item.is_current ? '（当前）' : (item.is_newer ? '（新版）' : '（历史）'))"></option>
                         </template>
                       </select>
-                      <div class="mt-2 text-xs text-muted/75" x-text="selectedUpdateDescription()"></div>
-                      <div x-show="selectedUpdateRelease()" class="mt-2 flex flex-wrap gap-2 text-xs text-muted/75">
+                      <div class="mt-2 text-xs text-muted" x-text="selectedUpdateDescription()"></div>
+                      <div x-show="selectedUpdateRelease()" class="mt-2 flex flex-wrap gap-2 text-xs text-muted">
                         <span x-text="selectedUpdateRelease() ? '发布时间 ' + formatUpdateTime(selectedUpdateRelease().published_at) : ''"></span>
                         <span x-show="selectedUpdateRelease() && selectedUpdateRelease().asset" x-text="selectedUpdateRelease() && selectedUpdateRelease().asset ? '包大小 ' + assetSizeLabel(selectedUpdateRelease().asset) : ''"></span>
                       </div>
@@ -712,18 +715,18 @@
                       <div class="min-w-0">
                         <h3 class="section-title">当前版本改动</h3>
                         <div class="text-sm text-text mt-2 break-words" x-text="updateInfo ? updateInfo.release_name : '-'"></div>
-                        <div class="text-xs text-muted/75 mt-1" x-text="updateInfo ? '发布时间 ' + formatUpdateTime(updateInfo.published_at) : '-'"></div>
+                        <div class="text-xs text-muted mt-1" x-text="updateInfo ? '发布时间 ' + formatUpdateTime(updateInfo.published_at) : '-'"></div>
                       </div>
                       <a x-show="updateInfo && updateInfo.release_url" :href="safeExternalUrl(updateInfo && updateInfo.release_url)" target="_blank" rel="noopener noreferrer" class="btn-secondary px-3 py-2 rounded text-xs text-center whitespace-nowrap">打开 Release</a>
                     </div>
                     <pre x-show="updateInfo && updateInfo.release_notes" class="max-h-64 overflow-y-auto whitespace-pre-wrap text-xs text-muted leading-5" x-text="updateInfo ? updateInfo.release_notes : ''"></pre>
-                    <div x-show="updateInfo && !updateInfo.release_notes" class="text-sm text-muted/75">暂无版本说明</div>
+                    <div x-show="updateInfo && !updateInfo.release_notes" class="text-sm text-muted">暂无版本说明</div>
                   </div>
 
                   <div class="app-panel-soft p-4">
                     <h3 class="section-title">升级方式</h3>
                     <p class="text-sm text-muted mt-2" x-text="updateMethodDescription()"></p>
-                    <p x-show="updateInfo && updateInfo.runtime === 'docker' && onlineUpdateSupported()" class="text-xs text-muted/75 mt-2">应用在线更新只更新程序载荷；Debian 基础镜像和系统库仍建议定期通过 docker compose pull 更新。</p>
+                    <p x-show="updateInfo && updateInfo.runtime === 'docker' && onlineUpdateSupported()" class="text-xs text-muted mt-2">应用在线更新只更新程序载荷；Debian 基础镜像和系统库仍建议定期通过 docker compose pull 更新。</p>
                   </div>
                 </div>
               </div>

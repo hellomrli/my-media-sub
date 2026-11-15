@@ -150,6 +150,8 @@
     subscriptionViewMode: 'poster',
     subscriptionVisibleLimit: 100,
     selectedSubscriptionIds: [],
+    /// 手机上「更多」工具区（批量操作、全选、视图切换）是否展开；桌面端常显。
+    subscriptionToolsOpen: false,
     subscriptionBatchLoading: false,
     subscriptionActionMenuId: '',
     selectedSubscriptionId: '',
@@ -981,9 +983,9 @@
 
     subscriptionWizardStepClass(step, index) {
       const current = this.subscriptionWizardStepIndex();
-      if (index < current) return 'bg-success/20 text-success/85 border-success/30';
-      if (index === current) return 'bg-primary/20 text-primary/85 border-primary/40';
-      return 'bg-app text-muted/75 border-border';
+      if (index < current) return 'bg-success/20 text-success border-success/30';
+      if (index === current) return 'bg-primary/20 text-primary border-primary/40';
+      return 'bg-app text-muted border-border';
     },
 
     canGoPreviousSubscriptionStep() {

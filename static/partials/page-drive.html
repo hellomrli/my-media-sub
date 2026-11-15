@@ -8,7 +8,7 @@
                     <button @click="driveOpenBreadcrumb(crumb.index)" class="max-w-[10rem] truncate hover:text-text" :class="crumb.index === driveBreadcrumbs.length - 1 ? 'text-text font-medium' : 'text-muted'" x-text="crumb.label"></button>
                   </template>
                 </div>
-                <div class="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted/75">
+                <div class="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted">
                   <span x-text="driveError || (driveLastLoadedAt ? '更新时间 ' + new Date(driveLastLoadedAt).toLocaleTimeString() : '等待加载')"></span>
                   <span x-show="driveRefreshing" class="text-primary">刷新中</span>
                 </div>
@@ -30,19 +30,19 @@
 
             <div class="metric-grid">
               <div class="stat-tile p-3">
-                <div class="text-xs text-muted/75">文件夹</div>
+                <div class="text-xs text-muted">文件夹</div>
                 <div class="mt-1 text-xl font-semibold text-text" x-text="driveStats.folders"></div>
               </div>
               <div class="stat-tile p-3">
-                <div class="text-xs text-muted/75">文件</div>
+                <div class="text-xs text-muted">文件</div>
                 <div class="mt-1 text-xl font-semibold text-text" x-text="driveStats.files"></div>
               </div>
               <div class="stat-tile p-3">
-                <div class="text-xs text-muted/75">视频</div>
+                <div class="text-xs text-muted">视频</div>
                 <div class="mt-1 text-xl font-semibold text-text" x-text="driveStats.videos"></div>
               </div>
               <div class="stat-tile p-3">
-                <div class="text-xs text-muted/75">总大小</div>
+                <div class="text-xs text-muted">总大小</div>
                 <div class="mt-1 text-lg font-semibold text-text" x-text="formatSize(driveStats.totalSize)"></div>
               </div>
             </div>
@@ -50,7 +50,7 @@
             <div class="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(260px,1fr)_auto_auto] xl:items-center">
               <div class="relative">
                 <input x-model.debounce.150ms="driveSearchQuery" aria-label="在网盘中搜索文件" class="w-full px-4 py-2 pl-10 bg-surface-2 border border-border rounded-lg text-text" placeholder="搜索当前目录" />
-                <svg class="w-4 h-4 absolute left-3 top-3 text-muted/75" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                <svg class="w-4 h-4 absolute left-3 top-3 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
               </div>
               <div class="segmented-control">
                 <button @click="driveFilterType = 'all'" :class="driveFilterType === 'all' ? 'btn-primary' : 'btn-secondary'" class="px-3 py-2 rounded-lg text-sm">全部</button>
@@ -72,7 +72,7 @@
           </div>
 
           <div class="app-panel list-surface">
-            <div class="px-4 py-3 border-b border-border flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between bg-black/10">
+            <div class="px-4 py-3 border-b border-border flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between bg-app/45">
               <label class="flex items-center gap-3 text-sm text-text/80 cursor-pointer">
                 <input type="checkbox" :checked="driveAllVisibleSelected()" @change="toggleVisibleDriveSelection()" class="rounded" />
                 <span>选择当前列表</span>
@@ -114,14 +114,14 @@
                       </span>
                       <span class="min-w-0">
                         <span class="block text-text font-medium truncate" x-text="item.file_name"></span>
-                        <span class="block text-xs text-muted/75" x-text="driveItemTypeLabel(item)"></span>
+                        <span class="block text-xs text-muted" x-text="driveItemTypeLabel(item)"></span>
                         <span x-show="driveItemDownloadTask(item)" :class="driveItemAutomationClass(item)" class="mt-1" x-text="driveItemAutomationLabel(item)"></span>
                       </span>
                     </button>
                     <div class="col-start-2 text-xs text-muted lg:col-auto lg:text-sm">
-                      <span class="text-muted/75 lg:hidden">大小 </span><span x-text="item.file ? formatSize(item.size) : '-'"></span>
+                      <span class="text-muted lg:hidden">大小 </span><span x-text="item.file ? formatSize(item.size) : '-'"></span>
                     </div>
-                    <div class="col-start-2 text-xs text-muted/75 lg:col-auto lg:truncate" x-text="driveUpdatedLabel(item)"></div>
+                    <div class="col-start-2 text-xs text-muted lg:col-auto lg:truncate" x-text="driveUpdatedLabel(item)"></div>
                     <div class="col-span-2 flex flex-wrap gap-2 lg:col-auto lg:justify-end">
                       <button x-show="item.file" @click="sendDriveItemToAria2(item)" :disabled="driveActionLoading === 'aria2'" class="btn-secondary px-2 py-1 text-xs rounded disabled:opacity-50">Aria2</button>
                       <button @click="renameDriveItem(item)" :disabled="driveActionLoading === 'rename:' + item.fid" class="btn-secondary px-2 py-1 text-xs rounded disabled:opacity-50">重命名</button>
@@ -143,7 +143,7 @@
                         <svg x-show="item.file" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
                       </div>
                       <div class="text-text font-medium line-clamp-2 break-all" x-text="item.file_name"></div>
-                      <div class="mt-2 text-xs text-muted/75" x-text="driveItemTypeLabel(item) + ' · ' + (item.file ? formatSize(item.size) : '-')"></div>
+                      <div class="mt-2 text-xs text-muted" x-text="driveItemTypeLabel(item) + ' · ' + (item.file ? formatSize(item.size) : '-')"></div>
                       <span x-show="driveItemDownloadTask(item)" :class="driveItemAutomationClass(item)" class="mt-2" x-text="driveItemAutomationLabel(item)"></span>
                     </button>
                   </div>

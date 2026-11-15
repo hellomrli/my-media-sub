@@ -4,7 +4,7 @@
           <div x-show="dashboardEditing" class="dashboard-editbar app-panel">
             <div class="dashboard-editbar-copy">
               <strong>编辑工作台</strong>
-              <span>用 ↑ ↓ 调整顺序，✕ 隐藏卡片；下方是已隐藏的卡片。</span>
+              <span>点 ✕ 隐藏卡片，点下方的名称恢复显示；至少保留一张卡片。</span>
             </div>
             <div class="dashboard-editbar-tray">
               <template x-for="card in dashboardHiddenCards()" :key="'hidden-' + card.id">
@@ -25,9 +25,7 @@
                 <div x-show="dashboardEditing" class="dash-card-edit">
                   <span x-text="card.name"></span>
                   <span class="dash-card-edit-actions">
-                    <button @click="moveDashboardCard(card.id, -1)" title="上移">↑</button>
-                    <button @click="moveDashboardCard(card.id, 1)" title="下移">↓</button>
-                    <button @click="toggleDashboardCard(card.id)" title="隐藏">✕</button>
+                    <button @click="toggleDashboardCard(card.id)" :disabled="!canHideDashboardCard(card.id)" :aria-label="'隐藏' + card.name" :title="canHideDashboardCard(card.id) ? '隐藏' : '至少保留一张卡片'">✕</button>
                   </span>
                 </div>
 
@@ -37,6 +35,11 @@
                       <div class="hero-kicker"><span class="status-pulse"></span><span x-text="dashboardDateLabel()"></span></div>
                       <h1><span>好故事，</span>随时开场。</h1>
                       <p x-text="dashboardStatusSummary()"></p>
+                      <div x-show="dashboardAttentionItems.length > 0" class="dash-attention" role="group" aria-label="需要处理的事项">
+                        <template x-for="item in dashboardAttentionItems" :key="'attention-' + item.id">
+                          <button @click="openDashboardAttention(item.id)" class="dash-attention-item" :class="'is-' + item.tone" :aria-label="'查看 ' + item.count + ' 项' + item.label"><strong x-text="item.count"></strong><span x-text="item.label"></span><span class="dash-attention-arrow" aria-hidden="true">→</span></button>
+                        </template>
+                      </div>
                     </div>
                     <div class="deck-art" aria-hidden="true"><div class="deck-ticket is-hd"><span class="deck-play"></span><strong>1080P</strong><small>YOUR CHOICE</small></div><div class="deck-ticket is-uhd"><span class="deck-play"></span><strong>4K</strong><small>YOUR CINEMA</small></div></div>
                     <div class="dash-command-actions">
@@ -63,9 +66,7 @@
                 <div x-show="dashboardEditing" class="dash-card-edit">
                   <span x-text="card.name"></span>
                   <span class="dash-card-edit-actions">
-                    <button @click="moveDashboardCard(card.id, -1)" title="上移">↑</button>
-                    <button @click="moveDashboardCard(card.id, 1)" title="下移">↓</button>
-                    <button @click="toggleDashboardCard(card.id)" title="隐藏">✕</button>
+                    <button @click="toggleDashboardCard(card.id)" :disabled="!canHideDashboardCard(card.id)" :aria-label="'隐藏' + card.name" :title="canHideDashboardCard(card.id) ? '隐藏' : '至少保留一张卡片'">✕</button>
                   </span>
                 </div>
 
@@ -182,5 +183,4 @@
             </template>
           </div>
 
-          <div x-show="dashboardLayout.length === 0" class="app-panel empty-state">所有卡片都已隐藏，点右上角「编辑工作台」重新添加。</div>
         </div>

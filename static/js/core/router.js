@@ -272,6 +272,19 @@
       }
     },
 
+    scrollActiveMobileTab() {
+      const navigation = this.$refs && this.$refs.mobileNavigation;
+      if (!navigation || !navigation.clientWidth) return;
+      const active = navigation.querySelector('[aria-current="page"]');
+      if (!active) return;
+      const viewport = navigation.getBoundingClientRect();
+      const item = active.getBoundingClientRect();
+      // Scroll only the navigation strip; moving between pages must not also
+      // move the document vertically as scrollIntoView() can do.
+      if (item.left < viewport.left) navigation.scrollLeft += item.left - viewport.left;
+      else if (item.right > viewport.right) navigation.scrollLeft += item.right - viewport.right;
+    },
+
     openRuleCenter() {
       this.selectTab('settings', false);
       this.selectSettingsTab('naming');

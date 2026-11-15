@@ -16,6 +16,9 @@
     showDangerConfirmDialog: false,
     dangerConfirmTitle: '', dangerConfirmMessage: '', dangerConfirmPhrase: '', dangerConfirmInput: '',
     _dangerConfirmResolve: null,
+    /// 最近一次请求是否到达了服务端；初始乐观为 true，避免首屏闪现故障。
+    serverReachable: true,
+    serverLastOkAt: 0,
 
     get uiBusy() {
       return !!(this.subscriptionDetailLoading || this.subscriptionBatchLoading || this.driveLoading || this.downloadsLoading || this.diagnosticsLoading || this.calendarLoading || this.searching || this.checkingAllSubscriptions);
@@ -30,6 +33,7 @@
       if (this.loadSubscriptionPreferences) this.loadSubscriptionPreferences();
       this.restoreUiPreferences();
       this.setupErrorBoundary();
+      this.setupConnectivityTracking();
       this.initNavigation();
       await Promise.all([
         this.loadSubscriptions(),
@@ -65,6 +69,7 @@
       this.driveViewMode = ux.readPreference('drive.view', 'list', ['list','grid']);
       this.notificationFilter = ux.readPreference('notifications.filter', 'all', ['all','unread']);
       this.activityFilter = ux.readPreference('activity.filter', 'all', ['all','unread','jobs','notifications','failed']);
+      this.settingsOverviewOpen = ux.readPreference('settings.overview', 'closed', ['open','closed']) === 'open';
       if (this.$watch) {
         for (const [property,key] of [['backgroundJobFilterStatus','jobs.status'],['driveFilterType','drive.filter'],['driveViewMode','drive.view'],['notificationFilter','notifications.filter'],['activityFilter','activity.filter']]) {
           this.$watch(property, value => {
@@ -81,11 +86,62 @@
       this.listenLifecycle('ui-rejection', window, 'unhandledrejection', event => { this.uiError = this.apiErrorMessage(event.reason, '后台操作发生未处理错误'); });
     },
 
+    setupConnectivityTracking() {
+      if (typeof api.subscribeConnectivity !== 'function') return;
+      this.ownLifecycle(
+        'api-connectivity',
+        api.subscribeConnectivity(reachable => this.markServerReachable(reachable)),
+        unsubscribe => unsubscribe()
+      );
+    },
+
+    markServerReachable(reachable) {
+      this.serverReachable = !!reachable;
+      if (reachable) this.serverLastOkAt = Date.now();
+    },
+
+    /// online / reconnecting / unreachable / offline。
+    /// 事件流断开但普通请求仍成功时只是「重连中」：数据还能靠轮询更新。
+    get connectionState() {
+      if (this.pwaOffline) return 'offline';
+      if (!this.serverReachable) return 'unreachable';
+      return this.jobEventsReconnecting ? 'reconnecting' : 'online';
+    },
+
+    connectionLabel() {
+      return {
+        online: '服务在线',
+        reconnecting: '正在重连',
+        unreachable: '服务未响应',
+        offline: '网络离线'
+      }[this.connectionState];
+    },
+
+    connectionDetail() {
+      const lastOk = this.serverLastOkAt ? `最近成功响应：${this.formatTime(this.serverLastOkAt)}` : '尚未收到服务响应';
+      if (this.connectionState === 'online') return lastOk;
+      if (this.connectionState === 'reconnecting') return `实时任务推送已断开，正在自动重连；数据改由定时刷新。${lastOk}`;
+      if (this.connectionState === 'offline') return `设备处于离线状态。${lastOk}`;
+      return `无法连接服务，当前显示的可能是旧数据。${lastOk}`;
+    },
+
+    /// 顶栏在断连时让位给连接状态，否则「系统空闲」会被误读成一切正常。
+    headerHealthLabel() {
+      if (this.connectionState !== 'online') return this.connectionLabel();
+      const running = this.dashboardStats.runningJobs;
+      return running ? `${running} 项运行中` : '系统空闲';
+    },
+
+    async retryConnection() {
+      await this.refresh();
+      if (!this.jobEvents && typeof this.setupJobEvents === 'function') this.setupJobEvents();
+    },
+
     requestDangerConfirmation({title='确认危险操作', message='', phrase=''}) {
       if (this._dangerConfirmResolve) this._dangerConfirmResolve(false);
       this.dangerConfirmTitle = title; this.dangerConfirmMessage = message; this.dangerConfirmPhrase = phrase; this.dangerConfirmInput = '';
       this.showDangerConfirmDialog = true;
-      return new Promise(resolve => { this._dangerConfirmResolve = resolve; this.$nextTick(() => this.$refs.dangerConfirmInput && this.$refs.dangerConfirmInput.focus()); });
+      return new Promise(resolve => { this._dangerConfirmResolve = resolve; });
     },
     dangerConfirmationReady() { return !this.dangerConfirmPhrase || this.dangerConfirmInput === this.dangerConfirmPhrase; },
     resolveDangerConfirmation(approved) {
@@ -128,18 +184,30 @@
       return this.theme === 'dark' ? '切换到浅色主题' : '切换到深色主题';
     },
 
+    focusDialog(dialog, initialFocus = null) {
+      // Alpine may defer x-show to the next animation frame. Focusing during
+      // $nextTick alone can still target a hidden dialog and silently do nothing.
+      this.$nextTick(() => window.requestAnimationFrame(() => {
+        if (!dialog.isConnected || !dialog.getClientRects().length) return;
+        const target = initialFocus && initialFocus.getClientRects().length ? initialFocus : dialog;
+        target.focus({preventScroll: true});
+      }));
+    },
+
     trapDialogFocus(event) {
       const dialog = event.currentTarget;
       const focusable = Array.from(dialog.querySelectorAll([
         'a[href]',
-        'button:not([disabled])',
-        'input:not([disabled])',
-        'select:not([disabled])',
-        'textarea:not([disabled])',
+        'button:not(:disabled)',
+        'input:not(:disabled):not([type="hidden"])',
+        'select:not(:disabled)',
+        'textarea:not(:disabled)',
         '[tabindex]:not([tabindex="-1"])'
       ].join(','))).filter(element => {
         const style = window.getComputedStyle(element);
-        return style.display !== 'none' && style.visibility !== 'hidden';
+        return element.tabIndex >= 0 && !element.matches(':disabled')
+          && !element.closest('[inert]') && element.getClientRects().length > 0
+          && style.visibility !== 'hidden' && style.visibility !== 'collapse';
       });
       if (focusable.length === 0) {
         event.preventDefault();
@@ -148,10 +216,13 @@
       }
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
+      // Dialogs receive focus on opening. Include that initial state, and skip
+      // controls inside hidden wizard steps, when wrapping keyboard navigation.
+      const outsideControls = !focusable.includes(document.activeElement);
+      if (event.shiftKey && (document.activeElement === first || outsideControls)) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && (document.activeElement === last || outsideControls)) {
         event.preventDefault();
         first.focus();
       }
@@ -163,7 +234,8 @@
           this.loadSubscriptions(),
           this.loadNotifications(),
           this.loadJobs(),
-          this.loadDownloads(true)
+          this.loadDownloads(true),
+          this.loadCalendar()
         ]);
       }
       else if (this.currentTab === 'subscriptions') {

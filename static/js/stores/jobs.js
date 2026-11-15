@@ -17,6 +17,9 @@
     /// SSE 是否在正常推送。为 true 时活动轮询不再重复拉整个任务列表，
     /// 只补通知——通知没有 SSE 通道。断线后回落到全量轮询。
     jobEventsHealthy: false,
+    /// 事件流正在出错重连。与 jobEventsHealthy 分开：初次连接尚未收到快照时
+    /// 两者都是 false，那不算故障。
+    jobEventsReconnecting: false,
     backgroundJobFilterStatus: 'all',
     selectedJob: null,
     showJobDetailDialog: false,
@@ -246,8 +249,15 @@
         this.jobs = list;
       };
 
-      source.addEventListener('snapshot', (event) => {
+      // 收到任何事件都说明服务端可达，哪怕这段时间没有别的请求。
+      const markStreamAlive = () => {
         this.jobEventsHealthy = true;
+        this.jobEventsReconnecting = false;
+        if (typeof this.markServerReachable === 'function') this.markServerReachable(true);
+      };
+
+      source.addEventListener('snapshot', (event) => {
+        markStreamAlive();
         let jobs;
         try {
           jobs = JSON.parse(event.data || '[]');
@@ -262,7 +272,7 @@
         applySnapshot(jobs);
       });
       source.addEventListener('job', async (event) => {
-        this.jobEventsHealthy = true;
+        markStreamAlive();
         jobHandlersInFlight += 1;
         try {
           const job = JSON.parse(event.data);
@@ -298,6 +308,7 @@
       source.onerror = () => {
         // 标记不健康，让活动轮询接管全量刷新直到 SSE 自行重连成功。
         this.jobEventsHealthy = false;
+        this.jobEventsReconnecting = true;
         console.warn('任务事件连接异常，浏览器会自动重连');
       };
       this.jobEvents = this.ownLifecycle('jobs-event-source', source, eventSource => eventSource.close());
