@@ -19,7 +19,7 @@
               </div>
             </div>
 
-            <div class="download-tabs" role="tablist" aria-label="下载任务分类">
+            <div class="download-tabs" role="tablist" aria-label="下载任务分类" x-ref="downloadNavigation" x-effect="currentTab; downloadActiveCategory; $nextTick(() => window.requestAnimationFrame(() => scrollActiveDownloadTab()))" @resize.window.debounce.100ms="scrollActiveDownloadTab()">
               <template x-for="category in downloadCategoryList" :key="'download-tab-' + category.id">
                 <button role="tab" :aria-selected="downloadActiveCategory === category.id"
                         @click="selectDownloadCategory(category.id)"
@@ -54,11 +54,11 @@
                             <div class="text-xs text-muted"><span class="text-muted lg:hidden">剩余 </span><span x-text="formatDuration(task.eta_seconds)"></span></div>
                             <div class="text-xs text-muted" x-text="task.connections + ' 连接'"></div>
                             <div class="flex flex-wrap justify-end gap-1">
-                              <button x-show="canPauseDownloadTask(task)" @click="controlDownloadTask(task, 'pause')" :disabled="downloadTaskActionLoading(task)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">暂停</button>
-                              <button x-show="canResumeDownloadTask(task)" @click="controlDownloadTask(task, 'resume')" :disabled="downloadTaskActionLoading(task)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">继续</button>
-                              <button x-show="canRetryDownloadTask(task)" @click="retryDownloadTask(task)" :disabled="downloadTaskActionLoading(task)" class="btn-primary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50"><span x-text="downloadTaskActionLoading(task) === 'retry' ? '重试中' : '重试'"></span></button>
-                              <button x-show="canStopDownloadTask(task)" @click="controlDownloadTask(task, 'stop')" :disabled="downloadTaskActionLoading(task)" class="btn-danger px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">停止</button>
-                              <button @click="controlDownloadTask(task, 'delete')" :disabled="downloadTaskActionLoading(task)" class="btn-danger px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">删除</button>
+                              <button x-show="canPauseDownloadTask(task)" @click="controlDownloadTask(task, 'pause')" :disabled="!!downloadTaskActionLoading(task)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">暂停</button>
+                              <button x-show="canResumeDownloadTask(task)" @click="controlDownloadTask(task, 'resume')" :disabled="!!downloadTaskActionLoading(task)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">继续</button>
+                              <button x-show="canRetryDownloadTask(task)" @click="retryDownloadTask(task)" :disabled="!!downloadTaskActionLoading(task)" class="btn-primary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50"><span x-text="downloadTaskActionLoading(task) === 'retry' ? '重试中' : '重试'"></span></button>
+                              <button x-show="canStopDownloadTask(task)" @click="controlDownloadTask(task, 'stop')" :disabled="!!downloadTaskActionLoading(task)" class="btn-danger px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">停止</button>
+                              <button @click="controlDownloadTask(task, 'delete')" :disabled="!!downloadTaskActionLoading(task)" class="btn-danger px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">删除</button>
                             </div>
                           </div>
                           <div x-show="task.automation" class="download-automation-strip">

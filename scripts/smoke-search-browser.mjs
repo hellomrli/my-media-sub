@@ -22,6 +22,77 @@ const emptyImageRequests = [];
 const searches = [];
 const metadataSearches = [];
 const mediaSaves = [];
+const statusFixtureRequests = [];
+let statusFixturesEnabled = false;
+// Keep data-driven views stable across polling, and exercise their actual API loaders.
+const fixtureTime = Math.floor(Date.now() / 1000);
+const statusSubscription = {
+  id: 'local-status-show', title: '星海旅人（本地状态夹具）', media_type: 'anime',
+  url: 'https://pan.quark.cn/s/local-status-show', season: 1, season_end: 3, season_list: [1, 3],
+  status: 'active', enabled: true, current_episode_number: 3, total_episode_number: 4,
+  last_checked_at: fixtureTime, last_check_summary: '本地演示：第 1 季缺 1 集，第 3 季等待更新',
+  rules: {target_dir: '/片库/星海旅人', preferred_resolution: '2160p'},
+  metadata: {title: '星海旅人（本地状态夹具）', vote_average: 8.4},
+  sync_download_enabled: false,
+  check_history: [{time: fixtureTime, state: 'success', summary: '本地检查完成', scanned_count: 6, new_count: 1, transfer_count: 1}]
+};
+const statusDetail = {
+  subscription: statusSubscription,
+  summary: {
+    range_start: 1, range_end: 4, target_episode: null, expected_count: 6,
+    discovered_count: 4, transferred_count: 3, downloaded_count: 2, missing_count: 1,
+    pending_transfer_count: 1, pending_download_count: 1, completion_percent: 50,
+    data_inferred: false, grid_truncated: false
+  },
+  episodes: [
+    {season: 1, episode: 1, discovered: true, transferred: true, download_status: 'completed'},
+    {season: 1, episode: 2, discovered: true, transferred: true, download_status: 'queued'},
+    {season: 1, episode: 3, discovered: true, transferred: false, download_status: 'not_started', recent: true},
+    {season: 1, episode: 4, missing: true, download_status: 'not_started'},
+    {season: 3, episode: 1, discovered: true, transferred: true, download_status: 'completed'},
+    {season: 3, episode: 2, discovered: false, transferred: false, download_status: 'not_started'}
+  ].map(episode => ({missing: false, recent: false, files: [], ...episode})),
+  missing_episodes: [4], pending_transfer_episodes: [3], pending_download_episodes: [2],
+  pipeline: [
+    {id: 'source_check', label: '来源检查', status: 'success', message: '分享有效', count: 4},
+    {id: 'version_select', label: '版本选择', status: 'active', message: '正在选择 4K 版本', count: 1},
+    {id: 'cloud_transfer', label: '云盘转存', status: 'warning', message: '还有 1 集待转存', count: 3},
+    {id: 'rename', label: '重命名', status: 'error', message: '本地演示失败状态', count: 1},
+    {id: 'aria2', label: 'Aria2', status: 'disabled', message: '未启用同步下载', count: 0},
+    {id: 'notification', label: '通知', status: 'idle', message: '等待新集通知', count: 0}
+  ],
+  recent_jobs: [{id: 'local-status-job', title: '本地转存任务', kind: 'subscription_transfer', status: 'failed', error: '本地演示失败提示', updated_at: fixtureTime}],
+  recent_notifications: [{id: 'local-status-note', title: '本地新集提醒', message: '发现第 1 季第 3 集', level: 'info', created_at: fixtureTime}],
+  recent_events: []
+};
+const statusPipeline = {
+  subscription_id: statusSubscription.id,
+  events: ['succeeded', 'running', 'failed'].map((status, index) => ({
+    id: 'local-status-event-' + index, stage: ['source_check', 'cloud_transfer', 'rename'][index],
+    status, episode: index + 1, attempt: 1, started_at: fixtureTime - 5,
+    updated_at: fixtureTime, message: '本地自动化事件演示',
+    error: status === 'failed' ? '本地演示重命名失败' : '', job_id: 'local-status-job'
+  }))
+};
+function statusDownload(gid, status, extra = {}) {
+  const completed = status === 'complete' ? 2 * 1024 ** 3 : 1024 ** 3;
+  return {
+    gid, status, file_name: '星海旅人.S01E02.2160p.mkv', dir: '/downloads/星海旅人/Season 1',
+    total_length: 2 * 1024 ** 3, completed_length: completed, progress: status === 'complete' ? 100 : 50,
+    download_speed: status === 'active' ? 1024 ** 2 : 0, eta_seconds: 1024, connections: 4,
+    automation: {
+      subscription_id: statusSubscription.id, subscription_title: statusSubscription.title, episode: 2,
+      target_dir: '/片库/星海旅人/Season 1', transfer_status: 'completed', rename_status: 'completed'
+    },
+    files: [{index: 1, file_name: '星海旅人.S01E02.2160p.mkv', path: '/downloads/星海旅人/Season 1/星海旅人.S01E02.2160p.mkv', length: 2 * 1024 ** 3, completed_length: completed}],
+    ...extra
+  };
+}
+const statusDownloads = {
+  active: [statusDownload('local-active', 'active'), statusDownload('local-paused', 'paused'), statusDownload('local-manual', 'active', {automation: null})],
+  waiting: [statusDownload('local-waiting', 'waiting', {automation: {subscription_id: statusSubscription.id, subscription_title: statusSubscription.title, transfer_status: 'pending', rename_status: 'pending'}})],
+  stopped: [statusDownload('local-complete', 'complete'), statusDownload('local-failed', 'error', {error_code: '3', error_message: '本地演示：下载链接已过期'})]
+};
 const mediaFiles = [
   {file_key: 'movie-hd', name: '午后奇遇.mkv', parent_path: '电影 / 1080P', size: 5 * 1024 ** 3, resolution: '1080p'},
   {file_key: 'movie-uhd', name: '午后奇遇.mkv', parent_path: '电影 / 4K', size: 20 * 1024 ** 3, resolution: '2160p'},
@@ -139,6 +210,21 @@ try {
 
   const png = await readFile(join(root, 'static/icons/icon-192.png'));
   const proxy = http.createServer((req, res) => {
+    if (statusFixturesEnabled && req.method === 'GET') {
+      const path = new URL(req.url, 'http://localhost').pathname;
+      const data = {
+        '/api/subscriptions': [statusSubscription],
+        [`/api/subscriptions/${statusSubscription.id}/status`]: statusDetail,
+        [`/api/subscriptions/${statusSubscription.id}/pipeline`]: statusPipeline,
+        '/api/drive/aria2/tasks': statusDownloads
+      }[path];
+      if (data) {
+        statusFixtureRequests.push(path);
+        res.writeHead(200, {'content-type': 'application/json', 'cache-control': 'no-store'});
+        res.end(JSON.stringify({ok: true, data}));
+        return;
+      }
+    }
     if (req.url.startsWith('/?') && req.url.includes('_media_sub_retry')) emptyImageRequests.push(req.url);
     if (req.url.startsWith('/smoke-images/')) {
       imageRequests.push(req.url);
@@ -843,6 +929,69 @@ try {
     return result;
   `), ['正在重连', true], 'a dropped event stream is shown as reconnecting');
 
+  // Read populated detail and download views through the same loaders used by the UI.
+  statusFixturesEnabled = true;
+  await onStore('return store.loadSubscriptions()');
+  await onStore(`return store.openSubscriptionDetail('${statusSubscription.id}')`);
+  await waitFor(() => evaluate("document.querySelectorAll('.subscription-episode-cell').length === 6"), 'multi-season episode states');
+  assert.equal(await evaluate("Array.from(document.querySelectorAll('.subscription-detail-badges > span')).find(item => item.innerText.includes('季')).innerText"), '第 1,3 季', 'detail must preserve the skip-season set without enriched list fields');
+  assert.deepEqual(await evaluate("Array.from(document.querySelectorAll('.subscription-episode-grid')).map(grid => grid.previousElementSibling.innerText)"), ['第 1 季', '第 3 季']);
+  assert.deepEqual(await evaluate("Array.from(document.querySelectorAll('.subscription-pipeline-step > div:nth-child(2) span')).map(item => item.innerText)"), ['完成', '运行中', '需处理', '失败', '未启用', '等待中']);
+  for (const [filter, count] of [['missing', 1], ['pending', 2], ['ready', 2], ['recent', 1], ['all', 6]]) {
+    // Match the action attribute directly to avoid escaping its punctuation in CSS.
+    await evaluate(`Array.from(document.querySelectorAll('.subscription-episode-filters button')).find(button => button.getAttribute('@click') === "setSubscriptionEpisodeFilter('${filter}')").click()`);
+    await waitFor(() => evaluate(`document.querySelectorAll('.subscription-episode-cell').length === ${count}`), filter + ' episode filter');
+  }
+  for (const width of [1440, 390]) {
+    await setViewport(width);
+    for (const theme of ['light', 'dark']) {
+      await withState(`store.applyTheme('${theme}', {persist: false});`, 'return true;');
+      await noOverflow(`${width}px ${theme} populated subscription detail`);
+      await mediaScreenshot(`subscription-detail-${width}-${theme}`);
+    }
+  }
+  await onStore("store.settings.aria2_rpc_url = 'http://local-aria2.fixture/jsonrpc'; store.selectTab('downloads'); return store.loadDownloads();");
+  await waitFor(() => onStore('return !store.downloadsLoading && !store.downloadsRefreshing && store.allDownloadTasks.length === 6'), 'download state fixtures');
+  assert.equal(await onStore('return store.downloadsError'), '');
+  assert.equal(await onStore('return store.downloadAutomationStats.linked'), 5);
+  const downloadActionStates = setup => withState(setup, `
+    return Array.from(document.querySelectorAll('.data-table--downloads .data-table-row')).filter(row => row.checkVisibility()).map(row =>
+      Array.from(row.querySelectorAll('.btn-primary, .btn-secondary, .btn-danger')).filter(button => button.checkVisibility()).map(button => button.disabled));
+  `);
+  let actionStates = await downloadActionStates("store.selectDownloadCategory('downloading'); store.downloadTaskActions = {};");
+  assert.equal(actionStates.length, 3);
+  assert.ok(actionStates.every(row => row.length > 0 && row.every(disabled => !disabled)), 'idle download actions must be enabled; an empty action string is not a boolean disabled value');
+  actionStates = await downloadActionStates("store.downloadTaskActions = {'local-active': 'pause'};");
+  assert.ok(actionStates[0].every(disabled => disabled), 'only the task with an action in flight is locked');
+  assert.ok(actionStates.slice(1).every(row => row.every(disabled => !disabled)), 'other download tasks remain operable');
+  await onStore('store.downloadTaskActions = {};');
+  const activeDownloadTabIsVisible = () => evaluate(`(() => {
+    const navigation = document.querySelector('.download-tabs');
+    const active = navigation.querySelector('[aria-selected="true"]');
+    const viewport = navigation.getBoundingClientRect();
+    const item = active.getBoundingClientRect();
+    return item.left >= viewport.left - 1 && item.right <= viewport.right + 1;
+  })()`);
+  for (const width of [1440, 390]) {
+    await setViewport(width);
+    for (const [category, count] of [['downloading', 3], ['queued', 1], ['completed', 1], ['failed', 1]]) {
+      const rows = await withState(`store.selectDownloadCategory('${category}');`, `
+        return Array.from(document.querySelectorAll('.data-table--downloads .data-table-row')).filter(row => row.checkVisibility()).length;
+      `);
+      assert.equal(rows, count, `${width}px ${category} download rows`);
+      await waitFor(activeDownloadTabIsVisible, `${width}px ${category} download tab stays visible`);
+      await noOverflow(`${width}px populated ${category} downloads`);
+      await mediaScreenshot(`downloads-${category}-${width}`);
+    }
+  }
+  await evaluate("Array.from(document.querySelectorAll('.download-automation-strip > button')).find(button => button.checkVisibility()).click()");
+  await waitFor(() => onStore(`return store.currentTab === 'subscriptions' && store.selectedSubscriptionId === '${statusSubscription.id}' && !store.subscriptionDetailLoading`), 'download opens its subscription detail');
+  for (const path of ['/api/subscriptions', `/api/subscriptions/${statusSubscription.id}/status`, `/api/subscriptions/${statusSubscription.id}/pipeline`, '/api/drive/aria2/tasks']) {
+    assert.ok(statusFixtureRequests.includes(path), `${path} must be loaded through the API`);
+  }
+  await setViewport(1440);
+  console.log('populated detail and download smoke passed: multi-season filters, six pipeline states, four download categories, subscription navigation, 1440px and 390px');
+
   // 强调色只做装饰：承载文字的组件必须用可读的文字色，浅色和深色主题都要达到 4.5:1。
   // 渐变、半透明叠层、海报和祖先 opacity 都会改变实际底色，所以不按样式推算，而是
   // 截两张图逐像素比较：一张隐藏全部文字（真实底色），一张把元素铺满它的文字色。
@@ -852,6 +1001,8 @@ try {
     style.textContent = '*, *::before, *::after { transition: none !important; }'
       + 'html.contrast-hide-text *, html.contrast-hide-text *::before, html.contrast-hide-text *::after'
       + ' { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; }'
+      // Freeze the pulsing status number at its faintest point, if it still animates.
+      + '.subscription-pipeline-index { animation-delay: -.75s !important; animation-play-state: paused !important; }'
       // 海报可以是任意图片：把它换成纯黑或纯白，量出叠在上面的徽标的最差情况。
       + 'html[data-poster-probe="black"] .search-result-poster { background: #000 !important; }'
       + 'html[data-poster-probe="white"] .search-result-poster { background: #fff !important; }'
@@ -993,9 +1144,20 @@ try {
     {setup: `${settingsState} store.settings.quark_cookie_configured = false; store.settingsOverviewOpen = true; store.markServerReachable(false);`,
       selectors: ['.settings-overview-score strong', '.settings-overview-item.is-ready .settings-overview-state', '.settings-overview-item.is-required .settings-overview-state', '.settings-overview-item.is-optional strong', '.settings-overview-item.is-optional small', '.settings-overview-item strong', '.settings-overview-item small', '.pwa-status-banner.is-offline > span']},
     {setup: `store.markServerReachable(true); store.selectTab('dashboard'); store.startDashboardEdit(); store.toggleDashboardCard('calendar');`,
-      selectors: ['.dashboard-chip']}
+      selectors: ['.dashboard-chip']},
+    {setup: `store.cancelDashboardEdit(); await store.openSubscriptionDetail('${statusSubscription.id}'); store.setSubscriptionEpisodeFilter('all');`,
+      selectors: ['.subscription-detail-badges > span', '.subscription-detail-progress strong', '.subscription-detail-actions small', '.subscription-detail-metrics .has-warning strong',
+        '.subscription-episode-number', '.subscription-episode-cell > strong', '.subscription-episode-cell > em', '.subscription-episode-filters button.is-active',
+        '.subscription-pipeline-index', '.subscription-pipeline-step strong', '.subscription-pipeline-step > div:nth-child(2) span', '.subscription-pipeline-step p',
+        '.subscription-activity-item > div > div > span', '.automation-event-panel .subscription-activity-item strong']},
+    ...['downloading', 'queued', 'completed', 'failed'].map(category => ({
+      setup: `if (store.currentTab !== 'downloads') store.selectTab('downloads'); store.selectDownloadCategory('${category}');`,
+      selectors: ['.download-tab.is-active > em', '.data-table--downloads .badge', '.data-table--downloads .btn-primary:not(:disabled), .data-table--downloads .btn-danger:not(:disabled)',
+        '.download-task-origin', '.download-automation-source > span', '.download-automation-source > small', '.download-pipeline-step > span']
+    }))
   ];
   const contrastFloor = {};
+  const contrastFailures = [];
   for (const theme of ['light', 'dark']) {
     contrastFloor[theme] = {worst: Infinity, count: 0};
     for (const [index, {setup, selectors, poster = ''}] of accentTextCases.entries()) {
@@ -1006,13 +1168,14 @@ try {
         assert.ok(result.measured.length > 0, `${theme} ${result.selector} must be rendered for the contrast check`);
         if (poster) assert.ok(result.measured.length >= 8, `${theme} ${result.selector} must cover every validity badge and quality pill, got ${result.measured.length}`);
         for (const item of result.measured) {
-          assert.ok(item.worst >= 4.5, `${theme} ${result.selector} "${item.label}"${backdropNote} needs 4.5:1 text contrast, got ${item.worst.toFixed(2)}:1 (${item.pair})`);
+          if (item.worst < 4.5) contrastFailures.push(`${theme} ${result.selector} "${item.label}"${backdropNote} needs 4.5:1 text contrast, got ${item.worst.toFixed(2)}:1 (${item.pair})`);
           contrastFloor[theme].worst = Math.min(contrastFloor[theme].worst, item.worst);
           contrastFloor[theme].count += 1;
         }
       }
     }
   }
+  assert.deepEqual(contrastFailures, [], 'all measured state text must have at least 4.5:1 contrast');
   await evaluate("document.getElementById('contrast-probe').remove(); delete document.documentElement.dataset.posterProbe; document.querySelectorAll('[data-contrast-id]').forEach(item => item.removeAttribute('data-contrast-id'));");
   console.log('accent text contrast: ' + Object.entries(contrastFloor).map(([theme, floor]) => `${theme} ${floor.count} elements, lowest ${floor.worst.toFixed(2)}:1`).join('; '));
   await onStore("store.cancelDashboardEdit(); store.applyTheme('light', {persist: false});");
@@ -1045,7 +1208,7 @@ try {
 
   assert.deepEqual(exceptions, [], 'media selectors must not raise Alpine runtime exceptions');
   if (screenshotDir) console.log('UI screenshots:', screenshotDir);
-  console.log('search browser smoke passed: images, concurrent searches, metadata, light/dark controls and navigation, poster hover and reduced motion, movie file/quality/download/save, series quality, source quality gate, dialog keyboard focus, mobile navigation and history, dashboard attention entries and layout editing, compact phone toolbars, connection status, accent text contrast, button padding, 1440px and 390px views');
+  console.log('search browser smoke passed: images, concurrent searches, metadata, light/dark controls and navigation, poster hover and reduced motion, movie file/quality/download/save, series quality, source quality gate, dialog keyboard focus, mobile navigation and history, dashboard attention entries and layout editing, compact phone toolbars, connection status, populated detail/download states, accent text contrast, button padding, 1440px and 390px views');
 } catch (error) {
   console.error(serverLog, chromeLog);
   throw error;

@@ -1411,6 +1411,11 @@
     subscriptionSeasonLabel(sub) {
       if (!sub) return '第 1 季';
       if (sub.season_label) return sub.season_label;
+      // Detail responses contain the raw subscription, without list display fields.
+      const seasons = Array.isArray(sub.season_list)
+        ? [...new Set(sub.season_list.map(Number).filter(value => Number.isInteger(value) && value > 0))]
+        : [];
+      if (seasons.length) return `第 ${this.parseSeasonSpec(seasons.join(',')).label} 季`;
       const start = this.normalizeSeason(sub.season);
       const end = sub.season_end != null ? this.normalizeSeason(sub.season_end) : start;
       return end > start ? `第 ${start}-${end} 季` : `第 ${start} 季`;

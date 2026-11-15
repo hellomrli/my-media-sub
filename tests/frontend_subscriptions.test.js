@@ -64,6 +64,24 @@ test('invalid state takes precedence and plain active subscriptions stay active'
   assert.equal(state.subscriptionStatusKey({status: 'active', completed: false}), 'active');
 });
 
+test('status responses retain skip-season labels without enriched list display fields', async () => {
+  const state = store();
+  state.selectedSubscriptionId = 'skip-seasons';
+  state.subscriptions = [{id: 'skip-seasons', season: 1, season_end: 3, season_list: [1, 3], season_label: '第 1,3 季'}];
+  state.loadSubscriptionAutomation = async () => {};
+  apiFetchStub = async () => ({ok: true, json: async () => ({data: {
+    subscription: {id: 'skip-seasons', season: 1, season_end: 3, season_list: [1, 3]}
+  }})});
+
+  await state.loadSubscriptionDetail();
+  assert.equal(state.selectedSubscription.season_label, undefined, 'the status endpoint returns the raw subscription');
+  assert.equal(state.subscriptionSeasonLabel(state.selectedSubscription), '第 1,3 季');
+  assert.equal(state.subscriptionSeasonLabel(state.subscriptions[0]), '第 1,3 季', 'updating the list from detail must keep the selected seasons');
+  assert.equal(state.subscriptionSeasonLabel({season: 1, season_end: 4, season_list: [], season_label: '服务器季度标签'}), '服务器季度标签');
+  assert.equal(state.subscriptionSeasonLabel({season: 1, season_end: 4, season_list: []}), '第 1-4 季');
+  assert.equal(state.subscriptionSeasonLabel({season: 1, season_end: 3, season_list: [3, 3]}), '第 3 季');
+});
+
 test('subscription wizard defaults to automatic scheduling and omits the schedule step', () => {
   const state = store();
   state.subscriptionMode = 'continuous';

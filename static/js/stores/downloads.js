@@ -170,6 +170,17 @@
       this.downloadCategoryTouched = true;
     },
 
+    scrollActiveDownloadTab() {
+      const navigation = this.$refs && this.$refs.downloadNavigation;
+      if (!navigation || !navigation.clientWidth) return;
+      const active = navigation.querySelector('[aria-selected="true"]');
+      if (!active) return;
+      const viewport = navigation.getBoundingClientRect();
+      const item = active.getBoundingClientRect();
+      if (item.left < viewport.left) navigation.scrollLeft += item.left - viewport.left;
+      else if (item.right > viewport.right) navigation.scrollLeft += item.right - viewport.right;
+    },
+
     downloadCategoryTasks(category) {
       return (this.categorizedDownloads && this.categorizedDownloads[category]) || [];
     },

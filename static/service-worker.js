@@ -1,13 +1,13 @@
 /* global MediaSubPwaPolicy */
-importScripts('/js/pwa-policy.js?v=2.8.1');
+importScripts('/js/pwa-policy.js?v=2.8.2');
 
-const ASSET_VERSION = '2.8.1';
-const CACHE_VERSION = 'v2.8.1-ui-usability-4';
+const ASSET_VERSION = '2.8.2';
+const CACHE_VERSION = 'v2.8.2-ui-usability-7';
 const SHELL_CACHE = `media-sub-shell-${CACHE_VERSION}`;
 const STATIC_CACHE = `media-sub-static-${CACHE_VERSION}`;
 const CACHE_PREFIX = 'media-sub-';
 const ASSET_REVISIONS = {
-  '/styles.css': 'ui-usability-4',
+  '/styles.css': 'ui-usability-5',
   '/js/theme-init.js': 'media-save-1',
   '/js/core/api.js': 'ui-usability-2',
   '/js/features/search-results.js': 'search-images-1',
@@ -16,7 +16,8 @@ const ASSET_REVISIONS = {
   '/js/core/router.js': 'ui-usability-1',
   '/js/core/notifications.js': 'ui-usability-2',
   '/js/stores/jobs.js': 'ui-usability-2',
-  '/js/stores/subscriptions.js': 'ui-usability-2',
+  '/js/stores/downloads.js': 'ui-usability-3',
+  '/js/stores/subscriptions.js': 'ui-usability-3',
   '/js/features/settings.js': 'ui-usability-2',
   '/js/features/pwa.js': 'ui-usability-2',
   '/js/features/dashboard.js': 'ui-usability-2',

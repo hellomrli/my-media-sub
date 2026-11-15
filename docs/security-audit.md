@@ -12,6 +12,11 @@ CI 对每次推送执行两套依赖审计：
 
 自 v2.7.2 起 **没有任何被忽略的公告**，两套审计都在零例外下通过。
 
+### 2026-11-15 / v2.8.2 发布复核
+
+- 本轮为前端修复，锁文件只同步应用版本，不改变依赖版本。刷新公告数据库后，`cargo deny --locked check` 的 advisories / bans / licenses / sources 全部通过，例外仍为 0；GitHub Dependabot 未关闭的漏洞告警为 0。既有重复依赖和未使用许可证许可项继续按原策略告警。
+- 核对 [Rust stable manifest](https://static.rust-lang.org/dist/channel-rust-stable.toml)：2026-11-12 已发布 Rust 1.100.0。本轮正式构建使用项目固定的 Rust 1.99.1，Rust 1.89 MSRV 检查通过。
+
 ### 2026-11-04 / v2.7.7 安全与版本复核
 
 - 核对 [Rust 官方 stable manifest](https://static.rust-lang.org/dist/channel-rust-stable.toml)：本次核验的最新稳定版是 **1.99.1**（manifest 日期 2026-10-15）。开发、CI、Release 与 Docker 构建已统一使用该版本；`Cargo.toml` 的 **1.89 只是 MSRV**，不表示发布产物由旧编译器构建。

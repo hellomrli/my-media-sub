@@ -12,9 +12,9 @@
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%279%27 fill=%27%230d9e7a%27/%3E%3Cpath d=%27M8 9h16v14H8zm4-4v22m8-22v22%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27/%3E%3C/svg%3E">
   <link rel="preload" href="fonts/space-grotesk-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <script src="js/theme-init.js?v=2.8.1&rev=media-save-1"></script>
-  <link rel="stylesheet" href="styles.css?v=2.8.1&rev=ui-usability-4">
-  <script defer src="vendor/alpine.min.js?v=2.8.1"></script>
+  <script src="js/theme-init.js?v=2.8.2&rev=media-save-1"></script>
+  <link rel="stylesheet" href="styles.css?v=2.8.2&rev=ui-usability-5">
+  <script defer src="vendor/alpine.min.js?v=2.8.2"></script>
 </head>
 <body class="bg-app text-text/90 min-h-screen" x-data="app()" x-cloak>
 
@@ -855,7 +855,7 @@
               </div>
             </div>
 
-            <div class="download-tabs" role="tablist" aria-label="下载任务分类">
+            <div class="download-tabs" role="tablist" aria-label="下载任务分类" x-ref="downloadNavigation" x-effect="currentTab; downloadActiveCategory; $nextTick(() => window.requestAnimationFrame(() => scrollActiveDownloadTab()))" @resize.window.debounce.100ms="scrollActiveDownloadTab()">
               <template x-for="category in downloadCategoryList" :key="'download-tab-' + category.id">
                 <button role="tab" :aria-selected="downloadActiveCategory === category.id"
                         @click="selectDownloadCategory(category.id)"
@@ -890,11 +890,11 @@
                             <div class="text-xs text-muted"><span class="text-muted lg:hidden">剩余 </span><span x-text="formatDuration(task.eta_seconds)"></span></div>
                             <div class="text-xs text-muted" x-text="task.connections + ' 连接'"></div>
                             <div class="flex flex-wrap justify-end gap-1">
-                              <button x-show="canPauseDownloadTask(task)" @click="controlDownloadTask(task, 'pause')" :disabled="downloadTaskActionLoading(task)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">暂停</button>
-                              <button x-show="canResumeDownloadTask(task)" @click="controlDownloadTask(task, 'resume')" :disabled="downloadTaskActionLoading(task)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">继续</button>
-                              <button x-show="canRetryDownloadTask(task)" @click="retryDownloadTask(task)" :disabled="downloadTaskActionLoading(task)" class="btn-primary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50"><span x-text="downloadTaskActionLoading(task) === 'retry' ? '重试中' : '重试'"></span></button>
-                              <button x-show="canStopDownloadTask(task)" @click="controlDownloadTask(task, 'stop')" :disabled="downloadTaskActionLoading(task)" class="btn-danger px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">停止</button>
-                              <button @click="controlDownloadTask(task, 'delete')" :disabled="downloadTaskActionLoading(task)" class="btn-danger px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">删除</button>
+                              <button x-show="canPauseDownloadTask(task)" @click="controlDownloadTask(task, 'pause')" :disabled="!!downloadTaskActionLoading(task)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">暂停</button>
+                              <button x-show="canResumeDownloadTask(task)" @click="controlDownloadTask(task, 'resume')" :disabled="!!downloadTaskActionLoading(task)" class="btn-secondary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">继续</button>
+                              <button x-show="canRetryDownloadTask(task)" @click="retryDownloadTask(task)" :disabled="!!downloadTaskActionLoading(task)" class="btn-primary px-2 py-1 rounded text-xs transition-colors disabled:opacity-50"><span x-text="downloadTaskActionLoading(task) === 'retry' ? '重试中' : '重试'"></span></button>
+                              <button x-show="canStopDownloadTask(task)" @click="controlDownloadTask(task, 'stop')" :disabled="!!downloadTaskActionLoading(task)" class="btn-danger px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">停止</button>
+                              <button @click="controlDownloadTask(task, 'delete')" :disabled="!!downloadTaskActionLoading(task)" class="btn-danger px-2 py-1 rounded text-xs transition-colors disabled:opacity-50">删除</button>
                             </div>
                           </div>
                           <div x-show="task.automation" class="download-automation-strip">
@@ -2911,29 +2911,29 @@
     </div>
   </div>
   <!-- Alpine.js 应用逻辑 -->
-  <script src="js/core/api.js?v=2.8.1&rev=ui-usability-2"></script>
-  <script src="js/core/formatters.js?v=2.8.1"></script>
-  <script src="js/core/ux.js?v=2.8.1"></script>
-  <script src="js/features/search-results.js?v=2.8.1&rev=search-images-1"></script>
-  <script src="js/features/subscription-detail.js?v=2.8.1"></script>
-  <script src="js/features/calendar.js?v=2.8.1"></script>
-  <script src="js/features/source-switch.js?v=2.8.1&rev=media-save-1"></script>
-  <script src="js/features/automation-events.js?v=2.8.1"></script>
-  <script src="js/core/polling.js?v=2.8.1&rev=ui-usability-2"></script>
-  <script src="js/core/router.js?v=2.8.1&rev=ui-usability-1"></script>
-  <script src="js/core/notifications.js?v=2.8.1&rev=ui-usability-2"></script>
-  <script src="js/stores/downloads.js?v=2.8.1"></script>
-  <script src="js/stores/drive.js?v=2.8.1"></script>
-  <script src="js/stores/jobs.js?v=2.8.1&rev=ui-usability-2"></script>
-  <script src="js/stores/subscriptions.js?v=2.8.1&rev=ui-usability-2"></script>
-  <script src="js/features/updates.js?v=2.8.1"></script>
-  <script src="js/features/settings.js?v=2.8.1&rev=ui-usability-2"></script>
-  <script src="js/features/diagnostics.js?v=2.8.1"></script>
-  <script src="js/features/pwa.js?v=2.8.1&rev=ui-usability-2"></script>
-  <script src="js/features/dashboard.js?v=2.8.1&rev=ui-usability-2"></script>
-  <script src="js/features/search-page.js?v=2.8.1&rev=search-images-1"></script>
-  <script src="js/features/calendar-page.js?v=2.8.1"></script>
-  <script src="js/core/shell.js?v=2.8.1&rev=ui-usability-2"></script>
-  <script src="app.js?v=2.8.1"></script>
+  <script src="js/core/api.js?v=2.8.2&rev=ui-usability-2"></script>
+  <script src="js/core/formatters.js?v=2.8.2"></script>
+  <script src="js/core/ux.js?v=2.8.2"></script>
+  <script src="js/features/search-results.js?v=2.8.2&rev=search-images-1"></script>
+  <script src="js/features/subscription-detail.js?v=2.8.2"></script>
+  <script src="js/features/calendar.js?v=2.8.2"></script>
+  <script src="js/features/source-switch.js?v=2.8.2&rev=media-save-1"></script>
+  <script src="js/features/automation-events.js?v=2.8.2"></script>
+  <script src="js/core/polling.js?v=2.8.2&rev=ui-usability-2"></script>
+  <script src="js/core/router.js?v=2.8.2&rev=ui-usability-1"></script>
+  <script src="js/core/notifications.js?v=2.8.2&rev=ui-usability-2"></script>
+  <script src="js/stores/downloads.js?v=2.8.2&rev=ui-usability-3"></script>
+  <script src="js/stores/drive.js?v=2.8.2"></script>
+  <script src="js/stores/jobs.js?v=2.8.2&rev=ui-usability-2"></script>
+  <script src="js/stores/subscriptions.js?v=2.8.2&rev=ui-usability-3"></script>
+  <script src="js/features/updates.js?v=2.8.2"></script>
+  <script src="js/features/settings.js?v=2.8.2&rev=ui-usability-2"></script>
+  <script src="js/features/diagnostics.js?v=2.8.2"></script>
+  <script src="js/features/pwa.js?v=2.8.2&rev=ui-usability-2"></script>
+  <script src="js/features/dashboard.js?v=2.8.2&rev=ui-usability-2"></script>
+  <script src="js/features/search-page.js?v=2.8.2&rev=search-images-1"></script>
+  <script src="js/features/calendar-page.js?v=2.8.2"></script>
+  <script src="js/core/shell.js?v=2.8.2&rev=ui-usability-2"></script>
+  <script src="app.js?v=2.8.2"></script>
 </body>
 </html>

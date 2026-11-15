@@ -43,7 +43,7 @@ ssh -N -L 56001:127.0.0.1:56001 "$MMS_SSH_TARGET"
 当前 Release 提供 Linux x86_64 归档及同名 SHA-256 文件，其他平台需要 [从源码构建](development.md)。以下命令用于全新目录，需要 curl、tar、sha256sum 和 OpenSSL：
 
 ```bash
-MMS_VERSION=2.8.1
+MMS_VERSION=2.8.2
 curl -fLO "https://github.com/hellomrli/my-media-sub/releases/download/v$MMS_VERSION/my-media-sub-v$MMS_VERSION-linux-x86_64.tar.gz"
 curl -fLO "https://github.com/hellomrli/my-media-sub/releases/download/v$MMS_VERSION/my-media-sub-v$MMS_VERSION-linux-x86_64.tar.gz.sha256"
 sha256sum -c "my-media-sub-v$MMS_VERSION-linux-x86_64.tar.gz.sha256"
