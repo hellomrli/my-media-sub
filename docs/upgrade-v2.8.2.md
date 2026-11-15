@@ -36,6 +36,12 @@ curl --fail http://127.0.0.1:56001/health
 
 自动浏览器回归使用本地测试数据，不代替真实夸克保存、Aria2 下载、TMDB 查询或 Web Push 送达验证。
 
+## 发布核验（2026-11-15）
+
+GitHub CI、Release 与版本镜像均已成功。实际下载的发布归档通过 SHA-256 与 GitHub 资产摘要检查，随包 106 个静态资源和文档文件与发布 tag 一致；云端正式二进制及配套资源通过启动、Docker 入口初始化，以及真实 v1.3.0 / v2.8.1 数据升级 smoke。工作流链接、归档校验和与镜像摘要见 [发布台账](roadmap.md)。
+
+本次发布提供 SHA-256 校验文件，未配置 minisign 签名，因而没有 `.minisig`。已设置 `SELF_UPDATE_PUBLIC_KEY` 的在线更新客户端会拒绝无签名归档；这些部署可按上面的 Docker Compose 或独立二进制步骤升级。签名与信任配置详见 [Docker 在线更新](docker-online-update.md)。
+
 ## 回滚
 
 停服后换回 v2.8.1 镜像或旧二进制与配套 `static/` 即可。不需要数据迁移；同一个数据目录只运行一个实例。
