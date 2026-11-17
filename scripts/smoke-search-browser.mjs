@@ -1204,11 +1204,43 @@ try {
     }
   }
   assert.equal(paddedButtonPages, 16);
+
+  // 手机上的周视图：条目和整块视图都不能伸出卡片右缘，过长的剧名要省略而不是被裁掉。
+  const weekOverflow = await withState(`
+    if (store.currentTab !== 'dashboard') store.selectTab('dashboard');
+    // 作废切页触发的在途日历请求，免得它用后端的空数据盖掉夹具。
+    store.calendarRequestId += 1;
+    const today = store.calendarTodayKey();
+    store.calendarCursor = today; store.calendarView = 'week'; store.calendarLoading = false; store.calendarError = '';
+    store.calendar = {today, source_alerts: [], summary: {total: 2, subscriptions: 2, source_alerts: 0, by_status: {today: 2}, by_media_type: {}},
+      items: ['星海旅人：一段足够长、在手机上必须省略的本地演示剧名', '短剧名'].map((title, index) => ({
+        id: 'local-week-' + index, subscription_id: '${statusSubscription.id}', subscription_title: title, media_type: 'anime',
+        primary_status: index ? 'ready' : 'aired_undiscovered', scheduled_date: today, episode: 3, actions: {}
+      }))};
+  `, `
+    const edge = element => element.getBoundingClientRect().right;
+    const card = document.querySelector('.dash-card[data-card="calendar"]');
+    const shell = document.querySelector('.calendar-week-shell');
+    const items = Array.from(document.querySelectorAll('.calendar-item.is-row')).filter(item => item.checkVisibility());
+    const title = items[0] && items[0].querySelector('strong');
+    const result = {
+      count: items.length,
+      shell: edge(shell) - edge(card),
+      items: items.map(item => edge(item) - edge(item.closest('.calendar-day-items'))),
+      truncated: Boolean(title) && title.scrollWidth > title.clientWidth
+    };
+    store.calendar = null;
+    return result;
+  `);
+  assert.equal(weekOverflow.count, 2, 'phone week view must render the fixture items');
+  assert.ok(weekOverflow.shell <= 0.5, `phone week view must stay inside the calendar card, overflows by ${weekOverflow.shell}px`);
+  assert.ok(weekOverflow.items.every(overflow => overflow <= 0.5), `phone week items must stay inside their day row, overflow ${weekOverflow.items}`);
+  assert.equal(weekOverflow.truncated, true, 'a long title must be ellipsized inside the phone week item');
   await setViewport(1440);
 
   assert.deepEqual(exceptions, [], 'media selectors must not raise Alpine runtime exceptions');
   if (screenshotDir) console.log('UI screenshots:', screenshotDir);
-  console.log('search browser smoke passed: images, concurrent searches, metadata, light/dark controls and navigation, poster hover and reduced motion, movie file/quality/download/save, series quality, source quality gate, dialog keyboard focus, mobile navigation and history, dashboard attention entries and layout editing, compact phone toolbars, connection status, populated detail/download states, accent text contrast, button padding, 1440px and 390px views');
+  console.log('search browser smoke passed: images, concurrent searches, metadata, light/dark controls and navigation, poster hover and reduced motion, movie file/quality/download/save, series quality, source quality gate, dialog keyboard focus, mobile navigation and history, dashboard attention entries and layout editing, compact phone toolbars, connection status, populated detail/download states, accent text contrast, button padding, phone week view, 1440px and 390px views');
 } catch (error) {
   console.error(serverLog, chromeLog);
   throw error;

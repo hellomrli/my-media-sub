@@ -2,7 +2,7 @@
 
 > 本文件是项目后续工作的**唯一持久化计划入口**。每完成一个任务，必须同步更新复选框、证据和“当前执行指针”，以便跨会话、跨上下文继续。
 >
-> 最近更新：2026-11-15
+> 最近更新：2026-11-18
 
 ## 状态说明
 
@@ -13,12 +13,12 @@
 
 ## 当前执行指针
 
-- **当前阶段**：v2.8.2 已发布并完成云端产物核验
-- **当前任务**：发布收尾完成；同一提交的 CI、Release、版本镜像和 main 镜像全部成功，实际下载的正式二进制与旧数据升级已核验
-- **下一任务（建议）**：实际账号部署验证（夸克分享 / Aria2 / TMDB / Web Push）；按组件整理样式作为后续维护
+- **当前阶段**：v2.8.3 发布中（版本与文档已准备，本地门禁通过；云端 CI / Release / 镜像结果待核验）
+- **当前任务**：推送 main 等待同一提交 CI 全绿后推送 `v2.8.3` tag，并核验 Release 与镜像
+- **下一任务（建议）**：实际账号部署验证（夸克分享 / Aria2 / TMDB / Web Push）；其余组件的样式整理作为后续维护
 - **后续阶段**：保持单实例安全模型与 JSON 单写；未经明确需求不启动多用户、SQLite 或第二 Provider
-- **当前发布基线**：v2.8.2（[正式 Release](https://github.com/hellomrli/my-media-sub/releases/tag/v2.8.2)；`Cargo.toml` / OpenAPI / PWA 缓存代次一致）
-- **工作树状态**：工作分支为 `main`，发布 tag 固定于 `45dac60`；以 `git status --short --branch` 为准，历史阶段交接记录保留在下方作审计
+- **当前发布基线**：v2.8.3（[正式 Release](https://github.com/hellomrli/my-media-sub/releases/tag/v2.8.3)；`Cargo.toml` / OpenAPI / PWA 缓存代次一致）
+- **工作树状态**：工作分支为 `main`；以 `git status --short --branch` 为准，历史阶段交接记录保留在下方作审计
 
 > **本轮评审的完整清单与后续待办见
 > [docs/code-review-2026-09-21.md](code-review-2026-09-21.md)。**
@@ -26,6 +26,16 @@
 > 「当前发布基线」已纳入 CI 门禁，见 `scripts/check-doc-drift.py`。
 
 历史评审留档：[2026-07-26 代码评审](code-review-2026-07-26.md) 与 [前端评审](frontend-design-review-2026-07-26.md)。其中旧问题以本台账后续修复记录为准。
+
+---
+
+## v2.8.3 日历样式合并与手机周视图修复（2026-11-17 至 2026-11-18）
+
+- [x] `tailwind/input.css` 中分散在十余处的日历规则合并为「更新日历」一节，2766 行减到 2533 行；删除六个模板已不使用的类和 `is-compact` 标记。证据：`tailwind/input.css`、`static/partials/page-dashboard.html`。
+- [x] 真实 Chrome 计算样式比较：31 个场景、每场景 2008 个元素（含伪元素、普通与悬停），约 18.7 万个快照；641px 及以上尺寸与位置完全一致，其余差异不改变渲染结果。范围与局限见 [前端评审](frontend-design-review-2026-11-12.md)。
+- [x] 修复手机周视图条目比可用宽度更宽、剧名被卡片边缘裁掉，以及视图右缘伸出卡片 11px 的问题（v2.8.2 已存在）；浏览器回归新增检查，换回旧样式后按预期失败。证据：`scripts/smoke-search-browser.mjs`。
+- [x] 208 项前端测试、Rust 测试、ESLint、HTML/CSS 生成一致性、类名覆盖、文档漂移检查与 debug 二进制的真实浏览器回归通过；样式表修订号与 PWA 缓存代次改为 `calendar-styles-1` / `v2.8.3-calendar-styles-1`。
+- 保持 v2.8.2 发布基线，不改 API 和 JSON Store schema；未做正式构建、MSRV、依赖审计和升级 smoke，这些留到发版门禁。
 
 ---
 
