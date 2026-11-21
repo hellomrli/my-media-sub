@@ -13,11 +13,11 @@
 
 ## 当前执行指针
 
-- **当前阶段**：v2.8.4 发布与测试交付
-- **当前任务**：v2.8.4 完整本地门禁已通过，准备推送 main；等待同一提交 CI 全绿再发布 tag，并核验云端归档与镜像
-- **下一任务（建议）**：核验实际 Release 归档与 GHCR 镜像，交付可测试版本；实际账号部署验证（夸克签到 / 分享、Aria2、TMDB、Web Push）仍待部署条件
+- **当前阶段**：v2.8.4 发布完成与部署验证
+- **当前任务**：v2.8.4 已推送 GitHub 并正式发布；同一代码提交的 CI、Release、main 与版本镜像全部成功，实际下载归档、二进制升级及 GHCR 标签核验完成，可交付部署测试
+- **下一任务（建议）**：收集 v2.8.4 部署反馈，验证真实账号的自动检查、夸克签到 / 分享、Aria2、TMDB 和 Web Push
 - **后续阶段**：保持单实例安全模型与 JSON 单写；未经明确需求不启动多用户、SQLite 或第二 Provider
-- **当前发布基线**：v2.8.4（本次待发布版本，`Cargo.toml` / OpenAPI / PWA 缓存代次一致；发布准备时云端最新正式版仍为 [v2.8.2](https://github.com/hellomrli/my-media-sub/releases/tag/v2.8.2)，v2.8.3 未单独发布）
+- **当前发布基线**：v2.8.4（[最新正式 Release](https://github.com/hellomrli/my-media-sub/releases/tag/v2.8.4)，非 draft / prerelease；tag 指向已通过 CI 的 `046402e005766126738f56b98ba01162a438d47c`，`Cargo.toml` / OpenAPI / PWA 缓存代次一致；v2.8.3 未单独发布）
 - **工作树状态**：工作分支为 `main`；以 `git status --short --branch` 为准，历史阶段交接记录保留在下方作审计
 
 > **本轮评审的完整清单与后续待办见
@@ -36,10 +36,14 @@
 - [x] v2.8.4 本地 745 项 Rust / 208 项前端测试通过，另 2 项外网 Rust 测试按设计忽略；格式、Clippy、Rust 1.89 MSRV、零例外依赖审计、ESLint、HTML/CSS/OpenAPI/文档与工具链门禁通过。
 - [x] Rust 1.99.1 正式构建版本为 `2.8.4`；二进制与 Docker 入口 smoke、10 秒稳定性检查（1,804 次请求、3 份保留备份）通过。真实 v1.3.0 / v2.8.2 旧发布包先校验同名 SHA-256，再用临时数据完成二进制升级 smoke。
 - [x] 正式二进制真实浏览器回归通过，覆盖手机周日历、PWA、搜索、电影保存与剧集画质、换源、跳季详情、六种流水线状态与四类下载任务，检查 1440px / 390px 布局；浅深色主题各测 136 个文字与控件，最低对比度分别为 4.68:1 / 4.75:1。
-- [ ] 推送 main，等待同一提交的 Rust、MSRV 与真实 Docker CI 全绿。
-- [ ] 推送指向已验证提交的 annotated tag，等待 Release 与 Docker Image 工作流成功。
-- [ ] 下载实际发布归档、校验 SHA-256 并执行随包二进制 smoke，核对归档文件和发布说明。
-- [ ] 核对 GHCR 版本标签、镜像摘要与源码提交，记录真实数据 / runtime 卷升级验证及签名状态。
+- [x] 发布提交 `046402e005766126738f56b98ba01162a438d47c` 已推送 main；[CI](https://github.com/hellomrli/my-media-sub/actions/runs/44866272768) 的 Rust、MSRV 与真实 Docker build / smoke 全部成功，两个依赖审计步骤均通过。云端 lib 行覆盖率为 65.06%；正式二进制浏览器检查与真实 v1.3.0 数据升级通过，浅深色主题最低对比度 4.69:1 / 4.75:1。
+- [x] [main Docker Image](https://github.com/hellomrli/my-media-sub/actions/runs/44867419073) 发布并通过真实数据 / runtime 卷升级 smoke 后，推送指向同一已验证提交的 `v2.8.4` annotated tag；[Release](https://github.com/hellomrli/my-media-sub/actions/runs/44868103983) 与 [版本 Docker Image](https://github.com/hellomrli/my-media-sub/actions/runs/44868103987) 全部成功，版本镜像的真实 v1.3.0 卷升级验证通过。
+- [x] [v2.8.4 Release](https://github.com/hellomrli/my-media-sub/releases/tag/v2.8.4) 为 latest 正式版，非 draft / prerelease；实际下载的 `my-media-sub-v2.8.4-linux-x86_64.tar.gz` 为 9,462,567 bytes，同名校验文件与 GitHub 资产摘要一致，SHA-256 为 `d6e022cb5e0afb3f0009a22832d6b8c85169cd60b69d0101078d75737bdc94be`。
+- [x] 随包静态资源、文档及 README / CHANGELOG 共 108 个文件，逐一匹配发布 tag；发布说明与版本 README 提取结果一致，文档链接指向 `v2.8.4`。实际云端二进制确认版本 `2.8.4`，使用随包静态资源通过启动、Docker 入口以及真实 v1.3.0 / v2.8.2 旧发布二进制的数据升级 smoke。
+- [x] GHCR 的 `2.8.4`、`v2.8.4`、`2.8` 与 `latest` 指向同一镜像，Linux amd64 配置的版本与源码提交分别为 `2.8.4`、`046402e005766126738f56b98ba01162a438d47c`；镜像摘要为 `sha256:f8c16525ec99d404522ce73bac3e801e3b3418f1507efbe5342f9392503609ff`。另已核对 main 镜像的源码提交相同。
+- [!] 真实账号的夸克签到 / 分享、Aria2 下载、TMDB 查询与 Web Push 送达仍待部署验证；自动回归使用临时数据和本地夹具，本轮未修改真实业务数据或配置。
+- 签名状态：本次发布工作流未配置 `MINISIGN_SECRET_KEY`，实际 Release 没有 `.minisig`；已设置 `SELF_UPDATE_PUBLIC_KEY` 的在线更新客户端会拒绝无签名归档，可使用 Docker Compose 或独立二进制升级。
+- 部署、测试与回滚步骤见 [v2.8.4 升级指南](upgrade-v2.8.4.md)，完整门禁见 [发布流程](release-workflow.md)。
 
 ---
 

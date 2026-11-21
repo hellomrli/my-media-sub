@@ -35,7 +35,7 @@ curl --fail http://127.0.0.1:56001/health
 
 本地与 CI 回归使用临时数据和本地夹具，覆盖定时器暂停恢复、时钟调整、并发重载、日期兼容、手机 / 桌面浏览器以及旧发布二进制升级。真实夸克签到 / 分享、Aria2 下载、TMDB 查询和 Web Push 送达请在自己的部署中验证；门禁与实际云端产物核验见 [路线图](roadmap.md)。
 
-本次发布提供 SHA-256 校验文件；`.minisig` 仅在发布工作流配置签名密钥时生成。已设置 `SELF_UPDATE_PUBLIC_KEY` 的客户端会拒绝无签名归档，遇到这种情况使用 Docker Compose 或独立二进制步骤升级。签名与信任配置详见 [Docker 在线更新](docker-online-update.md)。
+本次发布提供 SHA-256 校验文件；发布工作流未配置签名密钥，实际 Release 没有 `.minisig`。已设置 `SELF_UPDATE_PUBLIC_KEY` 的客户端会拒绝无签名归档，这些部署使用 Docker Compose 或独立二进制步骤升级。签名与信任配置详见 [Docker 在线更新](docker-online-update.md)。
 
 ## 回滚
 
