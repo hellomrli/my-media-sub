@@ -68,7 +68,7 @@ pub async fn preview_source_switch(
         .probe_and_score_candidate(
             &candidate,
             &settings.quark_cookie,
-            chrono::Utc::now().timestamp_millis(),
+            crate::utils::time::unix_now_millis(),
         )
         .await?;
     persist_scored_candidate(&ctx, &subscription_id, scored.clone()).await?;
@@ -123,7 +123,7 @@ pub async fn apply_source_switch(
         .probe_and_score_candidate(
             &candidate,
             &settings.quark_cookie,
-            chrono::Utc::now().timestamp_millis(),
+            crate::utils::time::unix_now_millis(),
         )
         .await?;
     let preview =
@@ -243,7 +243,7 @@ pub async fn trigger_source_search(
 
     // 自动探测前几个候选的有效性。探测涉及外部分享请求，必须并发限时，
     // 避免单个慢源把整次搜索请求串行拖长。
-    let now_ms = chrono::Utc::now().timestamp_millis();
+    let now_ms = crate::utils::time::unix_now_millis();
     probe_top_candidates(
         &mut candidates,
         &settings.pansou_api_url,

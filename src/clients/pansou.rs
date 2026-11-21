@@ -148,7 +148,7 @@ impl PanSouClient {
                 source: item.source.unwrap_or_else(|| "pansou".to_string()),
                 datetime: item
                     .datetime
-                    .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
+                    .unwrap_or_else(crate::utils::time::utc_now_rfc3339),
                 images: item.images.unwrap_or_default(),
                 cloud_type: "quark".to_string(),
                 probe_info: None,

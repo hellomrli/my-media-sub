@@ -1,4 +1,3 @@
-use chrono::Datelike;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Weak};
@@ -743,7 +742,7 @@ impl SubscriptionCheckService {
             settings.subscription_check_interval_minutes,
         ));
         let now = unix_now();
-        let weekday = chrono::Local::now().weekday().number_from_monday() as i32;
+        let weekday = i32::from(jiff::ZonedDateTime::now().weekday().to_monday_one_offset());
         let eligible_ids = subscriptions
             .iter()
             .filter(|sub| sub.enabled)

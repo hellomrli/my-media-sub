@@ -3,7 +3,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use chrono::Utc;
+use jiff::Timestamp;
 use ring::digest;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -142,7 +142,7 @@ impl UpdateProgressResponse {
             downloaded_bytes: 0,
             total_bytes: None,
             error: None,
-            updated_at: Utc::now().to_rfc3339(),
+            updated_at: crate::utils::time::utc_now_rfc3339(),
         }
     }
 }
@@ -165,7 +165,7 @@ async fn check_update() -> Result<impl IntoResponse> {
         release_url: release.html_url,
         release_notes: release.body.unwrap_or_default(),
         published_at: release.published_at,
-        checked_at: Utc::now().to_rfc3339(),
+        checked_at: crate::utils::time::utc_now_rfc3339(),
         online_update_supported: online_update_supported(&runtime),
         runtime,
         linux_x86_64_asset,
@@ -386,7 +386,7 @@ fn backup_path(current_exe: &Path) -> PathBuf {
     current_exe.with_file_name(format!(
         "{}.bak-{}-{}",
         file_name,
-        Utc::now().format("%Y%m%d%H%M%S"),
+        Timestamp::now().strftime("%Y%m%d%H%M%S"),
         uuid::Uuid::new_v4()
     ))
 }
@@ -467,7 +467,7 @@ fn replace_update_payload_blocking(
     let static_stage = static_parent.join(format!(".{static_name}.new-{token}"));
     let static_backup = static_parent.join(format!(
         "{static_name}.bak-{}-{token}",
-        Utc::now().format("%Y%m%d%H%M%S")
+        Timestamp::now().strftime("%Y%m%d%H%M%S")
     ));
 
     let install_result = (|| -> Result<()> {

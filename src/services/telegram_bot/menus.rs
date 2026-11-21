@@ -966,7 +966,7 @@ impl TelegramBotService {
             .probe_and_score_candidate(
                 &candidate,
                 &settings.quark_cookie,
-                chrono::Utc::now().timestamp_millis(),
+                crate::utils::time::unix_now_millis(),
             )
             .await
             .map_err(|error| sanitize_error(&error.to_string()))?;

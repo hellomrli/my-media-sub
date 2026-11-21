@@ -1,11 +1,8 @@
 use std::collections::HashMap;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use chrono::{DateTime, FixedOffset, Timelike, Utc};
 use serde_json::json;
-use tokio::sync::RwLock;
-use tokio_cron_scheduler::{Job, JobScheduler};
+use tokio::sync::Mutex;
 use tracing::{error, info};
 
 use crate::clients::{QuarkSaveClient, QuarkSigninResult};
@@ -16,7 +13,7 @@ use crate::services::notification::{
     add_notification, dispatch_push_event_for_notification, PushDispatchRequest,
 };
 use crate::services::push::{PushEvent, PushLevel};
-use crate::services::subscription_scheduler::ensure_ticker_started;
+use crate::services::timer::Timer;
 use crate::store::{NotificationStore, SettingsStore};
 use crate::utils::unix_now;
 
@@ -170,94 +167,78 @@ impl QuarkSigninService {
 }
 
 pub struct QuarkSigninScheduler {
-    scheduler: JobScheduler,
     service: Arc<QuarkSigninService>,
     settings_store: Arc<SettingsStore>,
-    job_id: Arc<RwLock<Option<uuid::Uuid>>>,
-    /// 见 `subscription_scheduler::ensure_ticker_started`：crate 的
-    /// `JobScheduler::start()` 不幂等，必须自己保证只调用一次，
-    /// 否则 `reload()` 在首次启动之后每次都返回错误。
-    ticker_started: AtomicBool,
+    /// 当前生效的定时器；`None` 表示自动签到未启用或已停止。
+    timer: Mutex<Option<Timer>>,
+    running_guard: Arc<Mutex<()>>,
 }
 
 impl QuarkSigninScheduler {
-    pub async fn new(
-        service: Arc<QuarkSigninService>,
-        settings_store: Arc<SettingsStore>,
-    ) -> Result<Self> {
-        let scheduler = JobScheduler::new().await?;
-        Ok(Self {
-            scheduler,
+    pub fn new(service: Arc<QuarkSigninService>, settings_store: Arc<SettingsStore>) -> Self {
+        Self {
             service,
             settings_store,
-            job_id: Arc::new(RwLock::new(None)),
-            ticker_started: AtomicBool::new(false),
-        })
+            timer: Mutex::new(None),
+            running_guard: Arc::new(Mutex::new(())),
+        }
     }
 
     pub async fn start(&self) -> Result<()> {
+        let mut active = self.timer.lock().await;
         let settings = self.settings_store.get().await;
+        if let Some(timer) = active.take() {
+            timer.stop().await;
+        }
         if !settings.quark_signin_enabled {
             info!("夸克自动签到未启用");
             return Ok(());
         }
 
-        self.stop().await?;
-
         let hour = normalize_hour(settings.quark_signin_hour);
-        let cron_expr = format!("0 0 {} * * *", hour);
         let service = self.service.clone();
+        let running_guard = self.running_guard.clone();
 
-        let job = Job::new_async_tz(cron_expr.as_str(), signin_timezone(), move |_uuid, _l| {
-            let service = service.clone();
-            Box::pin(async move {
-                info!("定时执行夸克签到");
-                match service.signin_with_failure_notice().await {
-                    Ok(result) => {
-                        if result.signed {
-                            info!("夸克签到成功: {}", signin_message(&result));
-                        } else {
-                            info!("夸克今日已签到: {}", signin_message(&result));
-                        }
-                    }
-                    Err(err) => {
-                        error!("夸克签到失败: {}", err);
-                    }
+        let timer = Timer::daily_at(
+            "夸克自动签到",
+            hour as u8,
+            SIGNIN_TIMEZONE_OFFSET_SECONDS,
+            move || {
+                let service = service.clone();
+                let running_guard = running_guard.clone();
+                async move {
+                    info!("定时执行夸克签到");
+                    run_automatic_signin(&service, &running_guard).await;
                 }
-            })
-        })?;
-
-        let job_uuid = self.scheduler.add(job).await?;
-        *self.job_id.write().await = Some(job_uuid);
-        ensure_ticker_started(&self.scheduler, &self.ticker_started).await?;
+            },
+        );
+        *active = Some(timer);
         info!("夸克自动签到已启动，每天北京时间 {}:00 执行", hour);
         self.spawn_startup_catchup_if_needed(hour).await;
         Ok(())
     }
 
     pub async fn is_running(&self) -> bool {
-        self.job_id.read().await.is_some()
+        self.timer
+            .lock()
+            .await
+            .as_ref()
+            .is_some_and(Timer::is_running)
     }
 
     pub async fn stop(&self) -> Result<()> {
-        let mut job_id = self.job_id.write().await;
-        if let Some(uuid) = *job_id {
-            if let Err(err) = self.scheduler.remove(&uuid).await {
-                error!("移除夸克签到任务失败: {}", err);
-            }
-            *job_id = None;
+        if let Some(timer) = self.timer.lock().await.take() {
+            timer.stop().await;
         }
         Ok(())
     }
 
     pub async fn reload(&self) -> Result<()> {
-        self.stop().await?;
         self.start().await
     }
 
     async fn spawn_startup_catchup_if_needed(&self, hour: i32) {
-        let now = Utc::now().with_timezone(&signin_timezone());
-        if !should_run_startup_catchup(hour, now) {
+        if !should_run_startup_catchup(hour, unix_now()) {
             return;
         }
 
@@ -268,21 +249,27 @@ impl QuarkSigninScheduler {
         }
 
         let service = self.service.clone();
+        let running_guard = self.running_guard.clone();
         tokio::spawn(async move {
             info!("今日夸克签到时间已过且无成功记录，立即执行补签");
-            match service.signin_with_failure_notice().await {
-                Ok(result) => {
-                    if result.signed {
-                        info!("夸克补签成功: {}", signin_message(&result));
-                    } else {
-                        info!("夸克今日已签到: {}", signin_message(&result));
-                    }
-                }
-                Err(err) => {
-                    error!("夸克补签失败: {}", err);
-                }
-            }
+            run_automatic_signin(&service, &running_guard).await;
         });
+    }
+}
+
+async fn run_automatic_signin(service: &QuarkSigninService, running_guard: &Mutex<()>) {
+    let Ok(_guard) = running_guard.try_lock() else {
+        info!("上一轮夸克自动签到仍在执行，跳过重复触发");
+        return;
+    };
+    let notifications = service.notification_store.list(true).await;
+    if successful_signin_recorded_today(&notifications, unix_now()) {
+        info!("今日已有夸克签到成功记录，跳过自动签到");
+        return;
+    }
+    match service.signin_with_failure_notice().await {
+        Ok(result) => info!("夸克自动签到完成: {}", signin_message(&result)),
+        Err(err) => error!("夸克自动签到失败: {}", err),
     }
 }
 
@@ -312,12 +299,11 @@ fn normalize_hour(hour: i32) -> i32 {
     hour.clamp(0, 23)
 }
 
-fn signin_timezone() -> FixedOffset {
-    FixedOffset::east_opt(SIGNIN_TIMEZONE_OFFSET_SECONDS).expect("valid signin timezone")
-}
-
-fn should_run_startup_catchup(hour: i32, now: DateTime<FixedOffset>) -> bool {
-    now.hour() >= normalize_hour(hour) as u32
+/// 北京时间此刻是否已经过了设定的签到整点。`now` 为 Unix 秒。
+fn should_run_startup_catchup(hour: i32, now: i64) -> bool {
+    let seconds_today =
+        (now.rem_euclid(86_400) + i64::from(SIGNIN_TIMEZONE_OFFSET_SECONDS)).rem_euclid(86_400);
+    seconds_today / 3_600 >= i64::from(normalize_hour(hour))
 }
 
 fn successful_signin_recorded_today(notifications: &[Notification], now: i64) -> bool {
@@ -330,7 +316,7 @@ fn successful_signin_recorded_today(notifications: &[Notification], now: i64) ->
 }
 
 fn shanghai_day_index(timestamp: i64) -> i64 {
-    (timestamp + i64::from(SIGNIN_TIMEZONE_OFFSET_SECONDS)) / 86_400
+    (i128::from(timestamp) + i128::from(SIGNIN_TIMEZONE_OFFSET_SECONDS)).div_euclid(86_400) as i64
 }
 
 fn member_type_label(value: &str) -> &str {
@@ -354,6 +340,70 @@ mod tests {
 
     use crate::store::{NotificationStore, SettingsStore};
 
+    #[tokio::test]
+    async fn start_reads_current_settings_after_acquiring_the_lifecycle_lock() {
+        let dir = std::env::temp_dir().join(format!("quark-scheduler-{}", uuid::Uuid::new_v4()));
+        let settings = Arc::new(SettingsStore::new(dir.join("settings.json")));
+        settings.load().await.unwrap();
+        settings
+            .update(|value| value.quark_signin_enabled = true)
+            .await
+            .unwrap();
+        let notifications = Arc::new(NotificationStore::new(dir.join("notifications.json")));
+        notifications.load().await.unwrap();
+        let service = Arc::new(QuarkSigninService::new(
+            settings.clone(),
+            notifications,
+            None,
+        ));
+        let scheduler = QuarkSigninScheduler::new(service, settings.clone());
+
+        let lock = scheduler.timer.lock().await;
+        let mut starting = Box::pin(scheduler.start());
+        std::future::poll_fn(|cx| {
+            assert!(std::future::Future::poll(starting.as_mut(), cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        settings
+            .update(|value| value.quark_signin_enabled = false)
+            .await
+            .unwrap();
+        drop(lock);
+        starting.await.unwrap();
+        assert!(!scheduler.is_running().await);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn overlapping_automatic_signin_does_not_create_another_attempt() {
+        let dir =
+            std::env::temp_dir().join(format!("quark-signin-overlap-{}", uuid::Uuid::new_v4()));
+        let settings = Arc::new(SettingsStore::new(dir.join("settings.json")));
+        settings.load().await.unwrap();
+        let notifications = Arc::new(NotificationStore::new(dir.join("notifications.json")));
+        notifications.load().await.unwrap();
+        let service = QuarkSigninService::new(settings, notifications.clone(), None);
+        let guard = Mutex::new(());
+        let _running = guard.lock().await;
+        run_automatic_signin(&service, &guard).await;
+        assert!(
+            notifications.list(true).await.is_empty(),
+            "无 Cookie 的重复尝试也不应写出失败记录"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn beijing_day_boundaries_work_before_the_epoch_and_with_extreme_records() {
+        assert_eq!(shanghai_day_index(-28_801), -1);
+        assert_eq!(shanghai_day_index(-28_800), 0);
+        assert_eq!(shanghai_day_index(86_400 - 28_801), 0);
+        assert_eq!(shanghai_day_index(86_400 - 28_800), 1);
+        assert!(shanghai_day_index(i64::MAX) > 0);
+        assert!(shanghai_day_index(i64::MIN) < 0);
+    }
+
     #[test]
     fn test_normalize_hour() {
         assert_eq!(normalize_hour(-1), 0);
@@ -361,23 +411,36 @@ mod tests {
         assert_eq!(normalize_hour(24), 23);
     }
 
+    fn unix(value: &str) -> i64 {
+        value
+            .parse::<jiff::Timestamp>()
+            .expect("valid RFC 3339 timestamp")
+            .as_second()
+    }
+
+    /// 定时器用整数运算算出下一次触发时刻；这里用日历库独立核对它确实落在
+    /// 北京时间的整点，而且是 `now` 之后最近的那一个。
     #[test]
-    fn signin_cron_jobs_keep_beijing_hours() {
-        for hour in [0, 8, 23] {
-            let mut job = Job::new_async_tz(
-                format!("0 0 {hour} * * *"),
-                signin_timezone(),
-                |_uuid, _scheduler| Box::pin(async {}),
-            )
-            .expect("valid daily signin cron");
-            let data = job.job_data().expect("signin job data");
-            assert_eq!(data.time_offset_seconds, SIGNIN_TIMEZONE_OFFSET_SECONDS);
-            let next_tick = DateTime::from_timestamp(data.next_tick.try_into().unwrap(), 0)
-                .expect("valid next tick")
-                .with_timezone(&signin_timezone());
-            assert_eq!(next_tick.hour(), hour);
-            assert_eq!(next_tick.minute(), 0);
-            assert_eq!(next_tick.second(), 0);
+    fn signin_timer_targets_keep_beijing_hours() {
+        let beijing = jiff::tz::Offset::from_seconds(SIGNIN_TIMEZONE_OFFSET_SECONDS).unwrap();
+        for now in [
+            unix("2026-06-29T07:59:59+08:00"),
+            unix("2026-12-31T23:59:59+08:00"),
+            unix("2028-02-29T12:00:00+08:00"),
+        ] {
+            for hour in [0u8, 8, 23] {
+                let next = crate::services::timer::next_daily_occurrence(
+                    now,
+                    hour,
+                    SIGNIN_TIMEZONE_OFFSET_SECONDS,
+                );
+                assert!(next > now && next - now <= 86_400);
+                let local = beijing.to_datetime(jiff::Timestamp::from_second(next).unwrap());
+                assert_eq!(
+                    (local.hour(), local.minute(), local.second()),
+                    (hour as i8, 0, 0)
+                );
+            }
         }
     }
 
@@ -402,28 +465,34 @@ mod tests {
 
     #[test]
     fn startup_catchup_runs_after_configured_hour() {
-        let now = DateTime::parse_from_rfc3339("2026-06-29T08:00:00+08:00")
-            .unwrap()
-            .with_timezone(&signin_timezone());
-        assert!(should_run_startup_catchup(8, now));
-
-        let before = DateTime::parse_from_rfc3339("2026-06-29T07:59:59+08:00")
-            .unwrap()
-            .with_timezone(&signin_timezone());
-        assert!(!should_run_startup_catchup(8, before));
+        assert!(should_run_startup_catchup(
+            8,
+            unix("2026-06-29T08:00:00+08:00")
+        ));
+        assert!(!should_run_startup_catchup(
+            8,
+            unix("2026-06-29T07:59:59+08:00")
+        ));
+        // 北京时间的凌晨仍是 UTC 的前一天，不能按 UTC 的小时判断。
+        assert!(!should_run_startup_catchup(
+            8,
+            unix("2026-06-29T00:30:00+08:00")
+        ));
+        assert!(should_run_startup_catchup(
+            0,
+            unix("2026-06-29T00:00:00+08:00")
+        ));
+        assert!(should_run_startup_catchup(
+            23,
+            unix("2026-06-29T23:59:59+08:00")
+        ));
     }
 
     #[test]
     fn detects_today_successful_signin_record() {
-        let now = DateTime::parse_from_rfc3339("2026-06-29T09:00:00+08:00")
-            .unwrap()
-            .timestamp();
-        let yesterday = DateTime::parse_from_rfc3339("2026-06-28T23:59:59+08:00")
-            .unwrap()
-            .timestamp();
-        let today = DateTime::parse_from_rfc3339("2026-06-29T00:00:01+08:00")
-            .unwrap()
-            .timestamp();
+        let now = unix("2026-06-29T09:00:00+08:00");
+        let yesterday = unix("2026-06-28T23:59:59+08:00");
+        let today = unix("2026-06-29T00:00:01+08:00");
 
         let notifications = vec![
             Notification {

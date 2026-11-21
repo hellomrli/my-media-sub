@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
 
-use chrono::{DateTime, TimeZone, Utc};
+use jiff::Timestamp;
 use regex::Regex;
 
 use crate::models::SourceQuality;
@@ -177,9 +177,9 @@ pub fn score_source(input: &SourceQualityInput, now_ms: i64) -> SourceQuality {
         _ => ("谨慎", "danger"),
     };
     let updated_at = updated_ms.and_then(|timestamp| {
-        Utc.timestamp_millis_opt(timestamp)
-            .single()
-            .map(|date| date.to_rfc3339())
+        Timestamp::from_millisecond(timestamp)
+            .ok()
+            .map(crate::utils::time::utc_rfc3339)
     });
     let episode_start = episodes.iter().next().copied();
     let episode_end = episodes.iter().next_back().copied();
@@ -290,9 +290,10 @@ fn parse_timestamp_ms(value: &str) -> Option<i64> {
             });
         }
     }
-    DateTime::parse_from_rfc3339(value)
+    value
+        .parse::<Timestamp>()
         .ok()
-        .map(|date| date.timestamp_millis())
+        .map(|date| date.as_millisecond())
 }
 
 fn has_tag(tags: &[String], expected: &str) -> bool {
@@ -351,6 +352,44 @@ fn recommendation_reasons(
 mod tests {
     use super::*;
     use serde::Deserialize;
+
+    #[test]
+    fn source_recency_accepts_equivalent_seconds_milliseconds_and_offsets() {
+        let expected_ms = 1_782_691_200_456;
+        let now_ms = expected_ms + 2 * 86_400_000;
+        let mut expected = None;
+        for value in [
+            "1782691200.456",
+            "1782691200456",
+            "2026-06-29T00:00:00.456Z",
+            "2026-06-29T08:00:00.456+08:00",
+            "2026-06-28T19:00:00.456-05:00",
+        ] {
+            assert_eq!(parse_timestamp_ms(value), Some(expected_ms), "{value}");
+            let quality = score_source(
+                &SourceQualityInput {
+                    title: "Show S01 1080P".to_string(),
+                    datetime: value.to_string(),
+                    validity: Some(true),
+                    ..Default::default()
+                },
+                now_ms,
+            );
+            assert_eq!(
+                quality.updated_at.as_deref(),
+                Some("2026-06-29T00:00:00.456+00:00")
+            );
+            let result = serde_json::to_value(quality).unwrap();
+            if let Some(expected) = &expected {
+                assert_eq!(&result, expected, "{value}");
+            } else {
+                expected = Some(result);
+            }
+        }
+        for value in ["", "NaN", "2026-02-29T00:00:00Z", "2026-06-29"] {
+            assert_eq!(parse_timestamp_ms(value), None, "{value}");
+        }
+    }
 
     #[derive(Deserialize)]
     struct Fixture {

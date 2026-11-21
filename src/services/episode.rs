@@ -644,12 +644,13 @@ pub fn parse_file_time_score(value: Option<&str>) -> i64 {
         };
     }
 
-    if let Ok(datetime) = chrono::DateTime::parse_from_rfc3339(value) {
-        return datetime.timestamp();
+    if let Ok(datetime) = value.parse::<jiff::Timestamp>() {
+        return datetime.as_second();
     }
 
-    chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S")
-        .map(|datetime| datetime.and_utc().timestamp())
+    jiff::civil::DateTime::strptime("%Y-%m-%d %H:%M:%S", value)
+        .and_then(|datetime| jiff::tz::Offset::UTC.to_timestamp(datetime))
+        .map(|datetime| datetime.as_second())
         .unwrap_or(0)
 }
 

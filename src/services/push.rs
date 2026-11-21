@@ -606,7 +606,7 @@ impl PushService {
             return false;
         }
         // 使用宿主时区（容器内可通过 TZ 环境变量设置），而非硬编码 UTC+8。
-        let hour = chrono::Timelike::hour(&chrono::Local::now()) as u8;
+        let hour = jiff::ZonedDateTime::now().hour() as u8;
         quiet_hour(
             hour,
             self.settings.push_quiet_start_hour,
@@ -1146,7 +1146,7 @@ pub async fn record_push_message_report_for_notification(
         message: message.to_string(),
         meta: HashMap::from([("push".to_string(), json!(push_meta))]),
         read: false,
-        created_at: chrono::Local::now().timestamp(),
+        created_at: crate::utils::unix_now(),
     };
 
     if let Err(e) = notification_store.add(notification).await {

@@ -166,7 +166,7 @@ where
             .collect();
     }
 
-    let now_ms = chrono::Utc::now().timestamp_millis();
+    let now_ms = crate::utils::time::unix_now_millis();
     for result in &mut results {
         let probe = result.probe_info.as_ref();
         result.quality = score_source(

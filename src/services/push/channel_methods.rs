@@ -7,7 +7,7 @@ macro_rules! push_channel_methods {
             return Ok(false);
         }
 
-        let now = chrono::Local::now().format("%m-%d %H:%M").to_string();
+        let now = jiff::ZonedDateTime::now().strftime("%m-%d %H:%M").to_string();
         let content = format!("### {} {}\n{}\n> {}", level.emoji(), title, message, now);
 
         let payload = json!({

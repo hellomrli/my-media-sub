@@ -140,23 +140,21 @@ impl AppContext {
             .with_transfer_service(transfer_service.clone()),
         );
 
-        let scheduler = Arc::new(
-            SubscriptionScheduler::new(
-                check_service.clone(),
-                settings_store.clone(),
-                notification_store.clone(),
-                Some(job_queue.clone()),
-            )
-            .await?,
-        );
+        let scheduler = Arc::new(SubscriptionScheduler::new(
+            check_service.clone(),
+            settings_store.clone(),
+            notification_store.clone(),
+            Some(job_queue.clone()),
+        ));
         let quark_signin_service = Arc::new(QuarkSigninService::new(
             settings_store.clone(),
             notification_store.clone(),
             Some(job_queue.clone()),
         ));
-        let quark_signin_scheduler = Arc::new(
-            QuarkSigninScheduler::new(quark_signin_service.clone(), settings_store.clone()).await?,
-        );
+        let quark_signin_scheduler = Arc::new(QuarkSigninScheduler::new(
+            quark_signin_service.clone(),
+            settings_store.clone(),
+        ));
         let download_monitor = Arc::new(DownloadMonitorService::new(
             settings_store.clone(),
             subscription_store.clone(),

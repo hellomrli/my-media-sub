@@ -121,6 +121,58 @@ fn assert_json_content_type(headers: &HeaderMap) {
         .is_some_and(|value| value.starts_with("application/json")));
 }
 
+#[tokio::test]
+async fn settings_updates_can_restart_and_disable_both_schedulers_repeatedly() {
+    let (ctx, dir) = test_context().await;
+    // 本地成功记录避免启动补签访问真实夸克账号。
+    ctx.notification_store
+        .add(my_media_sub::models::Notification {
+            id: "signin-today".to_string(),
+            level: "success".to_string(),
+            event: "quark_signin".to_string(),
+            title: "夸克签到成功".to_string(),
+            message: String::new(),
+            meta: Default::default(),
+            read: false,
+            created_at: my_media_sub::utils::unix_now(),
+        })
+        .await
+        .unwrap();
+    let app = create_app(ctx.clone());
+    for (enabled, interval, hour) in [
+        (true, 5, 0),
+        (true, 10, 8),
+        (false, 15, 16),
+        (true, 20, 23),
+        (true, 30, 0),
+        (false, 60, 8),
+    ] {
+        let (status, headers, body) = json_response(
+            &app,
+            auth_post(
+                "/api/settings",
+                serde_json::json!({
+                    "subscription_scheduler_enabled": enabled,
+                    "subscription_check_interval_minutes": interval,
+                    "quark_signin_enabled": enabled,
+                    "quark_signin_hour": hour,
+                }),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_json_content_type(&headers);
+        assert_eq!(body["ok"], true);
+        assert_eq!(ctx.scheduler.is_running().await, enabled);
+        assert_eq!(ctx.quark_signin_scheduler.is_running().await, enabled);
+        let settings = ctx.settings_store.get().await;
+        assert_eq!(settings.subscription_check_interval_minutes, interval);
+        assert_eq!(settings.quark_signin_hour, hour);
+    }
+    assert_eq!(ctx.notification_store.list(true).await.len(), 1);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// 按顺序处理一组请求的本地 JSON-RPC 服务器，并把收到的 payload 交给测试断言。
 async fn mock_json_rpc_sequence(
     results: Vec<serde_json::Value>,
@@ -1196,7 +1248,7 @@ async fn source_switch_preview_apply_history_and_rollback_are_safe() {
     )
     .await;
     let id = create["data"]["id"].as_str().unwrap().to_string();
-    let now = chrono::Utc::now().timestamp();
+    let now = my_media_sub::utils::unix_now();
     ctx.subscription_store
         .update(&id, |subscription| {
             subscription.current_episode_number = 3;
@@ -1221,7 +1273,7 @@ async fn source_switch_preview_apply_history_and_rollback_are_safe() {
                             is_dir: false,
                             parent_path: "Season 1".to_string(),
                             size: 4_000_000_000,
-                            updated_at: Some(chrono::Utc::now().to_rfc3339()),
+                            updated_at: Some(my_media_sub::utils::time::utc_now_rfc3339()),
                             file_key: "ep4".to_string(),
                         }],
                     }),
@@ -1417,7 +1469,7 @@ async fn automation_event_pipeline_summary_and_safe_retry_are_structured() {
     )
     .await;
     let subscription_id = create["data"]["id"].as_str().unwrap().to_string();
-    let now = chrono::Utc::now().timestamp();
+    let now = my_media_sub::utils::unix_now();
     let mut source = my_media_sub::models::AutomationEvent::new(
         "event-source",
         "correlation-1",

@@ -113,7 +113,7 @@ impl SubscriptionSourceSwitchService {
                         validity: result.is_valid,
                         ..SourceQualityInput::default()
                     },
-                    chrono::Utc::now().timestamp_millis(),
+                    crate::utils::time::unix_now_millis(),
                 );
                 let preference_hits = subscription
                     .rules

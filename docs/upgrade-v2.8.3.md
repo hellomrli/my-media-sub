@@ -2,6 +2,8 @@
 
 [返回文档入口](index.md) · [完整变更](../CHANGELOG.md)
 
+> v2.8.3 仅作为仓库版本记录，未单独发布 tag、Release 或版本镜像。其日历修复已纳入 v2.8.4；实际升级请使用 [v2.8.4 升级指南](upgrade-v2.8.4.md)。下文保留原版本准备记录。
+
 v2.8.3 修复手机上更新日历周视图的显示并整理日历样式，不改变 JSON Store schema 或既有 API 契约，可直接复用 v2.8.2 / v2.8.1 的数据与配置。升级前核对备份，保留 `data/`、`runtime/` 和原 `.env`。
 
 ## Docker Compose

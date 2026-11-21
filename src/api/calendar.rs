@@ -5,7 +5,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use chrono::{NaiveDate, Utc};
+use jiff::{civil::Date, Timestamp};
 use serde::Deserialize;
 
 use super::response::ApiResponse as Response;
@@ -39,7 +39,7 @@ async fn get_calendar(
     State(state): State<Arc<CalendarState>>,
     Query(params): Query<CalendarQueryParams>,
 ) -> Result<Json<Response<MediaCalendar>>> {
-    let today = Utc::now().with_timezone(&shanghai_offset()).date_naive();
+    let today = shanghai_offset().to_datetime(Timestamp::now()).date();
     let query = parse_query(params, today)?;
     let (subscriptions, settings, jobs, notifications, events) = tokio::join!(
         state.subscription_store.list(),
@@ -59,7 +59,7 @@ async fn get_calendar(
     Ok(Json(Response::ok(calendar)))
 }
 
-fn parse_query(params: CalendarQueryParams, today: NaiveDate) -> Result<MediaCalendarQuery> {
+fn parse_query(params: CalendarQueryParams, today: Date) -> Result<MediaCalendarQuery> {
     let (default_from, default_to) = natural_week(today);
     let from = parse_optional_date(params.from.as_deref(), "from")?.unwrap_or(default_from);
     let to = parse_optional_date(params.to.as_deref(), "to")?.unwrap_or(default_to);
@@ -68,7 +68,7 @@ fn parse_query(params: CalendarQueryParams, today: NaiveDate) -> Result<MediaCal
             "日历查询的 from 不能晚于 to".to_string(),
         ));
     }
-    if (to - from).num_days() > MAX_CALENDAR_RANGE_DAYS {
+    if to.duration_since(from).as_secs() / 86_400 > MAX_CALENDAR_RANGE_DAYS {
         return Err(AppError::Validation(format!(
             "日历查询范围不能超过 {} 天",
             MAX_CALENDAR_RANGE_DAYS + 1
@@ -89,11 +89,11 @@ fn parse_query(params: CalendarQueryParams, today: NaiveDate) -> Result<MediaCal
     })
 }
 
-fn parse_optional_date(value: Option<&str>, field: &str) -> Result<Option<NaiveDate>> {
+fn parse_optional_date(value: Option<&str>, field: &str) -> Result<Option<Date>> {
     let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(None);
     };
-    NaiveDate::parse_from_str(value, "%Y-%m-%d")
+    Date::strptime("%Y-%m-%d", value)
         .map(Some)
         .map_err(|_| AppError::Validation(format!("{} 必须使用 YYYY-MM-DD 格式", field)))
 }
@@ -145,8 +145,8 @@ pub fn routes(
 mod tests {
     use super::*;
 
-    fn date(value: &str) -> NaiveDate {
-        NaiveDate::parse_from_str(value, "%Y-%m-%d").unwrap()
+    fn date(value: &str) -> Date {
+        Date::strptime("%Y-%m-%d", value).unwrap()
     }
 
     #[test]
@@ -154,6 +154,36 @@ mod tests {
         let query = parse_query(CalendarQueryParams::default(), date("2027-01-01")).unwrap();
         assert_eq!(query.from.to_string(), "2026-12-27");
         assert_eq!(query.to.to_string(), "2027-01-02");
+    }
+
+    #[test]
+    fn calendar_range_counts_leap_days_and_rejects_trailing_time() {
+        let query = parse_query(
+            CalendarQueryParams {
+                from: Some("2028-01-01".to_string()),
+                to: Some("2029-01-01".to_string()),
+                ..Default::default()
+            },
+            date("2028-02-29"),
+        )
+        .unwrap();
+        assert_eq!(query.to.duration_since(query.from).as_secs() / 86_400, 366);
+        assert!(parse_query(
+            CalendarQueryParams {
+                from: Some("2028-01-01".to_string()),
+                to: Some("2029-01-02".to_string()),
+                ..Default::default()
+            },
+            date("2028-02-29")
+        )
+        .is_err());
+        for value in ["2026-02-29", "2028-02-30", "2028-02-29T08:00:00Z"] {
+            assert!(parse_optional_date(Some(value), "from").is_err(), "{value}");
+        }
+        assert_eq!(
+            parse_optional_date(Some(" 2028-02-29 "), "from").unwrap(),
+            Some(date("2028-02-29"))
+        );
     }
 
     #[test]

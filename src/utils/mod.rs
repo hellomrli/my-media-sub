@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::error::{AppError, Result};
 
 pub mod metrics;
+pub mod time;
 #[cfg(test)]
 pub(crate) mod write_gate;
 

@@ -12,6 +12,13 @@ CI 对每次推送执行两套依赖审计：
 
 自 v2.7.2 起 **没有任何被忽略的公告**，两套审计都在零例外下通过。
 
+### 2026-11-21 / 调度与日期依赖维护（未发布）
+
+- 刷新公告数据库后，旧锁文件命中 [`RUSTSEC-2026-0543`](https://rustsec.org/advisories/RUSTSEC-2026-0543)（`chrono`）和 [`RUSTSEC-2026-0555`](https://rustsec.org/advisories/RUSTSEC-2026-0555)（`chrono-tz`）。这两条属于停止维护公告，均无可直接升级的修复版本；依赖路径包含直接日期处理与 `tokio-cron-scheduler` / `croner`。
+- 日期处理改用 `jiff 1.0.1`，调度改用 `src/services/timer.rs`，完整移除上述依赖链。锁定包数由 259 减到 238，其他既有依赖版本保持不变；Rust 1.89 的 all-targets / all-features locked 编译通过。
+- `cargo deny --locked check` 的 advisories / bans / licenses / sources 全部通过，`deny.toml` 不新增例外。重复传递依赖与未使用许可证许可项仍按原有策略告警。
+- 日期兼容回归覆盖 UTC RFC 3339 输出、秒 / 毫秒时间戳、时区偏移、上传时间排序、闰年日历范围及北京时间签到；暂停恢复与回拨使用可控时钟测试，并通过真实进程暂停 3.5 秒后继续调度的核验。正式二进制在四种时区下的日历、诊断与更新时间格式检查通过；745 项 Rust / 208 项前端测试及浏览器回归通过，具体结果见 [路线图](roadmap.md)。
+
 ### 2026-11-15 / v2.8.2 发布复核
 
 - 本轮为前端修复，锁文件只同步应用版本，不改变依赖版本。刷新公告数据库后，`cargo deny --locked check` 的 advisories / bans / licenses / sources 全部通过，例外仍为 0；GitHub Dependabot 未关闭的漏洞告警为 0。既有重复依赖和未使用许可证许可项继续按原策略告警。

@@ -1,6 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveDate, NaiveTime, TimeZone, Utc};
+use jiff::{
+    civil::{Date, Time},
+    fmt::temporal::DateTimePrinter,
+    tz::Offset,
+    Timestamp, ToSpan,
+};
 
 use crate::jobs::Job;
 use crate::models::{
@@ -16,9 +21,9 @@ pub const SOURCE_STALE_AFTER_DAYS: i64 = 7;
 
 #[derive(Debug, Clone)]
 pub struct MediaCalendarQuery {
-    pub from: NaiveDate,
-    pub to: NaiveDate,
-    pub today: NaiveDate,
+    pub from: Date,
+    pub to: Date,
+    pub today: Date,
     pub status: Option<CalendarStatus>,
     pub media_type: Option<String>,
     pub subscription_id: Option<String>,
@@ -28,8 +33,8 @@ pub struct MediaCalendarQuery {
 struct ScheduleCandidate {
     episode: Option<i32>,
     episode_title: String,
-    date: NaiveDate,
-    time: Option<NaiveTime>,
+    date: Date,
+    time: Option<Time>,
     source: CalendarScheduleSource,
     confidence: CalendarConfidence,
 }
@@ -41,13 +46,13 @@ struct CalendarSubscriptionProgress {
     source_overdue_days: Option<i64>,
 }
 
-pub fn shanghai_offset() -> FixedOffset {
-    FixedOffset::east_opt(8 * 60 * 60).expect("UTC+8 is a valid fixed offset")
+pub fn shanghai_offset() -> Offset {
+    jiff::tz::offset(8)
 }
 
-pub fn natural_week(date: NaiveDate) -> (NaiveDate, NaiveDate) {
-    let start = date - Duration::days(i64::from(date.weekday().num_days_from_sunday()));
-    (start, start + Duration::days(6))
+pub fn natural_week(date: Date) -> (Date, Date) {
+    let start = date.saturating_sub(i64::from(date.weekday().to_sunday_zero_offset()).days());
+    (start, start.saturating_add(6.days()))
 }
 
 pub fn build_media_calendar(
@@ -181,12 +186,12 @@ fn subscription_matches(subscription: &Subscription, query: &MediaCalendarQuery)
 
 fn metadata_schedule_candidates(
     subscription: &Subscription,
-    from: NaiveDate,
-    to: NaiveDate,
+    from: Date,
+    to: Date,
 ) -> Option<Vec<ScheduleCandidate>> {
     let metadata = subscription.metadata.as_ref()?;
     let mut candidates = Vec::<ScheduleCandidate>::new();
-    let mut dated_episodes = Vec::<(i32, NaiveDate)>::new();
+    let mut dated_episodes = Vec::<(i32, Date)>::new();
 
     for episode in metadata.episodes.iter().filter(|episode| {
         episode.episode_number > 0
@@ -257,9 +262,9 @@ fn metadata_schedule_candidates(
 
 fn append_inferred_candidates(
     subscription: &Subscription,
-    dated_episodes: &[(i32, NaiveDate)],
-    from: NaiveDate,
-    to: NaiveDate,
+    dated_episodes: &[(i32, Date)],
+    from: Date,
+    to: Date,
     candidates: &mut Vec<ScheduleCandidate>,
 ) {
     let mut points = dated_episodes.to_vec();
@@ -285,7 +290,7 @@ fn append_inferred_candidates(
         return;
     }
     let episode_delta = last_episode - previous_episode;
-    let day_delta = (last_date - previous_date).num_days();
+    let day_delta = last_date.duration_since(previous_date).as_secs() / 86_400;
     if episode_delta <= 0
         || day_delta <= 0
         || day_delta > 56
@@ -308,7 +313,11 @@ fn append_inferred_candidates(
         .unwrap_or(last_episode);
 
     for episode in (last_episode + 1)..=total {
-        let date = last_date + Duration::days(cadence_days * i64::from(episode - last_episode));
+        let Ok(date) =
+            last_date.checked_add((cadence_days * i64::from(episode - last_episode)).days())
+        else {
+            break;
+        };
         if date > to {
             break;
         }
@@ -329,8 +338,8 @@ fn build_item(
     subscription: &Subscription,
     candidate: ScheduleCandidate,
     state: Option<&EpisodeStatusItem>,
-    today: NaiveDate,
-    week_end: NaiveDate,
+    today: Date,
+    week_end: Date,
     progress: CalendarSubscriptionProgress,
 ) -> MediaCalendarItem {
     let discovered = state.is_some_and(|item| item.discovered);
@@ -363,12 +372,16 @@ fn build_item(
     }
 
     let primary_status = primary_status(&statuses);
-    let scheduled_time = candidate.time.map(|time| time.format("%H:%M").to_string());
+    let scheduled_time = candidate
+        .time
+        .map(|time| time.strftime("%H:%M").to_string());
     let scheduled_at = candidate.time.and_then(|time| {
         shanghai_offset()
-            .from_local_datetime(&candidate.date.and_time(time))
-            .single()
-            .map(|value: DateTime<FixedOffset>| value.to_rfc3339())
+            .to_timestamp(candidate.date.to_datetime(time))
+            .ok()
+            .map(|value| {
+                DateTimePrinter::new().timestamp_with_offset_to_string(&value, shanghai_offset())
+            })
     });
     let episode_suffix = candidate
         .episode
@@ -482,14 +495,14 @@ fn quick_actions(subscription: &Subscription, missing: bool) -> CalendarQuickAct
 fn source_change_alert(
     subscription: &Subscription,
     progress: CalendarSubscriptionProgress,
-    today: NaiveDate,
+    today: Date,
 ) -> Option<CalendarSourceAlert> {
     if !subscription.enabled || subscription.completed || subscription.media_type == "movie" {
         return None;
     }
     let (latest_aired_episode, latest_aired_date) =
         latest_aired_metadata_episode(subscription, today)?;
-    let overdue_days = (today - latest_aired_date).num_days();
+    let overdue_days = today.duration_since(latest_aired_date).as_secs() / 86_400;
     if overdue_days <= SOURCE_STALE_AFTER_DAYS
         || progress
             .latest_discovered_episode
@@ -501,7 +514,11 @@ fn source_change_alert(
     // 临时网络故障也会更新 last_checked_at，不能当成“来源里没有该集”的证据。
     // 只接受当前来源的最近一次成功探测，并且它必须发生在宽限期结束后。
     let last_successful_check_date = latest_successful_source_check_date(subscription)?;
-    if last_successful_check_date < latest_aired_date + Duration::days(SOURCE_STALE_AFTER_DAYS) {
+    if last_successful_check_date
+        < latest_aired_date
+            .checked_add(SOURCE_STALE_AFTER_DAYS.days())
+            .ok()?
+    {
         return None;
     }
 
@@ -519,7 +536,7 @@ fn source_change_alert(
     })
 }
 
-fn latest_successful_source_check_date(subscription: &Subscription) -> Option<NaiveDate> {
+fn latest_successful_source_check_date(subscription: &Subscription) -> Option<Date> {
     if !subscription
         .last_probe
         .as_ref()
@@ -540,16 +557,13 @@ fn latest_successful_source_check_date(subscription: &Subscription) -> Option<Na
         })
         .max()?;
     Some(
-        DateTime::<Utc>::from_timestamp(checked_at, 0)?
-            .with_timezone(&shanghai_offset())
-            .date_naive(),
+        shanghai_offset()
+            .to_datetime(Timestamp::from_second(checked_at).ok()?)
+            .date(),
     )
 }
 
-fn latest_aired_metadata_episode(
-    subscription: &Subscription,
-    today: NaiveDate,
-) -> Option<(i32, NaiveDate)> {
+fn latest_aired_metadata_episode(subscription: &Subscription, today: Date) -> Option<(i32, Date)> {
     let metadata = subscription.metadata.as_ref()?;
     let mut latest = None;
     let mut consider = |episode: &crate::models::MediaMetadataEpisode| {
@@ -604,13 +618,12 @@ fn normalized_media_type(subscription: &Subscription) -> String {
     }
 }
 
-fn parse_date(value: Option<&str>) -> Option<NaiveDate> {
-    NaiveDate::parse_from_str(value?.trim(), "%Y-%m-%d").ok()
+fn parse_date(value: Option<&str>) -> Option<Date> {
+    Date::strptime("%Y-%m-%d", value?.trim()).ok()
 }
 
 #[cfg(test)]
 mod tests {
-    use chrono::NaiveDate;
     use serde_json::json;
 
     use super::*;
@@ -642,9 +655,9 @@ mod tests {
 
     fn query(from: &str, to: &str, today: &str) -> MediaCalendarQuery {
         MediaCalendarQuery {
-            from: NaiveDate::parse_from_str(from, "%Y-%m-%d").unwrap(),
-            to: NaiveDate::parse_from_str(to, "%Y-%m-%d").unwrap(),
-            today: NaiveDate::parse_from_str(today, "%Y-%m-%d").unwrap(),
+            from: Date::strptime("%Y-%m-%d", from).unwrap(),
+            to: Date::strptime("%Y-%m-%d", to).unwrap(),
+            today: Date::strptime("%Y-%m-%d", today).unwrap(),
             status: None,
             media_type: None,
             subscription_id: None,
@@ -652,12 +665,11 @@ mod tests {
     }
 
     fn shanghai_timestamp(date: &str) -> i64 {
-        let date = NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap();
+        let date = Date::strptime("%Y-%m-%d", date).unwrap();
         shanghai_offset()
-            .from_local_datetime(&date.and_hms_opt(12, 0, 0).unwrap())
-            .single()
+            .to_timestamp(date.at(12, 0, 0, 0))
             .unwrap()
-            .timestamp()
+            .as_second()
     }
 
     fn record_successful_source_check(subscription: &mut Subscription, date: &str) {
@@ -735,7 +747,7 @@ mod tests {
 
     #[test]
     fn natural_week_uses_sunday_and_crosses_year() {
-        let (start, end) = natural_week(NaiveDate::from_ymd_opt(2027, 1, 1).unwrap());
+        let (start, end) = natural_week(Date::new(2027, 1, 1).unwrap());
         assert_eq!(start.to_string(), "2026-12-27");
         assert_eq!(end.to_string(), "2027-01-02");
     }

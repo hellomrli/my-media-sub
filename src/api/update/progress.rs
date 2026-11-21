@@ -10,7 +10,7 @@ impl Drop for UpdateProgressResetGuard {
             if progress.running {
                 progress.running = false;
                 progress.error = Some("升级任务异常中止，请重试".to_string());
-                progress.updated_at = Utc::now().to_rfc3339();
+                progress.updated_at = crate::utils::time::utc_now_rfc3339();
             }
         }
     }
@@ -39,7 +39,7 @@ pub(super) fn try_begin_update_progress(message: impl Into<String>) -> Result<()
         downloaded_bytes: 0,
         total_bytes: None,
         error: None,
-        updated_at: Utc::now().to_rfc3339(),
+        updated_at: crate::utils::time::utc_now_rfc3339(),
     };
     Ok(())
 }
@@ -51,7 +51,7 @@ pub(super) fn set_update_progress(percent: u8, stage: &str, message: impl Into<S
         progress.stage = stage.to_string();
         progress.message = message.into();
         progress.error = None;
-        progress.updated_at = Utc::now().to_rfc3339();
+        progress.updated_at = crate::utils::time::utc_now_rfc3339();
     }
 }
 
@@ -77,7 +77,7 @@ pub(super) fn set_download_progress(downloaded_bytes: u64, total_bytes: Option<u
         progress.downloaded_bytes = downloaded_bytes;
         progress.total_bytes = total_bytes;
         progress.error = None;
-        progress.updated_at = Utc::now().to_rfc3339();
+        progress.updated_at = crate::utils::time::utc_now_rfc3339();
     }
 }
 
@@ -88,7 +88,7 @@ pub(super) fn finish_update_progress(message: impl Into<String>, stage: &str) {
         progress.stage = stage.to_string();
         progress.message = message.into();
         progress.error = None;
-        progress.updated_at = Utc::now().to_rfc3339();
+        progress.updated_at = crate::utils::time::utc_now_rfc3339();
     }
 }
 
@@ -99,7 +99,7 @@ pub(super) fn fail_update_progress(message: impl Into<String>) {
         progress.stage = "failed".to_string();
         progress.message = message.clone();
         progress.error = Some(message);
-        progress.updated_at = Utc::now().to_rfc3339();
+        progress.updated_at = crate::utils::time::utc_now_rfc3339();
     }
 }
 

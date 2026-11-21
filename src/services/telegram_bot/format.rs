@@ -223,10 +223,11 @@ pub(super) fn one_line(value: &str, limit: usize) -> String {
 }
 pub(super) fn timestamp_text(value: Option<i64>) -> String {
     value
-        .and_then(|timestamp| chrono::DateTime::from_timestamp(timestamp, 0))
+        .and_then(|timestamp| jiff::Timestamp::from_second(timestamp).ok())
         .map(|date| {
-            date.with_timezone(&shanghai_offset())
-                .format("%Y-%m-%d %H:%M:%S")
+            shanghai_offset()
+                .to_datetime(date)
+                .strftime("%Y-%m-%d %H:%M:%S")
                 .to_string()
         })
         .unwrap_or_else(|| "无".to_string())

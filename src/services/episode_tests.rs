@@ -398,3 +398,21 @@ mod episode_misdetection_tests {
         assert_eq!(key, Some((1, 17)));
     }
 }
+#[test]
+fn file_time_formats_preserve_upload_ordering() {
+    for value in [
+        "1782691200",
+        "1782691200000",
+        "2026-06-29T00:00:00Z",
+        "2026-06-29T08:00:00+08:00",
+        "2026-06-28T19:00:00-05:00",
+        "2026-06-29T00:00:00.456Z",
+        "2026-06-29 00:00:00",
+    ] {
+        assert_eq!(parse_file_time_score(Some(value)), 1_782_691_200, "{value}");
+    }
+    assert_eq!(parse_file_time_score(Some("1969-12-31T23:59:59Z")), -1);
+    for value in [None, Some(""), Some("NaN"), Some("2026-02-29 12:00:00")] {
+        assert_eq!(parse_file_time_score(value), 0);
+    }
+}

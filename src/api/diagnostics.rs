@@ -386,7 +386,7 @@ fn filesystem_space(_path: &std::path::Path) -> Option<(u64, u64)> {
 }
 
 fn timezone_diagnostics() -> TimezoneDiagnostics {
-    let local_offset_seconds = chrono::Local::now().offset().local_minus_utc();
+    let local_offset_seconds = jiff::ZonedDateTime::now().offset().seconds();
     let expected_offset_seconds = 8 * 60 * 60;
     TimezoneDiagnostics {
         tz_env: std::env::var("TZ")

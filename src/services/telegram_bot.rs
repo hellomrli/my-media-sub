@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
-use chrono::Utc;
+use jiff::Timestamp;
 use regex::Regex;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -591,7 +591,7 @@ impl TelegramBotService {
     }
 
     async fn calendar_page(&self, page: usize) -> ListPage {
-        let today = Utc::now().with_timezone(&shanghai_offset()).date_naive();
+        let today = shanghai_offset().to_datetime(Timestamp::now()).date();
         let (from, to) = natural_week(today);
         let (subscriptions, settings, jobs, notifications, events) = tokio::join!(
             self.subscription_store.list(),

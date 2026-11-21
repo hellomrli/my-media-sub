@@ -2,7 +2,7 @@
 
 > 本文件是项目后续工作的**唯一持久化计划入口**。每完成一个任务，必须同步更新复选框、证据和“当前执行指针”，以便跨会话、跨上下文继续。
 >
-> 最近更新：2026-11-18
+> 最近更新：2026-11-21
 
 ## 状态说明
 
@@ -13,11 +13,11 @@
 
 ## 当前执行指针
 
-- **当前阶段**：v2.8.3 发布中（版本与文档已准备，本地门禁通过；云端 CI / Release / 镜像结果待核验）
-- **当前任务**：推送 main 等待同一提交 CI 全绿后推送 `v2.8.3` tag，并核验 Release 与镜像
-- **下一任务（建议）**：实际账号部署验证（夸克分享 / Aria2 / TMDB / Web Push）；其余组件的样式整理作为后续维护
+- **当前阶段**：v2.8.4 发布与测试交付
+- **当前任务**：v2.8.4 完整本地门禁已通过，准备推送 main；等待同一提交 CI 全绿再发布 tag，并核验云端归档与镜像
+- **下一任务（建议）**：核验实际 Release 归档与 GHCR 镜像，交付可测试版本；实际账号部署验证（夸克签到 / 分享、Aria2、TMDB、Web Push）仍待部署条件
 - **后续阶段**：保持单实例安全模型与 JSON 单写；未经明确需求不启动多用户、SQLite 或第二 Provider
-- **当前发布基线**：v2.8.3（[正式 Release](https://github.com/hellomrli/my-media-sub/releases/tag/v2.8.3)；`Cargo.toml` / OpenAPI / PWA 缓存代次一致）
+- **当前发布基线**：v2.8.4（本次待发布版本，`Cargo.toml` / OpenAPI / PWA 缓存代次一致；发布准备时云端最新正式版仍为 [v2.8.2](https://github.com/hellomrli/my-media-sub/releases/tag/v2.8.2)，v2.8.3 未单独发布）
 - **工作树状态**：工作分支为 `main`；以 `git status --short --branch` 为准，历史阶段交接记录保留在下方作审计
 
 > **本轮评审的完整清单与后续待办见
@@ -26,6 +26,34 @@
 > 「当前发布基线」已纳入 CI 门禁，见 `scripts/check-doc-drift.py`。
 
 历史评审留档：[2026-07-26 代码评审](code-review-2026-07-26.md) 与 [前端评审](frontend-design-review-2026-07-26.md)。其中旧问题以本台账后续修复记录为准。
+
+---
+
+## v2.8.4 发布与产物核验（2026-11-21）
+
+- [x] 已获推送 GitHub、编译并发布新版本的明确授权；选择未使用的 v2.8.4，包含后台调度与日期依赖维护和未单独发布的 v2.8.3 手机日历修复。
+- [x] 同步 Cargo / OpenAPI / HTML 资源 URL / Service Worker 至 `2.8.4`，PWA 缓存代次为 `v2.8.4-scheduler-1`；补齐 README、CHANGELOG、升级指南、部署与文档索引。
+- [x] v2.8.4 本地 745 项 Rust / 208 项前端测试通过，另 2 项外网 Rust 测试按设计忽略；格式、Clippy、Rust 1.89 MSRV、零例外依赖审计、ESLint、HTML/CSS/OpenAPI/文档与工具链门禁通过。
+- [x] Rust 1.99.1 正式构建版本为 `2.8.4`；二进制与 Docker 入口 smoke、10 秒稳定性检查（1,804 次请求、3 份保留备份）通过。真实 v1.3.0 / v2.8.2 旧发布包先校验同名 SHA-256，再用临时数据完成二进制升级 smoke。
+- [x] 正式二进制真实浏览器回归通过，覆盖手机周日历、PWA、搜索、电影保存与剧集画质、换源、跳季详情、六种流水线状态与四类下载任务，检查 1440px / 390px 布局；浅深色主题各测 136 个文字与控件，最低对比度分别为 4.68:1 / 4.75:1。
+- [ ] 推送 main，等待同一提交的 Rust、MSRV 与真实 Docker CI 全绿。
+- [ ] 推送指向已验证提交的 annotated tag，等待 Release 与 Docker Image 工作流成功。
+- [ ] 下载实际发布归档、校验 SHA-256 并执行随包二进制 smoke，核对归档文件和发布说明。
+- [ ] 核对 GHCR 版本标签、镜像摘要与源码提交，记录真实数据 / runtime 卷升级验证及签名状态。
+
+---
+
+## 后台调度与日期依赖维护（2026-11-21，纳入 v2.8.4）
+
+- [x] 承接工作区中的定时器草稿，完成固定间隔与北京时间整点调度：休眠 / 暂停 / 时钟前跳后只补跑一次，后续周期继续；回拨不推迟固定间隔，同一天的每日执行不重复。19 项可控时钟回归全部通过。证据：`src/services/timer.rs`。
+- [x] 配置读取、旧循环停止与新循环安装共用生命周期锁；新增在等待锁期间关闭配置的两条确定性回归，以及实际 `POST /api/settings` 反复启停、修改间隔和签到时间的 API 回归。订阅与签到重载继续共享执行守卫，自动签到先核对当天成功记录。证据：`src/services/subscription_scheduler.rs`、`src/services/quark_signin.rs`、`tests/api_integration.rs`。
+- [x] 日期处理迁至 `jiff 1.0.1`，覆盖日历 / Telegram、通知静默时段、星期规则、文件上传时间排序、资源新鲜度与更新进度时间；保持 UTC 显式偏移与毫秒 / 微秒 / 纳秒的既有序列化格式。证据：`src/utils/time.rs`、`src/services/media_calendar.rs`、`src/services/source_quality.rs`、`src/services/episode_tests.rs`。
+- [x] 锁定包数 259 → 238，完整移除 `chrono` / `chrono-tz` / `tokio-cron-scheduler`；刷新公告后的 `cargo deny --locked check` 四项通过，`ignore = []` 不变。两条停止维护公告为 `RUSTSEC-2026-0543` / `RUSTSEC-2026-0555`；既有重复版本与未使用许可证许可项仍按原策略告警。证据：`Cargo.toml`、`Cargo.lock`、[安全审计记录](security-audit.md)。
+- [x] 745 项 Rust 测试与 208 项前端测试通过，另 2 项外网 Rust 测试按设计忽略；格式、Clippy、Rust 1.89 MSRV、HTML/CSS/OpenAPI/工具链与文档检查通过。Rust 1.99.1 正式构建和二进制 / Docker 入口脚本 smoke 通过，10 秒稳定性检查完成 1,856 次请求、保留 3 份备份。
+- [x] 真实进程暂停恢复核验：直接编译当前 `timer.rs` 的独立临时探针，1 秒间隔运行，首次触发后 `SIGSTOP` 暂停 3.5 秒再恢复；8 秒内共触发 5 次，补跑后继续周期执行。正式二进制分别在 `TZ=UTC` / `Asia/Shanghai` / `UTC-8` / `America/New_York` 启动，时区诊断偏移正确，日历均保持北京时间，更新进度均输出原有 UTC RFC 3339 格式；全部使用临时数据目录。
+- [x] 正式二进制的 390px / 1440px Chrome 回归通过，覆盖日历、搜索、电影保存、画质选择、换源、跳季详情与下载状态；浅深色主题各测 136 个状态文字与控件，最低对比度 4.68:1 / 4.75:1。证据：`scripts/smoke-browser.sh`、`scripts/smoke-search-browser.mjs`。
+- [x] 只读核对发布准备前的云端状态：main 提交 `20eb770899d11c8efb345e880ae16900f8c9bdf6` 的 [CI](https://github.com/hellomrli/my-media-sub/actions/runs/44286163763) 因上述两条停止维护公告在依赖审计步骤失败，MSRV 与 Docker build / smoke 成功；当时 GitHub 最新正式版为 v2.8.2，`v2.8.3` tag 与 Release 查询均为 404。后端与日历改动统一纳入 v2.8.4，发布说明已覆盖完整范围。
+- [!] 真实夸克签到 / 分享、Aria2 下载、TMDB 与 Web Push 的端到端验证仍需实际部署配置；当前回归使用本地夹具。真实镜像构建与发布产物核验记录在上方 v2.8.4 发布阶段。
 
 ---
 

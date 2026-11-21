@@ -100,6 +100,10 @@ SubscriptionScheduler / API / Telegram
 - Telegram Bot：`disabled`、long polling 或 webhook 三选一，故障与普通通知/核心流水线隔离；
 - Job event projection：把 Job 状态投影到结构化 AutomationEvent。
 
+订阅与签到使用 `src/services/timer.rs` 的进程内定时器。固定间隔同时参考单调时钟和系统时间，暂停或休眠跨过多个周期后只补跑一次；每日签到按北京时间整点执行，回拨后重新计算且同一天不重复触发。执行异常会记录日志，后续周期继续运行。
+
+定时器配置读取、替换和停止由各调度器的生命周期锁串行保护；停止等待调度循环退出，已触发的执行继续完成。重载前后的执行共享守卫，自动签到也会核对当天的成功记录。日期处理使用 Jiff：日历与 Telegram 保持 UTC+8，订阅星期规则、推送静默时段与时区诊断遵守宿主时区。
+
 ## 持久化与恢复
 
 主要文件：
@@ -119,7 +123,7 @@ DATA_DIR/
 
 Store 共同合同：
 
-- `schema_version: 1` 信封、旧格式迁移和一次性 `*.schema-v0.bak`；
+- `schema_version: 2` 信封、旧格式迁移和一次性 `*.schema-v0.bak`；
 - 临时文件 + flush/fsync + 原子 rename，写盘成功后才替换内存状态；
 - Unix 敏感文件权限修复为 `0600`；
 - 损坏文件隔离，未来 schema 拒绝并保留原始文件；
