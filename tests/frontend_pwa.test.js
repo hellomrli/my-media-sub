@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 
 // pwa.js 在模块作用域一次性捕获 MediaSubApi，桩必须在 require 之前就位。
 let apiDataStub = async () => { throw new Error('apiData stub not configured'); };
@@ -56,14 +57,67 @@ test('service worker has version cleanup, offline shell and safe update flow', (
   assert.match(source, new RegExp(`ASSET_VERSION\\s*=\\s*'${version.replaceAll('.', '\\.')}'`));
   assert.match(source, /obsoleteCacheNames/);
   assert.match(source, /response\.status === 401 \|\| response\.status === 403/);
-  assert.match(source, /cache\.match\(new Request\(`\$\{self\.location\.origin\}\/`\)\)/);
   assert.match(source, /SKIP_WAITING/);
   assert.match(source, /'\/app\.js'/);
-  assert.match(source, /asset === '\/' \? shellCache : staticCache/);
   assert.match(pwaSource, /listenLifecycle\('pwa-updatefound', registration, 'updatefound'/);
   assert.match(pwaSource, /listenLifecycle\('pwa-worker-statechange', worker, 'statechange'/);
   assert.doesNotMatch(pwaSource, /registration\.addEventListener\('updatefound'/);
   assert.doesNotMatch(pwaSource, /worker\.addEventListener\('statechange'/);
+});
+
+test('offline navigation keeps the dashboard and API docs independent, including after prewarming', async () => {
+  const origin = 'https://media.example.com';
+  const handlers = new Map();
+  const stores = new Map();
+  let fetchResponse = request => new Response(new URL(request.url).pathname, {
+    headers: {'content-type': 'text/html'}
+  });
+  const offline = () => { throw new Error('offline'); };
+  vm.runInNewContext(fs.readFileSync(path.join(root, 'static/service-worker.js'), 'utf8'), {
+    MediaSubPwaPolicy: policy, importScripts() {}, URL,
+    self: {location: {origin}, addEventListener: (type, handler) => handlers.set(type, handler)},
+    Request: class extends Request {
+      constructor(url, options) { super(new URL(url, origin), options); }
+    },
+    fetch: request => fetchResponse(request),
+    caches: {async open(name) {
+      if (!stores.has(name)) stores.set(name, new Map());
+      const entries = stores.get(name);
+      return {
+        async put(key, response) { entries.set(key.url, response.clone()); },
+        async match(key) { return entries.get(key.url)?.clone(); }
+      };
+    }}
+  });
+  function navigate(pathname) {
+    let result;
+    handlers.get('fetch')({
+      request: {url: new URL(pathname, origin).href, method: 'GET', mode: 'navigate', destination: 'document'},
+      respondWith(promise) { result = promise; }
+    });
+    return result;
+  }
+
+  let installation;
+  handlers.get('install')({waitUntil(promise) { installation = promise; }});
+  await installation;
+  fetchResponse = offline;
+  assert.equal(await (await navigate('/api-docs.html')).text(), '/api-docs.html');
+
+  fetchResponse = request => new Response(new URL(request.url).pathname === '/index.html' ? 'dashboard' : 'docs', {
+    headers: {'content-type': 'text/html'}
+  });
+  await navigate('/index.html?tab=settings');
+  await navigate('/api-docs.html');
+  fetchResponse = offline;
+  for (const entry of ['/', '/?tab=calendar', '/index.html']) {
+    assert.equal(await (await navigate(entry)).text(), 'dashboard');
+  }
+  assert.equal(await (await navigate('/api-docs.html')).text(), 'docs');
+  for (const status of [401, 403]) {
+    fetchResponse = () => new Response(null, {status});
+    assert.equal((await navigate('/')).status, status);
+  }
 });
 
 test('shortcut parser only accepts declared actions', () => {

@@ -25,6 +25,8 @@
 
 配置 Aria2 时使用 `ARIA2_RPC_URL`、`ARIA2_SECRET` 和 `ARIA2_MOVIE_DIR` / `ARIA2_SERIES_DIR` / `ARIA2_ANIME_DIR`。下载目录属于 **Aria2 所在机器或容器**，需要下载器可以写入，不能把应用容器内路径直接视为下载器路径。电影默认可同步下载，也可只保存到网盘；详见 [电影保存与画质](media-save-quality.md)。
 
+订阅同步下载只复用同一下载目录内、实际输出文件名一致的活动、等待、暂停或已完成任务。不同季目录里的同名文件会分别提交，失败或已移除的任务不会阻止重新下载。下载目录留空时以 Aria2 的默认目录为准；无法确认目录时不会按文件名猜测。
+
 ## 配置通知和手机入口
 
 通知支持企业微信、WxPusher、Telegram、Bark、Gotify、PushPlus、Server 酱、Browser Push 与签名 Webhook。先启用一个渠道并发送测试消息，再设置安静时段和摘要聚合。

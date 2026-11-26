@@ -93,6 +93,115 @@ fn display_name(name: &str, ignore_extensions: bool) -> String {
     }
 }
 
+fn looks_like_derived_content(value: &str) -> bool {
+    [
+        "片头",
+        "片尾",
+        "片花",
+        "插曲",
+        "主题曲",
+        "片尾曲",
+        "片头曲",
+        "花絮",
+        "预告",
+        "彩蛋",
+        "特辑",
+    ]
+    .iter()
+    .any(|word| value.contains(word))
+        || value
+            .split(|ch: char| !ch.is_ascii_alphanumeric())
+            .any(|token| {
+                matches!(
+                    token,
+                    "mv" | "ost" | "op" | "ed" | "reaction" | "trailer" | "preview"
+                ) || token
+                    .strip_prefix("op")
+                    .or_else(|| token.strip_prefix("ed"))
+                    .is_some_and(|suffix| {
+                        !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+                    })
+            })
+}
+
+fn rule_episode(sub: &Subscription, name: &str) -> Option<i32> {
+    detect_episode_with_override(name, &sub.rules.episode_regex)
+        .unwrap_or_else(|_| crate::services::episode::detect_episode_explained(name))
+        .episode
+}
+
+pub(super) fn is_before_start_episode(sub: &Subscription, name: &str, parent_path: &str) -> bool {
+    sub.media_type != "movie"
+        && sub.start_episode_number.is_some_and(|start| {
+            start > 1
+                && crate::services::episode::resolve_file_season(
+                    name,
+                    parent_path,
+                    sub.season,
+                    sub.is_multi_season(),
+                ) == Some(sub.season.max(1))
+                && rule_episode(sub, name).is_some_and(|episode| episode < start)
+        })
+}
+
+pub(super) fn transfer_rule_skip_reason(
+    sub: &Subscription,
+    name: &str,
+    parent_path: &str,
+) -> Option<String> {
+    if !is_video_name(name) {
+        return Some("非视频文件".to_string());
+    }
+    let rules = &sub.rules;
+    if !crate::services::media_selection::matches_resolution(
+        &rules.preferred_resolution,
+        name,
+        parent_path,
+    ) {
+        return Some(format!(
+            "非所选画质：{}",
+            crate::services::media_selection::resolution_label(&rules.preferred_resolution)
+        ));
+    }
+    let comparable = display_name(name, rules.ignore_extensions).to_ascii_lowercase();
+    if sub.media_type != "movie" {
+        if looks_like_derived_content(&comparable) {
+            return Some("疑似衍生内容".to_string());
+        }
+        let Some(episode) = rule_episode(sub, name) else {
+            return Some("无法识别剧集集数".to_string());
+        };
+        if crate::services::subscription_progress::completion_target_episode(sub)
+            .is_some_and(|target| episode > target)
+        {
+            return Some(format!("集数超过订阅总集数：第 {episode} 集"));
+        }
+    }
+    let matches_word = |word: &String| {
+        let word = word.trim();
+        !word.is_empty() && comparable.contains(&word.to_ascii_lowercase())
+    };
+    if rules
+        .include_keywords
+        .iter()
+        .any(|word| !word.trim().is_empty())
+        && !rules.include_keywords.iter().any(matches_word)
+    {
+        return Some("不含包含关键词".to_string());
+    }
+    if rules.exclude_keywords.iter().any(matches_word) {
+        return Some("命中排除关键词".to_string());
+    }
+    if !rules.match_regex.trim().is_empty() {
+        match crate::services::episode::cached_regex(rules.match_regex.trim()) {
+            Ok(regex) if !regex.is_match(&comparable) => return Some("未命中匹配正则".to_string()),
+            Err(error) => return Some(format!("match_regex 无效：{error}")),
+            _ => {}
+        }
+    }
+    None
+}
+
 /// 状态键（用于去重）
 pub fn transfer_state_key(name: &str, episode: Option<i32>, ignore_extensions: bool) -> String {
     if is_video_name(name) {

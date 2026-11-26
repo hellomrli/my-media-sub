@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,7 +23,8 @@ use crate::services::subscription_progress::{
     completion_target_episode, should_mark_completed_from_transferred_files,
 };
 use crate::services::transfer_rule::{
-    apply_rename, effective_rules, portable_filename, transfer_state_key,
+    apply_rename, effective_rules, is_before_start_episode, portable_filename,
+    transfer_rule_skip_reason, transfer_state_key,
 };
 use crate::services::{
     episode::is_better_episode_duplicate_candidate, episode::resolve_file_season,
@@ -818,25 +819,7 @@ impl SubscriptionTransferService {
             dir.clone(),
         );
 
-        let mut existing_tasks = HashMap::<String, String>::new();
-        if let Ok(tasks) = aria2.list_tasks(500).await {
-            for task in tasks
-                .active
-                .into_iter()
-                .chain(tasks.waiting)
-                .chain(tasks.stopped)
-            {
-                // 失败任务不复用：复用会让后续每轮检查都跳过该文件（既不
-                // 重新提交也没有完成事件），下载被无限期搁置。失败的任务
-                // 留给本轮重新提交或用户在 Aria2 中处理。
-                if task.status == "error" {
-                    continue;
-                }
-                if !task.file_name.trim().is_empty() {
-                    existing_tasks.insert(task.file_name.to_lowercase(), task.gid);
-                }
-            }
-        }
+        let mut existing_tasks = aria2.reusable_outputs().await.unwrap_or_default();
 
         let batch_limit = settings.aria2_batch_submit_limit.max(1);
         let mut submitted_count = 0usize;
@@ -859,10 +842,12 @@ impl SubscriptionTransferService {
             };
 
             for info in download_infos {
-                if let Some(gid) = existing_tasks.get(&info.file_name.to_lowercase()).cloned() {
+                let output = Aria2Client::output_name(&info.file_name);
+                if let Some(gid) = output.as_ref().and_then(|name| existing_tasks.get(name)) {
                     info!("复用已有 Aria2 任务: {} ({})", info.file_name, gid);
                     items.push(SyncDownloadItem {
-                        gid,
+                        gid: gid.clone(),
+                        fid: info.id,
                         file_name: info.file_name,
                     });
                     continue;
@@ -880,18 +865,14 @@ impl SubscriptionTransferService {
                         }
                         Err(error) => {
                             submit_error = Some(error.to_string());
-                            if let Ok(tasks) = aria2.list_tasks(500).await {
-                                if let Some(task) = tasks
-                                    .active
-                                    .into_iter()
-                                    .chain(tasks.waiting)
-                                    .chain(tasks.stopped)
-                                    .find(|task| {
-                                        task.file_name.eq_ignore_ascii_case(&info.file_name)
-                                            && task.status != "error"
-                                    })
+                            if let Some(name) = &output {
+                                if let Some(gid) = aria2
+                                    .reusable_outputs()
+                                    .await
+                                    .unwrap_or_default()
+                                    .remove(name)
                                 {
-                                    submitted = Some(task.gid);
+                                    submitted = Some(gid);
                                     break;
                                 }
                             }
@@ -904,10 +885,13 @@ impl SubscriptionTransferService {
                 }
                 if let Some(gid) = submitted {
                     submitted_count += 1;
-                    existing_tasks.insert(info.file_name.to_lowercase(), gid.clone());
+                    if let Some(name) = output {
+                        existing_tasks.insert(name, gid.clone());
+                    }
                     info!("已提交或复用 Aria2 同步下载: {} ({})", info.file_name, gid);
                     items.push(SyncDownloadItem {
                         gid,
+                        fid: info.id,
                         file_name: info.file_name,
                     });
                 } else {
@@ -1005,13 +989,7 @@ impl SubscriptionTransferService {
         batch_files: &[DriveItem],
         report: &SyncDownloadReport,
     ) -> Result<()> {
-        use std::collections::HashSet;
-
-        let submitted: HashSet<String> = report
-            .items
-            .iter()
-            .map(|item| item.file_name.to_lowercase())
-            .collect();
+        let submitted: HashSet<&str> = report.items.iter().map(|item| item.fid.as_str()).collect();
         let candidates: Vec<(&str, &str)> = batch_files
             .iter()
             .filter(|file| !file.is_dir && !file.id.trim().is_empty())
@@ -1026,10 +1004,10 @@ impl SubscriptionTransferService {
             .update(subscription_id, |sub| {
                 // 已成功提交的：清掉待下载记录
                 sub.pending_downloads
-                    .retain(|item| !submitted.contains(&item.file_name.to_lowercase()));
+                    .retain(|item| !submitted.contains(item.fid.as_str()));
                 // 未成功的：登记或累加尝试次数
                 for (fid, name) in &candidates {
-                    if submitted.contains(&name.to_lowercase()) {
+                    if submitted.contains(fid) {
                         continue;
                     }
                     if let Some(existing) = sub

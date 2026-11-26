@@ -179,8 +179,11 @@ fn filter_transfer_candidates_by_targets<'a>(
     files
         .into_iter()
         .filter(|file| {
-            provider_file_matches_subscription_season(sub, file)
+            !file.is_dir
+                && provider_file_matches_subscription_season(sub, file)
                 && targets.matches_name(sub, &file.name, &file.parent_path)
+                && !is_before_start_episode(sub, &file.name, &file.parent_path)
+                && transfer_rule_skip_reason(sub, &file.name, &file.parent_path).is_none()
         })
         .collect()
 }
@@ -235,7 +238,29 @@ struct SyncDownloadReport {
 #[derive(Debug, Clone)]
 struct SyncDownloadItem {
     gid: String,
+    fid: String,
     file_name: String,
+}
+
+impl SyncDownloadReport {
+    fn summary(&self) -> String {
+        if self.items.is_empty() {
+            return format!("同步下载失败: {}", self.error.as_deref().unwrap_or("没有可跟踪的任务"));
+        }
+        let reused = self.items.len().saturating_sub(self.submitted_count);
+        let mut counts = Vec::new();
+        if self.submitted_count > 0 {
+            counts.push(format!("已提交 {} 个", self.submitted_count));
+        }
+        if reused > 0 {
+            counts.push(format!("复用 {} 个", reused));
+        }
+        let mut message = format!("{} Aria2 下载任务到 {}", counts.join("、"), sync_dir_label(&self.dir));
+        if let Some(error) = &self.error {
+            message.push_str(&format!("，部分失败: {error}"));
+        }
+        message
+    }
 }
 
 fn merge_sync_download_reports(reports: Vec<SyncDownloadReport>) -> Option<SyncDownloadReport> {
@@ -483,22 +508,7 @@ fn transfer_reason(
     };
     let mut parts = vec![format!("已转存到 {}", target)];
     if let Some(report) = sync_report {
-        parts.push(match report {
-            report if report.submitted_count > 0 && report.error.is_none() => format!(
-                "已提交 {} 个 Aria2 同步下载任务到 {}",
-                report.submitted_count,
-                sync_dir_label(&report.dir)
-            ),
-            report if report.submitted_count > 0 => format!(
-                "已提交 {} 个 Aria2 同步下载任务，部分失败: {}",
-                report.submitted_count,
-                report.error.as_deref().unwrap_or("未知错误")
-            ),
-            report => format!(
-                "同步下载失败: {}",
-                report.error.as_deref().unwrap_or("未知错误")
-            ),
-        });
+        parts.push(report.summary());
     }
     parts.join("，")
 }
@@ -522,22 +532,7 @@ fn transfer_notification_message(
 ) -> String {
     let mut parts = vec![format!("已转存 {} 个文件到 {}", file_count, target_dir)];
     if let Some(report) = sync_report {
-        parts.push(match report {
-            report if report.submitted_count > 0 && report.error.is_none() => format!(
-                "提交 {} 个 Aria2 下载任务到 {}",
-                report.submitted_count,
-                sync_dir_label(&report.dir)
-            ),
-            report if report.submitted_count > 0 => format!(
-                "提交 {} 个 Aria2 下载任务，部分失败: {}",
-                report.submitted_count,
-                report.error.as_deref().unwrap_or("未知错误")
-            ),
-            report => format!(
-                "同步下载失败: {}",
-                report.error.as_deref().unwrap_or("未知错误")
-            ),
-        });
+        parts.push(report.summary());
     }
     parts.join("，")
 }

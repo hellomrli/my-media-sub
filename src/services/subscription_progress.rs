@@ -160,29 +160,40 @@ pub fn should_mark_completed_from_transferred_files(
     sub: &Subscription,
     additional_file_names: &[String],
 ) -> bool {
-    let mut file_names = sub.transferred_files.clone();
-    file_names.extend(additional_file_names.iter().cloned());
-    should_mark_completed_from_file_names(sub, &file_names)
+    completed_from_files(
+        sub,
+        sub.transferred_files.iter().chain(additional_file_names),
+        sub.transferred_file_keys
+            .iter()
+            .filter_map(|key| crate::services::episode::parse_episode_key(key, sub.season)),
+    )
 }
 
 pub fn should_mark_completed_from_file_names(sub: &Subscription, file_names: &[String]) -> bool {
+    completed_from_files(sub, file_names.iter(), std::iter::empty())
+}
+
+fn completed_from_files<'a>(
+    sub: &Subscription,
+    file_names: impl Iterator<Item = &'a String>,
+    episode_keys: impl Iterator<Item = (i32, i32)>,
+) -> bool {
     if sub.completed {
         return false;
     }
 
     if sub.media_type == "movie" {
-        return movie_source_ready(sub, file_names.iter());
+        return movie_source_ready(sub, file_names);
     }
 
     let Some(target_episode) = completion_target_episode(sub) else {
         return false;
     };
 
-    let evidence: std::collections::BTreeSet<_> = file_names
-        .iter()
-        .filter_map(|name| {
+    let evidence: std::collections::BTreeSet<_> = episode_keys
+        .chain(file_names.filter_map(|name| {
             episode_state_key_with_override(name, sub.season, &sub.rules.episode_regex)
-        })
+        }))
         .collect();
     sub.season_numbers()
         .iter()
@@ -287,6 +298,19 @@ mod tests {
             &sub,
             &["Show.S01E10.mkv".to_string()]
         ));
+    }
+
+    #[test]
+    fn transferred_episode_keys_complete_only_their_own_seasons() {
+        let mut sub = subscription();
+        sub.season_end = Some(2);
+        sub.transferred_files.push("final.mkv".into());
+        sub.known_files.push("Show.S02E12.mkv".into());
+        sub.transferred_file_keys.push("ep:12".into());
+        assert!(!should_mark_completed_from_transferred_files(&sub, &[]));
+        sub.transferred_file_keys.push("s:2:ep:12".into());
+        assert!(should_mark_completed_from_transferred_files(&sub, &[]));
+        assert!(!should_mark_completed_from_file_names(&sub, &[]));
     }
 
     #[test]

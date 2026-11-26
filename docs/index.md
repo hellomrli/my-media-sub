@@ -41,7 +41,7 @@
 
 | 系列 | 指南 |
 |---|---|
-| 2.8 | [2.8.4](upgrade-v2.8.4.md) · [2.8.3（未单独发布）](upgrade-v2.8.3.md) · [2.8.2](upgrade-v2.8.2.md) · [2.8.1](upgrade-v2.8.1.md) · [2.8.0](upgrade-v2.8.0.md) |
+| 2.8 | [2.8.5](upgrade-v2.8.5.md) · [2.8.4](upgrade-v2.8.4.md) · [2.8.3（未单独发布）](upgrade-v2.8.3.md) · [2.8.2](upgrade-v2.8.2.md) · [2.8.1](upgrade-v2.8.1.md) · [2.8.0](upgrade-v2.8.0.md) |
 | 2.7 | [2.7.7](upgrade-v2.7.7.md) · [2.7.6](upgrade-v2.7.6.md) · [2.7.5](upgrade-v2.7.5.md) · [2.7.4](upgrade-v2.7.4.md) · [2.7.2](upgrade-v2.7.2.md) · [2.7.1](upgrade-v2.7.1.md) · [2.7.0](upgrade-v2.7.0.md) |
 | 2.6 | [2.6.1](upgrade-v2.6.1.md) · [2.6.0](upgrade-v2.6.0.md) |
 | 2.5 / 2.4 | [2.5.1](upgrade-v2.5.1.md) · [2.5.0](upgrade-v2.5.0.md) · [2.4.0](upgrade-v2.4.0.md) |

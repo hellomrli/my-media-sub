@@ -306,6 +306,46 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn worker_rechecks_fixed_quality_before_selecting_same_episode_files() {
+        use crate::providers::{MockCloudDriveProvider, ProviderProbeResult};
+
+        let subscriptions = Arc::new(SubscriptionStore::new(test_path("quality_subscriptions")));
+        let settings = Arc::new(SettingsStore::new(test_path("quality_settings")));
+        settings.update(|value| value.quark_save_enabled = true).await.unwrap();
+        let mut sub = subscription("series", 1);
+        sub.cloud_type = "mock".into();
+        sub.rules.preferred_resolution = "1080p".into();
+        sub.total_episode_number = Some(3);
+        subscriptions.create(sub).await.unwrap();
+
+        let provider = Arc::new(MockCloudDriveProvider::new());
+        provider.populate_saved_files();
+        let hd = provider_video("Show.S01E01.1080p.mkv", "");
+        let folder_hd = provider_video("Show.S01E02.mkv", "1080P/Season 1");
+        let mut folder_uhd = provider_video("Show.S01E02.mkv", "4K/Season 1");
+        folder_uhd.id = "wrong-folder".into();
+        provider.set_probe_result(ProviderProbeResult {
+            ok: true, state: "ok".into(), message: String::new(),
+            files: vec![
+                provider_video("Show.S01E01.4K.mkv", ""), hd.clone(), folder_uhd, folder_hd.clone(),
+                provider_video("Show.S01E03.4K.mkv", ""), provider_video("Show.S01E03.mkv", ""),
+            ],
+        });
+        let service = SubscriptionTransferService::new(
+            subscriptions.clone(), settings, Arc::new(NotificationStore::new(test_path("quality_notifications"))),
+        ).with_provider_registry(Arc::new(CloudDriveProviderRegistry::new().with_provider(provider.clone())));
+        let queued = vec![hd.name, "1080P/Season 1/Show.S01E02.mkv".into(), "Show.S01E03.1080p.mkv".into()];
+        let result = service.auto_transfer_new_files_with_options("sub", &queued, false).await.unwrap();
+        assert_eq!(result.transferred_count, 2);
+        let requests = provider.transfer_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].file_ids, [hd.id, folder_hd.id]);
+        let saved = subscriptions.get("sub").await.unwrap();
+        assert!(!saved.completed);
+        assert!(!saved.transferred_file_keys.contains(&"s:1:ep:3".into()));
+    }
+
     #[test]
     fn filter_already_transferred_skips_by_name_and_episode_key() {
         let mut sub = subscription("series", 1);
@@ -525,6 +565,7 @@ mod tests {
             error: None,
             items: vec![SyncDownloadItem {
                 gid: "gid-1".to_string(),
+                fid: "fid-1".to_string(),
                 file_name: "Show.S01E01.mkv".to_string(),
             }],
         };
@@ -547,6 +588,103 @@ mod tests {
         assert_eq!(record.target_dir, "/series/Show/Season 1");
         assert!(record.submitted_at > 0);
         assert_eq!(record.completed_at, None);
+    }
+
+    #[tokio::test]
+    async fn sync_download_reuses_only_the_requested_output_even_after_an_rpc_error() {
+        use axum::{routing::post, Json, Router};
+        use serde_json::{json, Value};
+        use std::collections::BTreeMap;
+
+        const DIR: &str = "/downloads/Season 2";
+        let adds = Arc::new(Mutex::new(BTreeMap::<String, usize>::new()));
+        let requests = adds.clone();
+        let app = Router::new().route("/jsonrpc", post(move |Json(request): Json<Value>| {
+            let requests = requests.clone();
+            async move {
+                let task = |gid: &str, status: &str, dir: &str, file: &str| json!({
+                    "gid": gid, "status": status, "dir": dir,
+                    "files": [{"path": format!("{dir}/{file}"), "selected": "true"}]
+                });
+                let mut adds = requests.lock().unwrap();
+                let result = match request["method"].as_str().unwrap() {
+                    "aria2.getGlobalOption" => json!({"dir": DIR}),
+                    "aria2.tellActive" => json!([
+                        task("wrong-season", "active", "/downloads/Season 1", "01.mkv"),
+                        task("wrong-case", "active", DIR, "01.MKV"),
+                        task("wrong-path", "active", DIR, "extras/01.mkv"),
+                        task("current", "active", DIR, "ready_.mkv")
+                    ]),
+                    "aria2.tellWaiting" if adds.contains_key("lost.mkv") => {
+                        json!([task("recovered", "waiting", DIR, "lost.mkv")])
+                    }
+                    "aria2.tellWaiting" => json!([]),
+                    "aria2.tellStopped" => json!([
+                        task("removed", "removed", DIR, "01.mkv"), task("failed", "error", DIR, "01.mkv"),
+                        task("old", "complete", DIR, "ready_.mkv")
+                    ]),
+                    "aria2.addUri" => {
+                        let out = request["params"][1]["out"].as_str().unwrap();
+                        let count = adds.entry(out.to_string()).or_default();
+                        *count += 1;
+                        if *count == 1 {
+                            return Json(json!({"error": {"code": 1, "message": "no acknowledgement"}}));
+                        }
+                        json!("fresh")
+                    }
+                    method => panic!("unexpected RPC: {method}"),
+                };
+                Json(json!({"result": result}))
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let settings = Settings {
+            aria2_rpc_url: format!("http://{}/jsonrpc", listener.local_addr().unwrap()),
+            ..Default::default()
+        };
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let service = SubscriptionTransferService::new(
+            Arc::new(SubscriptionStore::new(test_path("reuse_subscriptions"))),
+            Arc::new(SettingsStore::new(test_path("reuse_settings"))),
+            Arc::new(NotificationStore::new(test_path("reuse_notifications"))),
+        );
+        let provider = crate::providers::MockCloudDriveProvider::new();
+        let mut sub = subscription("series", 2);
+        sub.sync_download_enabled = true;
+        let files = ["01.mkv", "lost.mkv", "ready?.mkv"].map(|name| DriveItem {
+            id: name.into(), ..video_item(name)
+        });
+        let report = service.submit_sync_downloads(&provider, &settings, &sub, &files, Some("/downloads/Season 2/"))
+            .await.unwrap();
+        assert_eq!(report.error, None);
+        assert_eq!(report.submitted_count, 2);
+        let gids: BTreeMap<_, _> = report.items.iter().map(|item| (item.fid.as_str(), item.gid.as_str())).collect();
+        assert_eq!(gids, BTreeMap::from([("01.mkv", "fresh"), ("lost.mkv", "recovered"), ("ready?.mkv", "current")]));
+        let default_dir = service.submit_sync_downloads(&provider, &settings, &sub, &files[2..], None).await.unwrap();
+        assert_eq!(default_dir.items[0].gid, "current");
+        assert_eq!(default_dir.submitted_count, 0);
+        assert!(default_dir.summary().contains("复用 1 个"));
+        assert_eq!(*adds.lock().unwrap(), BTreeMap::from([("01.mkv".into(), 2), ("lost.mkv".into(), 1)]));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn settling_a_download_does_not_clear_a_same_named_pending_episode() {
+        let store = Arc::new(SubscriptionStore::new(test_path("settle_subscriptions")));
+        store.create(subscription("series", 1)).await.unwrap();
+        let service = SubscriptionTransferService::new(
+            store.clone(), Arc::new(SettingsStore::new(test_path("settle_settings"))),
+            Arc::new(NotificationStore::new(test_path("settle_notifications"))),
+        );
+        let first = DriveItem { id: "s1-file".into(), ..video_item("01.mkv") };
+        let second = DriveItem { id: "s2-file".into(), ..video_item("01.mkv") };
+        let mut report = SyncDownloadReport { submitted_count: 0, dir: String::new(), error: None, items: vec![] };
+        service.settle_pending_downloads("sub", "/Season 1", 1, "", &[first], &report).await.unwrap();
+        report.items.push(SyncDownloadItem { fid: second.id.clone(), gid: "gid".into(), file_name: second.name.clone() });
+        service.settle_pending_downloads("sub", "/Season 2", 2, "", &[second], &report).await.unwrap();
+        let saved = store.get("sub").await.unwrap();
+        assert_eq!(saved.pending_downloads.len(), 1);
+        assert_eq!(saved.pending_downloads[0].fid, "s1-file");
     }
 
     #[tokio::test]

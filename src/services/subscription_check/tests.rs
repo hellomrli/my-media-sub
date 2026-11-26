@@ -783,17 +783,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_auto_transfer_disabled_reason_respects_switches() {
+    async fn auto_transfer_block_respects_switches() {
         let (service, _, _) = make_service();
         let mut sub = make_subscription();
 
         assert_eq!(
-            service.auto_transfer_disabled_reason(&sub, false).await,
-            Some("自动下载新订阅项未启用")
+            service.auto_transfer_block(&sub, false).await,
+            Some(TransferBlock::Disabled("自动下载新订阅项未启用"))
         );
         assert_eq!(
-            service.auto_transfer_disabled_reason(&sub, true).await,
-            Some("全局自动转存未启用")
+            service.auto_transfer_block(&sub, true).await,
+            Some(TransferBlock::Disabled("全局自动转存未启用"))
         );
 
         service
@@ -805,12 +805,12 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            service.auto_transfer_disabled_reason(&sub, false).await,
-            Some("全局自动转存未启用")
+            service.auto_transfer_block(&sub, false).await,
+            Some(TransferBlock::Disabled("全局自动转存未启用"))
         );
         assert_eq!(
-            service.auto_transfer_disabled_reason(&sub, true).await,
-            Some("全局自动转存未启用")
+            service.auto_transfer_block(&sub, true).await,
+            Some(TransferBlock::Disabled("全局自动转存未启用"))
         );
 
         service
@@ -821,7 +821,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            service.auto_transfer_disabled_reason(&sub, false).await,
+            service.auto_transfer_block(&sub, false).await,
             None
         );
 
@@ -834,18 +834,18 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            service.auto_transfer_disabled_reason(&sub, false).await,
+            service.auto_transfer_block(&sub, false).await,
             None
         );
         assert_eq!(
-            service.auto_transfer_disabled_reason(&sub, true).await,
+            service.auto_transfer_block(&sub, true).await,
             None
         );
 
         sub.notify_only = true;
         assert_eq!(
-            service.auto_transfer_disabled_reason(&sub, true).await,
-            Some("订阅设置为仅通知模式")
+            service.auto_transfer_block(&sub, true).await,
+            Some(TransferBlock::Disabled("订阅设置为仅通知模式"))
         );
     }
 
@@ -868,12 +868,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            service.auto_transfer_disabled_reason(&sub, false).await,
-            Some("维护模式已开启，暂停自动转存"),
+            service.auto_transfer_block(&sub, false).await,
+            Some(TransferBlock::Maintenance),
             "维护模式下自动转存必须被拦下"
         );
         assert_eq!(
-            service.auto_transfer_disabled_reason(&sub, true).await,
+            service.auto_transfer_block(&sub, true).await,
             None,
             "用户显式 force 转存不受维护模式限制"
         );
@@ -886,10 +886,82 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            service.auto_transfer_disabled_reason(&sub, false).await,
+            service.auto_transfer_block(&sub, false).await,
             None,
             "关闭维护模式后自动转存恢复"
         );
+    }
+
+    #[tokio::test]
+    async fn maintenance_defers_the_finale_until_it_can_be_transferred() {
+        use crate::jobs::{JobKind, JobStatus, JobStore};
+        use crate::providers::{MockCloudDriveProvider, ProviderFile, ProviderProbeResult};
+        use crate::services::{MetadataService, SubscriptionTransferService};
+
+        let (service, store, notifications) = make_service();
+        let settings = service.settings_store.clone();
+        settings.update(|value| {
+            value.job_maintenance_mode = true;
+            value.quark_save_enabled = true;
+        }).await.unwrap();
+        let mut sub = make_subscription();
+        sub.cloud_type = "mock".into();
+        sub.total_episode_number = Some(12);
+        sub.rules.notify_on_update = false;
+        store.create(sub).await.unwrap();
+        let provider = Arc::new(MockCloudDriveProvider::new());
+        provider.populate_saved_files();
+        let finale = ProviderProbeResult {
+            ok: true, state: "ok".into(), message: String::new(),
+            files: vec![ProviderFile {
+                id: "finale".into(), name: "Show.S01E12.mkv".into(), is_dir: false,
+                size: 1, parent_path: String::new(), updated_at: None,
+            }],
+        };
+        provider.set_probe_result(finale.clone());
+        let registry = Arc::new(CloudDriveProviderRegistry::new().with_provider(provider.clone()));
+        let transfer = SubscriptionTransferService::new(store.clone(), settings.clone(), notifications.clone())
+            .with_provider_registry(registry.clone());
+        let jobs = Arc::new(JobStore::new(test_path("maintenance_jobs")));
+        let queue = Arc::new(JobQueue::new(
+            jobs.clone(), settings.clone(), store.clone(), notifications,
+            Arc::new(MetadataService::new()), Arc::new(transfer),
+        ).await);
+        let service = service.with_provider_registry(registry).with_job_queue(queue.clone());
+
+        let first = service.check_subscription("sub1", "").await.unwrap();
+        assert_eq!(first.new_episodes, [12]);
+        assert!(!first.became_completed);
+        assert!(!service.check_subscription("sub1", "").await.unwrap().became_completed);
+        assert!(jobs.list().await.is_empty());
+        let paused = store.get("sub1").await.unwrap();
+        assert_eq!(paused.status, "active");
+        assert!(paused.known_episodes.contains(&12));
+        assert!(paused.transferred_files.is_empty());
+
+        settings.update(|value| value.job_maintenance_mode = false).await.unwrap();
+        provider.set_probe_result(ProviderProbeResult { files: vec![], ..finale.clone() });
+        assert!(!service.check_subscription("sub1", "").await.unwrap().became_completed);
+        assert!(jobs.list().await.is_empty());
+        provider.set_probe_result(finale);
+        let mut events = jobs.subscribe();
+        let resumed = service.check_subscription("sub1", "").await.unwrap();
+        assert!(resumed.new_files.is_empty());
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                let job = events.recv().await.unwrap();
+                if job.kind == JobKind::SubscriptionTransfer && !matches!(job.status, JobStatus::Queued | JobStatus::Running) {
+                    assert_eq!(job.status, JobStatus::Succeeded, "{}", job.message);
+                    break;
+                }
+            }
+        }).await.expect("the resumed check should transfer the previously discovered finale");
+        queue.shutdown().await;
+        assert_eq!(provider.transfer_requests().len(), 1);
+        assert_eq!(provider.transfer_requests()[0].file_ids, ["finale"]);
+        let saved = store.get("sub1").await.unwrap();
+        assert!(saved.completed);
+        assert!(saved.transferred_file_keys.contains(&"s:1:ep:12".into()));
     }
 
     #[tokio::test]

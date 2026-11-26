@@ -1,8 +1,8 @@
 /* global MediaSubPwaPolicy */
-importScripts('/js/pwa-policy.js?v=2.8.4');
+importScripts('/js/pwa-policy.js?v=2.8.5');
 
-const ASSET_VERSION = '2.8.4';
-const CACHE_VERSION = 'v2.8.4-scheduler-1';
+const ASSET_VERSION = '2.8.5';
+const CACHE_VERSION = 'v2.8.5-shell-1';
 const SHELL_CACHE = `media-sub-shell-${CACHE_VERSION}`;
 const STATIC_CACHE = `media-sub-static-${CACHE_VERSION}`;
 const CACHE_PREFIX = 'media-sub-';
@@ -74,8 +74,19 @@ function sanitizedRequest(request) {
   });
 }
 
+function isShellUrl(value) {
+  const url = new URL(value, self.location.origin);
+  return url.origin === self.location.origin && (url.pathname === '/' || url.pathname === '/index.html');
+}
+
+function canCache(request, response) {
+  return MediaSubPwaPolicy.isCacheableResponse(response) && (!isShellUrl(request.url) ||
+    (String(response.headers.get('content-type') || '').includes('text/html') &&
+      (!response.redirected || isShellUrl(response.url))));
+}
+
 async function putIfCacheable(cacheName, request, response) {
-  if (!MediaSubPwaPolicy.isCacheableResponse(response)) return;
+  if (!canCache(request, response)) return;
   const cache = await caches.open(cacheName);
   await cache.put(sanitizedRequest(request), response.clone());
 }
@@ -85,27 +96,18 @@ function isDocumentRequest(request) {
 }
 
 async function networkFirst(request) {
-  const documentRequest = isDocumentRequest(request);
-  const cacheName = documentRequest ? SHELL_CACHE : STATIC_CACHE;
+  const shell = isShellUrl(request.url);
+  const cacheName = shell || isDocumentRequest(request) ? SHELL_CACHE : STATIC_CACHE;
+  const key = shell ? new Request(`${self.location.origin}/`) : request;
   try {
     const response = await fetch(request);
     // A Basic Auth 401/403 is authoritative and must never fall back to a cached shell.
     if (response.status === 401 || response.status === 403) return response;
-    await putIfCacheable(cacheName, request, response);
-    if (MediaSubPwaPolicy.isCacheableResponse(response)) {
-      const contentType = String(response.headers.get('content-type') || '');
-      if (contentType.includes('text/html')) {
-        const cache = await caches.open(SHELL_CACHE);
-        await cache.put(new Request(`${self.location.origin}/`), response.clone());
-      }
-    }
+    await putIfCacheable(cacheName, key, response);
     return response;
   } catch (error) {
     const cache = await caches.open(cacheName);
-    const cached = await cache.match(sanitizedRequest(request))
-      || (documentRequest
-        ? await cache.match(new Request(`${self.location.origin}/`))
-        : null);
+    const cached = await cache.match(sanitizedRequest(key));
     if (cached) return cached;
     throw error;
   }
@@ -134,8 +136,8 @@ async function warmCache() {
   await Promise.allSettled(PRECACHE_ASSETS.map(async asset => {
     const request = new Request(asset, {credentials: 'same-origin'});
     const response = await fetch(request);
-    if (MediaSubPwaPolicy.isCacheableResponse(response)) {
-      const cache = asset === '/' ? shellCache : staticCache;
+    if (canCache(request, response)) {
+      const cache = asset === '/' || asset.endsWith('.html') ? shellCache : staticCache;
       await cache.put(sanitizedRequest(request), response);
     }
   }));

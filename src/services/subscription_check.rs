@@ -8,8 +8,8 @@ use crate::jobs::{JobQueue, SubscriptionTransferPayload};
 use crate::models::subscription::{CheckHistoryItem, ProbeFile, ProbeResult, Subscription};
 use crate::providers::CloudDriveProviderRegistry;
 use crate::services::episode::{
-    episode_state_key_with_context, episode_state_key_with_override, episode_video_key,
-    is_better_episode_duplicate_candidate, is_video_name, normalize_duplicate_episode_strategy,
+    episode_state_key_with_context, episode_state_key_with_override,
+    is_better_episode_duplicate_candidate, normalize_duplicate_episode_strategy,
     resolve_file_season, EpisodeDuplicateCandidate,
 };
 use crate::services::notification::{
@@ -22,11 +22,28 @@ use crate::services::subscription_progress::{
     reopen_completed_subscription_status, should_mark_completed_from_known_episodes,
     should_mark_completed_from_transferred_files, should_reopen_completed_subscription,
 };
-use crate::services::transfer_rule::transfer_state_key;
+use crate::services::transfer_rule::{
+    is_before_start_episode, transfer_rule_skip_reason, transfer_state_key,
+};
 use crate::store::{AutomationEventStore, NotificationStore, SettingsStore, SubscriptionStore};
 use crate::utils::{metrics::global_metrics, unix_now};
 
 include!("subscription_check/file_filter_methods.rs");
+
+#[derive(Debug, PartialEq, Eq)]
+enum TransferBlock {
+    Maintenance,
+    Disabled(&'static str),
+}
+
+impl TransferBlock {
+    fn reason(&self) -> &'static str {
+        match self {
+            Self::Maintenance => "维护模式已开启，暂停自动转存",
+            Self::Disabled(reason) => reason,
+        }
+    }
+}
 
 /// 订阅检查服务
 #[derive(Clone)]
@@ -511,9 +528,8 @@ impl SubscriptionCheckService {
                 .await;
         }
 
-        let auto_transfer_enabled = self
-            .auto_transfer_disabled_reason(&sub, force_transfer)
-            .await;
+        let transfer_block = self.auto_transfer_block(&sub, force_transfer).await;
+        let discovery_only = matches!(transfer_block, Some(TransferBlock::Disabled(_)));
 
         // 2. 对比文件，找出新增文件
         let new_files = self.find_new_files(&sub, &probe_result.files);
@@ -521,10 +537,10 @@ impl SubscriptionCheckService {
             .iter()
             .map(|file| crate::services::episode::file_reference(&file.name, &file.parent_path))
             .collect();
-        let transfer_file_names = if auto_transfer_enabled.is_none() {
-            self.transfer_candidate_file_names(&sub, &probe_result.files)
-        } else {
+        let transfer_file_names = if discovery_only {
             new_file_names.clone()
+        } else {
+            self.transfer_candidate_file_names(&sub, &probe_result.files)
         };
 
         // 3. 解析集数
@@ -588,14 +604,7 @@ impl SubscriptionCheckService {
         .await;
         // 同步下载订阅同样按转存/发现证据判完结：下载监视器依赖 Aria2 的易失任务历史，
         // completed_at 常年填不上，把完结权全交给它会让订阅永远停在追更中。
-        let became_completed = if sub.notify_only {
-            should_mark_completed_from_known_episodes(&sub, &primary_new_episodes)
-        } else if transfer_file_names.is_empty() || auto_transfer_enabled.is_some() {
-            // When the provider reports no new files and the known snapshot
-            // already contains the configured final episode, completion can
-            // be reconciled even if legacy transferred filenames lack a
-            // parseable SxxExx marker. 自动转存被关闭时同理：这类订阅永远等不到
-            // 转存证据，只能用已发现的集数判断完结。
+        let became_completed = if discovery_only {
             should_mark_completed_from_known_episodes(&sub, &primary_new_episodes)
         } else {
             should_mark_completed_from_transferred_files(&sub, &[])
@@ -634,8 +643,8 @@ impl SubscriptionCheckService {
 
         // 6. 自动转存：提交后台任务执行。
         if !transfer_file_names.is_empty() {
-            if let Some(reason) = auto_transfer_enabled {
-                info!("跳过订阅自动转存: {} ({})", sub.title, reason);
+            if let Some(block) = transfer_block {
+                info!("跳过订阅自动转存: {} ({})", sub.title, block.reason());
             } else if let Some(job_queue) = &self.job_queue {
                 match job_queue
                     .submit_subscription_transfer(SubscriptionTransferPayload {
@@ -664,16 +673,26 @@ impl SubscriptionCheckService {
         })
     }
 
-    async fn auto_transfer_disabled_reason(
+    async fn auto_transfer_block(
         &self,
         sub: &Subscription,
         force_transfer: bool,
-    ) -> Option<&'static str> {
+    ) -> Option<TransferBlock> {
         if sub.notify_only {
-            return Some("订阅设置为仅通知模式");
+            return Some(TransferBlock::Disabled("订阅设置为仅通知模式"));
         }
 
         let settings = self.settings_store.get().await;
+
+        if !settings.quark_save_enabled {
+            return Some(TransferBlock::Disabled(
+                if !force_transfer && !settings.auto_download_new_subscription_items {
+                    "自动下载新订阅项未启用"
+                } else {
+                    "全局自动转存未启用"
+                },
+            ));
+        }
 
         // 维护模式必须**在这里**拦住自动转存，而不只是拦住 worker 执行。
         //
@@ -685,19 +704,7 @@ impl SubscriptionCheckService {
         // `force_transfer`（用户显式点击转存）不受限制：那是即时的人工意图，
         // 与「让后台自动流水线停下来」不是一回事。
         if settings.job_maintenance_mode && !force_transfer {
-            return Some("维护模式已开启，暂停自动转存");
-        }
-
-        // 已开启全局自动转存时，定时/手动检查发现新文件应自动转存；
-        // auto_download_new_subscription_items 仅作显式开关，force 时仍可覆盖。
-        if !force_transfer
-            && !settings.auto_download_new_subscription_items
-            && !settings.quark_save_enabled
-        {
-            return Some("自动下载新订阅项未启用");
-        }
-        if !settings.quark_save_enabled {
-            return Some("全局自动转存未启用");
+            return Some(TransferBlock::Maintenance);
         }
 
         None

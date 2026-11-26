@@ -38,6 +38,53 @@ pub struct Aria2TaskList {
     pub stopped: Vec<Aria2Task>,
 }
 
+fn rpc_path(path: &str) -> std::borrow::Cow<'_, str> {
+    if path.starts_with(r"\\") || path.as_bytes().get(1) == Some(&b':') {
+        path.replace('\\', "/").into()
+    } else {
+        path.into()
+    }
+}
+
+impl Aria2TaskList {
+    fn reusable_outputs_in(self, dir: &str) -> HashMap<String, String> {
+        let mut outputs = HashMap::new();
+        if dir.is_empty() {
+            return outputs;
+        }
+        let dir = rpc_path(dir);
+        let dir = dir.trim_end_matches('/');
+        let prefix = format!("{dir}/");
+        for task in self
+            .active
+            .into_iter()
+            .chain(self.waiting)
+            .chain(self.stopped)
+        {
+            if !matches!(
+                task.status.as_str(),
+                "active" | "waiting" | "paused" | "complete"
+            ) || task.gid.trim().is_empty()
+                || task.dir.is_empty()
+                || rpc_path(&task.dir).trim_end_matches('/') != dir
+            {
+                continue;
+            }
+            let [file] = task.files.as_slice() else {
+                continue;
+            };
+            let path = rpc_path(&file.path);
+            if file.selected
+                && !file.file_name.is_empty()
+                && (path == file.file_name || path.strip_prefix(&prefix) == Some(&file.file_name))
+            {
+                outputs.entry(file.file_name.clone()).or_insert(task.gid);
+            }
+        }
+        outputs
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Aria2Version {
     pub version: String,
@@ -145,6 +192,32 @@ impl Aria2Client {
     ) -> Result<String> {
         self.add_uri_in_dir(uri, self.dir.trim(), output_name, headers)
             .await
+    }
+
+    pub(crate) fn output_name(name: &str) -> Option<String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return None;
+        }
+        let safe = crate::filename::portable_filename(name);
+        crate::filename::is_safe_filename(&safe).then_some(safe)
+    }
+
+    pub(crate) async fn reusable_outputs(&self) -> Result<HashMap<String, String>> {
+        #[derive(Deserialize)]
+        struct GlobalOptions {
+            dir: String,
+        }
+
+        let dir = match self.dir.trim() {
+            "" => {
+                self.call_rpc::<GlobalOptions>("aria2.getGlobalOption", vec![])
+                    .await?
+                    .dir
+            }
+            configured => configured.to_owned(),
+        };
+        Ok(self.list_tasks(500).await?.reusable_outputs_in(&dir))
     }
 
     async fn add_uri_in_dir(
@@ -401,16 +474,8 @@ fn build_add_uri_payload(
     if !dir.is_empty() {
         options.insert("dir".to_string(), json!(dir));
     }
-    if let Some(name) = output_name.map(str::trim).filter(|name| !name.is_empty()) {
-        // 文件名可能来自云端分享（`info.file_name` 直接来自夸克 API），
-        // 含 `/`、`..`、控制字符时会让 aria2 写到配置目录之外。这里的清洗是
-        // 最后一道防线：不再依赖 aria2 自身的 out 处理。
-        let safe = crate::filename::portable_filename(name);
-        // 清洗后仍不是有效文件名（空、`.`、`..`）时宁可不传 out，
-        // 让 aria2 用 URL 推导默认名，也不要提交一个目录占位符。
-        if crate::filename::is_safe_filename(&safe) {
-            options.insert("out".to_string(), json!(safe));
-        }
+    if let Some(name) = output_name.and_then(Aria2Client::output_name) {
+        options.insert("out".to_string(), json!(name));
     }
     if !headers.is_empty() {
         options.insert("header".to_string(), json!(headers));

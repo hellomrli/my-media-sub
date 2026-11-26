@@ -12,6 +12,10 @@ CI 对每次推送执行两套依赖审计：
 
 自 v2.7.2 起 **没有任何被忽略的公告**，两套审计都在零例外下通过。
 
+### 2026-11-27 / v2.8.5 发布复核
+
+发布审计发现 HTTP 客户端间接依赖的 `url 2.5.8` 命中 [`RUSTSEC-2026-0592`](https://rustsec.org/advisories/RUSTSEC-2026-0592)。定点更新至修复版 `2.5.9`，其依赖 `form_urlencoded` 随之更新至 `1.2.3`；其余依赖版本和审计策略不变，未添加忽略项。
+
 ### 2026-11-21 / 调度与日期依赖维护（未发布）
 
 - 刷新公告数据库后，旧锁文件命中 [`RUSTSEC-2026-0543`](https://rustsec.org/advisories/RUSTSEC-2026-0543)（`chrono`）和 [`RUSTSEC-2026-0555`](https://rustsec.org/advisories/RUSTSEC-2026-0555)（`chrono-tz`）。这两条属于停止维护公告，均无可直接升级的修复版本；依赖路径包含直接日期处理与 `tokio-cron-scheduler` / `croner`。

@@ -8,6 +8,7 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 
 use crate::error::{AppError, Result};
+use crate::instance_lock::LOCK_FILE_NAME;
 use crate::jobs::Job;
 use crate::models::{AutomationEvent, Notification, Settings, Subscription};
 use crate::store::schema::{decode_store_json, StoreKind, CURRENT_SCHEMA_VERSION};
@@ -35,6 +36,14 @@ pub struct BackupArchive {
     pub schema_version: u32,
     pub created_at: i64,
     pub files: Vec<BackupFile>,
+}
+
+impl BackupArchive {
+    fn restorable_files(&self) -> impl Iterator<Item = &BackupFile> {
+        self.files
+            .iter()
+            .filter(|file| Path::new(&file.path) != Path::new(LOCK_FILE_NAME))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -140,8 +149,7 @@ impl BackupPolicy {
 ///
 /// 独立成结构体是因为 `spawn_blocking` 要求 `'static`：它只携带
 /// `data_dir` / `backup_dir` / `policy` / `metrics` 四个可克隆字段，
-/// 不持有 `Arc<BackupService>`，也不需要 `operation_lock`
-/// （调用方仍在异步侧持有该 tokio 锁，串行语义不变）。
+/// 不持有 `Arc<BackupService>`；阻塞任务在执行期间持有操作锁。
 #[derive(Clone)]
 struct BackupFsWorker {
     data_dir: PathBuf,
@@ -151,7 +159,7 @@ struct BackupFsWorker {
 }
 
 impl BackupFsWorker {
-    /// 写入一份新备份：存储预算 → 落盘 → 隔离恢复校验 → 外拷 → 清理。
+    /// 写入一份新备份，验证成功后才轮换旧副本。
     ///
     /// 整个过程都是阻塞 IO（含读回整份归档、把每个文件写回磁盘并重算 SHA-256），
     /// 必须整体跑在阻塞线程池里。
@@ -159,29 +167,29 @@ impl BackupFsWorker {
         let unique = uuid::Uuid::new_v4().simple().to_string();
         let name = format!("backup-{}-{}-{}.json", created_at, label, &unique[..8]);
         let path = self.backup_dir.join(&name);
-        let projected = backup_storage_size(&self.backup_dir)?
-            .saturating_add(u64::try_from(bytes.len()).unwrap_or(u64::MAX));
-        if projected > self.policy.max_storage_bytes {
-            self.prune_locked(self.policy.retention.saturating_sub(1))?;
-            let projected = backup_storage_size(&self.backup_dir)?
-                .saturating_add(u64::try_from(bytes.len()).unwrap_or(u64::MAX));
-            if projected > self.policy.max_storage_bytes {
-                self.metrics.increment_backup_failure();
-                return Err(AppError::RateLimited(format!(
-                    "备份存储预算不足：上限 {} MiB",
-                    self.policy.max_storage_bytes / 1024 / 1024
-                )));
-            }
+        if bytes.len() as u64 > self.policy.max_storage_bytes {
+            self.metrics.increment_backup_failure();
+            return Err(AppError::RateLimited(format!(
+                "单份备份超过存储预算：上限 {} MiB",
+                self.policy.max_storage_bytes / 1024 / 1024
+            )));
         }
         write_file_atomic(&path, bytes, 0o600)?;
-        set_file_mode(&path, 0o600)?;
         if let Err(error) = self.verify_path_locked(&path) {
+            std::fs::remove_file(&path)?;
             self.metrics.increment_backup_failure();
             return Err(error);
         }
+        prune_backups(
+            &self.backup_dir,
+            &name,
+            self.policy.retention,
+            self.policy.max_storage_bytes,
+        )?;
         self.copy_external_locked(&name, bytes)?;
-        self.prune_locked(self.policy.retention)?;
-        self.prune_external_locked(self.policy.retention)?;
+        if let Some(external_dir) = &self.policy.external_dir {
+            prune_backups(external_dir, &name, self.policy.retention, u64::MAX)?;
+        }
         self.metrics.increment_backup_success();
         stored_backup_from_path(&path)
     }
@@ -238,7 +246,7 @@ impl BackupFsWorker {
         let verification = (|| {
             let files = decode_archive_files(&archive)?;
             let restored_files = restore_files(&verification_dir, files)?;
-            for file in &archive.files {
+            for file in archive.restorable_files() {
                 let restored =
                     std::fs::read(verification_dir.join(&file.path)).map_err(|error| {
                         AppError::Database(format!("读取隔离恢复文件失败 {}: {error}", file.path))
@@ -318,33 +326,13 @@ impl BackupFsWorker {
         set_file_mode(&path, 0o600)?;
         Ok(())
     }
-
-    fn prune_external_locked(&self, keep: usize) -> Result<()> {
-        let Some(external_dir) = &self.policy.external_dir else {
-            return Ok(());
-        };
-        for backup in list_backups(external_dir)?.into_iter().skip(keep) {
-            std::fs::remove_file(external_dir.join(backup.name))
-                .map_err(|error| AppError::Database(format!("删除外部过期备份失败: {error}")))?;
-        }
-        Ok(())
-    }
-
-    fn prune_locked(&self, keep: usize) -> Result<()> {
-        let backups = list_backups(&self.backup_dir)?;
-        for backup in backups.into_iter().skip(keep) {
-            std::fs::remove_file(self.backup_dir.join(backup.name))
-                .map_err(|error| AppError::Database(format!("删除过期备份失败: {error}")))?;
-        }
-        Ok(())
-    }
 }
 
 pub struct BackupService {
     data_dir: PathBuf,
     backup_dir: PathBuf,
     policy: BackupPolicy,
-    operation_lock: Mutex<()>,
+    operation_lock: Arc<Mutex<()>>,
     metrics: Arc<Metrics>,
 }
 
@@ -364,7 +352,7 @@ impl BackupService {
             data_dir,
             backup_dir,
             policy,
-            operation_lock: Mutex::new(()),
+            operation_lock: Arc::new(Mutex::new(())),
             metrics,
         }
     }
@@ -432,21 +420,20 @@ impl BackupService {
     }
 
     pub async fn create_stored_backup(&self, label: &str) -> Result<StoredBackup> {
-        let _guard = self.operation_lock.lock().await;
-        let archive = self.export_archive().await?;
-        let bytes = serde_json::to_vec_pretty(&archive)
-            .map_err(|error| AppError::Internal(format!("序列化备份失败: {error}")))?;
+        let guard = self.operation_lock.clone().lock_owned().await;
         let worker = self.fs_worker();
         let safe_label = sanitize_label(label);
-        let created_at = archive.created_at;
-
-        // 剩余步骤全是阻塞 IO：预算检查、写整份归档（fsync + rename + 父目录
-        // fsync）、隔离恢复校验（读回整份、逐文件写回并重算 SHA-256）、外拷与清理。
-        // 旧实现只把 `export_archive` 放进了 spawn_blocking，其余留在 tokio worker
-        // 上，而定时备份/校验循环每轮都会走到这里，大数据集下可占住运行时数十秒。
-        tokio::task::spawn_blocking(move || worker.store_archive(created_at, &safe_label, &bytes))
-            .await
-            .map_err(|error| AppError::Internal(format!("备份任务异常退出: {error}")))?
+        tokio::task::spawn_blocking(move || {
+            let _guard = guard;
+            let archive = build_archive(&worker.data_dir, worker.policy.max_archive_bytes)?;
+            worker.store_archive(
+                archive.created_at,
+                &safe_label,
+                &serde_json::to_vec_pretty(&archive)?,
+            )
+        })
+        .await
+        .map_err(|error| AppError::Internal(format!("备份任务异常退出: {error}")))?
     }
 
     pub async fn list_stored_backups(&self) -> Result<Vec<StoredBackup>> {
@@ -507,7 +494,7 @@ impl BackupService {
         )?;
         Ok(RestoreResult {
             restored_files: 0,
-            staged_files: archive.files.len(),
+            staged_files: archive.restorable_files().count(),
             snapshot: snapshot_name,
             restart_required: true,
             message: "备份已校验并暂存；请重启服务，启动时将恢复备份。重启前的后续修改会被备份覆盖"
@@ -544,10 +531,12 @@ impl BackupService {
             let files = decode_archive_files(&pending.archive)?;
             if let Err(error) = restore_files(&data_dir, files) {
                 restore_files(&data_dir, decode_archive_files(&before)?)?;
-                let original_paths: HashSet<_> =
-                    before.files.iter().map(|file| &file.path).collect();
-                for file in &pending.archive.files {
-                    if !original_paths.contains(&file.path) {
+                let original_paths: HashSet<_> = before
+                    .restorable_files()
+                    .map(|file| Path::new(&file.path))
+                    .collect();
+                for file in pending.archive.restorable_files() {
+                    if !original_paths.contains(Path::new(&file.path)) {
                         let destination = data_dir.join(&file.path);
                         if destination.is_file() {
                             reject_symlink_ancestors(&data_dir, Path::new(&file.path))?;
@@ -570,10 +559,11 @@ impl BackupService {
     }
 
     pub async fn verify_latest_stored_backup(&self) -> Result<Option<BackupVerificationReport>> {
-        let _guard = self.operation_lock.lock().await;
+        let guard = self.operation_lock.clone().lock_owned().await;
         let worker = self.fs_worker();
         // 校验会读回整份归档、把每个文件写回磁盘并重算 SHA-256，是纯阻塞工作。
         tokio::task::spawn_blocking(move || -> Result<Option<BackupVerificationReport>> {
+            let _guard = guard;
             let Some(backup) = list_backups(&worker.backup_dir)?.into_iter().next() else {
                 return Ok(None);
             };
@@ -656,6 +646,9 @@ fn collect_files(root: &Path, current: &Path, result: &mut Vec<PathBuf>) -> Resu
         let entry =
             entry.map_err(|error| AppError::Database(format!("读取目录项失败: {error}")))?;
         let path = entry.path();
+        if current == root && entry.file_name() == LOCK_FILE_NAME {
+            continue;
+        }
         let file_type = entry
             .file_type()
             .map_err(|error| AppError::Database(format!("读取文件类型失败: {error}")))?;
@@ -754,6 +747,9 @@ fn validate_archive(archive: &BackupArchive, max_bytes: u64) -> Result<BackupPre
         },
     ];
     let mut warnings = Vec::new();
+    if seen.contains(LOCK_FILE_NAME) {
+        warnings.push("旧版归档中的实例锁不会恢复".to_string());
+    }
     if !seen.contains("settings.json") {
         warnings.push("备份不包含 settings.json，将保留当前设置".to_string());
         checks.push(BackupCheck {
@@ -819,8 +815,7 @@ fn validate_store_file(path: &str, bytes: &[u8]) -> Result<Option<u32>> {
 
 fn decode_archive_files(archive: &BackupArchive) -> Result<Vec<(String, Vec<u8>)>> {
     archive
-        .files
-        .iter()
+        .restorable_files()
         .map(|file| {
             let path = safe_relative_path(Path::new(&file.path))?;
             let bytes = STANDARD
@@ -941,11 +936,24 @@ fn stored_backup_from_path(path: &Path) -> Result<StoredBackup> {
     })
 }
 
-fn backup_storage_size(backup_dir: &Path) -> Result<u64> {
-    Ok(list_backups(backup_dir)?
-        .iter()
-        .map(|backup| backup.size)
-        .sum())
+fn prune_backups(backup_dir: &Path, newest: &str, retention: usize, max_bytes: u64) -> Result<()> {
+    let backups = list_backups(backup_dir)?;
+    let mut count = backups.len();
+    let mut total = backups.iter().map(|backup| backup.size).sum::<u64>();
+    for backup in backups
+        .into_iter()
+        .rev()
+        .filter(|backup| backup.name != newest)
+    {
+        if count <= retention && total <= max_bytes {
+            break;
+        }
+        std::fs::remove_file(backup_dir.join(backup.name))
+            .map_err(|error| AppError::Database(format!("删除过期备份失败: {error}")))?;
+        count -= 1;
+        total -= backup.size;
+    }
+    Ok(())
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -1003,6 +1011,56 @@ mod tests {
         )
     }
 
+    fn legacy_lock_entry() -> BackupFile {
+        let bytes = b"old pid\n";
+        BackupFile {
+            path: LOCK_FILE_NAME.into(),
+            size: bytes.len() as u64,
+            sha256: sha256_hex(bytes),
+            content_base64: STANDARD.encode(bytes),
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn legacy_archive_restores_business_files_without_replacing_the_instance_lock() {
+        use crate::instance_lock::InstanceLock;
+        use std::os::unix::fs::MetadataExt;
+
+        let dir = temp_dir("legacy-lock");
+        let lock = InstanceLock::acquire(&dir).unwrap();
+        let inode = std::fs::metadata(lock.path()).unwrap().ino();
+        let service = service(&dir);
+        std::fs::write(dir.join("notes.txt"), "archived").unwrap();
+        let mut archive = service.export_archive().await.unwrap();
+        assert_eq!(archive.files.len(), 1);
+        assert_eq!(archive.files[0].path, "notes.txt");
+        archive.files.insert(0, legacy_lock_entry());
+        let stored = service.backup_dir.join("backup-legacy.json");
+        write_file_atomic(&stored, &serde_json::to_vec(&archive).unwrap(), 0o600).unwrap();
+        let report = service
+            .verify_latest_stored_backup()
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(report.restored_files, 1);
+        std::fs::write(dir.join("notes.txt"), "live").unwrap();
+        assert_eq!(
+            service
+                .restore(&archive, "RESTORE DATA")
+                .await
+                .unwrap()
+                .staged_files,
+            1
+        );
+        service.apply_pending_restore().await.unwrap();
+        assert_eq!(std::fs::read(dir.join("notes.txt")).unwrap(), b"archived");
+        assert_eq!(std::fs::metadata(lock.path()).unwrap().ino(), inode);
+        assert!(InstanceLock::acquire(&dir).is_err());
+        drop(lock);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[tokio::test]
     async fn archive_round_trip_previews_and_restores() {
         let dir = temp_dir("round-trip");
@@ -1042,17 +1100,23 @@ mod tests {
     async fn failed_startup_restore_rolls_back_and_keeps_the_pending_archive() {
         let dir = temp_dir("startup-failure");
         std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(LOCK_FILE_NAME), b"live pid").unwrap();
         for name in ["a.txt", "m.txt", "z.txt"] {
             std::fs::write(dir.join(name), b"archived").unwrap();
         }
         let service = service(&dir);
-        let archive = service.export_archive().await.unwrap();
+        let mut archive = service.export_archive().await.unwrap();
+        archive.files.insert(0, legacy_lock_entry());
         std::fs::write(dir.join("a.txt"), b"live").unwrap();
         std::fs::remove_file(dir.join("m.txt")).unwrap();
         std::fs::remove_file(dir.join("z.txt")).unwrap();
         std::fs::create_dir(dir.join("z.txt")).unwrap();
         service.restore(&archive, "RESTORE DATA").await.unwrap();
         assert!(service.apply_pending_restore().await.is_err());
+        assert_eq!(
+            std::fs::read(dir.join(LOCK_FILE_NAME)).unwrap(),
+            b"live pid"
+        );
         assert_eq!(std::fs::read(dir.join("a.txt")).unwrap(), b"live");
         assert!(!dir.join("m.txt").exists());
         assert!(dir.join("backups").join(PENDING_RESTORE).exists());
@@ -1156,6 +1220,60 @@ mod tests {
         assert!(external.join(backup.name).is_file());
         let _ = std::fs::remove_dir_all(dir);
         let _ = std::fs::remove_dir_all(external);
+    }
+
+    #[tokio::test]
+    async fn failed_rotation_preserves_the_last_verified_backup() {
+        let dir = temp_dir("rotation-failure");
+        std::fs::create_dir_all(&dir).unwrap();
+        let notes = dir.join("notes.txt");
+        std::fs::write(&notes, vec![b'a'; 512]).unwrap();
+        let mut service = service(&dir);
+        service.policy.retention = 1;
+        let first = service.create_stored_backup("good").await.unwrap();
+        service.policy.max_storage_bytes = first.size * 2 - 1;
+        std::fs::write(&notes, vec![b'b'; first.size as usize * 2]).unwrap();
+        assert!(matches!(
+            service.create_stored_backup("oversize").await,
+            Err(AppError::RateLimited(_))
+        ));
+        assert!(service.backup_dir.join(&first.name).is_file());
+        std::fs::write(&notes, vec![b'b'; 512]).unwrap();
+        std::fs::write(dir.join("jobs.json"), "not JSON").unwrap();
+        assert!(matches!(
+            service.create_stored_backup("invalid").await,
+            Err(AppError::Validation(_))
+        ));
+        let remaining = service.list_stored_backups().await.unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].name, first.name);
+        assert_eq!(
+            service
+                .verify_latest_stored_backup()
+                .await
+                .unwrap()
+                .unwrap()
+                .status,
+            "passed"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn rotation_keeps_the_verified_replacement_within_the_byte_budget() {
+        let dir = temp_dir("rotation-budget");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("notes.txt"), "before").unwrap();
+        let mut service = service(&dir);
+        let first = service.create_stored_backup("z").await.unwrap();
+        service.policy.max_storage_bytes = first.size * 2 - 1;
+        std::fs::write(dir.join("notes.txt"), "after!").unwrap();
+        let next = service.create_stored_backup("a").await.unwrap();
+        let remaining = service.list_stored_backups().await.unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].name, next.name);
+        assert!(next.size <= service.policy.max_storage_bytes);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[tokio::test]
