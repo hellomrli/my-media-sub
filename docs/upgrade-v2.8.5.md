@@ -16,7 +16,7 @@ curl --fail http://127.0.0.1:56001/health
 
 固定版本时使用 `ghcr.io/hellomrli/my-media-sub:2.8.5`。确认健康检查返回 `"version":"2.8.5"`，并核对原订阅、设置和待处理任务。WebUI 在线更新只替换程序和静态文件；要同时更新容器基础系统，请拉取镜像并重建。
 
-独立部署按[发布包安装步骤](deployment.md#使用-linux-x86_64-发布包)下载归档与同名 `.sha256`，校验后停服，同时替换程序和完整 `static/`。配置了 `SELF_UPDATE_PUBLIC_KEY` 的客户端要求 `.minisig`；若 Release 没有签名，使用镜像或按自己的信任策略手动升级，不要关闭强制验签。
+独立部署按[发布包安装步骤](deployment.md#使用-linux-x86_64-发布包)下载归档与同名 `.sha256`，校验后停服，同时替换程序和完整 `static/`。本次 Release 未提供 `.minisig`。配置了 `SELF_UPDATE_PUBLIC_KEY` 的客户端会拒绝无签名归档；请使用镜像或按自己的信任策略手动升级，不要关闭强制验签。
 
 ## 升级后需要注意什么
 

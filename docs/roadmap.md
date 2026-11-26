@@ -13,11 +13,11 @@
 
 ## 当前执行指针
 
-- **当前阶段**：v2.8.5 可靠性修复发布
-- **当前任务**：在同一提交上完成 CI、版本发布、云端归档与镜像核验；发布记录见下方
+- **当前阶段**：v2.8.5 已发布，等待部署反馈
+- **当前任务**：发布提交的 CI、Linux 下载包、main 与版本镜像均已核验；部署可按升级指南进行
 - **下一任务（建议）**：在真实部署中核对分季下载、固定画质补转和可用备份
 - **后续阶段**：保持单实例安全模型与 JSON 单写；未经明确需求不启动多用户、SQLite 或第二 Provider
-- **当前发布基线**：v2.8.5（承接 v2.8.4，数据和 API 契约不变；[升级指南](upgrade-v2.8.5.md)）
+- **当前发布基线**：v2.8.5（[正式 Release](https://github.com/hellomrli/my-media-sub/releases/tag/v2.8.5)；tag 指向 `ef25ac4ff6cebb42fe97936c9b99c84d80a62caa`，数据和 API 契约不变；[升级指南](upgrade-v2.8.5.md)）
 - **工作树状态**：工作分支为 `main`；以 `git status --short --branch` 为准，历史阶段交接记录保留在下方作审计
 
 > **本轮评审的完整清单与后续待办见
@@ -34,7 +34,10 @@
 - [x] 六项修复和回归已就位：备份轮换、旧归档实例锁、实际转存画质、维护后补转、Aria2 跨目录同名与 PWA 离线首页。详见 [CHANGELOG](../CHANGELOG.md) 和[升级指南](upgrade-v2.8.5.md)。
 - [x] 应用、OpenAPI、静态资源与发布文档对齐至 `2.8.5`，PWA 缓存代次为 `v2.8.5-shell-1`。备份格式和 Store schema 不变。
 - [x] 定点升级 `url 2.5.9` 及其依赖 `form_urlencoded 1.2.3`，修复 `RUSTSEC-2026-0592`。本地依赖审计四项均通过，无例外；Rust 1.89 MSRV、Clippy、753 项 Rust 测试（另 2 项按设计忽略）、209 项前端测试和静态检查通过。
-- [ ] 核验该提交的 main CI、GitHub Release、实际下载包及 GHCR 版本镜像。
+- [x] [main CI](https://github.com/hellomrli/my-media-sub/actions/runs/45868394189) 的 Rust、MSRV 和 Docker 构建 / 启动测试通过。[主线镜像](https://github.com/hellomrli/my-media-sub/actions/runs/45869416683/attempts/2) 首次运行被并发工作流取消，重跑同一提交后构建与卷升级测试通过，再推送 annotated tag。
+- [x] [Release](https://github.com/hellomrli/my-media-sub/actions/runs/45871049410) 和[版本镜像](https://github.com/hellomrli/my-media-sub/actions/runs/45871049389) 成功。GitHub latest 非草稿、非预发布；发布说明及文档链接与 tag 一致。Linux x86_64 归档为 9,473,525 字节，实测 SHA-256 `0924ab0507c2bd2d7cec13d525fefb750d1b7e8b44809ae5fb7ccf58dfd2e1e2`，与校验文件及 GitHub 资产摘要一致；本次无 `.minisig`。
+- [x] 随包 109 个静态与文档文件逐一匹配 tag；发布二进制报告 `2.8.5`，使用随包资源通过启动、Docker 入口及从真实 v1.3.0、v2.8.4 发布二进制升级的测试。
+- [x] GHCR 的 `2.8.5`、`v2.8.5`、`2.8`、`latest`、`sha-ef25ac4` 指向 `sha256:a8cd0d78785f4a6becac22062a335aa0fbaaeff0c1516ee333d9623351c137ef`。Linux amd64 配置中的版本和源码提交均已核对，`main` 镜像也是同一源码提交。
 
 ---
 
